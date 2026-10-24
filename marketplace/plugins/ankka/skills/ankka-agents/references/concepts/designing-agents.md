@@ -147,7 +147,7 @@ always use a cheaper or a stronger model sets it in each of its handlers. Typica
 cheap model for routing and classification, where the answer is a few tokens, and the strongest model
 for the answer a person reads, and the two may be different vendors in one service, or a model on the
 developer's own machine. `effort` is the lever on Claude's and OpenAI's reasoning models; sampling
-parameters such as temperature are not sent to them. In a Python, TypeScript or Rust service the choice
+parameters such as temperature are not sent to them. In a Python, TypeScript, Go or Rust service the choice
 is among the providers the sidecar was configured with, each named by the service.
 
 Some decisions need no text model at all. A decision whose answer is one of a known set — which team, how

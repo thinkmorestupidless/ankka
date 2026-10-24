@@ -233,7 +233,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
   // never from the hosting, so a process-hosted service gets the embedded one's route, field for
   // field, to the sidecar's port on the pod the two containers share.
   test("an exposed process-hosted service renders the same route as an embedded one") {
-    val exposing = settings.copy(baseDomain = Some("example.test"))
+    val exposing                      = settings.copy(baseDomain = Some("example.test"))
     def route(spec: AnkkaServiceSpec) =
       Rendering
         .render(resource(spec.copy(exposed = true)), exposing, ProvisioningPlan.Supplied)

@@ -379,9 +379,9 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
    * version it was built with.
    */
   private def buildGoImage(): Unit =
-    val sdk     = repositoryRoot.resolve("sdks/go")
-    val example = sdk.resolve("examples/shopping-cart")
-    val context = Files.createTempDirectory("go-cart")
+    val sdk                              = repositoryRoot.resolve("sdks/go")
+    val example                          = sdk.resolve("examples/shopping-cart")
+    val context                          = Files.createTempDirectory("go-cart")
     def copy(from: Path, to: Path): Unit =
       Files.createDirectories(to.getParent)
       Files.copy(from, to): Unit
@@ -1531,7 +1531,7 @@ spec:
    */
   private def goLogFields(pod: String, message: String): Map[String, String] =
     val (_, log) = kubectl("logs", "-n", Namespace, pod, "-c", s"$GoService-app")
-    val line = log.linesIterator
+    val line     = log.linesIterator
       .find(_.contains(s" $message "))
       .getOrElse(fail(s"the process never logged '$message':\n$log"))
     """(\w+)=("(?:[^"\\]|\\.)*"|\S+)""".r
@@ -1604,7 +1604,7 @@ spec:
     val (added, addBody) =
       goHttp("/carts/g1/items", Some("""{"productId":"p2","name":"Ink","quantity":1}"""))
     assertEquals(added / 100, 2, addBody)
-    val cart = "shopping-cart"
+    val cart                                                                 = "shopping-cart"
     def handled(s: com.thinkmorestupidless.ankka.operator.CollectorLog.Span) =
       s.service == GoService &&
         s.attributes.get("ankka.component").contains(cart) &&

@@ -122,7 +122,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Concepts
 
-- `references/concepts/polyglot.md` — How ankka hosts a service in Java, Kotlin, Python, TypeScript or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
+- `references/concepts/polyglot.md` — How ankka hosts a service in Java, Kotlin, Python, TypeScript, Go or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
 
 ### Build
 

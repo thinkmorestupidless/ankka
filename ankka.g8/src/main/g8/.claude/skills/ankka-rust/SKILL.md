@@ -125,7 +125,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Concepts
 
-- `references/concepts/polyglot.md` — How ankka hosts a service in Java, Kotlin, Python, TypeScript or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
+- `references/concepts/polyglot.md` — How ankka hosts a service in Java, Kotlin, Python, TypeScript, Go or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
 
 ### Build
 
@@ -136,7 +136,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Run and deploy
 
-- `references/deploy/images.md` — Package a Scala, Java, Kotlin, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
+- `references/deploy/images.md` — Package a Scala, Java, Kotlin, Python, TypeScript, Go or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 - `references/deploy/deploy-a-service.md` — Write a service descriptor, apply it with the ankka CLI, and follow the service from UpdateInProgress to Ready, including environment variables, secrets, version declarations and Python services.
 
 ### Reference

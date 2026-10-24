@@ -102,7 +102,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/deploy/run-locally.md` — Run an ankka service on your own machine against a local Postgres, configure its database and HTTP port, form a two-node cluster in two terminals, and run a Python service beside the sidecar.
 - `references/deploy/local-models.md` — Point an ankka agent at a model server on your own machine — Ollama, LM Studio, llama.cpp, Docker Model Runner — with no key, from a Scala service or a sidecar, and which models call tools.
-- `references/deploy/images.md` — Package a Scala, Java, Kotlin, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
+- `references/deploy/images.md` — Package a Scala, Java, Kotlin, Python, TypeScript, Go or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 - `references/deploy/deploy-a-service.md` — Write a service descriptor, apply it with the ankka CLI, and follow the service from UpdateInProgress to Ready, including environment variables, secrets, version declarations and Python services.
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
 - `references/deploy/custom-hostnames.md` — Add a custom hostname such as app.example.com to an exposed service, prove the project controls the name with a TXT record, point the name at the installation, read where each hostname stands, and remove one again.

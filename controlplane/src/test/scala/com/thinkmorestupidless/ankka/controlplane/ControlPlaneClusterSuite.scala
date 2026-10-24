@@ -131,6 +131,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
         d != null && Option(d.getStatus).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
       }
       applyManifest("kustomization/components/crd/ankkaservice.yaml")
+      applyManifest("kustomization/components/crd/ankkaproject.yaml")
       applyManifest("kustomization/components/controlplane/namespace.yaml")
 
       val ddl  = repoRoot.resolve("modules/runtime/src/main/resources/ankka/ddl")

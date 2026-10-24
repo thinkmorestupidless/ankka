@@ -124,7 +124,8 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
 
-      k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      for crd <- Vector("/ankka/crd/ankkaservice.yaml", "/ankka/crd/ankkaproject.yaml") do
+        k8s.load(getClass.getResourceAsStream(crd)).serverSideApply(): Unit
 
       ClusterImages.importInto(k3s, FirstImage)
       ClusterImages.importInto(k3s, SecondImage)

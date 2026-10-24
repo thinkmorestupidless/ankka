@@ -726,6 +726,11 @@ ConfigMap for nothing.
   `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
   for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a
   service rolling on upgrade, and is never accepted.
+- **A k3s suite that runs a control plane applies `ankkaproject.yaml` beside `ankkaservice.yaml`**
+  (2026-10-24), whether or not it declares a topic: `ProjectTopicsTrigger` writes every project's
+  resource, and without the type its consumer failed the same envelope for ever, `Not Found`
+  with a stack trace every few seconds (95 times in one Exposure run), and advanced past no
+  project. Twelve suites applied only the service's type until that night.
 - **A declared topic states every setting and its copies on its `KafkaTopic`** (feature 043):
   `StrimziRendering.kafkaConfig` writes the seven keys from the `AnkkaProject` entry's numbers, and
   `TopicProvisioning.decide` answers `Ready` only when the resource's `config` and `replicas` equal the
@@ -855,6 +860,12 @@ granted by a RoleBinding the control plane writes there (`bind` on `ankka-operat
   while none has completed. The control plane's own database, whose schedule is the `backups`
   component's, is retried the same way from `PlatformBackups`: its first base backup can run before the
   operator has issued its credential, and a restore with no base backup waits for ever, never failing.
+- **The operator re-allows its backup key on every pass, so a suite cannot refuse writes by denying
+  the key** (2026-10-24). `StorageCredential.ensure` re-allows the key it finds on the bucket each
+  time, which is right for a credential the store lost its permission for, and undid the backups
+  scenario's `DenyBucketKey` within its five-second resync: three nights in nine the archive kept
+  working and "failing within 5 minutes" never came. The scenario refuses writes with a bucket
+  size quota of one byte (`UpdateBucket`), which nothing of the operator's touches.
 - **A rehearsal leaves the operator's report when its cluster is removed.** The rehearsal gauge read
   the report and missed it; the projector builds the same view the status route does, from the
   entity's record, and sets every backup metric from that.

@@ -88,7 +88,8 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
         .withConfig(Config.fromKubeconfig(k3s.getKubeConfigYaml))
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
-      k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      for crd <- Vector("/ankka/crd/ankkaservice.yaml", "/ankka/crd/ankkaproject.yaml") do
+        k8s.load(getClass.getResourceAsStream(crd)).serverSideApply(): Unit
       k8s
         .load(
           java.net.URI

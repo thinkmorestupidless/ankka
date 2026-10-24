@@ -433,7 +433,8 @@ language's test kit passes environment variables to that container (`testkit.Env
 ## Testing a component that calls another service
 
 A unit test gives the component a scripted set of services, which answer as the test says and record
-every request: `ScriptedServices` in Scala, Python, TypeScript and Rust. A call to a service nothing is scripted for fails the
+every request: `ScriptedServices` in Scala, Python, TypeScript and Rust, `testkit.AnswerService` in Go,
+and a service played on loopback in Java and Kotlin. A call to a service nothing is scripted for fails the
 test, naming the service, rather than answering something nobody chose.
 
 - **Scala:** `ScriptedServices()` is a `ServiceClients`; `ConsumerTestKit` takes one as `services`. A test
@@ -445,6 +446,5 @@ test, naming the service, rather than answering something nobody chose.
   `AnkkaTestKit.start(service, Settings.defaults().withScriptedService("psp-gateway"))`, and scripts and
   reads it through `kit.service("psp-gateway")`; `withLocalService(name, address)` points a name at a
   service of the test's own. There is no unit double for a single component yet.
-- **Go:** the SDK has no scripted services; a Go component that calls another service is tested through its
-  integration test kit, with the other service's address given to the sidecar
-  [as on a developer's machine](#on-a-developers-machine).
+- **Go:** a component kit takes `testkit.AnswerService("psp-gateway", answer)`, the answer a call to that
+  service gets; a call to a service no `AnswerService` names fails as unresolvable, naming it.

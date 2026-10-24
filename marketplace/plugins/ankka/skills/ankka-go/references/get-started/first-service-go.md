@@ -115,7 +115,7 @@ func checkout(_ context.Context, cart ShoppingCart, _ ankka.Unit) (effect[Shoppi
 Five things in this file are true of every ankka component in Go:
 
 - **A struct's `json` tags are the stored format.** The codec writes `productId` exactly as tagged. A
-  Scala, Python or TypeScript service reading the same journal expects the same names, so keep them once
+  Scala, Java, Kotlin, Python, TypeScript or Rust service reading the same journal expects the same names, so keep them once
   data exists.
 - **An event is one of a closed set.** `Event` is an interface only this package's types satisfy, and
   `ankka.Cases` names each case's discriminator, which is what the journal holds beside it. Start with a

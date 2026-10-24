@@ -110,7 +110,7 @@ var Events = ankka.Cases[Event](
 | `ankka.Done` | the empty `done` payload, the reply of a handler that answers only that it finished |
 | `ankka.Unit` | the empty `unit` payload, the input of a handler that takes nothing |
 
-The encoding is exactly what the Scala, Python, TypeScript and Rust SDKs write, so one journal is
+The encoding is exactly what the Scala, Java, Kotlin, Python, TypeScript and Rust SDKs write, so one journal is
 readable from all of them; [Serialization](../build/serialization.md) has the rules. The JSON is written
 by the SDK, never by `encoding/json`, so a number never passes through a float on its way.
 

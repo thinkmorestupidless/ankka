@@ -1,9 +1,8 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, the retention terms
-under *Broker*, *Modules*, *Object storage*, *Cross-project access*, *Backups and recovery*, *Erasure*
-and *Cloud provider*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: the retention terms under *Broker*, *Modules*, *Object
+storage*, *Cross-project access*, *Backups and recovery*, *Erasure* and *Cloud provider*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -948,55 +947,62 @@ Avoid: emulator, mock
 ## Topic sources
 
 ### ankka
-*Proposed.* The platform these features describe: what a service is built on, and what runs it.
+The platform, by its name. A feature says *the platform* for what runs a service and *ankka* only
+where the name itself is meant: a release of ankka, where ankka differs from Akka, fixtures that are
+ankka's own.
 
 ### deployed service
-*Proposed.* A service running on the platform, which knows its project and its name because the
-platform tells it.
+A service the platform runs, from a descriptor a member applied: its instances form a service
+cluster, and it knows its project and its name because the platform tells it. It is not a local
+service, and a service on a local platform is deployed.
 
 ### local service
-*Proposed.* A service run on a developer's machine, outside the platform. It has no project, and a
-name only when it states one.
+A service a developer runs on their own machine as a program, on no platform, a local platform
+included. It has no project, and a name only when it states one.
 
 ### id
-*Proposed.* The name a project, a service, a view or a consumer is declared with.
+The name a project, a service or a component is declared with, and is known to the platform by.
+What one thing among many of a kind is known by has a word of its own: an entity id, an element
+id, a run id, a trace id, a message id, a correlation id, a client id.
 
 ### row
 One entry a view holds, kept under its row key and written by the view from a message,
 an event or a state it read.
 
 ### topic source
-*Proposed.* A view's or a consumer's declaration that it reads a topic, with the start position
-and the version it reads at.
+A view's or a consumer's declaration that it reads a topic, with the start position and the
+version it reads at.
 
 ### group
-*Proposed.* The name under which a topic source reads a topic. The broker delivers each message to
-one member of a group, and remembers for each group how far it has read.
+The name under which a topic source reads a topic. The broker divides the topic's partitions among
+a group's members, so each message reaches one of them, and remembers for each group how far it
+has read.
 
 Avoid: consumer group
 
 ### subscribes
-*Proposed.* Of a view or consumer: begins reading its topic under its group.
+Of a view or a consumer: begins reading its source. Of a topic, that is under its group, from its
+start position the first time.
 
 ### start position
-*Proposed.* Where a topic source begins reading the first time its group reads the topic:
-"earliest", "latest", or a time. It does not apply once the group has read anything.
+Where a topic source begins reading the first time its group reads the topic: "earliest", "latest",
+or a time. It does not apply once the group has read anything.
 
 Avoid: offset reset, initial offset
 
 ### earliest
-*Proposed.* Of a message: the oldest the broker still retains. As a start position: begin there.
+Of a message: the oldest the broker still retains. As a start position: begin there.
 
 ### latest
-*Proposed.* Of a message: the newest on the topic. As a start position: begin after it, reading
-only what is published from then on.
+Of a message: the newest on the topic. As a start position: begin after it, reading only what is
+published from then on.
 
 ### retained
-*Proposed.* Of a message: still held by the broker. A broker retains messages for a bounded span
-and then drops them, so a topic is not a complete record.
+Of a message: still held by the broker, within its topic's retention time and retention size. What
+the broker no longer retains is gone, and a topic is not a complete record.
 
 ### recorded version
-*Proposed.* The version a view's rows were last built at, as the service has stored it.
+The version a view's rows were last built at, as the service has stored it.
 
 ### rebuild
 Emptying a view and reading every one of its sources again, when the view is declared
@@ -1007,41 +1013,49 @@ only as far as the broker retains; an entity keeps everything it recorded.
 Avoid: replay, rewind
 
 ### emptied
-*Proposed.* Of a view: every row removed at once, at the start of a rebuild.
+Of a view: every row removed at once, at the start of a rebuild.
 
 Avoid: truncated, cleared
 
 ### behind
-*Proposed.* Of a view on one instance: declared at a lower version than its recorded version. A
-view that is behind reads nothing and writes nothing, and is never rebuilt downward.
+Of a view on one instance: declared at a lower version than its recorded version. A view that is
+behind reads nothing and writes nothing, and is never rebuilt downward.
 
 ### registers
-*Proposed.* A service hands a component to ankka at startup. A component ankka refuses is refused
-there, before the service takes any request.
+Of a service: hands a component to the platform as it starts. A component the platform refuses is
+refused there, before the service takes any request; nothing is found by looking.
 
 ### registration
-*Proposed.* The act of a service registering a component.
+The act of a service registering a component, which the platform accepts or refuses.
 
 ### rolling update
-*Proposed.* Replacing a service's instances one at a time, so that old and new instances run
-beside each other until the last old one stops.
+Replacing a deployed service's instances one at a time: a new instance joins the service cluster
+and is ready before an old one stops, so old and new run beside each other until the last old one
+has gone. Every apply, restart and roll back is one.
+
+Avoid: redeploy
 
 ### rolled back
-*Proposed.* Of a service: deployed again as an earlier build, after a later one.
+Of a deployed service: at a generation that a roll back recorded, running an earlier descriptor's
+build after a later one.
 
 ### log
-*Proposed.* The lines a running service writes about what it is doing, read by whoever operates
-it.
+The lines a running service writes about what it is doing, read by whoever operates it: an
+instance's are what it printed, and a service's logs are its instances' together. A record another
+thing keeps is named for it: an erasure log, an access log.
 
 ### metrics
-*Proposed.* The numbers a running service publishes about itself for a monitoring system to read.
+The metrics a running service publishes, read together as one document by a monitoring system:
+each handler's runs and their duration, and each topic source's standing.
 
 ### release
-*Proposed.* One published version of ankka. A service is built on one release and may run on a
-platform at a later one.
+One published version of ankka: its images under one tag, and its libraries at that version in
+each package registry. A service is built on one release's libraries and may run on an
+installation at a later one.
 
 ### limitations
-*Proposed.* The part of the documentation that lists what ankka does not do.
+The page of the documentation that lists what ankka does not do, area by area. A feature that
+says what is not done points its reader there.
 
 ## Reconciliation and service clusters
 
@@ -3095,7 +3109,7 @@ destroys, differently, entries, equal, fast, filed, filled, final, fulfil, fulfi
 future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, newer,
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
-registers, rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
+rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
 withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years, Java, Kotlin, JDK, null, nullable, data, classes, record, merging, rename, renames, scenario, suspending, median, tenth, measures, like
 
 ### project token

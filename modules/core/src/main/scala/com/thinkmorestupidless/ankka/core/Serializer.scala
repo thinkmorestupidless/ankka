@@ -66,6 +66,23 @@ object Codecs:
         .withTransientNone(false)
     )
 
+  /**
+   * `make`, but a field the type does not declare is refused rather than skipped, for a document a
+   * person writes and the platform applies: a field dropped in silence is a typo nobody is told of,
+   * or a field a newer release knows and this one does not. Everything else keeps `make`, so a
+   * message or a journal written by a newer release still reads.
+   */
+  inline def strict[A]: JsonValueCodec[A] =
+    JsonCodecMaker.make[A](
+      CodecMakerConfig
+        .withDiscriminatorFieldName(Some("type"))
+        .withAllowRecursiveTypes(true)
+        .withRequireDiscriminatorFirst(false)
+        .withTransientEmpty(false)
+        .withTransientNone(false)
+        .withSkipUnexpectedFields(false)
+    )
+
   /** `Codecs.make` plus a `Serializer` under `manifest`, the usual one-liner. */
   inline def serializer[A](manifest: String): Serializer[A] =
     Serializer.json[A](manifest)(using make[A])

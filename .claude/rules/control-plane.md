@@ -160,6 +160,17 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
   exit handlers. The handler is never restored, so an in-process test leaves its JVM ignoring SIGINT;
   `PluginSuite`'s ctrl-c case runs the CLI as a process and signals its pid only, never the group,
   which holds the test JVM too.
+- **A descriptor is read strictly only where it is applied** (2026-10-24, issue #69). `Wire.strictDescriptorCodec`
+  (`Codecs.strict`, jsoniter's `skipUnexpectedFields = false`) is used by the CLI's `apply -f`, the MCP
+  tool and the control plane's `PUT /services/{project}/{name}` body, and the refusal names the field
+  (`Wire.descriptorProblem`). The `given` wire codec and the journal's serializer stay lenient on
+  purpose: a status or a journal written by a newer release carries fields an older reader does not
+  know, and a strict `given` would reach every nested read through implicit scope. The reverse bites
+  too: derived *inside* `Wire`, the strict codec took the lenient `given specCodec` for the nested
+  `service` and skipped a field under it, which is why `StrictDescriptor` sits outside `Wire`. Before
+  this, a field the platform did not know (`sidecarImage`, a misspelt `instanceType`) was dropped in
+  silence and the service ran with the default, which specs 009 (FR-016) and 016 (US4) had said must be
+  refused.
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.

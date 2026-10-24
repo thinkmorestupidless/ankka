@@ -44,6 +44,12 @@ Feature: Deploying a service written in another language
       | Rust       |
       | Go         |
 
+  Scenario: a descriptor that names an image for the platform's own program is refused
+    Given a descriptor for the service "shop" written in "Python" that names an image for the platform's own program
+    When a member applies the descriptor
+    Then the member is refused
+    And the refusal names what the platform does not know
+
   Scenario Outline: a service written in another language scales into one cluster without replacing an instance
     Given a service "shop" written in "<language>" deployed with 1 instance
     When a member scales "shop" to 3 instances

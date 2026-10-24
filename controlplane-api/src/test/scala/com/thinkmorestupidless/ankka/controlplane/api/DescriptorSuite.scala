@@ -1,6 +1,10 @@
 package com.thinkmorestupidless.ankka.controlplane.api
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  readFromString,
+  writeToString,
+  JsonReaderException
+}
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
 /** Descriptor validation and the wire format. */
@@ -21,6 +25,40 @@ class DescriptorSuite extends munit.FunSuite:
     assert(ServiceDescriptor("1cart", ServiceSpec("i:1")).problems.exists(_.contains("invalid")))
     assert(ServiceDescriptor("my_cart", ServiceSpec("i:1")).problems.exists(_.contains("invalid")))
     assert(ServiceDescriptor("my-cart-2", ServiceSpec("i:1")).isValid)
+  }
+
+  test("a descriptor that names an image for the platform's own program is refused") {
+    // features/polyglot/deploying.feature: the platform's own program is the installation's choice,
+    // and a descriptor that tries to name its image is refused with the field named, rather than
+    // the field being dropped in silence and the service running as if it had not been written.
+    val text =
+      """{"name":"cart","service":{"image":"cart:1.0","sidecarImage":"evil:latest"}}"""
+    val refusal =
+      intercept[JsonReaderException](readFromString(text)(using Wire.strictDescriptorCodec))
+    val problem = Wire.descriptorProblem(refusal)
+    assert(problem.contains("\"sidecarImage\""), problem)
+    assert(problem.contains("does not know"), problem)
+    // Read back from a control plane or a journal, the same text still reads: a newer release's
+    // descriptor must not break an older reader.
+    assertEquals(readFromString[ServiceDescriptor](text).service.image, "cart:1.0")
+  }
+
+  test("a field the platform does not know is refused at every level of the descriptor") {
+    val texts = Seq(
+      """{"name":"cart","instanceSize":"small","service":{"image":"cart:1.0"}}""" -> "instanceSize",
+      """{"name":"cart","service":{"image":"cart:1.0","env":[{"name":"A","value":"1","secret":"s"}]}}""" -> "secret",
+      """{"name":"cart","service":{"image":"cart:1.0","resources":{"instanceSize":"small"}}}""" -> "instanceSize"
+    )
+    for (text, field) <- texts do
+      val refusal =
+        intercept[JsonReaderException](readFromString(text)(using Wire.strictDescriptorCodec))
+      assert(
+        Wire.descriptorProblem(refusal).contains(s"\"$field\""),
+        Wire.descriptorProblem(refusal)
+      )
+    // And a well-formed one reads the same through both codecs.
+    val whole = writeToString(valid)
+    assertEquals(readFromString(whole)(using Wire.strictDescriptorCodec), valid)
   }
 
   test("an image is required") {

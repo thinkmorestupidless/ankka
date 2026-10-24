@@ -91,3 +91,7 @@ appenders.
   fields are set. A map that names a `val` of the subclass sees it `null` there, and the suite fails
   at construction on every runner (`StorageClientClusterFeatures`, the first cluster run of feature
   055). Fields those maps read are `lazy val`s.
+- **`-Dankka.features.only=<selectors>` holds a `GherkinSuite` to some of its scenarios**: a feature
+  file by the end of its path, or a scenario by `<file>:<line>` as its test name shows it. The cluster
+  workflow shards the longest suites with it (`.github/cluster-suites.py`'s `SHARDS`); a selection
+  that names nothing fails the suite. It is forwarded to the forked JVM like every test switch.

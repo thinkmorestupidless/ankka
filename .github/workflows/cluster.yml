@@ -14,7 +14,9 @@
 # images that suite's module deploys (the build hooks both `test` and `testOnly`) — natively, on the
 # leg's own architecture, so nothing here is emulated; the sidecar suite builds its Python, Go and
 # module images itself (the Go image entirely inside Docker, so the runner needs no Go), and needs
-# cargo or its module cases skip.
+# cargo or its module cases skip. The longest Gherkin suites run as several jobs, a shard of their
+# scenarios each (the script's `SHARDS`, through `-Dankka.features.only`), since the run is as long
+# as its slowest job.
 name: cluster
 on:
   schedule:
@@ -50,7 +52,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.suites.outputs.matrix) }}
-    name: ${{ matrix.suite }} (${{ matrix.arch }})
+    name: ${{ matrix.name }} (${{ matrix.arch }})
     steps:
       - uses: actions/checkout@v7
         with:
@@ -82,6 +84,7 @@ jobs:
       - run: >-
           sbt -Dankka.template.tests=off
           -Dankka.coldstarts=${{ github.event_name == 'schedule' && '20' || inputs.coldstarts || '5' }}
+          ${{ matrix.only && format('-Dankka.features.only={0}', matrix.only) || '' }}
           'set ${{ matrix.project }} / Test / logBuffered := false'
           '${{ matrix.project }}/testOnly ${{ matrix.class }}'
       - name: Summarise the runner's resources
@@ -90,12 +93,12 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: resources-${{ matrix.suite }}-${{ matrix.arch }}
+          name: resources-${{ matrix.slug }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/samples/
           if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: test-reports-${{ matrix.suite }}-${{ matrix.arch }}
+          name: test-reports-${{ matrix.slug }}-${{ matrix.arch }}
           path: '*/target/test-reports/*${{ matrix.suite }}.xml'
           if-no-files-found: warn

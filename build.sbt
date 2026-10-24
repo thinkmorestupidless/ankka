@@ -178,6 +178,9 @@ lazy val commonSettings = Seq(
     // MultiNodeClusterSuite's cold-start rounds: five by default, twenty in the nightly run. It was
     // read by the suite and never forwarded, so `-Dankka.coldstarts=3` ran twenty all the same.
     "ankka.coldstarts",
+    // The scenarios a GherkinSuite run is held to: how the cluster workflow runs a long suite as
+    // several jobs (`.github/cluster-suites.py`).
+    "ankka.features.only",
     // Feature 041's k3s suites stop at their first failing scenario unless this is `on`.
     "ankka.backups.keep-going",
     // Throwaway spikes that answer a design question against a real database (feature 013's

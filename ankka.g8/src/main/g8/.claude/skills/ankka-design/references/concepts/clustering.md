@@ -108,7 +108,10 @@ change of image or configuration. See [Scale and roll out](../deploy/scaling-and
 ## Failures and partitions
 
 When an instance crashes, the others notice, remove it from the cluster, and take over its entities,
-which rebuild from their journals. Kubernetes starts a replacement, which joins as a new member.
+which rebuild from their journals. Kubernetes starts a replacement, which joins as a new member. The
+takeover is not instant: the survivors wait about twenty seconds of silence before they remove the
+crashed member, so an entity it held answers again within about a minute of the crash, and a request
+for it in the meantime waits and may time out.
 
 When the network splits the cluster into parts that cannot see each other, only one part may carry on,
 or two parts would both believe they own the same entities. ankka resolves a split by majority: the side

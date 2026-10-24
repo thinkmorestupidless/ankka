@@ -779,6 +779,18 @@ ConfigMap for nothing.
   API server answers `EOF`. Check `docker exec ankka-control-plane df -h /` first; `docker builder
   prune` cannot run on a disk with no room for its own metadata, so truncate the node's pod logs to
   make some. (2026-10-20)
+- **A reconcile pass that trails a service's deletion writes its cloud requests again.**
+  `ServiceReconciler.reconcile` reads the owner once, decides, then server-side-applies the
+  `CloudResource`s with an owner reference to the uid it read; a provider's status answer wakes the
+  owner, so a pass always trails the last answer. A `services delete` inside that window lets the
+  garbage collector remove the requests and the trailing pass recreate them with the old uid, which
+  the collector removes again; a delete-and-reapply can instead see the new request's owner reference
+  overwritten with the old uid. The provider meets a fresh request with no status, offers a credential,
+  finds the Secret there, and ends the offer with `why = "conflict"`. Harmless and self-healing, but
+  `CloudProviderClusterFeatures` asserted exact counts (one offered, none ended) and failed a different
+  scenario each night (issue #162); the suite now reads a conflict ending as what it is, not as a
+  removal. Re-reading the owner before writing children shrinks the window without closing it.
+  (2026-10-24)
 
 ## Backups and recovery (feature 041)
 

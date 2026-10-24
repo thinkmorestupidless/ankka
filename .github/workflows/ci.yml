@@ -474,13 +474,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
-      # Reporting only, for now. Specs 025 onwards keep their scenarios in the spec, so every run
-      # finds them. Remove `continue-on-error` once those scenarios live in `features/`.
-      - id: check
-        run: .github/features-check.sh
-        continue-on-error: true
-      - if: steps.check.outcome == 'failure'
-        run: echo "::warning title=features::the features check found problems (see the check step); it reports without failing until every spec's scenarios live in features/"
+      - run: .github/features-check.sh
 
   docs:
     needs: changes

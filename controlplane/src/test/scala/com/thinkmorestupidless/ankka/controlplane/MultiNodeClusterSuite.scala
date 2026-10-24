@@ -542,9 +542,16 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
     // How long the carts took to answer is printed whether or not they did in time, and a
     // failure prints every pod's log, the killed container's last run included, and who each pod
     // thinks is in the cluster: a pass or fail alone says nothing about where the time went.
+    //
+    // The budget is twice what a normal recovery takes (issue #109). The survivors wait Pekko's
+    // default `stable-after` of 20 s before the split-brain resolver downs the dead member, then
+    // its shards move and each cart replays its journal; meanwhile a request for a cart on the dead
+    // node waits the 10 s ask timeout, and one round over ten carts can spend most of a minute on
+    // those. Measured: 2 s when the victim held no cart, 37-39 s when it did. Shortening failover
+    // would change every deployed service's `stable-after`, a platform decision, not this case's.
     val killedAt = System.nanoTime()
     try
-      waitForValue(60.seconds, "every cart answers with its state")(
+      waitForValue(120.seconds, "every cart answers with its state")(
         (2 to 11).map(i => i -> nodeHttp(s"/carts/c$i")._2).filterNot(_._2.contains("Widget"))
       )(_.isEmpty)
       println(

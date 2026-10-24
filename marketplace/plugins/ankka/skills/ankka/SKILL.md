@@ -1,13 +1,13 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python and TypeScript via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Python, TypeScript and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-typescript, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python and TypeScript via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
 ---
 
 # ankka
 
 ankka hosts services built from a fixed set of components. The developer writes the components; the
 runtime supplies sharding, persistence, replay, projections, durable orchestration, timers, HTTP and the
-agent loop. A service is written in Scala (compiled into one JVM with the runtime), in Python or TypeScript (a
+agent loop. A service is written in Scala, Java or Kotlin (compiled into one JVM with the runtime), in Python or TypeScript (a
 process beside a runtime sidecar), or in Rust (a WebAssembly module the runtime loads), and is deployed to a Kubernetes-based platform with the `ankka` CLI.
 
 ## Rules that hold everywhere
@@ -16,8 +16,8 @@ process beside a runtime sidecar), or in Rust (a WebAssembly module the runtime 
    these events then reply, update this state, transition to this step — and returns it. Never do I/O,
    read a database or call a model inside an entity handler. Calls to other components go through the
    component client, from endpoints, workflow steps, consumers, timed actions and agent tools.
-2. **Wire names are protocol.** `command("add-item")(_.addItem)` in Scala, `@command("add-item")` in Python and
-   `command("add-item", ...)` in TypeScript declare the name the platform stores and routes by. Rename the method freely; never change a
+2. **Wire names are protocol.** `command("add-item")(_.addItem)` in Scala, `@Command("add-item")` on a Java or
+   Kotlin method, `@command("add-item")` in Python and `command("add-item", ...)` in TypeScript declare the name the platform stores and routes by. Rename the method freely; never change a
    wire name of a deployed service without treating it as a breaking change, because persisted timers
    and in-flight calls address it.
 3. **A query cannot persist.** Declare read-only handlers with `query`/`@query`; they must return a
@@ -50,6 +50,8 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | A durable multi-step process, compensation, deadlines and timers, waiting for a workflow's end | `ankka-workflows` |
 | An agent, its tools, guardrails, session memory, model, streaming, or several agents together | `ankka-agents` |
 | An HTTP endpoint, its routes, ACL, errors and server-sent events | `ankka-endpoints` |
+| A service in Java, built with Maven, in the runtime's JVM | `ankka-java` |
+| A service in Kotlin, built with Gradle, over the Java SDK | `ankka-kotlin` |
 | A service in Python beside the sidecar | `ankka-python` |
 | A service in TypeScript on Node.js beside the sidecar | `ankka-typescript` |
 | A service in Rust, built to a WebAssembly module the runtime loads | `ankka-rust` |
@@ -62,8 +64,9 @@ Read the reference file for the task before writing code — the samples in them
 ankka build compiles and tests, so their imports and signatures are current. For a new project, start
 from the template with `ankka init` (`references/get-started/first-service-scala.md`), never from an
 empty build. For the shape of every component's base class, companion and effect builders in one place,
-`references/reference/scala-sdk.md`, `references/reference/python-sdk.md` or
-`references/reference/typescript-sdk.md`. When a capability seems
+`references/reference/scala-sdk.md`, `references/reference/java-sdk.md`,
+`references/reference/kotlin-sdk.md`, `references/reference/python-sdk.md`,
+`references/reference/typescript-sdk.md` or `references/reference/rust-sdk.md`. When a capability seems
 missing, check `references/reference/limitations.md` before building around it, and when a habit from
 Akka does not fit, `references/reference/akka-divergences.md` says what ankka does instead.
 
@@ -77,8 +80,10 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Get started
 
-- `references/get-started/install.md` — Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Python, TypeScript and Rust SDKs available to your projects.
+- `references/get-started/install.md` — Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Java, Kotlin, Python, TypeScript and Rust SDKs available to your projects.
 - `references/get-started/first-service-scala.md` — Create a Scala service from the ankka template, test it, run it against a local Postgres, watch it in the local console, and change its domain.
+- `references/get-started/first-service-java.md` — Create a Java service from ankka's template, read its event sourced entity and HTTP endpoint, run it against a local Postgres, test it with and without a database, and watch it in the local console.
+- `references/get-started/first-service-kotlin.md` — Create a Kotlin service from ankka's template, read its event sourced entity, view and HTTP endpoint, run it against a local Postgres, test it with and without a database, and watch it in the local console.
 - `references/get-started/first-service-python.md` — Write a Python service with an event sourced entity and an HTTP endpoint, run it beside the ankka sidecar, test it with and without the sidecar, and watch it in the local console.
 - `references/get-started/first-service-typescript.md` — Write a TypeScript service on Node.js with an event sourced entity and an HTTP endpoint, run it from source beside the ankka sidecar, test it with and without the sidecar, and watch it in the local console.
 - `references/get-started/first-service-rust.md` — Write a Rust service with an event sourced entity and an HTTP endpoint, build it to a WebAssembly module, run it in the ankka runtime, test it with and without the runtime, and watch it in the local console.
@@ -94,6 +99,8 @@ Open the one a task needs; each is one topic and stands alone.
 ### Reference
 
 - `references/reference/scala-sdk.md` — A compact map of the Scala SDK — the artifacts, and for every component kind its base class, companion, handler declarations, effect builders and in-handler accessors.
+- `references/reference/java-sdk.md` — A compact map of the Java SDK — installing it, the codec, method references and wire names, modules, serializers, and for every component kind its base class, annotations, effects and test kit.
+- `references/reference/kotlin-sdk.md` — A compact map of the Kotlin SDK — installing it, data classes in the codec, nullability, suspending handlers, effect blocks, and for every component kind its base class, effects and test kit.
 - `references/reference/python-sdk.md` — A compact map of the Python SDK — installing it, and for every component kind its base class, class attributes, decorators, effect builders and testkit — plus the SDK's own development commands.
 - `references/reference/typescript-sdk.md` — A compact map of the TypeScript SDK — installing it, the shapes and codecs, and for every component kind its base class, statics, declaration functions, effect builders and testkit — plus the SDK's own development commands.
 - `references/reference/rust-sdk.md` — A compact map of the Rust crate — installing it, the codec and time types, and for every component kind its trait, declarations, effect builders and testkit — plus the guest shapes, running a module and the crate's own commands.

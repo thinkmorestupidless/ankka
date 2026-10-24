@@ -13,6 +13,7 @@ will recognise every component. The differences below are deliberate, and each h
 |---|---|---|
 | `@Component` and classpath scanning | explicit `register(...)` | A missing component fails at startup, not at its first request. |
 | `Entity::method` lambda inspection | typed handles declared on a companion | No reflection; the compiler checks every call site. |
+| A Java handler identified by its method's name | in the Java SDK, `@Command("add-item")` whose string is the wire name, called by method reference | Akka's annotated shape for Java developers, with renaming a method still changing nothing on the wire. |
 | `@FunctionTool` and reflection | the `FunctionTool` builder | A tool's schema and its argument decoder come from one instance and cannot disagree. |
 | A bespoke SQL-like view query language | real SQL over a JSON row column | Nothing to learn or parse, strictly more expressive, and indexes are explicit. |
 | `QueryStreamEffect` and `@Query(streamUpdates = true)` | a row stream, and a watch of a query declared watchable, with a caught-up marker and removals | A page knows when it has the whole listing and which rows left it, and a statement a watch cannot decide per row is refused at start. |
@@ -69,6 +70,47 @@ val getCart = query("get-cart")(_.getCart)
 The wire name is what callers, persisted timers and in-flight requests address, so renaming the Scala method
 changes nothing on the wire. `query` accepts only a read-only effect, which makes "this handler cannot
 persist" a compiler guarantee. See [Handlers and wire names](../concepts/wire-names.md).
+
+## The Java SDK adopts Akka's annotated handlers
+
+The Scala SDK declares handlers on a companion. The Java SDK, and the Kotlin SDK over it, take the shape a
+Java developer who knows Akka expects: a component is a class extending `EventSourcedEntity`, `Workflow`,
+`View` and the rest, and each handler is an annotated method, read once when the service starts.
+
+```java
+@ComponentId("shopping-cart")
+public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
+
+  @Command("add-item")
+  public Effect<Done> addItem(LineItem item) { ... }
+
+  @Query("get-cart")
+  public ReadOnlyEffect<Cart> getCart() { ... }
+}
+```
+
+What it keeps from ankka's model, and why:
+
+- **The annotation's string is the wire name.** Akka's Java SDK names a handler by its method. Here
+  `@Command("add-item")` is what callers, persisted timers and in-flight requests address, so renaming the
+  Java method changes nothing on the wire, as in Scala.
+- **Call sites are method references resolved through the service's registry.**
+  `componentClient.forEventSourcedEntity(id).call(ShoppingCart::addItem).invoke(item)` names the method;
+  the SDK resolves the reference to the method's annotation, and so to its wire name, once. A lambda that is
+  not a method reference is refused. Because a method reference is a constant of the class that writes it,
+  a call to a component the service never registered is refused when the service starts, not at its first
+  request.
+- **Registration stays explicit.** `@ComponentId` names a component; it does not find one. A service is
+  the classes handed to `Ankka.service(...).register(...)`, and nothing on the classpath is scanned.
+- **A query cannot persist.** A `@Query` method must return a `ReadOnlyEffect`; one returning an `Effect` is
+  refused when the service starts, with every other declaration problem listed beside it.
+- **Every endpoint states its ACL** by overriding `acl()`, which returns a value built from `Acl`
+  (`Acl.allowAll()`, `Acl.allowCallers("orders")`, `Acl.authenticate(...)`); there is no `@Acl` annotation
+  and no enum of principals, and an endpoint that does not override it does not compile.
+- **Views are queried with SQL.** A view declares its queries as `ViewQuery` fields holding SQL over the
+  view's table, checked when the service starts, as a Scala view's are.
+
+See [Java SDK](java-sdk.md) and [Kotlin SDK](kotlin-sdk.md).
 
 ## Tools are built, not annotated
 

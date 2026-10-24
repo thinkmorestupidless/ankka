@@ -1,5 +1,5 @@
 Feature: Entities in every language
-  A service's entities may be written in Scala, Python, TypeScript or Rust. Whatever the language,
+  A service's entities may be written in Scala, Java, Kotlin, Python, TypeScript or Rust. Whatever the language,
   the developer's code decides what each command does and how each event changes the state, and the
   platform's own program records the events, keeps the snapshots and recovers the state. An event
   is recorded the same way in every language, so a service written in one language recovers what a
@@ -30,6 +30,8 @@ Feature: Entities in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a handler that fails records nothing and the service goes on serving
     Given a service "shop" written in "<language>" whose entity "cart" has recorded the item "socks" for the cart "c1"
@@ -46,6 +48,8 @@ Feature: Entities in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a restarted entity is recovered through the developer's code before its next command
     Given a service "shop" written in "<language>" whose cart "c1" has recorded 3 items
@@ -60,6 +64,8 @@ Feature: Entities in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a snapshot is the developer's code's own, and recovery reads only the events after it
     Given a service "shop" written in "<language>" whose entity "cart" takes a snapshot every 2 events
@@ -74,6 +80,8 @@ Feature: Entities in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a service written in one language recovers what a service written in another recorded
     Given a service "shop" written in "<written>" whose cart "c1" has recorded 3 items
@@ -89,6 +97,11 @@ Feature: Entities in every language
       | TypeScript | Scala      |
       | Scala      | Rust       |
       | Rust       | Scala      |
+      | Scala      | Java       |
+      | Java       | Scala      |
+      | Java       | Kotlin     |
+      | Scala      | Kotlin     |
+      | Kotlin     | Scala      |
 
   Scenario Outline: a query that would record an event is refused before the service is built
     Given a service written in "<language>"
@@ -101,3 +114,5 @@ Feature: Entities in every language
       | Scala      |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

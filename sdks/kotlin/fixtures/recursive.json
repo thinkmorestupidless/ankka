@@ -1,0 +1,6 @@
+{
+  "manifest": "tree",
+  "content_type": "application/json",
+  "bytes_base64": "eyJsYWJlbCI6InJvb3QiLCJjaGlsZHJlbiI6W3sibGFiZWwiOiJsZWFmIiwiY2hpbGRyZW4iOltdfV19",
+  "value": {"label":"root","children":[{"label":"leaf","children":[]}]}
+}

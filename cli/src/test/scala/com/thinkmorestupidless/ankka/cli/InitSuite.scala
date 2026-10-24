@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.cli
 
+import scala.jdk.CollectionConverters.*
 import java.nio.file.Files
 
 /** What `ankka init` decides before it starts a process. */
@@ -63,16 +64,89 @@ class InitSuite extends munit.FunSuite:
     assert(!Init.sbtOnPath(Map("PATH" -> Files.createTempDirectory("nopath").toString)))
   }
 
-  test("a language is scala, python, typescript, rust or web, with short forms, and nothing else") {
+  test("a language is scala, java, kotlin, python, typescript, rust or web, and nothing else") {
     assertEquals(Language.parse("Python"), Right(Language.Python))
     assertEquals(Language.parse("ts"), Right(Language.TypeScript))
     assertEquals(Language.parse("scala"), Right(Language.Scala))
     assertEquals(Language.parse("Rust"), Right(Language.Rust))
     assertEquals(Language.parse("rs"), Right(Language.Rust))
     assertEquals(Language.parse("web"), Right(Language.Web))
+    assertEquals(Language.parse("Java"), Right(Language.Java))
+    assertEquals(Language.parse("kotlin"), Right(Language.Kotlin))
+    assertEquals(Language.parse("kt"), Right(Language.Kotlin))
     assert(
-      Language.parse("go").left.exists(_.contains("one of scala, python, typescript, rust, web"))
+      Language
+        .parse("go")
+        .left
+        .exists(_.contains("one of scala, java, kotlin, python, typescript, rust, web"))
     )
+  }
+
+  test(
+    "a java or kotlin package defaults from the name and is refused when javac could not use it"
+  ) {
+    val dir = Files.createTempDirectory("init")
+    def request(language: Language, pkg: Option[String] = None, name: String = "order-service") =
+      Init.Request(name, pkg = pkg, directory = dir, language = language)
+    for language <- Seq(Language.Java, Language.Kotlin) do
+      assertEquals(Scaffold.jvmPackage(request(language)), "com.example.orderservice")
+      assertEquals(Init.problems(request(language)), Vector.empty)
+      assertEquals(Init.problems(request(language, Some("org.acme.shop"))), Vector.empty)
+      assert(
+        Init.problems(request(language, Some("org.1acme"))).exists(_.contains("is invalid")),
+        language
+      )
+      assert(
+        Init.problems(request(language, Some("org..acme"))).exists(_.contains("is invalid")),
+        language
+      )
+      assert(
+        Init.problems(request(language, Some("org.class.x"))).exists(_.contains("'class'")),
+        language
+      )
+      assert(
+        Init
+          .problems(request(language).copy(template = Some("x/y.g8")))
+          .exists(_.contains("--template")),
+        language
+      )
+    // `fun` is Kotlin's keyword and not Java's.
+    assertEquals(Init.problems(request(Language.Java, Some("acme.fun"))), Vector.empty)
+    assert(Init.problems(request(Language.Kotlin, Some("acme.fun"))).exists(_.contains("'fun'")))
+  }
+
+  test("a java project lands in its package, with an executable wrapper and no token left") {
+    val dir     = Files.createTempDirectory("init-java")
+    val request =
+      Init.Request("shop", pkg = Some("org.acme.shop"), directory = dir, language = Language.Java)
+    assertEquals(Init.problems(request), Vector.empty)
+    val target = Scaffold.render(request, "9.9.9")
+    val main   = target.resolve("src/main/java/org/acme/shop/Main.java")
+    assert(Files.exists(main), main.toString)
+    assert(Files.readString(main).startsWith("package org.acme.shop;"))
+    assert(Files.readString(target.resolve("pom.xml")).contains("<groupId>org.acme.shop</groupId>"))
+    assert(Files.isExecutable(target.resolve("mvnw")), "mvnw is not executable")
+    assert(!Files.isExecutable(target.resolve("pom.xml")), "pom.xml is executable")
+    assert(Scaffold.entries(Language.Java).contains(Scaffold.Entry("mvnw", Scaffold.Mode.Exec)))
+    val leftovers = Files
+      .walk(target)
+      .iterator()
+      .asScala
+      .filter(Files.isRegularFile(_))
+      .filter { f =>
+        val token = """\{\{[a-z_]+\}\}""".r
+        token.findFirstIn(f.toString).nonEmpty || token.findFirstIn(Files.readString(f)).nonEmpty
+      }
+      .toVector
+    assertEquals(leftovers, Vector.empty)
+    // An embedded service: a descriptor with no hosting and no protocol, and no sidecar to start.
+    val descriptor = com.github.plokhotnyuk.jsoniter_scala.core.readFromString(
+      Files.readString(target.resolve("service.json"))
+    )(using com.thinkmorestupidless.ankka.controlplane.api.Wire.descriptorCodec)
+    assertEquals(descriptor.problems, Vector.empty)
+    assertEquals(descriptor.service.runtime, Some("9.9.9"))
+    assert(!descriptor.service.isProcessHosted)
+    assert(!Files.readString(target.resolve("docker-compose.yml")).contains("sidecar"))
   }
 
   test("a web project's descriptor is valid, web-hosted, and mounts its backend") {
@@ -108,7 +182,10 @@ class InitSuite extends munit.FunSuite:
       )
     )
     assert(problems.exists(_.contains("--template applies to scala only")), problems)
-    assert(problems.exists(_.contains("--package applies to scala and python only")), problems)
+    assert(
+      problems.exists(_.contains("--package applies to scala, java, kotlin and python only")),
+      problems
+    )
   }
 
   test("a rust crate keeps the name's hyphens, and is refused when cargo could not name it") {
@@ -138,7 +215,11 @@ class InitSuite extends munit.FunSuite:
     assert(Init.problems(python).exists(_.contains("--template applies to scala only")))
     val ts =
       Init.Request("orders", pkg = Some("acme"), directory = dir, language = Language.TypeScript)
-    assert(Init.problems(ts).exists(_.contains("--package applies to scala and python only")))
+    assert(
+      Init
+        .problems(ts)
+        .exists(_.contains("--package applies to scala, java, kotlin and python only"))
+    )
   }
 
   test("every template of a service ignores the directory store a laptop keeps objects in") {

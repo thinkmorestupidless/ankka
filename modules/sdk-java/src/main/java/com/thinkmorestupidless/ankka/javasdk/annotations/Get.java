@@ -1,0 +1,15 @@
+package com.thinkmorestupidless.ankka.javasdk.annotations;
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/** An HTTP {@code GET} route; the string is its path template, such as {@code /carts/{id}}. */
+@Documented
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface Get {
+  String value();
+}

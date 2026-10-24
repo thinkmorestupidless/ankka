@@ -35,7 +35,7 @@ import scala.jdk.CollectionConverters.*
  * classpath — so a test can never pass against a schema that local development does not have.
  */
 final class AnkkaTestKit private (
-    descriptors: Seq[ComponentDescriptor],
+    private var descriptors: Seq[ComponentDescriptor],
     private var extensions: Seq[RuntimeExtension],
     configure: ServiceBuilder => ServiceBuilder,
     config: Config,
@@ -268,11 +268,16 @@ final class AnkkaTestKit private (
     current.terminate()
     scala.concurrent.Await.ready(current.whenTerminated, readyTimeout): Unit
 
-  /** Starts a fresh service against the same database, after `stopService`. */
+  /**
+   * Starts a fresh service against the same database, after `stopService`: by default the one that
+   * stopped; with `descriptors`, another, as a later version of it or a port to another language.
+   */
   def startService(
       extensions: Seq[RuntimeExtension] = this.extensions,
-      secretKey: Option[String] = currentKey
+      secretKey: Option[String] = currentKey,
+      descriptors: Seq[ComponentDescriptor] = this.descriptors
   ): Unit =
+    this.descriptors = descriptors
     this.extensions = extensions
     currentKey = secretKey
     current = AnkkaTestKit.hostService(

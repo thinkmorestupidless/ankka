@@ -2,7 +2,7 @@
 title: MCP endpoints
 description: Serve a service's commands, queries and routes as tools to any MCP client — declaring tools in each language, who may call them, client keys issued by the service, what a client that signs in is told, and brokered sign-in.
 kind: guide
-languages: [scala, python, typescript, rust]
+languages: [scala, java, kotlin, python, typescript, rust]
 components: [mcp-endpoint]
 related: [build/http-endpoints.md, build/mcp-servers.md, concepts/tenancy-and-access.md]
 ---
@@ -194,6 +194,96 @@ impl McpEndpoint for CartMcp {
 
 ///
 
+/// tab | Java
+
+<!-- include: samples/shopping-cart-java/src/main/java/shoppingcart/javasdk/CartMcpEndpoint.java#endpoint -->
+```java
+/**
+ * The cart as an MCP server at {@code /mcp}: a customer's assistant reads a cart, adds to it and
+ * checks it out through these tools rather than the cart's routes. Two tools are the entity's own
+ * handlers, declared by reference; one has a handler of its own, because its arguments are not the
+ * command's input.
+ */
+public class CartMcpEndpoint extends McpEndpoint {
+
+  public record AddItemArgs(
+      @Describe("The cart's id") String cartId,
+      @Describe("The product's id") String productId,
+      @Describe("How many; greater than zero") int quantity) {}
+
+  public CartMcpEndpoint() {
+    tool("get_cart")
+        .describedAs("Reads one cart: its lines, and whether it is checked out")
+        .query(ShoppingCart::getCart, "cartId");
+
+    tool("add_item")
+        .describedAs("Adds a quantity of a product to a cart")
+        .arguments(AddItemArgs.class)
+        .handle(
+            args ->
+                componentClient()
+                    .forEventSourcedEntity(args.cartId())
+                    .call(ShoppingCart::addItem)
+                    .invoke(new LineItem(args.productId(), args.productId(), args.quantity())));
+
+    tool("checkout")
+        .describedAs("Checks a cart out, answering what it held")
+        .command(ShoppingCart::checkout, "cartId");
+  }
+
+  // A request carrying one of the cart's client keys, as the key's subject (CartKeysEndpoint).
+  @Override
+  protected Acl acl() {
+    return Acl.clientKeys();
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CartMcp.kt#mcp-endpoint -->
+```kotlin
+class CartMcp : McpEndpoint() {
+
+    @Manifest("tool-cart")
+    data class ToolCart(val cart: ShoppingCart, val subject: String?, val claims: Map<String, String>)
+
+    data class CartArgs(@Describe("The cart's id") val cartId: String)
+
+    data class AddItemArgs(
+        @Describe("The cart's id") val cartId: String,
+        @Describe("The product's id") val productId: String,
+        @Describe("How many; greater than zero") val quantity: Int,
+    )
+
+    init {
+        tool("get_cart").describedAs("Reads one cart").handling<CartArgs> { args ->
+            val p = principal().orNull()
+            ToolCart(
+                componentClient().forEventSourcedEntity(args.cartId).call(ShoppingCartEntity::getCart).invokeSuspending(),
+                p?.subject,
+                p?.claims ?: emptyMap(),
+            )
+        }
+
+        tool("add_item").describedAs("Adds an item to a cart").handling<AddItemArgs> { args ->
+            componentClient()
+                .forEventSourcedEntity(args.cartId)
+                .call(ShoppingCartEntity::addItem)
+                .invokeSuspending(LineItem(args.productId, args.productId, args.quantity))
+        }
+
+        tool("checkout").describedAs("Checks a cart out").command(ShoppingCartEntity::checkout, "cartId")
+    }
+
+    override fun acl(): Acl = Acl.anyOf(Acl.clientKeys(), KotlinReference.authenticated)
+}
+```
+
+///
+
 A tool's name is what a client calls it by and is part of the endpoint's contract, as a route's path is:
 letters, digits, `_` and `-`, at most 64 characters, unique within the endpoint. Its arguments are
 described to the client as a JSON Schema built from their types, every argument required; a call whose
@@ -267,6 +357,8 @@ val acl: Acl = ClientKeys.authenticate()
 The references in the other languages admit a client key or a token, either one:
 `Acl.any_of(Acl.CLIENT_KEYS, Acl.AUTHENTICATED)` in Python, `Acl.anyOf(Acl.clientKeys,
 Acl.authenticated)` in TypeScript and `Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])` in Rust.
+In Java and Kotlin, `Acl.clientKeys()` admits a client key and `Acl.anyOf(Acl.clientKeys(), Acl.oidc())`
+either one.
 
 A request with no credential the ACL admits is answered `401`, with a `WWW-Authenticate` challenge that
 names the endpoint's resource metadata when the ACL admits tokens. A single tool can carry an ACL of its
@@ -403,6 +495,88 @@ impl Endpoint for McpKeysEndpoint {
                 keys_of(request)?.revoke(request.path("id"))?;
                 Ok("revoked".to_string())
             })
+    }
+}
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/McpKeysEndpoint.java#mcp-keys -->
+```java
+public class McpKeysEndpoint extends HttpEndpoint {
+
+  /** What a post is asked to issue: a key that never expires, for the cases. */
+  @Manifest("mcp-key-request")
+  public record McpKeyRequest(
+      String subject, Optional<Set<String>> scope, Optional<Map<String, String>> attributes) {}
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowAll();
+  }
+
+  @Post("/mcp-keys")
+  public IssuedClientKey issue(@Body McpKeyRequest body) {
+    return clientKeys()
+        .issue(
+            new ClientKeyRequest(
+                body.subject(),
+                Expiry.never(),
+                Optional.empty(),
+                body.scope().orElse(Set.of()),
+                body.attributes().orElse(Map.of()),
+                Optional.empty()));
+  }
+
+  @Get("/mcp-keys")
+  public List<ClientKeySummary> list() {
+    return clientKeys().list();
+  }
+
+  @Delete("/mcp-keys/{id}")
+  public String revoke(String id) {
+    clientKeys().revoke(id);
+    return "revoked";
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/McpKeysEndpoint.kt#mcp-keys -->
+```kotlin
+class McpKeysEndpoint : HttpEndpoint() {
+
+    /** What a post is asked to issue: a key that never expires, for the cases. */
+    @Manifest("mcp-key-request")
+    data class McpKeyRequest(val subject: String, val scope: Set<String>?, val attributes: Map<String, String>?)
+
+    override fun acl(): Acl = Acl.allowAll()
+
+    @Post("/mcp-keys")
+    fun issue(@Body body: McpKeyRequest): IssuedClientKey =
+        clientKeys().issue(
+            ClientKeyRequest(
+                body.subject,
+                Expiry.never(),
+                Optional.empty(),
+                body.scope ?: emptySet(),
+                body.attributes ?: emptyMap(),
+                Optional.empty(),
+            )
+        )
+
+    @Get("/mcp-keys")
+    fun list(): List<ClientKeySummary> = clientKeys().list()
+
+    @Delete("/mcp-keys/{id}")
+    fun revoke(id: String): String {
+        clientKeys().revoke(id)
+        return "revoked"
     }
 }
 ```

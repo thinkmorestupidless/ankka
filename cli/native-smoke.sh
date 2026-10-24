@@ -50,14 +50,19 @@ curl -s "$address/app.js" | grep -q 'AnkkaTopology.view' \
   || fail "the console's script does not draw the topology: the image holds a stale app.js"
 echo "console    serves its files"
 
-for language in python typescript rust web; do
+for language in python typescript rust web java kotlin; do
   "$bin" init smoke --language "$language" --dir "$work/$language" > /dev/null \
     || fail "ankka init --language $language failed"
   for file in service.json .gitignore .mcp.json .github/workflows/deploy.yml .claude/skills/ankka/SKILL.md; do
     [ -f "$work/$language/smoke/$file" ] || fail "ankka init --language $language wrote no $file: the image is missing ankka/templates"
   done
 done
-echo "init       renders the python, typescript, rust and web templates"
+# A wrapper that is not executable, or a wrapper jar the image dropped, is a project that cannot build.
+[ -x "$work/java/smoke/mvnw" ] || fail "ankka init --language java wrote mvnw without its execute bit"
+[ -x "$work/kotlin/smoke/gradlew" ] || fail "ankka init --language kotlin wrote gradlew without its execute bit"
+[ -s "$work/kotlin/smoke/gradle/wrapper/gradle-wrapper.jar" ] \
+  || fail "ankka init --language kotlin wrote no gradle wrapper jar: the image dropped a binary template file"
+echo "init       renders the python, typescript, rust, web, java and kotlin templates"
 
 mkdir -p "$work/existing"
 "$bin" mcp install --scope project --dir "$work/existing" > /dev/null \

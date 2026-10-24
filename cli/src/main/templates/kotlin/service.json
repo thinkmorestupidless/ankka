@@ -1,0 +1,7 @@
+{
+  "name": "{{name}}",
+  "service": {
+    "image": "{{name}}:local",
+    "runtime": "{{ankka_version}}"
+  }
+}

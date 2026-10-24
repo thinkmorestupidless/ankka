@@ -1,0 +1,91 @@
+package com.thinkmorestupidless.ankka.javasdk.bridge
+
+import com.thinkmorestupidless.ankka.javasdk.client.CallerError
+
+import java.lang.invoke.SerializedLambda
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * A method reference (`ShoppingCart::addItem`) resolved to the handler it names. A serializable
+ * lambda carries what it refers to in its `SerializedLambda`: the class, the method and its
+ * descriptor, which the registered plans are keyed by. Resolved once per lambda class.
+ */
+private[ankka] final class Refs(
+    plans: Iterable[ComponentPlan],
+    /** The modules' plans, which resolve calls to their own kinds. */
+    val modules: Vector[ModulePlan] = Vector.empty
+):
+
+  /** The plan of the module of type `M`, when the service was given one. */
+  def module[M <: ModulePlan](cls: Class[M]): Option[M] =
+    modules.collectFirst { case m if cls.isInstance(m) => cls.cast(m) }
+
+  private val byKey: Map[(String, String, String), (ComponentPlan, HandlerPlan)] =
+    plans.iterator.flatMap(c => c.handlers.map(h => h.javaKey -> (c, h))).toMap
+
+  private val cache = ConcurrentHashMap[Class[?], (ComponentPlan, HandlerPlan)]()
+
+  private val byClass: Map[Class[?], ComponentPlan] = plans.iterator.map(p => p.cls -> p).toMap
+
+  /** The plan of a registered component class. */
+  def plan(cls: Class[?]): Option[ComponentPlan] = byClass.get(cls)
+
+  def resolve(ref: AnyRef): (ComponentPlan, HandlerPlan) =
+    val known = cache.get(ref.getClass)
+    if known != null then known
+    else
+      val found = lookup(Refs.serialized(ref), ref.getClass.getClassLoader)
+      // A method reference's class is a hidden class of its own; any other class (the Kotlin SDK's
+      // reference to a KFunction) may stand for many handlers, and is read every time.
+      if ref.getClass.isHidden then cache.put(ref.getClass, found): Unit
+      found
+
+  private def lookup(lambda: SerializedLambda, loader: ClassLoader): (ComponentPlan, HandlerPlan) =
+    val implClass = lambda.getImplClass.replace('/', '.')
+    val method    = lambda.getImplMethodName
+    if method.startsWith("lambda$") then
+      throw CallerError(
+        s"a call in ${lambda.getCapturingClass.replace('/', '.')} names its handler with a lambda; " +
+          "name it with a method reference, such as ShoppingCart::addItem"
+      )
+    byKey
+      .get((implClass, method, lambda.getImplMethodSignature))
+      .orElse(Refs.throughAdapter(lambda, loader).flatMap(byKey.get))
+      .getOrElse(
+        throw CallerError(
+          s"$implClass::$method is not a registered handler: it has no @Command or @Query, or " +
+            s"${implClass.split('.').last} is not registered with this service"
+        )
+      )
+
+private[ankka] object Refs:
+
+  /**
+   * What a compiler-made adapter (Kotlin's `_init_$getCart`, a method with `$` in its name) calls,
+   * as the class, method and descriptor a method reference to it would have named.
+   */
+  def throughAdapter(
+      lambda: SerializedLambda,
+      loader: ClassLoader
+  ): Option[(String, String, String)] =
+    val implClass = lambda.getImplClass.replace('/', '.')
+    if !lambda.getImplMethodName.contains('$') then None
+    else
+      try
+        val cls = Class.forName(implClass, false, loader)
+        References.adapted(cls, lambda.getImplMethodName, lambda.getImplMethodSignature)
+      catch case _: ClassNotFoundException | _: LinkageError => None
+
+  /** The `SerializedLambda` a serializable lambda writes in place of itself. */
+  def serialized(ref: AnyRef): SerializedLambda =
+    try
+      val writeReplace = ref.getClass.getDeclaredMethod("writeReplace")
+      writeReplace.setAccessible(true)
+      writeReplace.invoke(ref) match
+        case lambda: SerializedLambda => lambda
+        case other                    => throw CallerError(s"$other is not a method reference")
+    catch
+      case _: NoSuchMethodException =>
+        throw CallerError(
+          s"${ref.getClass.getName} is not a method reference; name the handler as Class::method"
+        )

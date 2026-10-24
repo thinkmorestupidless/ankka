@@ -182,6 +182,13 @@ final class EventSourcedEntityCalls private[ankka] (
       companion: EventSourcedEntity.Companion[?, ?, ?],
       installation: String,
       timeout: FiniteDuration
+  ): Unit = awaitHandover(companion.componentId, installation, timeout)
+
+  /** `awaitHandover` by the component's id, for an SDK whose components have no companion. */
+  private[ankka] def awaitHandover(
+      componentId: ComponentId,
+      installation: String,
+      timeout: FiniteDuration
   ): Unit =
     val deadline         = timeout.fromNow
     val payload          = installation.getBytes(java.nio.charset.StandardCharsets.UTF_8)
@@ -190,7 +197,7 @@ final class EventSourcedEntityCalls private[ankka] (
       String(
         ComponentClient.await(
           transport.askQuery(
-            companion.componentId,
+            componentId,
             entityId,
             ReplicationStatus.HandoverMethod,
             payload,

@@ -1,6 +1,6 @@
 # Calling other services
 
-> Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python, TypeScript or Rust — so that service's access rules can admit yours by name.
+> Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in any of the six languages — so that service's access rules can admit yours by name.
 
 Source: https://docs.ankka.cloud/build/calling-services/
 A service calls another service of the platform by its name, and the call is made **as the calling
@@ -18,11 +18,11 @@ callers; see [Cross-project access](../platform/cross-project-access.md).
 
 Every component whose handlers already run ordinary sequential code may make a call: an endpoint, a
 workflow's step, a consumer, a timed action, an agent's tool and an autonomous agent's tool, in Scala,
-Python, TypeScript and Rust.
+Java, Kotlin, Python, TypeScript and Rust.
 
 An **entity** and a **view** may not. Their contexts have no client for other services at all: in Scala
-reaching for one does not compile, in TypeScript the property does not exist on the type, and in Python
-the attribute does not exist. An entity handles one command at a time for each id, so a call made inside
+reaching for one does not compile, in Java and Kotlin an entity and a view have no `services()` method,
+in TypeScript the property does not exist on the type, and in Python the attribute does not exist. An entity handles one command at a time for each id, so a call made inside
 a handler would hold every other command for that entity behind another service. A Python or TypeScript
 process that tries anyway is refused by the runtime, which reads which handler is calling and refuses an
 entity's.
@@ -38,7 +38,8 @@ entity keeps the state it had. See the [Rust SDK](../reference/rust-sdk.md#calli
 
 ## Calling from an endpoint
 
-An endpoint that calls another service and answers what it answered, in Scala:
+An endpoint that calls another service and answers what it answered, in Scala; the tabs below show the
+same in each other language, through `services().of(name)` in Java and Kotlin:
 
 ```scala
 // Calls another service in this project, as this service: `/callers/whoami` unless `path` says
@@ -91,6 +92,81 @@ export class CallingEndpoint extends Endpoint {
       }
     }),
   }
+}
+```
+
+**Java**
+
+```java
+public class Neighbour extends HttpEndpoint {
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowAll();
+  }
+
+  private ServiceClient scalaCart() {
+    return services().of("scala-cart");
+  }
+
+  /** The Scala cart's entity, read into the Java cart's record. */
+  @Get("/neighbour/carts/{cartId}")
+  public Cart cart(String cartId) {
+    return scalaCart().get("/carts/" + cartId, Cart.class);
+  }
+
+  @Post("/neighbour/carts/{cartId}/items")
+  public Done addItem(String cartId, @Body LineItem item) {
+    scalaCart().post("/carts/" + cartId + "/items", item, Void.class);
+    return Done.done();
+  }
+
+  /** Who the Scala cart saw calling. */
+  @Get("/neighbour/whoami")
+  public String whoami() {
+    return scalaCart().getText("/callers/whoami");
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+// A call to another service, as the case asks for it: `service`, `method` and `path` from the
+// query, the body and every `X-Conformance-*` header sent on, and two headers no handler may
+// send, added to show they never arrive.
+@Post("/conformance/service-call")
+fun serviceCall(@Body body: String): ServiceCallRecord {
+    val service = request().requiredQuery("service")
+    val method = request().requiredQuery("method")
+    val path = request().requiredQuery("path")
+    val headers = buildMap {
+        for ((name, value) in request().headers()) if (name.lowercase().startsWith("x-conformance-")) put(name, value)
+        put("X-Ankka-Caller", "ankka://elsewhere/impostor")
+        put("Host", "elsewhere")
+    }
+    val client = services().of(service)
+    return try {
+        if (request().queryOrNull("mode") == "typed") {
+            ServiceCallRecord("response", 200, body = client.getText(path, headers))
+        } else {
+            val bytes = if (body.isEmpty()) null else body.toByteArray()
+            val contentType = if (body.isEmpty()) null else request().headerOrNull("Content-Type")
+            val answer = client.request(method, path, bytes, contentType, headers)
+            val named = answer.headers.firstOrNull { it.key.equals("x-answer", ignoreCase = true) }?.value ?: ""
+            ServiceCallRecord("response", answer.status, answer.contentType, answer.text(), named)
+        }
+    } catch (e: ServiceCallFailed) {
+        ServiceCallRecord("failed", e.status(), body = e.body())
+    } catch (e: ServiceUnresolvable) {
+        ServiceCallRecord("unresolvable", message = e.message.orEmpty())
+    } catch (e: ServiceIdentityMismatch) {
+        ServiceCallRecord("mismatch", message = e.message.orEmpty())
+    } catch (e: ServiceUnanswered) {
+        ServiceCallRecord("unanswered", message = e.message.orEmpty())
+    } catch (e: CommandException) {
+        ServiceCallRecord("refused", message = e.problem().detail)
+    }
 }
 ```
 
@@ -175,7 +251,7 @@ test("a workflow's step calls another service and goes on with the answer", asyn
 ```
 
 A consumer, a timed action and an agent's tool call the same way, through their context's `services`
-(Scala) or the component's own `services` (Python, TypeScript). A consumer makes its call before the
+(Scala), `services()` (Java and Kotlin) or the component's own `services` (Python, TypeScript). A consumer makes its call before the
 change it is handling is done with, so a call that fails has the change delivered again.
 
 ## What a call answers
@@ -215,7 +291,8 @@ A call waits for its answer as long as the calling service's `ankka.service-clie
 seconds unless it is set; connecting has five seconds of its own. There is no per-call timeout. A Scala
 service sets the key in its `application.conf`; any service, in any language, sets
 `ANKKA_SERVICE_CLIENT_TIMEOUT` in its descriptor's environment, which goes to the runtime that makes the
-call and never to a Python or TypeScript process.
+call and never to a Python or TypeScript process. A Java or Kotlin service is in the runtime's own JVM,
+so it reads either.
 
 ## What a call carries
 
@@ -256,3 +333,7 @@ test, naming the service, rather than answering something nobody chose.
   address to `AnkkaTestKit.start(…, localServices = Map("psp-gateway" -> scripted.address))`.
 - **Python:** `component.services = ScriptedServices().answer("psp-gateway", lambda request: …)`.
 - **TypeScript:** `component.services = new ScriptedServices().answer("psp-gateway", (request) => …)`.
+- **Java and Kotlin:** a test of a whole service names another service to play on loopback,
+  `AnkkaTestKit.start(service, Settings.defaults().withScriptedService("psp-gateway"))`, and scripts and
+  reads it through `kit.service("psp-gateway")`; `withLocalService(name, address)` points a name at a
+  service of the test's own. There is no unit double for a single component yet.

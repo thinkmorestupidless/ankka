@@ -1,4 +1,4 @@
-Feature: Testing a service written in another language
+Feature: Testing a service written in any language
   A developer tests their components with the test runner their language already has. The component
   test kit runs one component with no platform, no database and no network, and still carries every
   value through the component's own encoding. The test kit starts a database and the platform's own
@@ -16,6 +16,8 @@ Feature: Testing a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a value the encoding cannot write fails in the component test kit
     Given an entity "cart" written in "<language>" whose state can hold a value its declared types cannot encode
@@ -27,6 +29,8 @@ Feature: Testing a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the component test kit follows a workflow to where it waits for a command
     Given a workflow "checkout" written in "<language>" that waits for the command "approve" after its step "reserve"
@@ -39,6 +43,8 @@ Feature: Testing a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the test kit is ready before the test begins
     Given a service "shop" written in "<language>"
@@ -52,6 +58,8 @@ Feature: Testing a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: the test kit restarts the platform's own program on the same database
     Given a test kit running "shop" written in "<language>", whose cart "c1" has recorded 3 items
@@ -64,3 +72,5 @@ Feature: Testing a service written in another language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

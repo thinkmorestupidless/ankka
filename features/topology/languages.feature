@@ -16,6 +16,8 @@ Feature: A service's topology in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a call is attributed to its caller in every language
     Given a service written in "<language>" with an event sourced entity "cart" and an event sourced entity "ledger"
@@ -30,3 +32,5 @@ Feature: A service's topology in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

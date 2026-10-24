@@ -688,6 +688,96 @@ jobs:
           # reached npm. A spec is a file only when it starts with `./`, `../`, `/` or `~/`.
           npm publish "./dist-pack/ankka-$version.tgz" --access public
 
+  sdk-kotlin:
+    # The Kotlin SDK to Maven Central, as com.thinkmorestupidless:ankka-kotlin, -agent and -testkit. Its
+    # version is the tag's: `version` and `ankkaVersion` in sdks/kotlin/gradle.properties are 0.0.0 in
+    # the tree and written here, in this job's checkout only. Gradle, not sbt, builds it, so it publishes
+    # beside the `publish` job rather than inside it: signed into a Maven-layout directory with the same
+    # PGP key, zipped, and uploaded through the Central Portal's API with publishingType=AUTOMATIC, as
+    # the sbt modules' bundle is.
+    #
+    # It waits for `publish` for the reason the other SDK jobs do, and builds against the Java SDK this
+    # job publishes to ~/.m2 at the tag's version rather than waiting for repo1 to have it. The repo1
+    # guard lets a re-run of the tag finish what a cancelled run left: the portal refuses a version it
+    # already holds.
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # dynver needs the tags: the Java SDK is published at the tag's version
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - name: Is this version already on Maven Central?
+        id: central
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          url="https://repo1.maven.org/maven2/com/thinkmorestupidless/ankka-kotlin/$version/ankka-kotlin-$version.pom"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+          echo "$url -> $code"
+          if [ "$code" = "200" ]; then
+            echo "::notice::ankka-kotlin $version is already on Maven Central; not uploading it again"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: The Java SDK at the tag's version, into ~/.m2
+        run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=kotlin cli/templateArtifacts
+      - name: Write the version
+        working-directory: sdks/kotlin
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version=0.0.0$/version=$version/; s/^ankkaVersion=0.0.0$/ankkaVersion=$version/" gradle.properties
+          grep -qx "version=$version" gradle.properties || { echo "::error::the version was not written"; exit 1; }
+          grep -qx "ankkaVersion=$version" gradle.properties || { echo "::error::the SDK pin was not written"; exit 1; }
+      - name: Build and test
+        working-directory: sdks/kotlin
+        run: ./gradlew --no-daemon check
+      - name: Publish signed into the staging directory
+        if: steps.central.outputs.published != 'true'
+        working-directory: sdks/kotlin
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.PGP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # PGP_SECRET is the armored key, base64'd (the header of this file); Gradle takes it armored.
+          ORG_GRADLE_PROJECT_signingKey="$(printf '%s' "$PGP_SECRET" | base64 -d)"
+          export ORG_GRADLE_PROJECT_signingKey
+          ./gradlew --no-daemon publishAllPublicationsToStagingRepository
+          version="${GITHUB_REF_NAME#v}"
+          for module in ankka-kotlin ankka-kotlin-agent ankka-kotlin-testkit; do
+            dir="build/staging/com/thinkmorestupidless/$module/$version"
+            ls "$dir/$module-$version.pom.asc" "$dir/$module-$version.jar.asc" "$dir/$module-$version-sources.jar" "$dir/$module-$version-javadoc.jar" > /dev/null \
+              || { echo "::error::$module is not staged whole and signed"; ls -la "$dir" || true; exit 1; }
+          done
+          # The portal wants a Maven layout with no repository metadata in it.
+          find build/staging -name 'maven-metadata*' -delete
+          (cd build/staging && zip -qr ../kotlin-bundle.zip com)
+      - name: Upload the bundle to the Central Portal, to be published automatically
+        if: steps.central.outputs.published != 'true'
+        working-directory: sdks/kotlin
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          token=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 | tr -d '\n')
+          code=$(curl -sS -o upload.out -w '%{http_code}' \
+            -H "Authorization: Bearer $token" \
+            -F "bundle=@build/kotlin-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=ankka-kotlin-$version" || true)
+          echo "portal answered $code: $(cat upload.out)"
+          [ "$code" = "201" ] || exit 1
+          echo "::notice::ankka-kotlin $version uploaded as deployment $(cat upload.out)"
+
   sdk-rust:
     # The Rust crate to crates.io, as `ankka`: https://crates.io/crates/ankka. Its version is `version` in
     # sdks/rust/ankka/Cargo.toml — 0.0.0 in the tree, written here from the tag by the same rule as the

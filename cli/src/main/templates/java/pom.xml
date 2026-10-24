@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>{{package}}</groupId>
+  <artifactId>{{name}}</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>{{name}}</name>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>21</maven.compiler.release>
+    <!-- The ankka release this service is built against; service.json's runtime says the same. -->
+    <ankka.version>{{ankka_version}}</ankka.version>
+    <junit.version>6.1.3</junit.version>
+    <main.class>{{package}}.Main</main.class>
+    <image>{{name}}:local</image>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.thinkmorestupidless</groupId>
+      <artifactId>ankka-java</artifactId>
+      <version>${ankka.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.thinkmorestupidless</groupId>
+      <artifactId>ankka-java-testkit</artifactId>
+      <version>${ankka.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- An older JDK refuses the build here, naming the version, rather than failing to compile. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.6.3</version>
+        <executions>
+          <execution>
+            <id>require-jdk-21</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion>
+                  <version>[21,)</version>
+                  <message>ankka needs JDK 21 or later to build this service.</message>
+                </requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- `parameters` keeps each parameter's name, which binds an endpoint's path parameters. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.15.0</version>
+        <configuration>
+          <parameters>true</parameters>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.6.0</version>
+      </plugin>
+      <!-- The platform's database schema, from the ankka-runtime artifact into target/ddl, which
+           docker-compose.yml mounts as Postgres' init directory. One copy of the schema, the
+           runtime's: run `./mvnw generate-resources` after every ankka upgrade. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.9.0</version>
+        <executions>
+          <execution>
+            <id>schema</id>
+            <phase>generate-resources</phase>
+            <goals><goal>unpack</goal></goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>com.thinkmorestupidless</groupId>
+                  <artifactId>ankka-runtime_3</artifactId>
+                  <version>${ankka.version}</version>
+                  <includes>ankka/ddl/*.sql</includes>
+                  <outputDirectory>${project.build.directory}/ddl</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.6.4</version>
+        <configuration>
+          <mainClass>${main.class}</mainClass>
+        </configuration>
+      </plugin>
+      <!-- The image, built without a Dockerfile: `./mvnw package jib:dockerBuild` into the local
+           daemon, `jib:build -Dimage=...` to a registry. -->
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <version>3.5.2</version>
+        <configuration>
+          <from><image>eclipse-temurin:21-jre</image></from>
+          <to><image>${image}</image></to>
+          <container>
+            <mainClass>${main.class}</mainClass>
+            <ports><port>9000</port></ports>
+          </container>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

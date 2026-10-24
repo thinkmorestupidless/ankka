@@ -1415,14 +1415,15 @@ object Main:
 
   private val initCommand = Opts.subcommand(
     "init",
-    "Create a new service from the ankka template, in Scala (runs `sbt new`), Python or TypeScript."
+    "Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, " +
+      "Python, TypeScript or Rust."
   ) {
     (
       Opts.argument[String]("name"),
       Opts
         .option[String](
           "language",
-          "scala (the default), python, typescript or rust; or web, for a user interface.",
+          "scala (the default), java, kotlin, python, typescript or rust; or web, for a user interface.",
           "l"
         )
         .mapValidated(text => Validated.fromEither(Language.parse(text)).toValidatedNel)
@@ -1433,7 +1434,8 @@ object Main:
       Opts
         .option[String](
           "package",
-          "The Scala package (default com.example.<name>) or Python package (default the name, '-' as '_')."
+          "The Scala, Java or Kotlin package (default com.example.<name>) or Python package " +
+            "(default the name, '-' as '_')."
         )
         .orNone,
       Opts
@@ -1464,6 +1466,12 @@ object Main:
           Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
           val module = Scaffold.module(request)
           s"created $where\n\n  cd $name\n  uv sync\n  uv run pytest -q -rs\n  docker compose up -d && uv run python -m $module.main\n\nsee README.md for the rest"
+        case Language.Java =>
+          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+          s"created $where (Java, Maven)\n\n  cd $name\n  docker compose up -d\n  ./mvnw test\n  ./mvnw exec:java\n\nsee README.md for the rest"
+        case Language.Kotlin =>
+          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+          s"created $where (Kotlin, Gradle)\n\n  cd $name\n  docker compose up -d\n  ./gradlew test\n  ./gradlew run\n\nsee README.md for the rest"
         case Language.TypeScript =>
           Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
           s"created $where\n\n  cd $name\n  npm install\n  npm test\n  docker compose up -d && npm start\n\nsee README.md for the rest"

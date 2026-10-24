@@ -1462,7 +1462,9 @@ object LanguagesFeatures:
   val commands: Map[String, String] = Map(
     "Python"     -> "cd sdks/python && uv run conformance",
     "TypeScript" -> "cd sdks/typescript && npm run conformance",
-    "Rust"       -> "cd sdks/rust && ./conformance.sh"
+    "Rust"       -> "cd sdks/rust && ./conformance.sh",
+    "Java"       ->
+      "modules/sdk-java: sbt -Dankka.conformance.reference=java 'sidecar/testOnly *.ConformanceSuite'"
   )
 
 final class LanguagesFeatures

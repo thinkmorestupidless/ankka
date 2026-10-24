@@ -39,6 +39,25 @@ A provider built from the environment whose key is not set still exists, under i
 to it fails `Unavailable`, naming the variable. A service with one vendor's key and not the other's
 starts, and refuses only the work that names the missing one.
 
+## In Java and Kotlin
+
+A Java or Kotlin service builds its providers with `ModelProviders`, in
+`com.thinkmorestupidless.ankka.agent.javasdk`, and gives one to the agents module as the default
+(`Agents.module().withModelProvider(provider)`):
+
+| Built with | What it is |
+|---|---|
+| `ModelProviders.anthropic(model)` | Anthropic's API, with `ANTHROPIC_API_KEY`; named `anthropic` |
+| `ModelProviders.openAi(model)` | OpenAI's API, with `OPENAI_API_KEY`; named `openai` |
+| `ModelProviders.preset(name, preset, model)` | a preset that needs no key, such as `ollama` or `lmstudio` |
+| `ModelProviders.preset(name, preset, model, key)` | any preset, with its key given |
+| `ModelProviders.at(name, protocol, url, model, key)` | either protocol at any address, the key an `Optional` |
+| `ModelProviders.installation(model)` | a model the installation's model server serves |
+
+The rules and the refusals are the Scala service's: a provider built from the environment whose key is not
+set exists and fails every call naming the variable, and a configuration that cannot work is refused with
+an `IllegalArgumentException` naming what is wrong.
+
 ## On the sidecar
 
 A service written in Python, TypeScript or Rust never holds a key: the sidecar runs the agent loop and

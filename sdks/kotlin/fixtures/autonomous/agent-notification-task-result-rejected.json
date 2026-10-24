@@ -1,0 +1,6 @@
+{
+  "manifest": "agent-notification",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiVGFza1Jlc3VsdFJlamVjdGVkIiwiY29tcG9uZW50SWQiOiJhbnN3ZXJlciIsImluc3RhbmNlSWQiOiJpLTEiLCJ0YXNrSWQiOiJ0LTEiLCJyZWFzb24iOiJzb3VyY2VzIG11c3Qgbm90IGJlIGVtcHR5IiwiaXRlcmF0aW9uIjoyLCJhdCI6NH0=",
+  "value": {"type":"TaskResultRejected","componentId":"answerer","instanceId":"i-1","taskId":"t-1","reason":"sources must not be empty","iteration":2,"at":4}
+}

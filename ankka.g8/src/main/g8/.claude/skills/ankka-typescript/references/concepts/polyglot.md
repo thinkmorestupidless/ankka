@@ -1,6 +1,6 @@
 # Services in other languages
 
-> How ankka hosts a service in Python, TypeScript or Rust — the runtime runs beside a process as a sidecar or loads a WebAssembly module, owning everything durable while the service's code decides.
+> How ankka hosts a service in Java, Kotlin, Python, TypeScript or Rust — in its own JVM, beside a process as a sidecar, or as a WebAssembly module — with the runtime owning everything durable.
 
 Source: https://docs.ankka.cloud/concepts/polyglot/
 A service written in Python or TypeScript is hosted by the same runtime as one written in Scala, with the same
@@ -9,7 +9,9 @@ service compiles into one JVM with the runtime. A Python or TypeScript service r
 runtime runs beside it as a **sidecar**, booted from a conversation with that process instead of from a
 Scala builder. A Rust service is built to a **WebAssembly module**, and the same runtime loads the module
 into its own process instead of running beside one; see
-[Services as WebAssembly modules](#services-as-webassembly-modules).
+[Services as WebAssembly modules](#services-as-webassembly-modules). A Java or Kotlin service needs neither:
+it runs in the runtime's own JVM, as a Scala service does; see
+[Services in Java and Kotlin](#services-in-java-and-kotlin).
 
 ## Who owns what
 
@@ -53,16 +55,16 @@ The protocol is versioned `MAJOR.MINOR`, and a process-hosted service declares t
 speaks. The platform accepts a declaration with the same major version and a minor version no higher
 than its own. See [Sidecar protocol](../reference/sidecar-protocol.md).
 
-## One journal, four languages
+## One journal, six languages
 
-Stored data does not record which language wrote it. The Python, TypeScript and Rust SDKs' default encoding produces the same
+Stored data does not record which language wrote it. The Java, Kotlin, Python, TypeScript and Rust SDKs' default encoding produces the same
 JSON the Scala SDK does: records with every field present, sum types with a `"type"` discriminator
 naming the case, `null` for an absent optional value, and primitives such as a string or an integer as
 plain text. The mapping is written down in the protocol's
 [ENCODING.md](https://github.com/thinkmorestupidless/ankka/blob/main/protocol/ENCODING.md) and checked by
 shared fixtures that every SDK must pass.
 
-So a cart written by a Scala service can be read by a Python, TypeScript or Rust service on the same database,
+So a cart written by a Scala service can be read by a Java, Kotlin, Python, TypeScript or Rust service on the same database,
 and the reverse. Field names are the contract. A Python dataclass or a TypeScript shape that stores a field
 as `product_id` does not read a journal that says `productId`, which is why the Python and TypeScript
 samples use the stored spelling.
@@ -87,6 +89,17 @@ platform, and the descriptor cannot name its image or set its variables.
   in the descriptor as usual, and your process never sees it or the database.
 - **A producing consumer or a topic-sourced view needs a broker.** Set `ANKKA_KAFKA_BOOTSTRAP_SERVERS`;
   the sidecar refuses to start without it and names the component that needs it.
+
+## Services in Java and Kotlin
+
+A Java or Kotlin service is hosted the way a Scala one is: one JVM, one container, the runtime in the same
+process as the service's classes. The Java SDK is a layer over the Scala SDK, and the Kotlin SDK a layer
+over the Java one. When the service starts, the Java SDK reads every registered class once — its
+annotated handlers, its views' declared queries, its endpoints' routes — and hands the runtime the same
+descriptors a Scala service registers, refusing to start with every problem it found listed. There is no
+sidecar, no protocol and no discovery, so a call to a handler is a method call and a descriptor names no
+`hosting`. Agents are not offered in Java or Kotlin yet; see [Limitations](../reference/limitations.md).
+See [Java SDK](../reference/java-sdk.md) and [Kotlin SDK](../reference/kotlin-sdk.md).
 
 ## Services as WebAssembly modules
 
@@ -134,7 +147,8 @@ The Rust SDK builds services this way. See [WebAssembly ABI](../reference/wasm-a
 A second language is compatible when it behaves the same, not when it looks the same. ankka defines that
 with a conformance suite: one case per behaviour, from "a deleted entity written to again starts empty"
 to "a query answered while a workflow step runs", run against the Scala reference in-process and against
-any process through the real sidecar, and against any module loaded by the real runtime, in both guest
-shapes. The Python, TypeScript and Rust SDKs pass it, and a further language arrives by passing it with its
+any process through the real sidecar, against any module loaded by the real runtime, in both guest
+shapes, and against a Java or Kotlin reference hosted in-process. The Python, TypeScript and Rust SDKs pass
+it, and so do the Java and Kotlin SDKs apart from the cases that drive an agent. A further language arrives by passing it with its
 own reference service, plus the encoding fixtures. The platform needs no change to host it.
 See [Adding a language SDK](../contributing/language-sdks.md).

@@ -1,6 +1,6 @@
 # Workflows
 
-> Build a durable multi-step process in Scala or Python — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+> Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 
 Source: https://docs.ankka.cloud/build/workflows/
 A workflow is a durable, multi-step process. Each instance has an id, a state of your own type, and a
@@ -331,11 +331,12 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
 
 A Scala step names its successor with the companion's step handle, which carries the wire name; Python
 and TypeScript name it by the wire name itself, `then_transition_to("charge")` and
-`thenTransitionTo("charge")`, passing an input as a further argument when the step takes one. In every
+`thenTransitionTo("charge")`, and Java and Kotlin name it by a method reference to the `@Step` method,
+`thenTransitionTo(Checkout::charge)`; each passes an input as a further argument when the step takes one. In every
 case the transition is journalled and the runtime runs one step at a time.
 
 Steps may be asynchronous. In Python and TypeScript they are `async` and call other components through
-the client; in Scala a step is ordinary blocking code on a virtual thread, so `invoke` inside a step
+the client; in Scala, Java and Kotlin a step is ordinary blocking code on a virtual thread, so `invoke` inside a step
 costs nothing but the wait.
 
 ## What a command can do
@@ -529,6 +530,41 @@ checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: Shopp
 ),
 ```
 
+**Java**
+
+```java
+// Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+@Post("/conformance/checkout-await/{id}")
+public String checkoutAwait(String id, @Body String mode) {
+  try {
+    return componentClient()
+        .forWorkflow(id)
+        .callThenAwaitEnd(Checkout::start, Duration.ofSeconds(30))
+        .invoke(mode)
+        .status();
+  } catch (CommandException failed) {
+    var end = failed.workflowFailure();
+    if (end.isEmpty()) throw failed;
+    throw new ProblemException(
+        new Problem(424, "", end.get().step().orElse("") + ": " + end.get().reason()));
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+// Starts a checkout and answers with how it ended, as one request; a failed one is 424.
+@Post("/conformance/checkout-await/{id}")
+fun checkoutAwait(id: String, @Body mode: String): String =
+    try {
+        componentClient().forWorkflow(id).callThenAwaitEnd(Checkout::start, Duration.ofSeconds(30)).invoke(mode).status
+    } catch (failed: CommandException) {
+        val end = failed.workflowFailureOrNull ?: throw failed
+        throw ProblemException(Problem(424, "", "${end.step.orNull() ?: ""}: ${end.reason}"))
+    }
+```
+
 The command's own reply is not kept: a caller that wants both sends the command, then waits. A command the
 workflow refuses is answered with that refusal at once, and no wait begins.
 
@@ -578,7 +614,8 @@ checkoutEnd: get("/{cartId}/checkouts/end", Checkout, (ep: ShoppingCartEndpoint,
 A workflow that has already ended is answered at once, from what was recorded. `WorkflowFailed` is neither
 a refusal of the call nor a fault: the call was answered, and what it waited for failed. In Scala
 `WorkflowEnd.failure(error)` reads its step and reason; in Python they are `error.details["step"]` and
-`["reason"]`, and in TypeScript `error.details.step` and `.reason`. An endpoint answers it with HTTP 424.
+`["reason"]`, in TypeScript `error.details.step` and `.reason`, and in Java and Kotlin the
+`CommandException`'s `workflowFailure()` answers one whose `step()` and `reason()` say the same. An endpoint answers it with HTTP 424.
 
 ### The caller says how long it waits
 
@@ -648,6 +685,15 @@ async def checkout_events(self, cartId: str) -> AsyncIterator[str]:
 checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingCartEndpoint, req) {
   for await (const part of ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEndParts<Checkout>(600_000)) yield awaitPartJson(part)
 }),
+```
+
+**Java**
+
+```java
+@Sse("/checkouts/{id}/end")
+public Flow.Publisher<SseEvent> end(String id) {
+  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
+}
 ```
 
 A gateway in front of the service still bounds the response, as it bounds any stream through it; see

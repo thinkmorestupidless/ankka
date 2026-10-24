@@ -9,7 +9,7 @@ result, fails it, or spends its budget; every iteration is recorded, so a crash 
 one over a request agent or a workflow. This page builds the shopping cart's answerer: an agent that
 answers questions about carts by looking them up, and cites what it looked at.
 
-The examples are in Scala and Python. The TypeScript SDK declares autonomous agents and has the client
+The examples are in Scala, Java, Kotlin and Python. The TypeScript SDK declares autonomous agents and has the client
 operations below — `forAutonomousAgent`, `forTask`, `tasks`, and `notifications()` — with the same
 shapes; its testkit does not yet script one.
 
@@ -74,6 +74,54 @@ ANSWER = TaskType(
 
 The result's dataclass fields are the schema the model sees, as a tool's input fields are. A task type
 with no `result` has a text result.
+
+**Java**
+
+```java
+/** The kinds of work the cart answerer accepts. */
+public final class CartTasks {
+
+  private CartTasks() {}
+
+  /** An answer, and what the agent looked at to reach it. */
+  public record Answer(String answer, List<String> sources) {}
+
+  /**
+   * {@code "answer"} is the wire name, written into every task of this type: renaming the field
+   * changes nothing stored.
+   */
+  public static final TaskType<Answer> ANSWER =
+      Task.named("answer")
+          .describedAs("Answer a question about a shopping cart, citing what you looked at")
+          .resultConformsTo(Answer.class)
+          .rule(
+              "cites-sources",
+              answer ->
+                  answer.sources().isEmpty()
+                      ? RuleResult.rejected("say which tools you used in sources")
+                      : RuleResult.accepted());
+}
+```
+
+The result is a record; its components are the schema the model is shown.
+
+**Kotlin**
+
+```kotlin
+/** An answer, and the pages the agent read to reach it. */
+data class Answer(val answer: String, val sources: List<String>)
+
+/** `"answer"` is the wire name, written into every task of this type. */
+val ANSWER: TaskType<Answer> =
+    Task.named("answer")
+        .describedAs("Answer a question from the guide, citing the pages you read")
+        .resultConformsTo(Answer::class.java)
+        .rule("cites-sources") {
+            if (it.sources.isEmpty()) RuleResult.rejected("say which pages you read in sources") else RuleResult.accepted()
+        }
+```
+
+The result is a data class; its properties are the schema the model is shown.
 
 ## An agent
 
@@ -175,6 +223,88 @@ class CartAnswerer(AutonomousAgent):
 
 Register it with `Ankka.service().register(CartAnswerer)`. The sidecar runs the loop and keeps the
 records, so a projection runtime and session memory are the sidecar's concern, not the process's.
+
+**Java**
+
+```java
+/**
+ * Answers questions about carts, on its own: it is handed a task and works it, iteration by
+ * iteration, until it completes it with an {@code Answer} that cites its sources.
+ *
+ * <p>Its tools read the cart entity through the component client. A tool may run more than once
+ * for one request of the model — after a crash the last recorded request's tools run again — and
+ * these only read, so that costs nothing.
+ */
+@ComponentId("cart-answerer")
+public class CartAnswerer extends AutonomousAgent {
+
+  public static final class CartTools {
+    private final ComponentClient client;
+
+    CartTools(ComponentClient client) {
+      this.client = client;
+    }
+
+    private CartState cart(String cartId) {
+      return client.forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke();
+    }
+
+    @Tool(value = "cart_contents", description = "Lists what is in a cart.")
+    public String contents(@Describe("The id of the cart.") String cartId) {
+      var items = cart(cartId).items();
+      if (items.isEmpty()) return "cart " + cartId + " is empty";
+      return items.stream()
+          .map(i -> i.quantity() + " x " + i.name())
+          .collect(Collectors.joining(", "));
+    }
+
+    @Tool(value = "cart_total", description = "Counts the items in a cart.")
+    public String total(@Describe("The id of the cart.") String cartId) {
+      int total = cart(cartId).items().stream().mapToInt(LineItem::quantity).sum();
+      return "cart " + cartId + " holds " + total + " items";
+    }
+  }
+
+  @Override
+  protected AutonomousDefinition definition() {
+    return AutonomousDefinition.describedAs("Answers questions about shopping carts")
+        .instructions("Look carts up rather than guessing. Be brief.")
+        .guardrails(Guardrail.maxInputLength(2000))
+        .accepts(CartTasks.ANSWER, 5);
+  }
+
+  @Override
+  protected List<Object> tools() {
+    return List.of(new CartTools(componentClient()));
+  }
+}
+```
+
+Register it beside the agents module, `Agents.module()`, which brings the components an autonomous agent needs.
+
+**Kotlin**
+
+```kotlin
+/** The guide's pages, read by a suspending tool. */
+class GuideTools {
+    @Tool("read_page", description = "Reads one page of the guide.")
+    suspend fun readPage(@Describe("The page's name.") page: String): String = "the $page page says: be brief"
+}
+
+/** Answers questions from the guide, on its own, until it completes the task with an [Answer]. */
+@ComponentId("guide")
+class Guide : AutonomousAgent() {
+    override fun definition(): AutonomousDefinition =
+        AutonomousDefinition.describedAs("Answers questions from the guide")
+            .instructions("Read the guide rather than guessing. Be brief.")
+            .guardrails(Guardrail.maxInputLength(2000))
+            .accepts(ANSWER, 5)
+
+    override fun tools(): List<Any> = listOf(GuideTools())
+}
+```
+
+A tool may be a `suspend fun`, and a tool's lone data class parameter's properties are its arguments.
 
 **Tools may run more than once for one request of the model.** Each iteration is recorded as it goes: a
 model response that was recorded is never asked for again, but a tool whose result had not been recorded
@@ -305,6 +435,27 @@ async def read(self, taskId: str) -> Question:
 ```
 
 `await client.for_task(id).wait(ANSWER, timeout)` waits until the task has ended.
+
+**Java**
+
+```java
+/** Starts the work and answers at once, with the task's id. */
+public static String startAnswer(ComponentClient client, String question) {
+  return AgentClients.runSingleTask(client, CartAnswerer.class, CartTasks.ANSWER, question);
+}
+
+/** The task's record once it has ended, its result read as an {@code Answer}. */
+public static TaskSnapshot<CartTasks.Answer> answer(ComponentClient client, String taskId) {
+  return AgentClients.forTask(client, taskId).await(CartTasks.ANSWER, Duration.ofMinutes(1));
+}
+```
+
+**Kotlin**
+
+```kotlin
+val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
+val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
+```
 
 To give an instance several tasks, create them — optionally with attachments and dependencies — and
 assign them to an instance by an id you choose; they are worked one at a time, in order:
@@ -449,4 +600,38 @@ async def test_answerer_pieces_without_a_sidecar() -> None:
     kit = AutonomousAgentTestKit.of(CartAnswerer)
     assert await kit.check_result(ANSWER, Answer("3", [])) == ("cites-sources", "say which tools you used in sources")
     assert await kit.check_result(ANSWER, Answer("3", ["cart_total"])) is None
+```
+
+**Java**
+
+```java
+var model =
+    new TestModelProvider()
+        .expectToolCall("cart_total", "{\"cartId\":\"c-1\"}")
+        .expectCompleteTask(
+            "{\"answer\":\"Cart c-1 holds 3 items.\",\"sources\":[\"cart_total\"]}");
+try (var kit = AnkkaTestKit.start(service(model))) {
+  var client = kit.componentClient();
+  client.forEventSourcedEntity("c-1").call(ShoppingCart::addItem).invoke(new LineItem("p", "Pen", 3));
+
+  var taskId = startAnswer(client, "How many items are in cart c-1?");
+  return answer(client, taskId).result().orElseThrow();
+}
+```
+
+In the whole-service kit the scripted `TestModelProvider` is the agents module's default model, and the task is worked to its end.
+
+**Kotlin**
+
+```kotlin
+val model =
+    TestModelProvider()
+        .expectToolCall("read_page", """{"page":"style"}""")
+        .expectCompleteTask("""{"answer":"Be brief.","sources":["style"]}""")
+AnkkaTestKit.start(guideService(model)).use { kit ->
+    val client = kit.componentClient()
+    val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
+    val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
+    assertEquals(Answer("Be brief.", listOf("style")), done.result().orElseThrow())
+}
 ```

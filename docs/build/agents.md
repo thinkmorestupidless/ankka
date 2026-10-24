@@ -1,8 +1,8 @@
 ---
 title: Agents
-description: Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
+description: Write an agent in Scala, Java, Kotlin, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript]
 components: [agent]
 related: [concepts/agents.md, concepts/designing-agents.md, build/streaming.md, build/multi-agent-orchestration.md, build/testing.md]
 ---
@@ -188,6 +188,132 @@ export class CartAssistant extends Agent {
   }
 }
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CartHelper.java#agent -->
+```java
+/** An agent whose tool reads a cart, one that refunds only once approved, and a guarded handler. */
+@ComponentId("cart-helper")
+public class CartHelper extends Agent {
+
+  /** What the refund tool refunded. */
+  public static final List<String> REFUNDED = new CopyOnWriteArrayList<>();
+
+  public record CartQuery(@Describe("the cart to read") String cartId) {}
+
+  public record Summary(String cartId, int items) {}
+
+  public static final class Tools {
+    private final ComponentClient client;
+
+    Tools(ComponentClient client) {
+      this.client = client;
+    }
+
+    @Tool(value = "cart_items", description = "How many items a cart holds")
+    public int items(CartQuery query) {
+      return client
+          .forEventSourcedEntity(query.cartId())
+          .call(ShoppingCart::getCart)
+          .invoke()
+          .items()
+          .size();
+    }
+
+    @Tool(value = "refund", description = "Refunds a cart", requiresApproval = true)
+    public String refund(CartQuery query) {
+      REFUNDED.add(query.cartId());
+      return "refunded " + query.cartId();
+    }
+  }
+
+  @Command("ask")
+  public AgentEffect<String> ask(String question) {
+    return effects()
+        .systemMessage("You help with carts.")
+        .userMessage(question)
+        .tools(new Tools(componentClient()))
+        .thenReply();
+  }
+
+  @Command("summarise")
+  public AgentEffect<Summary> summarise(String cartId) {
+    return effects().userMessage("Summarise cart " + cartId).thenReply(Summary.class);
+  }
+
+  @Command("short")
+  public AgentEffect<String> shortQuestion(String question) {
+    return effects()
+        .userMessage(question)
+        .guardrails(Guardrail.maxInputLength(10))
+        .thenReply();
+  }
+}
+```
+
+A handler is a method annotated `@Command` with its wire name, answering `AgentEffect<R>`; a tool is a
+method annotated `@Tool` on an object the handler offers, and a lone record parameter's components are
+the tool's arguments. Register the agent beside the agents module, which gives it its default model:
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#registration -->
+```java
+/** The cart, the agent that helps with it and the one that answers questions about it. */
+public static ServiceBuilder service(ModelProvider model) {
+  return Ankka.service("shop")
+      .withModule(Agents.module().withModelProvider(model))
+      .register(ShoppingCart.class)
+      .register(CartHelper.class)
+      .register(CartAnswerer.class);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/Forecaster.kt#agent -->
+```kotlin
+data class Place(@Describe("the city to forecast") val city: String, val days: Int = 1)
+
+/** A tool class whose tool is a suspend fun taking a data class, built by its own constructor. */
+class WeatherTools {
+    @Tool("forecast", description = "The forecast for a city")
+    suspend fun forecast(place: Place): String {
+        delay(1)
+        ASKED.add("${place.city}/${place.days}")
+        return "${place.city}: 21C"
+    }
+
+    companion object {
+        val ASKED: MutableList<String> = CopyOnWriteArrayList()
+    }
+}
+
+/** An agent written as a Kotlin developer writes one: suspend handlers and the effects DSL. */
+@ComponentId("forecaster")
+class Forecaster : Agent() {
+    @Command("ask")
+    suspend fun ask(question: String): AgentEffect<String> {
+        delay(1)
+        return effects {
+            systemMessage("You answer questions about the weather.")
+                .userMessage(question)
+                .tools<WeatherTools>()
+                .thenReply()
+        }
+    }
+
+    @Command("structured")
+    fun structured(question: String): AgentEffect<Forecast> =
+        effects { userMessage(question).thenReply<Forecast>() }
+}
+```
+
+Kotlin uses the Java agent library: a handler and a tool may be a `suspend fun`, `effects { ... }` builds
+the interaction, and `thenReply<R>()` reads a data class.
 
 ///
 
@@ -697,6 +823,29 @@ answer = await client.for_agent("assistant", "session-42").call("ask").invoke("w
 
 ```ts
 const answer = await client.of(CartAssistant, "session-42").call(CartAssistant.handlers.ask).invoke("what is in cart c1?")
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#call-agent -->
+```java
+/** One turn of the session {@code session}: the model's answer, its tools run on the way. */
+public static String ask(ComponentClient client, String session, String question) {
+  return AgentClients.forAgent(client, session).call(CartHelper::ask).invoke(question);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/GuideTest.kt#call-agent -->
+```kotlin
+val reply = runBlocking {
+    kit.componentClient().forAgent("s-1").call(Forecaster::ask).invokeSuspending("How warm is Oslo?")
+}
 ```
 
 ///

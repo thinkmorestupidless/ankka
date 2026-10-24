@@ -24,7 +24,7 @@ import scala.util.control.NonFatal
  * be: going on means running the handler again on the same request, which is safe because building
  * an effect performs no I/O and calls no model.
  */
-private[agent] final case class TurnOrigin(
+private[ankka] final case class TurnOrigin(
     handler: String,
     streaming: Boolean,
     payload: Array[Byte]
@@ -42,7 +42,7 @@ private[agent] final case class TurnOrigin(
  * records the turn in the session as suspended and answers with the approval requests. A decision
  * goes on from there through `resume`.
  */
-private[agent] final class AgentLoop(
+private[ankka] final class AgentLoop(
     descriptor: AgentDescriptor[Agent],
     sessionId: SessionId,
     componentClient: ComponentClient,

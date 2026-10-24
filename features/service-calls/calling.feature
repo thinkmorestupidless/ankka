@@ -17,6 +17,8 @@ Feature: One service calling another as itself, in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario: a route that admits only one service by name refuses the gateway
     Given a deployed service "merchant" in the project "payments" whose route "POST /internal/v1/payments/{id}/capture" admits only "psp-gateway"
@@ -35,6 +37,8 @@ Feature: One service calling another as itself, in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a call to a service that cannot be found fails, naming the service, and is not sent
     Given a deployed service "psp-gateway" in the project "payments" written in "<language>"
@@ -48,6 +52,8 @@ Feature: One service calling another as itself, in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a call is not sent to a workload that is not the service asked for
     Given a deployed service "psp-gateway" in the project "payments" written in "<language>"
@@ -61,6 +67,8 @@ Feature: One service calling another as itself, in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a request that may change something is sent at most once when no answer comes
     Given a deployed service "psp-gateway" in the project "payments"
@@ -90,6 +98,8 @@ Feature: One service calling another as itself, in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario: a call that is not answered within the time its service is set to wait is unanswered
     Given a service "psp-gateway" set to wait "2" seconds for the answer of another service

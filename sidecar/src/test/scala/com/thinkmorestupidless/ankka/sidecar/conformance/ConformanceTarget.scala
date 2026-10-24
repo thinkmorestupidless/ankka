@@ -152,6 +152,9 @@ trait ConformanceTarget:
   /** True for a WebAssembly module, which answers every call whole and so cannot stream. */
   def isModule: Boolean = false
 
+  /** Cases this target's reference cannot run yet, by name, each with the reason it says. */
+  def ranOutside: Map[String, String] = Map.empty
+
   /** What the process was told through `ReportError`; empty in-process. */
   def problems: Vector[String]
 
@@ -370,10 +373,14 @@ object ConformanceTarget:
           sys.props.getOrElse("ankka.conformance.shape", "stateless"),
           model
         )
-      case Some(address) => Sidecar(address, model)
-      case None          => InProcess(model)
-
-  private val reference = ConformanceReference
+      case Some(address) =>
+        if sys.props.get("ankka.conformance.reference").exists(_.trim.nonEmpty) then
+          throw IllegalArgumentException(
+            "ankka.conformance.reference names a reference this JVM hosts; " +
+              s"ankka.conformance.target=$address names one it does not: set one or the other"
+          )
+        Sidecar(address, model)
+      case None => InProcess(EmbeddedReference.fromProperty, model)
 
   /** A declared query's statement in a Scala service's descriptors. */
   private def declaredIn(
@@ -425,12 +432,13 @@ object ConformanceTarget:
       .validate(swapped, Discovery.ProtocolVersion, authConfigured = true)
       .fold(identity, _ => Vector.empty)
 
-  /** The Scala reference service on `AnkkaTestKit`. */
-  final class InProcess(val model: TestModelProvider) extends ConformanceTarget:
+  /** An embedded reference service, the Scala one or one in Java, on `AnkkaTestKit`. */
+  final class InProcess(val reference: EmbeddedReference, val model: TestModelProvider)
+      extends ConformanceTarget:
     private val timers = TimerRuntime(200.millis)
     private val kit    = AnkkaTestKit.start(
       reference.descriptors ++ AgentRuntime.descriptors ++ McpRuntime.descriptors,
-      Seq(
+      reference.extensions ++ Seq(
         ProjectionRuntime
           .withBroker(broker, broker)
           .withDeclaredBroker(ConformanceReference.DeclaredBroker, broker, broker),
@@ -451,7 +459,7 @@ object ConformanceTarget:
       storage = ConformanceTarget.storageBackend,
       settings = ConformanceTarget.installation
     )
-    def name: String           = "in-process"
+    def name: String           = s"in-process, ${reference.language}"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
     def system: ActorSystem[?] = kit.service.system
     def recordedReads: Vector[ReadRecord] = kit.recordedReads
@@ -463,14 +471,8 @@ object ConformanceTarget:
       kit.service.registry.components.map(_.componentId.toString).toSet --
         AgentRuntime.descriptors.map(_.componentId.toString) --
         McpRuntime.descriptors.map(_.componentId.toString)
-    def readOnlyHandlers: Set[(String, String)] =
-      Set(
-        ("shopping-cart", "get-cart"),
-        ("conformance", "count"),
-        ("profile", "get"),
-        ("checkout", "status"),
-        ("replicated-vehicle", "get")
-      )
+    def readOnlyHandlers: Set[(String, String)]  = reference.readOnlyHandlers
+    override def ranOutside: Map[String, String] = reference.ranOutside
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
@@ -503,16 +505,9 @@ object ConformanceTarget:
             case other => throw IllegalStateException(s"contract-relay reads $other")
       }
     def handleBoth(first: Int, second: Int): Vector[Option[Int]] =
-      // In process the handler is the SDK's own class: two instances, two threads, both answered.
+      // In process the handler is the reference's own class: two instances, two threads.
       given ExecutionContext = system.executionContext
-      val answers            = Vector(first, second).map(n =>
-        scala.concurrent.Future {
-          new reference.ContractRelay().onMessage(reference.Fanned(n)) match
-            case com.thinkmorestupidless.ankka.core.effect.ConsumerEffect.Produce(payload, _) =>
-              Some(payload.asInstanceOf[reference.Fanned].n)
-            case _ => None
-        }
-      )
+      val answers = Vector(first, second).map(n => scala.concurrent.Future(reference.relay(n)))
       Await.result(scala.concurrent.Future.sequence(answers), 30.seconds)
     def stop(): Unit =
       try kit.stop()

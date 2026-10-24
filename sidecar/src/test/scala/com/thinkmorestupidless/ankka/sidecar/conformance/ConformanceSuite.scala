@@ -44,6 +44,22 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
         ConformanceTarget.secretManager.fold("postgres")(_ => "secret-manager") +
         ", storage on " + ConformanceTarget.garage.fold("memory")(_ => "garage")
     )
+    // munit prints no skipped case's reason, so the report says once what this target cannot run.
+    target.ranOutside.groupMap(_._2)(_._1).foreach { (why, cases) =>
+      println(s"skipped, ${cases.size} cases: $why: ${cases.toVector.sorted.mkString(", ")}")
+    }
+
+  // A case the target's reference cannot run yet is reported skipped with the reason it names,
+  // never run against another language's components under this one's name.
+  override def munitTestTransforms: List[TestTransform] =
+    super.munitTestTransforms :+ new TestTransform(
+      "ranOutside",
+      t =>
+        t.withBody { () =>
+          target.ranOutside.get(t.name).foreach(why => assume(false, why))
+          t.body()
+        }
+    )
 
   override def afterAll(): Unit =
     if target != null then target.stop()
@@ -167,10 +183,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       "MCP /mcp add_item",
       "MCP /mcp checkout"
     ).foreach { r =>
-      assert(
-        routes.exists(_.replaceAll("\\{[^}]+\\}", "{}") == r.replaceAll("\\{[^}]+\\}", "{}")),
-        s"$r not in $routes"
-      )
+      // A trailing slash is no segment: `/private/` and `/private` match the same requests, and
+      // a reference that declares its paths whole (Java) lists the one without it.
+      def shape(route: String) = route.replaceAll("\\{[^}]+\\}", "{}").stripSuffix("/")
+      assert(routes.exists(shape(_) == shape(r)), s"$r not in $routes")
     }
   }
 
@@ -1941,6 +1957,11 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   // through the reference's `approver` agent and its routes: `ask` answers `{"answered": text}` or
   // `{"awaiting": [{"id", "tool", "arguments"}]}`, and `decide` the same once the turn goes on. The
   // MCP servers are `target.tickets` and `target.guarded`, played on loopback.
+  //
+  // `features/agents/languages.feature`'s rows are these cases, run once per language's reference
+  // (Scala, Java and Kotlin in process; Python and TypeScript as processes): its outlines in order
+  // are `approval.awaits`, `approval.approved-runs-once`, `auto.approval.waits-without-budget`,
+  // `svc.tool-calls-service`, `mcp.tools-offered` and `mcp.result-guardrail-withholds`.
 
   private def onlyWhereApprovals(): Unit =
     assume(!target.isModule, "a module declares no agent that waits for a person")

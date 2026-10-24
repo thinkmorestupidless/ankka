@@ -41,8 +41,20 @@ too, and the template names `telemetry-otlp`, so a project it makes exports when
 platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
 fact rather than a note.
 
+Three more are the **Java SDK** (feature 058): `ankka-java`, `ankka-java-agent`, `ankka-java-testkit`,
+with no `_3` (`crossPaths := false`), published by the same `ci-release` as the twelve. The **Kotlin SDK**
+(`ankka-kotlin`, `-agent`, `-testkit`) is a Gradle build in `sdks/kotlin`, not an sbt module, so it ships
+from the release workflow's own `sdk-kotlin` job after `publish`: it publishes the JVM modules to `~/.m2`
+at the tag's version (`cli/templateArtifacts`), writes the tag into `gradle.properties`' two `0.0.0`
+lines in its checkout, runs `./gradlew check`, signs into `build/staging` with the same PGP key
+(`ORG_GRADLE_PROJECT_signingKey`, the base64 of `PGP_SECRET` decoded) and uploads that directory, zipped,
+through the Central Portal's API exactly as `publish` uploads sbt's bundle. Its guard asks repo1 for
+`ankka-kotlin/<version>.pom`. Locally, `sdks/kotlin/gradlew-this-commit.sh` (`just kotlin`) runs the
+Gradle build against this commit's Java SDK; `publishToMavenLocal -Pversion=<v>` is what the Kotlin
+template suite resolves.
+
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly twelve artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, the twelve and the Java SDK
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval
@@ -311,6 +323,19 @@ templates' pins, which follow the CLI's version, nor the Docker base images, who
 decisions. A Pekko bump merged here is then mirrored across the family (`ankka-brain/family.md`).
 
 ## Traps
+
+- **A Maven or Gradle build of an unreleased version needs every ankka module in `~/.m2`** (2026-10-23).
+  `ankka-java`'s pom names `ankka-core_3`, `ankka-sdk_3`, `ankka-runtime_3` and the rest at compile scope,
+  so `publishM2` of the three Java modules alone leaves a template build that cannot resolve; the
+  template suites and `gradlew-this-commit.sh` publish the aggregate (`cli/templateArtifacts`). A
+  `crossPaths := false` module with `_3` dependencies publishes correctly with no `pomPostProcess`.
+- **The Java and Kotlin templates carry binary files** (2026-10-23): the Maven and Gradle wrappers' jars,
+  and `mvnw` and `gradlew` must stay executable. `Scaffold` reads and writes text, so `index.txt` marks
+  those entries `binary` (copied as they are) or `exec` (made executable); a new binary file in a template needs the same mark, or it is
+  written corrupted and the build fails on the first `./mvnw`.
+- **The Kotlin SDK's release runs after sbt's**, in the release workflow's own job, and cannot be proved
+  before a tag: it signs and uploads `build/staging` through the Central Portal as `publish` does, and its
+  guard asks repo1 for the version's pom.
 
 - **pekko-management pulls `pekko-http` 1.1.0, and eviction lifts only part of the family.**
   `pekko-http` goes to 1.4.0 but `pekko-http-spray-json` stays, and Pekko HTTP checks family

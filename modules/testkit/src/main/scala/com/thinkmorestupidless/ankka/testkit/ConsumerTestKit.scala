@@ -137,6 +137,26 @@ object ConsumerTestKit:
   ): ConsumerTestKit[Src, Out] =
     new ConsumerTestKit(companion.descriptor, client, secrets, services, storage)
 
+  /** A kit for a consumer from its descriptor, for a kit in another language. */
+  private[ankka] def ofDescriptor[Src, Out](
+      descriptor: ConsumerDescriptor[? <: Consumer[Src, Out], Src, Out],
+      client: ComponentClient
+  ): ConsumerTestKit[Src, Out] =
+    new ConsumerTestKit(
+      descriptor,
+      client,
+      InMemorySecretStore(),
+      ScriptedServices(),
+      InMemoryObjectStorage()
+    )
+
+  /** A kit for a graph consumer from its descriptor, for a kit in another language. */
+  private[ankka] def graphOfDescriptor[Src](
+      descriptor: ConsumerDescriptor[? <: Consumer[Src, GraphDelta], Src, GraphDelta],
+      client: ComponentClient
+  ): GraphConsumerTestKit[Src] =
+    new GraphConsumerTestKit(ofDescriptor(descriptor, client))
+
   /** A kit for a graph consumer: what it reads back are the deltas, not messages. */
   def graph[C <: GraphConsumer[Src], Src](
       companion: GraphConsumer.Companion[C, Src],

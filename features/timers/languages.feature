@@ -16,6 +16,8 @@ Feature: Recurring timers in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a recurring timer set again keeps its next due time in every language
     Given a service "catalog" written in "<language>" with a timed action "cleanup"
@@ -30,6 +32,8 @@ Feature: Recurring timers in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a cancelled recurring timer does not fire again in every language
     Given a service "catalog" written in "<language>" with a timed action "cleanup"
@@ -45,6 +49,8 @@ Feature: Recurring timers in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a handler is told the due time of the timer that ran it in every language
     Given a service "catalog" written in "<language>" with a timed action "cleanup"
@@ -60,3 +66,5 @@ Feature: Recurring timers in every language
       | Python     |
       | TypeScript |
       | Rust       |
+      | Java       |
+      | Kotlin     |

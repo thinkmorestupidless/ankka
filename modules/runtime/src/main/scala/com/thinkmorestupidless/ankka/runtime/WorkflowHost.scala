@@ -155,7 +155,8 @@ private[ankka] object WorkflowHost:
       case _             => run.pending.map(_.name)
     StandingRecord(run.status.toString, step.getOrElse(""), run.retries, run.failure.getOrElse(""))
 
-  private def applyEvent[S](empty: Run[S], state: Run[S], event: Event[S]): Run[S] =
+  /** The one fold of a run's events, which the test kit's workflow kit applies too. */
+  private[ankka] def applyEvent[S](empty: Run[S], state: Run[S], event: Event[S]): Run[S] =
     event match
       case Event.StateUpdated(value, _) =>
         state.copy(value = value, deleted = false)

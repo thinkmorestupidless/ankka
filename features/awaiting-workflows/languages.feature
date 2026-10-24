@@ -13,6 +13,8 @@ Feature: Waiting for a workflow in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario Outline: a handler that waits for a workflow that fails is answered with the failure in every language
     Given a service "pricing" written in "<language>" with a workflow "quote" whose step "offer" fails after its retries
@@ -24,6 +26,8 @@ Feature: Waiting for a workflow in every language
       | Scala      |
       | Python     |
       | TypeScript |
+      | Java       |
+      | Kotlin     |
 
   Scenario: a runtime from before waiting refuses a handler's wait, naming the protocol version
     Given a service "pricing" written in "Python" whose handler waits for a workflow's end

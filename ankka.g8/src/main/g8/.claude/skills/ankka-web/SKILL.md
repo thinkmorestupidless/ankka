@@ -39,7 +39,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/http-endpoints.md` — Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
+- `references/build/http-endpoints.md` — Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Java, Kotlin, Python or TypeScript.
 
 ### Run and deploy
 

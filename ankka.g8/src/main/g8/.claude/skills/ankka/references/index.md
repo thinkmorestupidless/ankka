@@ -11,24 +11,24 @@ orchestration, timers, HTTP and the agent loop are the platform's problem, not y
 
 ankka is for developers who build services that hold state, react to change, run long processes and
 talk to language models, and who want to deploy and operate them without assembling that machinery
-themselves. A service is written in Scala, in Python or TypeScript with the runtime running beside it as a
-sidecar, or in Rust built to a WebAssembly module the runtime loads, and is deployed to a Kubernetes cluster
+themselves. A service is written in Scala, Java or Kotlin in the runtime's own JVM, in Python or TypeScript with
+the runtime running beside it as a sidecar, or in Rust built to a WebAssembly module the runtime loads, and is deployed to a Kubernetes cluster
 with the `ankka` command-line tool.
 
 ## What a service is made of
 
 A service is a set of components, registered explicitly and hosted by the runtime:
 
-| Component | What it is for | Scala | Python | TypeScript | Rust |
-|---|---|---|---|---|---|
-| Event sourced entity | State derived by replaying the events it persisted | yes | yes | yes | yes |
-| Key value entity | The latest value only, with no history | yes | yes | yes | yes |
-| View | A queryable projection of another component's changes | yes | yes | yes | yes |
-| Consumer | Reacting to changes, and optionally publishing onward | yes | yes | yes | yes |
-| Workflow | A durable multi-step process that survives restarts | yes | yes | yes | yes |
-| Timed action | A call the runtime makes later, on your behalf | yes | yes | yes | yes |
-| Agent | A task carried out by talking to a model, with tools and memory | yes | yes | yes | yes |
-| HTTP endpoint | The service's edge: routes, access control, request handling | yes | yes | yes | yes |
+| Component | What it is for | Scala | Java | Kotlin | Python | TypeScript | Rust |
+|---|---|---|---|---|---|---|---|
+| Event sourced entity | State derived by replaying the events it persisted | yes | yes | yes | yes | yes | yes |
+| Key value entity | The latest value only, with no history | yes | yes | yes | yes | yes | yes |
+| View | A queryable projection of another component's changes | yes | yes | yes | yes | yes | yes |
+| Consumer | Reacting to changes, and optionally publishing onward | yes | yes | yes | yes | yes | yes |
+| Workflow | A durable multi-step process that survives restarts | yes | yes | yes | yes | yes | yes |
+| Timed action | A call the runtime makes later, on your behalf | yes | yes | yes | yes | yes | yes |
+| Agent | A task carried out by talking to a model, with tools and memory | yes | not yet | not yet | yes | yes | yes |
+| HTTP endpoint | The service's edge: routes, access control, request handling | yes | yes | yes | yes | yes | yes |
 
 ![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](assets/diagrams/components.svg)
 
@@ -155,6 +155,133 @@ impl EventSourcedEntity for ShoppingCart {
 }
 ```
 
+**Java**
+
+```java
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
+
+  @Override
+  protected Cart emptyState() {
+    return Cart.empty(context().entityId());
+  }
+
+  @Command("add-item")
+  public Effect<Done> addItem(LineItem item) {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (item.quantity() <= 0)
+      return effects().error("quantity must be greater than zero, was " + item.quantity());
+    return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+  }
+
+  @Command("remove-item")
+  public Effect<Done> removeItem(String productId) {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (!currentState().contains(productId))
+      return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+    return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+  }
+
+  @Command("checkout")
+  public Effect<Cart> checkout() {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (currentState().isEmpty()) return effects().error("cannot check out an empty cart");
+    return effects().persist(new CartEvent.CheckedOut()).thenReplyState();
+  }
+
+  @Command("discard")
+  public Effect<Done> discard() {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    return effects().persist(new CartEvent.Discarded()).thenDelete().thenDone();
+  }
+
+  @Query("get-cart")
+  public ReadOnlyEffect<Cart> getCart() {
+    return effects().reply(currentState());
+  }
+
+  @Query("total-quantity")
+  public ReadOnlyEffect<Integer> totalQuantity() {
+    return effects().reply(currentState().totalQuantity());
+  }
+
+  @Override
+  protected Cart applyEvent(Cart state, CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded added -> state.addItem(added.item());
+      case CartEvent.ItemRemoved removed -> state.removeItem(removed.productId());
+      case CartEvent.CheckedOut ignored -> state.onCheckedOut();
+      case CartEvent.Discarded ignored -> state;
+    };
+  }
+
+  private static Problem checkedOut() {
+    return Problem.conflict("cart is already checked out");
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
+    override fun emptyState() = Cart.empty(context().entityId())
+
+    // A suspend fun, as any handler may be: it waits without holding a thread.
+    @Command("add-item")
+    suspend fun addItem(item: LineItem): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            item.quantity <= 0 -> error("quantity must be greater than zero, was \${item.quantity}")
+            else -> persist(CartEvent.ItemAdded(item)).thenDone()
+        }
+    }
+
+    @Command("remove-item")
+    fun removeItem(productId: String): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            !currentState().contains(productId) -> error(Problem.notFound("cart does not contain '\$productId'"))
+            else -> persist(CartEvent.ItemRemoved(productId)).thenDone()
+        }
+    }
+
+    @Command("checkout")
+    fun checkout(): Effect<Cart> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            currentState().items.isEmpty() -> error("cannot check out an empty cart")
+            else -> persist(CartEvent.CheckedOut).thenReplyState()
+        }
+    }
+
+    @Command("discard")
+    fun discard(): Effect<Done> = effects {
+        if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
+    }
+
+    @Query("get-cart")
+    fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }
+
+    @Query("total-quantity")
+    fun totalQuantity(): ReadOnlyEffect<Int> = effects { reply(currentState().totalQuantity) }
+
+    override fun applyEvent(state: Cart, event: CartEvent): Cart =
+        when (event) {
+            is CartEvent.ItemAdded -> state.addItem(event.item)
+            is CartEvent.ItemRemoved -> state.removeItem(event.productId)
+            CartEvent.CheckedOut -> state.copy(checkedOut = true)
+            CartEvent.Discarded -> state
+        }
+
+    private val checkedOut: Problem
+        get() = Problem.conflict("cart is already checked out")
+}
+```
+
 The runtime interprets the effect: it writes the event to the journal, applies it to the state and
 replies. Because building an effect does nothing, a component's decisions can be tested with nothing
 running. [Effects are data](concepts/effects.md) explains the idea in full.
@@ -163,6 +290,8 @@ running. [Effects are data](concepts/effects.md) explains the idea in full.
 
 - **New to ankka.** [Install the tools](get-started/install.md), then build
   [your first service in Scala](get-started/first-service-scala.md),
+  [in Java](get-started/first-service-java.md),
+  [in Kotlin](get-started/first-service-kotlin.md),
   [in Python](get-started/first-service-python.md),
   [in TypeScript](get-started/first-service-typescript.md) or
   [in Rust](get-started/first-service-rust.md), and

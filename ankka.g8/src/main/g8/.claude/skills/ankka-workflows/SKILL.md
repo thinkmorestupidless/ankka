@@ -1,6 +1,6 @@
 ---
 name: ankka-workflows
-description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, a recurring timer, TimerScheduler, a timed action, a deadline such as "cancel after thirty minutes", or waiting for a workflow's end (awaitEnd, thenAwaitEnd, await_end).
+description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Java, Kotlin, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, a recurring timer, TimerScheduler, a timed action, a deadline such as "cancel after thirty minutes", or waiting for a workflow's end (awaitEnd, thenAwaitEnd, await_end).
 ---
 
 # ankka workflows and timers
@@ -101,6 +101,33 @@ panics is retried and failed over; a step runs on an instance of the module of i
 `Actions::new().action(name, f)`; timers are `ctx.client().schedule(id, Duration::of_seconds(n), Component,
 None, "name", input)` and `cancel(id)`. `WorkflowTestKit` and `TimedActionTestKit` run them natively.
 
+## Java differences
+
+A workflow extends `Workflow<S>` with `@ComponentId`. Commands are `@Command("start")` methods returning
+`effects().updateState(s).transitionTo(Checkout::reserve).thenReply(r)`; steps are `@Step("reserve")`
+methods, one parameter or none, returning `stepEffects().updateState(s).thenTransitionTo(Checkout::charge)`,
+`.thenPause(d, Checkout::charge)` (that step at `d`), `.thenPause()`,
+`.thenEnd()` or `.thenFail(msg)`. Steps are named by method reference, never by a lambda, and the
+`@Step` string is the name the journal records. `settings()` returns `WorkflowSettings.builder()
+.defaultStepTimeout(d).stepRecovery(Checkout::charge, RecoverStrategy.maxRetries(1)
+.failoverTo(Checkout::compensate)).build()`. A step that throws is retried and failed over; a step blocks
+on `context().componentClient()` freely, on a virtual thread. Callers use
+`componentClient().forWorkflow(id).call(Checkout::start).invoke(input)` and wait with
+`awaitEnd(Checkout.class, timeout)`. A timed action extends `TimedAction` with `@Action("remind")`
+methods returning `effects().done()`; `timers().schedule(name, delay, Reminder::remind, input)`,
+`cancel(name)` and `exists(name)` from an endpoint or a timed action's `context()`.
+`WorkflowTestKit.of(Checkout.class)` (`call`, `timeOut()`, `state()`, `lifecycle()`, `failedStep()`) runs
+a workflow with no runtime; `AnkkaTestKit`'s `timerRuns()` shows what fired.
+
+## Kotlin differences
+
+The Java classes, with `effects { }` and `stepEffects { }` blocks and the infix forms
+`updateState(s) thenTransitionTo Checkout::ship` and `effects { updateState(s).transitionTo(Checkout::reserve)
+.thenDone() }`. A step may be a `suspend fun`: it waits on `invokeSuspending()` holding no thread, and is
+named through the Kotlin overloads (`stepRef(Checkout::charge)`, or the DSL's `transitionTo` and
+`thenTransitionTo`), which hand the SDK what a Java method reference would. Stay on the step's own thread:
+switching dispatcher loses the call's context. Test with `workflowTestKit(Checkout::class)`.
+
 ## Testing
 
 Scala workflows and timers are tested through `AnkkaTestKit`, because transitions, recovery, timeouts and
@@ -139,11 +166,11 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/workflows.md` — Build a durable multi-step process in Scala or Python — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 - `references/build/timers.md` — Schedule a call for later with a timed action, cancel or replace it by name, and handle retries — timers are stored in the database and outlive the process that set them.
 - `references/build/secrets.md` — Keep a credential a person gives your service in its secret store — its own database, encrypted, or Google Secret Manager; never a journal or a view — read it back by name, and find every read afterwards.
 - `references/build/object-storage.md` — Keep photos, documents and exports in a service's buckets — put, get, list, stat and delete by name, sign a URL a browser uploads or downloads with, give a public address, and run the same code with no object store.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
-- `references/build/calling-services.md` — Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python, TypeScript or Rust — so that service's access rules can admit yours by name.
+- `references/build/calling-services.md` — Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in any of the six languages — so that service's access rules can admit yours by name.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+- `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.

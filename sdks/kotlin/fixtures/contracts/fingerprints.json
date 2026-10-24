@@ -1,0 +1,8 @@
+[
+  {"name": "empty.v1", "schema": {}, "fingerprint": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"},
+  {"name": "order.v1", "schema": {"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"id":{"type":"string"},"total":{"type":"number"}},"required":["id","total"],"type":"object"}, "fingerprint": "sha256:79f2b2961c07b4565ebcf05e35163318c7cdcca7f70d1de60d8118e8562c17e0"},
+  {"name": "nested.v1", "schema": {"properties":{"lines":{"items":{"properties":{"qty":{"minimum":1,"type":"integer"},"sku":{"type":"string"}},"type":"object"},"type":"array"}},"type":"object"}, "fingerprint": "sha256:fa2aeadcb430141df34655825a39eaaca98c7d1a48d63e04b615335b74baeebb"},
+  {"name": "numbers.v1", "schema": {"examples":[0,0,1,-1.5,4.5,1e+21,1e+30,0.002,1e-7,123456789012345680000,333333333.3333333]}, "fingerprint": "sha256:ed87d363fbc7f35a64d6fca90658c3afaae3067e2c766bc1ffedd876b6f360d8"},
+  {"name": "unicode.v1", "schema": {"Z":3,"a":2,"control":"\u0001\t\n\"\\","title":"Händler €","ä":1}, "fingerprint": "sha256:b79eb6c09da77ef0029fdd9aa97ca5cc4dad11e8584bf768279bc7e886816bb9"},
+  {"name": "deep.v1", "schema": {"a":{"b":{"c":{"d":{"e":[[[]],{}]}}}}}, "fingerprint": "sha256:6eac95e6924111e2b1e8fd4226ee1ca687316ccc3c566f7ce78e464b30b44a5f"}
+]

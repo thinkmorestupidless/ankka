@@ -92,6 +92,15 @@ final class TestTransport private (
       askTimeout
     )
 
+  /**
+   * Stubs a handler by its component and wire name, in bytes: the form a test kit for another
+   * language stubs through, having encoded with the handler's own serializers.
+   */
+  private[ankka] def stubBytes(componentId: ComponentId, method: MethodName)(
+      respond: Array[Byte] => Array[Byte]
+  ): TestTransport =
+    new TestTransport(stubs.updated((componentId, method), respond), askTimeout)
+
   def withAskTimeout(timeout: FiniteDuration): TestTransport =
     new TestTransport(stubs, timeout)
 

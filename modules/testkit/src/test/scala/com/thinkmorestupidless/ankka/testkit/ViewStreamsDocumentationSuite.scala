@@ -44,7 +44,7 @@ class ViewStreamsDocumentationSuite extends munit.FunSuite:
     // In each language that has them.
     for heading <- Seq("## Streaming a query", "## Watching a query") do
       val text = section("build/views.md", heading)
-      for language <- Seq("Scala", "Python", "TypeScript") do
+      for language <- Seq("Scala", "Java", "Kotlin", "Python", "TypeScript") do
         assert(text.contains(s"/// tab | $language"), s"$heading has no $language tab")
   }
 

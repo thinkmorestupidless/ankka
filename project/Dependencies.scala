@@ -155,10 +155,12 @@ object Dependencies {
   val openaiJava    = "com.openai"    % "openai-java"    % V.openai
 
   // ── Misc ─────────────────────────────────────────────────────────────────
-  val logback             = "ch.qos.logback" % "logback-classic"      % V.logback
-  val munit               = "org.scalameta" %% "munit"                % V.munit
-  val gherkin             = "io.cucumber"    % "gherkin"              % V.gherkin
-  val cucumberExpressions = "io.cucumber"    % "cucumber-expressions" % V.cucumberExpressions
+  val logback = "ch.qos.logback" % "logback-classic" % V.logback
+  val munit   = "org.scalameta" %% "munit"           % V.munit
+  // Nullness annotations on the Java SDK's surface (feature 058), so Kotlin sees non-null types.
+  val jspecify            = "org.jspecify" % "jspecify"             % "1.0.0"
+  val gherkin             = "io.cucumber"  % "gherkin"              % V.gherkin
+  val cucumberExpressions = "io.cucumber"  % "cucumber-expressions" % V.cucumberExpressions
   val testcontainersPg    = "org.testcontainers" % "testcontainers-postgresql" % V.testcontainers
   val testcontainersKafka = "org.testcontainers" % "testcontainers-kafka"      % V.testcontainers
   val testcontainersK3s   = "org.testcontainers" % "testcontainers-k3s"        % V.testcontainers

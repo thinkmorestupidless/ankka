@@ -78,7 +78,7 @@ need a `Serializer` in scope; `Codecs.serializer[A]("manifest")` derives a JSON 
 | Effects | `effects.persist(e, more*)`, `persistAll(events)`, `deleteEntity()`, then `.thenReply(s => r)`, `.thenReplyState`, `.thenNoReply`, `.deleteEntity()`, `.expireAfter(d)`; `effects.reply(r)`, `effects.error(msg, code)`, `effects.noReply` |
 | Types | A command returns `Effect[R]`; a query returns `ReadOnlyEffect[R]` |
 | Snapshots | `snapshotEvery: Option[Int]`, `Some(100)` by default |
-| Replication | `override def replicated = true` on the companion; effects `effects.handOverTo(installation)`, `.replicateTo(installation)`, `.stopReplicatingTo(installation)`, alone or after `persist`; `commandContext.installation`, `commandContext.isHome`; `eventContext` (`installation`, `isLocal`, `sequence`) in `applyEvent` |
+| Replication | `override def replicated = true` on the companion; effects `effects.handOverTo(installation)`, `.replicateTo(installation)`, `.stopReplicatingTo(installation)`, alone or after `persist`; `commandContext.installation`, `commandContext.isHome`; `eventContext` (`installation`, `isLocal`, `sequenceNumber`) in `applyEvent` |
 | Calls | `forEventSourcedEntity(id).replication(Companion)`, a copy's `ReplicationStatus`; `.awaitHandover(Companion, installation, timeout)` |
 
 See [Event sourced entities](../build/event-sourced-entities.md) and
@@ -214,6 +214,7 @@ the same handler with the same period keeps its next due time. See [Timers](../b
 | Memory | `MemoryProvider.none`, `MemoryProvider.limitedWindow`, `.readLast(n)`, `.readOnly`, `.writeOnly`, `.filtered(MemoryFilter…)` |
 | Runtime | `AgentRuntime.withDefaultModel(provider)`, `.withCompaction(CompactionSettings(…))`, `.descriptors` |
 | Calling | `componentClient.forAgent(SessionId(id)).call(Companion.handler).invoke(input)`, `.stream(Companion.handler)(input)`; `.ask(Companion.handler).invoke(input)` → `AgentOutcome.Answered(value)` or `AgentOutcome.AwaitingApproval(requests)`; `.decide(Companion.handler)(Decision.approved(id, by) \| Decision.refused(id, by, note))`; `.streamParts(Companion.handler)(input)`; `call` and `stream` throw `ApprovalAwaited` |
+| Testing a turn | `AgentTestKit.of(Companion, model, sessionId, judgments, others, secrets, services)`, every argument after the model optional: `call(Companion.handler)(input)` runs one turn with no runtime and answers an `AgentResult` (`reply`, `isError`, `error`, `awaiting`, `messages`); `history` is the session after it |
 | Testing MCP | `TestMcpServer().tool(name, description)(args => text)`, `.url`, `.calls`, `.requireHeader(…)`, `.failNext(…)`; `AgentRuntime.withVariables(map.get)` |
 | Models | `AnthropicProvider.fromEnv(model)`, `OpenAiProvider.fromEnv(model)` (in `agent.openai`), `.withApiKey(key)`, `.at(name, address, model, key)`, `ModelProviders.named(name, protocol, url, model, key, preset)` (in `agent.providers`), `TestModelProvider(model, name)`, `ModelStandIn.start()` for a provider's own tests |
 
@@ -315,6 +316,9 @@ val service = Ankka.service
 | `EventSourcedTestKit.of(Companion, id)` | One event sourced entity, no runtime. `call(handler)(input)` returns the events, reply or error. |
 | `EventSourcedTestKit.of(Companion, id, mode = Mode.Follower(home), installation = name)` | A replicated entity's copy as its home (`Mode.Home`) or a follower; `replay(events*)` with a `given WrittenAt` gives a follower its history. |
 | `KeyValueEntityTestKit.of(Companion, id)` | One key value entity, no runtime. |
+| `WorkflowTestKit.of(Companion, id, client)` | One workflow, no runtime and no timer. `call(handler)(input)` runs the command, then each step it moves to until the workflow pauses, ends or fails, retrying and failing over as its settings say; the `StepResult` has the reply, the `steps` run, the `state` and the `lifecycle`, and a pause's timeout as `pauseTimeout`, which fires only on `timeOut()`. |
+| `ViewTestKit(Companion, client)` | One view, no runtime. `change(subject, value)` hands its handler the subject's row and keeps the row it writes; `deleted(subject)`; `rows` and `row(subject)`. The declared queries are checked as a start checks them. |
+| `KeyedViewTestKit(Companion, client)` | One keyed view, no runtime. `change(source, subject, value)` and `deleted(source, subject)`; `answering(query)(values => rows)` says what a declared query a handler asks answers, and one nobody answered fails the change. |
 | `ConsumerTestKit.of(Companion, client)` | One consumer, no runtime. `onMessage(message, subject, sequenceNumber)` and `onDelete(subject, sequenceNumber)` return the effect and the `messages` it publishes: `payload`, the record `key` a broker is given, `metadata`, `text`. |
 | `ConsumerTestKit.graph(Companion, client)` | One graph consumer, no runtime. The same two calls return the `GraphDelta`s published, read back from their bytes; `records` gives the same consumer as messages. |
 | `TestTransport` | A `ComponentClient` whose calls are stubbed, for testing a component that calls others. |

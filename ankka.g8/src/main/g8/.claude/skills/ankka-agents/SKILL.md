@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, model providers, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails, TestJudgmentProvider), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM, Claude or OpenAI, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
+description: Design, write, change or test an ankka agent in Scala, Java, Kotlin, Python, TypeScript or Rust — the effect for one model interaction (messages, withContext, tools, guardrails, memory, model), FunctionTool design, sessions, MemoryProvider and compaction, thenReplyAs, streaming over SSE, model providers, TestModelProvider scripts, judgments (typed questions answered by a System One model such as Jev, judged guardrails), agents coordinated from a workflow, autonomous agents (tasks with typed results, rules and budgets, instances, notifications, at-least-once tools), and blueprints (workers and steps as data the platform runs, every pattern, runs, schedules, following runs). Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM, Claude or OpenAI, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming, an autonomous agent, a task, a background job for a model, a blueprint, fan-out, map-reduce or critique, a scheduled run, or reasoning.
 ---
 
 # ankka agents
@@ -131,6 +131,46 @@ notifications, and `wait` has no clock to sleep on, so it suits only a task that
 `AutonomousAgentTestKit::<C>::new(task_id)` runs `run_tool`, `check_rule` and `check_guardrail`, with no
 loop.
 
+## Java differences
+
+Agents live in `ankka-java-agent` (package `com.thinkmorestupidless.ankka.agent.javasdk`) and run in the
+service's own JVM, as Scala's do.
+
+- **The module is required.** `Ankka.service(...).withModule(Agents.module().withModelProvider(p))`; an
+  agent registered without it is refused at start, naming the module. Judgments (`withJudgments`),
+  compaction (`withCompaction`) and blueprints (`withBlueprints(context -> registry)`) are configured on
+  the same module.
+- **Handlers are annotated methods.** `@Command("wire-name")` answering `AgentEffect<R>`, `@Stream`
+  answering `StreamEffect`; `effects()` builds the turn and `thenReply(Type.class)` reads a structured
+  reply as a record. MCP servers, the role and result guardrails are `settings()`.
+- **Tools are annotated methods on an object.** `@Tool(value, description)`, with `requiresApproval = true`
+  and `approvalWithin = "PT10M"`; a lone record parameter's components are the arguments, each described
+  with `@Describe`. A tool runs after the handler has returned, so give a tool object the clients it needs
+  when you build it.
+- **Calls are static on `AgentClients`.** `forAgent(client, session).call(Agent::handler).invoke(input)`,
+  `.ask(...)` for an outcome that may await approval, `.decide(handler, Decision.approved(id, by))`;
+  `runSingleTask`, `tasks`, `forTask`, `forAutonomousAgent`, `blueprints` and `runs` likewise.
+- **Autonomous agents** extend `AutonomousAgent` with `definition()` and `tools()`; a task type's result
+  is a record, and a rule is a function answering `RuleResult.accepted()` or `RuleResult.rejected(reason)`.
+- **Models** are `ModelProviders.anthropic(model)`, `openAi(model)`, `preset(...)`, `at(...)` and
+  `installation(model)`.
+- **Testing:** `AgentTestKit.of(Agent.class, new TestModelProvider()...)` runs one turn with no runtime,
+  a `TestClient` answering the tools' calls; the whole-service `AnkkaTestKit` with the scripted model as
+  the module's default runs an autonomous agent's task to its end. There is no scripted judgment provider.
+
+## Kotlin differences
+
+Kotlin uses the Java agent library, with `ankka-kotlin-agent`'s extensions:
+
+- A handler and a tool may be `suspend fun`s; `effects { ... }` builds the turn, `thenReply<R>()` reads a
+  data class, `tools<T>()` offers a class's tools.
+- A tool's lone data class parameter's properties are its arguments, described with `@Describe` on the
+  constructor parameter; a task type's result is a data class.
+- `componentClient().forAgent(session).call(Agent::handler).invokeSuspending(input)`;
+  `agentRef(Agent::handler)` and `streamRef(...)` name a handler wherever the Java API takes a reference;
+  `streamFlow` and `AutonomousRef.notificationsFlow()` are `Flow`s.
+- Tests use the Java SDK's `AgentTestKit` and `TestModelProvider`.
+
 ## Testing
 
 Script the model with `TestModelProvider` (`expectText`, `expectToolCall`, `expectParallelToolCalls`,
@@ -164,8 +204,8 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/workflows.md` — Build a durable multi-step process in Scala or Python — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
-- `references/build/agents.md` — Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
+- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+- `references/build/agents.md` — Write an agent in Scala, Java, Kotlin, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 - `references/build/judgments.md` — Ask a System One model typed questions about a state — a choice, a score, a yes or no — read typed answers with their probabilities, guard agents with them, and test them offline.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
@@ -173,7 +213,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/build/blueprints.md` — Describe workers and the steps between them as data the platform runs — ask, work, for-each, gather, judge, critique and call steps — register it, start runs by hand or on a schedule, follow them, and test with a scripted model.
 - `references/build/mcp-servers.md` — Offer an agent the tools of MCP servers beside its own — where each server is, the credential it is sent, approval for a whole server, result guardrails that check what a server answers — and test it against a scripted server.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
+- `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy
 

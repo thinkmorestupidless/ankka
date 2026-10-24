@@ -17,6 +17,8 @@ Feature: The documentation of autonomous agents
       | language |
       | Scala    |
       | Python   |
+      | Java     |
+      | Kotlin   |
 
   Scenario: the documentation says what autonomous agents do not do
     Given the published documentation

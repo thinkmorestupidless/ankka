@@ -1632,3 +1632,27 @@ object ConformanceReference:
     clients => AutonomousEndpoint(clients),
     clients => McpKeysEndpoint(clients)
   )
+
+  /** This reference, as the in-process target hosts it. */
+  val Embedded: EmbeddedReference = new EmbeddedReference:
+    def language: String                      = "Scala"
+    def descriptors: Seq[ComponentDescriptor] = ConformanceReference.descriptors
+    def endpoints(
+        timers: () => TimerScheduler,
+        problems: () => Vector[String]
+    ): Seq[EndpointClients => HttpEndpoint] = ConformanceReference.endpoints(timers, problems)
+    def mcpEndpoints(authenticated: Acl): Seq[EndpointClients => HttpEndpoint] =
+      ConformanceReference.mcpEndpoints(authenticated)
+    def readOnlyHandlers: Set[(String, String)] =
+      Set(
+        ("shopping-cart", "get-cart"),
+        ("conformance", "count"),
+        ("profile", "get"),
+        ("checkout", "status"),
+        ("replicated-vehicle", "get")
+      )
+    def relay(n: Int): Option[Int] =
+      ContractRelay().onMessage(Fanned(n)) match
+        case com.thinkmorestupidless.ankka.core.effect.ConsumerEffect.Produce(payload, _) =>
+          Some(payload.asInstanceOf[Fanned].n)
+        case _ => None

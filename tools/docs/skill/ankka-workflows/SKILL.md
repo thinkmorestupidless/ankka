@@ -1,6 +1,6 @@
 ---
 name: ankka-workflows
-description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, a recurring timer, TimerScheduler, a timed action, a deadline such as "cancel after thirty minutes", or waiting for a workflow's end (awaitEnd, thenAwaitEnd, await_end).
+description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Java, Kotlin, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, a recurring timer, TimerScheduler, a timed action, a deadline such as "cancel after thirty minutes", or waiting for a workflow's end (awaitEnd, thenAwaitEnd, await_end).
 pages:
   - build/calling-services.md
   - build/workflows.md
@@ -111,6 +111,33 @@ panics is retried and failed over; a step runs on an instance of the module of i
 `ctx.client()` there is fine. A timed action implements `TimedAction` with
 `Actions::new().action(name, f)`; timers are `ctx.client().schedule(id, Duration::of_seconds(n), Component,
 None, "name", input)` and `cancel(id)`. `WorkflowTestKit` and `TimedActionTestKit` run them natively.
+
+## Java differences
+
+A workflow extends `Workflow<S>` with `@ComponentId`. Commands are `@Command("start")` methods returning
+`effects().updateState(s).transitionTo(Checkout::reserve).thenReply(r)`; steps are `@Step("reserve")`
+methods, one parameter or none, returning `stepEffects().updateState(s).thenTransitionTo(Checkout::charge)`,
+`.thenPause(d, Checkout::charge)` (that step at `d`), `.thenPause()`,
+`.thenEnd()` or `.thenFail(msg)`. Steps are named by method reference, never by a lambda, and the
+`@Step` string is the name the journal records. `settings()` returns `WorkflowSettings.builder()
+.defaultStepTimeout(d).stepRecovery(Checkout::charge, RecoverStrategy.maxRetries(1)
+.failoverTo(Checkout::compensate)).build()`. A step that throws is retried and failed over; a step blocks
+on `context().componentClient()` freely, on a virtual thread. Callers use
+`componentClient().forWorkflow(id).call(Checkout::start).invoke(input)` and wait with
+`awaitEnd(Checkout.class, timeout)`. A timed action extends `TimedAction` with `@Action("remind")`
+methods returning `effects().done()`; `timers().schedule(name, delay, Reminder::remind, input)`,
+`cancel(name)` and `exists(name)` from an endpoint or a timed action's `context()`.
+`WorkflowTestKit.of(Checkout.class)` (`call`, `timeOut()`, `state()`, `lifecycle()`, `failedStep()`) runs
+a workflow with no runtime; `AnkkaTestKit`'s `timerRuns()` shows what fired.
+
+## Kotlin differences
+
+The Java classes, with `effects { }` and `stepEffects { }` blocks and the infix forms
+`updateState(s) thenTransitionTo Checkout::ship` and `effects { updateState(s).transitionTo(Checkout::reserve)
+.thenDone() }`. A step may be a `suspend fun`: it waits on `invokeSuspending()` holding no thread, and is
+named through the Kotlin overloads (`stepRef(Checkout::charge)`, or the DSL's `transitionTo` and
+`thenTransitionTo`), which hand the SDK what a Java method reference would. Stay on the step's own thread:
+switching dispatcher loses the call's context. Test with `workflowTestKit(Checkout::class)`.
 
 ## Testing
 

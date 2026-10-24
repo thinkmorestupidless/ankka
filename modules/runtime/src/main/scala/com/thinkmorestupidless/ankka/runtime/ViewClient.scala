@@ -37,6 +37,9 @@ final class ViewClient private[ankka] (
     watching = true
     ViewWatches(database, askTimeout)
 
+  /** The system the queries run on, for a facade that materialises their streams itself. */
+  private[ankka] def actorSystem: ActorSystem[?] = system
+
   /** The instance's watches, for a view read by its id rather than its companion: a sidecar's. */
   private[ankka] def watchRegistry: () => ViewWatches = () => watches
 

@@ -54,6 +54,15 @@ refusing to deploy: this cluster accepted a NetworkPolicy and did not enforce it
 network that does (kind 0.24 or later does; see docs/platform/install-local.md).
 ```
 
+On kind, a cluster that passed this probe before can fail it later: kind's network, kindnet, stops
+enforcing new policies once its informers have died of API timeouts, which the load of a first install
+can cause. The script restarts kindnet once and probes again before it refuses; by hand, that is
+`kubectl -n kube-system rollout restart daemonset/kindnet`.
+
+A first run also pulls every image the platform's databases, broker and identity provider need, so its
+waits are long, up to ten minutes for a database. If a wait still runs out, run the script again once the
+cluster has caught up: every step is idempotent.
+
 ## Deploy the platform
 
 ```bash

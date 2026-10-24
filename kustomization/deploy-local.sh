@@ -73,6 +73,17 @@ fi
 source kustomization/netpol-probe.sh
 probe_status=0
 netpol_enforced || probe_status=$?
+if [[ $probe_status -eq 1 ]] && kubectl -n kube-system get daemonset kindnet >/dev/null 2>&1; then
+  # kind's network, kindnet, stops enforcing new policies when its informers die of API timeouts,
+  # which the load of a first install (image loads, CNPG, Keycloak, Strimzi starting at once) can
+  # cause: every policy from then on is stored and never applied, on a cluster that passed this
+  # probe before. Restarting it heals that within seconds, so the probe is given one more go.
+  echo "the cluster accepted a NetworkPolicy and did not enforce it; restarting kindnet once and probing again" >&2
+  kubectl -n kube-system rollout restart daemonset/kindnet
+  kubectl -n kube-system rollout status daemonset/kindnet --timeout=120s
+  probe_status=0
+  netpol_enforced || probe_status=$?
+fi
 if [[ $probe_status -eq 1 ]]; then
   echo "refusing to deploy: this cluster accepted a NetworkPolicy and did not enforce it; ankka needs a" >&2
   echo "network that does (kind 0.24 or later does; see docs/platform/install-local.md)." >&2
@@ -96,6 +107,40 @@ echo "==> installing CloudNativePG"
 # client-side apply here fails with "metadata.annotations: Too long" on the largest CRDs.
 kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 kubectl -n cnpg-system rollout status deployment/cnpg-controller-manager --timeout=90s
+# Rolled out is not yet serving: the controller's webhook answers a moment after its pod is ready,
+# and an overlay applied in between fails with `failed calling webhook "mcluster.cnpg.io" ...
+# connection refused`. A server-side dry run of a Cluster goes through that webhook and persists
+# nothing; any answer from the webhook, a refusal included, means it serves.
+echo "==> waiting for CloudNativePG's webhook to serve"
+cnpg_webhook_answers() {
+  local out
+  out="$(kubectl apply --dry-run=server -f - 2>&1 <<'CLUSTER'
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: webhook-probe
+  namespace: cnpg-system
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+CLUSTER
+)" && return 0
+  if [[ "$out" == *"failed calling webhook"* ]]; then
+    return 1
+  fi
+  echo "$out" >&2
+  return 0
+}
+tries=0
+until cnpg_webhook_answers; do
+  tries=$((tries + 1))
+  if [[ $tries -gt 60 ]]; then
+    echo "refusing to deploy: CloudNativePG's webhook did not serve within two minutes; run the script again once the cluster is healthy." >&2
+    exit 1
+  fi
+  sleep 2
+done
 
 echo "==> installing cert-manager and Envoy Gateway"
 # Same reason as CNPG: their CRDs must exist before the overlay's Certificates, Gateway and
@@ -265,7 +310,9 @@ if [[ "$LOCAL_MODELS" == "on" ]]; then
 fi
 
 echo "==> waiting for the control plane's database"
-kubectl -n ankka-controlplane wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-controlplane-db --timeout=180s
+# A first run pulls the Postgres image before the cluster can set up its primary, on a node that is
+# also loading every other image: minutes, not the seconds a re-run takes.
+kubectl -n ankka-controlplane wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-controlplane-db --timeout=600s
 
 echo "==> waiting for the operator"
 kubectl -n ankka-operator rollout status deployment/ankka-operator --timeout=120s
@@ -296,7 +343,7 @@ kubectl -n ankka-gateway wait --for=condition=Programmed gateway/ankka --timeout
 echo "==> waiting for the identity provider"
 # Keycloak's own database first, then the instance the operator runs from it. Both are slow starts
 # — a Postgres bootstrap and a JVM — so the timeouts are generous rather than the waits optional.
-kubectl -n ankka-auth wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-keycloak-db --timeout=300s
+kubectl -n ankka-auth wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-keycloak-db --timeout=600s
 kubectl -n ankka-auth wait --for=condition=Ready keycloak/ankka-keycloak --timeout=420s
 
 echo "==> waiting for the realm import"

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Runs the commit-msg hook over every commit in a range, and over a pull request's title when TITLE
+# is set: the check a clone that never enabled the hook would otherwise skip. CI calls it on a pull
+# request; locally, `.githooks/check-commits main HEAD` checks a branch before it is pushed.
+set -u
+base="$1"; head="${2:-HEAD}"
+dir=$(dirname "$0")
+tmp=$(mktemp)
+status=0
+for sha in $(git rev-list --no-merges "$base..$head"); do
+  git log -1 --format=%B "$sha" > "$tmp"
+  if ! sh "$dir/commit-msg" "$tmp"; then
+    echo "::error::commit $sha is not a Conventional Commit" >&2
+    status=1
+  fi
+done
+if [ -n "${TITLE:-}" ]; then
+  printf '%s\n' "$TITLE" > "$tmp"
+  if ! sh "$dir/commit-msg" "$tmp"; then
+    echo "::error::the pull request title is not a Conventional Commit header; it becomes the commit on main" >&2
+    status=1
+  fi
+fi
+rm -f "$tmp"
+exit "$status"

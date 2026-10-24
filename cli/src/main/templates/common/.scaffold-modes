@@ -1,0 +1,4 @@
+# How ankka init writes these files, in every template; every other file is text with its tokens filled.
+# git runs only an executable hook, and a resource copied out of a jar has no mode of its own.
+.githooks/commit-msg  exec
+.githooks/check-commits  exec

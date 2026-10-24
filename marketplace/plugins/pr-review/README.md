@@ -43,7 +43,9 @@ a fork of this plugin.
 
 `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` and `.claude/rules/*.md` are read before the code, and a
 rule they state overrules any item in the skills. Formatter and linter configuration is read too,
-and what it enforces is never commented on. Nothing to configure.
+and what it enforces is never commented on. A pull request template, a `commit-msg` hook or a
+commitlint configuration is read as a convention the description, the title and the commits are held
+to. Nothing to configure.
 
 ### 2. `REVIEW.md`: your own review checklist
 

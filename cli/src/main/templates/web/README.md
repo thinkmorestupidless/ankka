@@ -75,3 +75,19 @@ builds the image, pushes it to this repository's GitHub Container Registry and d
 tag or by hand, once the repository has the secrets `ANKKA_URL`, `ANKKA_TOKEN`, `ANKKA_PROJECT` and,
 for a platform whose certificate is not publicly trusted, `ANKKA_CA`. Until then it declines to run,
 so the first push is green.
+
+## Commits and pull requests
+
+Commit messages are [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+`<type>(<scope>): <description>`, as in `feat(orders): reserve stock when an order is placed`, with
+`!` and a `BREAKING CHANGE:` footer when a change breaks an event, a wire format or an API.
+`.githooks/commit-msg` refuses anything else and says what to write; enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+CI runs the same check over every commit of a pull request, and over its title: the title is the
+same kind of header, because the squash merge makes it the commit on `main`. The description follows
+`.github/pull_request_template.md` (why, what changed, what is left out, how it is tested, risk and
+rollback) in under about three hundred words; the detail goes in a design note or the docs, linked.

@@ -141,11 +141,19 @@ container and contend: one suite measured 147s in parallel versus 6s alone. Do n
 
 ```bash
 sbt scalafmtAll scalafmtSbt        # format; scalafmtCheckAll verifies
-git config core.hooksPath .githooks   # once per clone (`just hooks`): refuse an unformatted commit
-cs install scalafmt                   # the hook uses the scalafmt CLI when it is on PATH (~1s); without it, sbt (~15s)
+git config core.hooksPath .githooks   # once per clone (`just hooks`): refuse an unformatted commit or a non-conventional message
+cs install scalafmt                   # the pre-commit hook uses the scalafmt CLI when it is on PATH (~1s); without it, sbt (~15s)
 ```
 
-The hook checks only staged `.scala` and `.sbt` files with the same `.scalafmt.conf` sbt reads.
+**Commit messages are Conventional Commits** (`<type>(<scope>)!: <description>`, under 72 characters,
+lower-case description, no trailing period; the scope is the spec number for spec work, `feat(057): ...`,
+otherwise the area; `!` and a `BREAKING CHANGE:` footer for a breaking change). `.githooks/commit-msg`
+refuses anything else and says what to write. The PR title is the same header, since the squash merge
+puts it on `main`; the PR body follows `.github/pull_request_template.md` and stays under about 300
+words outside its fenced block. `gh pr create --body-file` does not insert the template: write the body
+from it.
+
+The pre-commit hook checks only staged `.scala` and `.sbt` files with the same `.scalafmt.conf` sbt reads.
 `SortModifiers` is deliberately absent from `.scalafmt.conf` (it rewrites `private[ankka] final` to
 `final private[ankka]` and churned 99 declarations).
 

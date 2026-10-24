@@ -238,7 +238,12 @@ formatting left to the formatter, with at most one comment if it did not run?
 commit green? Does it link its issue or spec? Is there debug output, a stray file, formatting churn
 or an unrelated edit the author would have caught by reading their own diff? Is CI green on a head
 up to date with the base, with any skipped job explained? Where the project uses a trailer or a
-commit style, is it present?
+commit style, is it present? Where it has a pull request template (the summary names it), does the
+description follow the template's sections and keep to its length rule, with the detail linked
+rather than pasted? Where it declares Conventional Commits (a `commit-msg` hook, a commitlint
+configuration, its instructions), does every commit header and the PR title parse as
+`type(scope)!: description`, is the type right for what the diff does, and is a breaking change
+marked with `!` and a `BREAKING CHANGE:` footer?
 
 ### 6. Apply the language checklists
 

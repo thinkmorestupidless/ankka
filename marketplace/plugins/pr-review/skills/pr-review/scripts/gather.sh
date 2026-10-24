@@ -144,6 +144,16 @@ if [ -d .claude/rules ]; then while IFS= read -r r; do rules+=("$r"); done < <(l
 instructions=()
 for f in CLAUDE.md AGENTS.md CONTRIBUTING.md ../CLAUDE.md ../CLAUDE.local.md; do [ -e "$f" ] && instructions+=("$f"); done
 
+# Conventions the repository declares for the description and the commits, so the review holds the
+# change to them: a pull request template, a commit message hook or a commitlint configuration.
+conventions=()
+for f in .github/pull_request_template.md .github/PULL_REQUEST_TEMPLATE.md .github/PULL_REQUEST_TEMPLATE docs/pull_request_template.md PULL_REQUEST_TEMPLATE.md \
+         .githooks/commit-msg .husky/commit-msg commitlint.config.js commitlint.config.mjs commitlint.config.cjs commitlint.config.ts .commitlintrc .commitlintrc.json .commitlintrc.yml .commitlintrc.yaml .commitlintrc.js .gitlint; do
+  # Exact name, not a case-insensitive filesystem's match: pull_request_template.md and
+  # PULL_REQUEST_TEMPLATE.md are one file on macOS and would be listed twice.
+  [ -e "$f" ] && ls -1a "$(dirname "$f")" | grep -qxF "$(basename "$f")" && conventions+=("$f")
+done
+
 # The repository's own review checklist: REVIEW.md at the root and in any directory above a changed
 # file. Its optional "## pr-review" section names bundled checklists to skip and skills to load.
 : > "$out/review-files.txt"
@@ -209,6 +219,7 @@ done
       awk '/^## pr-review/{f=1;next} /^## /{f=0} f && /^- *(skip|load):/' "$r" | sed 's/^/  /'
     done < "$out/review-files.txt"
   fi
+  [ "${#conventions[@]}" -gt 0 ] && { echo "Description and commit conventions (hold the title, body and commits to them):"; printf -- '- %s\n' "${conventions[@]}"; }
   [ "${#own_skills[@]}" -gt 0 ] && { echo "Skills of the repository's or the user's own that replace the bundled language skill of the same name:"; printf -- '- %s\n' "${own_skills[@]}"; }
   [ "${#tooling[@]}" -gt 0 ] && { echo "Tooling configuration (what it enforces is not reviewed by hand):"; printf -- '- %s\n' "${tooling[@]}"; }
   echo

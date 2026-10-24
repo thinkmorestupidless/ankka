@@ -971,9 +971,9 @@ lazy val cli = project
       Seq("python", "typescript", "rust", "go", "web", "java", "kotlin").flatMap { language =>
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
         // only a process service's, which a web-hosted interface and an embedded one are not.
-        // `.scaffold-modes` beside a template's root names its binary and executable files.
-        val modesFile                  = templates / language / ".scaffold-modes"
-        val modes: Map[String, String] =
+        // `.scaffold-modes` beside a template's root names its binary and executable files; the one
+        // in common/ (the git hooks) applies to every template.
+        def modesIn(modesFile: File): Map[String, String] =
           if (!modesFile.exists) Map.empty
           else
             IO.readLines(modesFile)
@@ -986,8 +986,10 @@ lazy val cli = project
                 }
               }
               .toMap
-        val files = (
-          filesUnder(templates / "common") ++
+        val modesFile = templates / language / ".scaffold-modes"
+        val modes     = modesIn(templates / "common" / ".scaffold-modes") ++ modesIn(modesFile)
+        val files     = (
+          filesUnder(templates / "common").filterNot(_._1 == ".scaffold-modes") ++
             (if (language == "web" || embedded(language)) Nil
              else filesUnder(templates / "common-service")) ++
             filesUnder(templates / language).filterNot(_._1 == ".scaffold-modes") ++

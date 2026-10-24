@@ -21,3 +21,17 @@ jobs:
       # The slow tests start Postgres and the published runtime through testcontainers, which a
       # GitHub-hosted runner can do: Docker is already there.
       - run: cargo test --features slow
+
+  # Every commit of a pull request, and its title, is a Conventional Commit: the check the commit-msg
+  # hook makes, for a clone that did not enable it. The title matters because the squash merge makes
+  # it the commit on main. README.md, "Commits and pull requests", says what to write.
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: .githooks/check-commits "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"

@@ -243,7 +243,14 @@ class InitSuite extends munit.FunSuite:
       val listed  = Scaffold.files(language)
       assert(listed.contains(".gitignore"), listed.toString)
       assert(listed.contains(".github/workflows/deploy.yml"), listed.toString)
+      assert(listed.contains(".github/pull_request_template.md"), listed.toString)
+      assert(listed.contains(".githooks/commit-msg"), listed.toString)
       assert(listed.exists(_.startsWith(".claude/skills/")), listed.toString)
+      // The hook is a shell script rendered out of a jar: it must come out executable, or git skips it.
+      assert(
+        Files.isExecutable(target.resolve(".githooks/commit-msg")),
+        "commit-msg not executable"
+      )
       val deploy = Files.readString(target.resolve(".github/workflows/deploy.yml"))
       assert(deploy.contains("${{ secrets.ANKKA_TOKEN }}"), deploy)
       assert(!deploy.contains("{{name}}"), deploy)

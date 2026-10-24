@@ -20,12 +20,12 @@ object Dependencies {
      */
     val pekkoMgmt = "1.2.1"
 
-    val jsoniter  = "2.40.1"
-    val anthropic = "2.61.0"
+    val jsoniter  = "2.41.7"
+    val anthropic = "2.75.0"
     // OpenAI's official Java SDK (feature 052), transport only, as Anthropic's is. Apache-2.0.
-    val openai = "4.83.0"
+    val openai = "4.91.0"
 
-    val logback = "1.6.3"
+    val logback = "1.6.5"
     val munit   = "1.3.6"
     // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
     val gherkin             = "42.0.1"
@@ -50,7 +50,7 @@ object Dependencies {
      * Test scope only: an S3 client nobody here wrote, to sign and send requests to the object
      * store the way a service's own client would (feature 034, R20). Never on a main classpath.
      */
-    val awsSdk = "2.55.11"
+    val awsSdk = "2.55.16"
 
     /**
      * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native
@@ -89,7 +89,7 @@ object Dependencies {
      * client: OkHttp is not on the classpath of `runtime` or the control plane, and a sender is one
      * more thing an image would carry for nothing.
      */
-    val openTelemetry = "1.66.0"
+    val openTelemetry = "1.67.0"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────

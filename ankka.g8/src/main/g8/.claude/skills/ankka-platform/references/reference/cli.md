@@ -2265,13 +2265,15 @@ Options and flags:
 ### `ankka services get`
 
 ```text
-Usage: ankka services get [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+Usage: ankka services get [--descriptor] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Show one service.
 
 Options and flags:
     --help
         Display this help text.
+    --descriptor
+        Print the descriptor the service runs instead, as JSON to change and apply again.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

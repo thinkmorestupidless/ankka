@@ -943,6 +943,19 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   private def consoleAndControlPlaneReady: Boolean =
     consoleReady && readyPods.nonEmpty && api("GET", "/organizations")._1 == 0
 
+  /**
+   * The wait every console case opens with. When it gives up it says what the console's pods were
+   * doing and what they logged: a console that never became ready failed three cases on both
+   * architectures with "condition did not hold within 420 seconds" and nothing else, and the cause
+   * (an image that crashed on its first import) was in the pods' logs the whole time.
+   */
+  private def waitForConsole(): Unit =
+    try waitFor(420.seconds)(consoleAndControlPlaneReady)
+    catch
+      case e: munit.FailException =>
+        val pods = nodeExec("kubectl", "-n", ConsoleNamespace, "get", "pods", "-o", "wide")._2
+        fail(s"the console and the control plane: ${e.getMessage}\n$pods\n${consoleLogs()}")
+
   private def consoleReady: Boolean =
     Option(k8s.apps().deployments().inNamespace(ConsoleNamespace).withName("ankka-console").get())
       .flatMap(d => Option(d.getStatus))
@@ -950,7 +963,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       .exists(_ >= 2)
 
   test("9. the console signs a person in through the gateway and acts as them") {
-    waitFor(420.seconds)(consoleAndControlPlaneReady)
+    waitForConsole()
     val browser = Browser()
 
     // A stranger is sent to the identity provider's own form, through the gateway.
@@ -993,7 +1006,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("10. the console is reachable only through the gateway, and holds no grant") {
-    waitFor(420.seconds)(consoleAndControlPlaneReady)
+    waitForConsole()
     // From a pod in another namespace, the console's serving port is closed by the network.
     val from        = readyPods.headOption.getOrElse(fail("no control plane pod to try from"))
     val (code, out) = nodeExec(
@@ -1043,7 +1056,7 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   test(
     "11. a signed-in session survives the console's instances being replaced, refusing nothing"
   ) {
-    waitFor(420.seconds)(consoleAndControlPlaneReady)
+    waitForConsole()
     val browser = Browser()
     browser.signIn()
 

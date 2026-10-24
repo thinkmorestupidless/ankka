@@ -19,7 +19,8 @@ RUN npm ci --no-audit --no-fund
 COPY package package
 COPY host host
 RUN npm run build -w package && npm run build -w host \
- && npm prune --omit=dev --no-audit --no-fund
+ && npm prune --omit=dev --no-audit --no-fund \
+ && mkdir -p package/node_modules host/node_modules
 
 FROM node:24-bookworm-slim
 LABEL org.opencontainers.image.source="https://github.com/thinkmorestupidless/ankka"
@@ -32,6 +33,12 @@ COPY --from=build /app/package/package.json package/
 COPY --from=build /app/package/dist package/dist
 COPY --from=build /app/host/package.json /app/host/server.ts host/
 COPY --from=build /app/host/build host/build
+# A workspace's own node_modules too: npm hoists a dependency the workspaces share to the root, but a
+# lockfile updated entry by entry (dependabot's) can leave it nested under each workspace instead, and
+# an image that carried the root alone then failed at its first import (react-router, 2026-10-24).
+# Empty directories when everything is hoisted, which is the usual case.
+COPY --from=build /app/package/node_modules package/node_modules
+COPY --from=build /app/host/node_modules host/node_modules
 USER 1000
 WORKDIR /app/host
 EXPOSE 9000 7627

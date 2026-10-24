@@ -43,8 +43,8 @@ class RestoringClusterFeatures
   private lazy val bob = identity.token("bob", Some("bob@example.test"), expiresIn = 3.hours)
 
   private def as(token: String, args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -133,7 +133,7 @@ class RestoringClusterFeatures
   private def awaitOn(service: String, cluster: String): Unit =
     waitFor(8.minutes, s"$service on $cluster") {
       val running = pods(shop, service)
-      val hosts = running.map { pod =>
+      val hosts   = running.map { pod =>
         pod.getSpec.getContainers.asScala
           .find(_.getName == service)
           .flatMap(_.getEnv.asScala.find(_.getName == "ANKKA_DB_HOST"))
@@ -160,7 +160,7 @@ class RestoringClusterFeatures
       .asScala
       .headOption
       .getOrElse(fail(s"$cluster has no primary"))
-    val out = new ByteArrayOutputStream
+    val out   = new ByteArrayOutputStream
     val watch = k8s
       .pods()
       .inNamespace(namespace(shop))

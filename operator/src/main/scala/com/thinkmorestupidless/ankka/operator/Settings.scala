@@ -403,7 +403,7 @@ object Settings:
       "ankka.operator.object-store.soft-delete-days",
       PlatformVariables.ObjectStoreSoftDeleteDays
     ) match
-      case None => GcsSettings.DefaultSoftDeleteDays
+      case None        => GcsSettings.DefaultSoftDeleteDays
       case Some(value) =>
         value.toIntOption
           .filter(GcsSettings.SoftDeleteDays.contains)
@@ -515,7 +515,7 @@ object BrokerSettings:
       case Vector(Some(bootstrap), Some(namespace), Some(cluster)) =>
         Some(BrokerSettings(bootstrap, namespace, cluster))
       case values if values.forall(_.isEmpty) => None
-      case values =>
+      case values                             =>
         val missing = Variables.zip(values).collect { case ((_, variable), None) => variable }
         throw IllegalStateException(
           s"the broker is configured by halves: ${missing.mkString(", ")} " +

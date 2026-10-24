@@ -418,10 +418,10 @@ object KeycloakStack:
       case failure: AssertionError =>
         // Say what the pods were doing, not just that they were not ready: an image that will not
         // pull and a container that crashes look identical from a replica count.
-        val pods = k8s.pods().inNamespace(namespace).list().getItems
+        val pods   = k8s.pods().inNamespace(namespace).list().getItems
         val report = pods.asScala
           .map { pod =>
-            val phase = Option(pod.getStatus).map(_.getPhase).getOrElse("?")
+            val phase  = Option(pod.getStatus).map(_.getPhase).getOrElse("?")
             val states = Option(pod.getStatus)
               .map(
                 _.getContainerStatuses.asScala

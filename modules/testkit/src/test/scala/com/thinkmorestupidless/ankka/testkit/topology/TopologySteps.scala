@@ -181,7 +181,7 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
       settings.foreach((key, value) => sys.props.put(key, value))
       ConfigFactory.invalidateCaches()
 
-      val broker = InMemoryBroker()
+      val broker                                             = InMemoryBroker()
       val endpoints: Vector[EndpointClients => HttpEndpoint] = planned
         .map(p => KitEndpoint.split(p.route) -> p)
         .groupBy { case ((_, prefix, _), _) => prefix }
@@ -326,7 +326,7 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
     val candidates = Vector(name, s"topic:$name", s"external:$name", serviceNode(name))
     topology.document.nodes.filter(n => candidates.contains(n.id)) match
       case Vector(one) => one
-      case Vector() =>
+      case Vector()    =>
         fail(s"the topology shows nothing called '$name': ${topology.document.nodes.map(_.id)}")
       case several => fail(s"'$name' could be any of ${several.map(_.id)}")
 
@@ -364,7 +364,7 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
   /** Waits for something to be true of the observed call the scenario is about. */
   private def theObservedCall(what: String)(holds: Call => Boolean): Call =
     val (from, to) = about.getOrElse(fail("the scenario has not said which observed call it means"))
-    val reading = eventually(s"an observed call from $from to $to $what")(
+    val reading    = eventually(s"an observed call from $from to $to $what")(
       callBetween(_, from, to).exists(holds)
     )
     callBetween(reading, from, to).get
@@ -388,7 +388,7 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
   private def span(component: String, handler: Option[String] = None)(
       also: RecordedSpan => Boolean = _ => true
   ): RecordedSpan =
-    val deadline = System.nanoTime() + 30.seconds.toNanos
+    val deadline                   = System.nanoTime() + 30.seconds.toNanos
     def find: Option[RecordedSpan] = spans.find { s =>
       nameOf(s.componentRef) == component &&
       handler.forall(_ == nameOf(s.handlerRef)) && also(s)

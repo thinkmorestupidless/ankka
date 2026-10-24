@@ -49,7 +49,7 @@ class CrossServiceTraceSuite extends munit.FunSuite with LogCapturing:
 
   private val paymentsHttp = HttpServer.at("127.0.0.1", 0)(c => PaymentsHttp(c))
   private val paymentsGrpc = GrpcServer.at("127.0.0.1", 0)(c => PaymentsGrpc(c))
-  private val ordersHttp = (grpc: GrpcClients) =>
+  private val ordersHttp   = (grpc: GrpcClients) =>
     HttpServer.at("127.0.0.1", 0)(c => OrdersHttp(c, grpc))
 
   private var payments: AnkkaTestKit   = null
@@ -118,7 +118,7 @@ class CrossServiceTraceSuite extends munit.FunSuite with LogCapturing:
   private def assertOneTrace(rootName: String, callName: String, calleeName: String): Unit =
     val trace = traceOf(rootName)
     val root  = trace.find(_.name == rootName).getOrElse(fail(s"no $rootName among $trace"))
-    val call =
+    val call  =
       trace.find(_.name == callName).getOrElse(fail(s"no $callName among ${trace.map(_.name)}"))
     val callee =
       trace.find(_.name == calleeName).getOrElse(fail(s"no $calleeName among ${trace.map(_.name)}"))

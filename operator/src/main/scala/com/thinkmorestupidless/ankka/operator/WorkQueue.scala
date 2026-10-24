@@ -138,8 +138,8 @@ final class WorkQueue(
   def problems: Vector[String] =
     if !running.get() then Vector(s"the $name queue is not running")
     else
-      val now   = clock()
-      val bound = settings.stallBound.toNanos
+      val now                                                       = clock()
+      val bound                                                     = settings.stallBound.toNanos
       def oldest(of: ConcurrentHashMap[ServiceRef, java.lang.Long]) =
         of.asScala.toVector.map((ref, since) => (ref, now - since.longValue)).maxByOption(_._2)
       val alive = liveWorkers.get()

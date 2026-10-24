@@ -43,7 +43,7 @@ class StateRecordCompatibilitySuite extends munit.FunSuite with LogCapturing:
     "deleted-remote" -> StateRecord("", Array.emptyByteArray, deleted = true, expiryMillis = 0L)
   )
 
-  private def hex(bytes: Array[Byte]): String = bytes.map(b => f"$b%02x").mkString
+  private def hex(bytes: Array[Byte]): String  = bytes.map(b => f"$b%02x").mkString
   private def unhex(text: String): Array[Byte] =
     text.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
 

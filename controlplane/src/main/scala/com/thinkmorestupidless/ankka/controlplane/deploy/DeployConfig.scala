@@ -101,7 +101,7 @@ final case class DeployConfig(
       if CustomHostnames.isApex(hostname) then
         gatewayAddress match
           case Some(address) => Right(DnsRecord(hostname, "A", address))
-          case None =>
+          case None          =>
             Left("an apex cannot be a CNAME; this installation has published no address")
       else
         baseDomain match
@@ -136,8 +136,8 @@ object DeployConfig:
   )
 
   def from(config: Config): DeployConfig =
-    val section = config.getConfig("ankka.controlplane.kubernetes")
-    val store   = config.getConfig("ankka.controlplane.object-store")
+    val section       = config.getConfig("ankka.controlplane.kubernetes")
+    val store         = config.getConfig("ankka.controlplane.object-store")
     val cloudProvider =
       Option(config.getString("ankka.controlplane.cloud.provider"))
         .map(_.trim)
@@ -146,7 +146,7 @@ object DeployConfig:
     val backend = store.getString("backend").trim match
       case "garage" | "" => ObjectStoreKind.Garage
       case "gcs"         => ObjectStoreKind.Gcs
-      case other =>
+      case other         =>
         throw new IllegalArgumentException(
           s"ANKKA_OBJECT_STORE_BACKEND is '$other'; it must be garage or gcs"
         )

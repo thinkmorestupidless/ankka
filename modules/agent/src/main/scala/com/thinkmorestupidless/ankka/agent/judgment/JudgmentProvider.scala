@@ -65,8 +65,8 @@ private[ankka] final case class Judgments(
       state: JudgmentState,
       questions: Vector[Question[?]]
   ): Judgment =
-    val request = JudgmentRequest(state, questions, timeout)
-    val chosen  = provider.orElse(default).getOrElse(throw NoJudgmentProvider())
+    val request  = JudgmentRequest(state, questions, timeout)
+    val chosen   = provider.orElse(default).getOrElse(throw NoJudgmentProvider())
     val judgment =
       try Await.result(chosen.judge(request), timeout)
       catch

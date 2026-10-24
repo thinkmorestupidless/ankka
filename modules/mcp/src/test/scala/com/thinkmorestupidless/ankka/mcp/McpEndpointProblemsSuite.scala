@@ -68,7 +68,7 @@ class McpEndpointProblemsSuite extends munit.FunSuite:
   }
 
   test("a command the component does not have") {
-    val book = JobEntity.book
+    val book   = JobEntity.book
     val vanish = CommandHandle[JobEntity, String, Job](
       book.componentId,
       MethodName("vanish"),

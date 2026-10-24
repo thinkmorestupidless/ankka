@@ -104,7 +104,7 @@ final class BrokerKeys(
     val again = held()
     again.newest.filter(k => k.createdAt.plusMillis(rotateEvery.toMillis).isAfter(now)) match
       case Some(key) => key.kid -> privateKey(key.kid)
-      case None =>
+      case None      =>
         val generator = KeyPairGenerator.getInstance("RSA")
         generator.initialize(2048)
         val pair = generator.generateKeyPair()

@@ -46,7 +46,7 @@ private[ankka] object GraphFixtures:
     val labels = element.field("labels") match
       case Some(GraphJson.Arr(items)) => items.map(i => GraphRules.plain(i).toString)
       case _                          => Vector.empty
-    val id = string("id")
+    val id       = string("id")
     val template = (string("kind"), string("element")) match
       case ("node", _) => GraphRules.node(id, labels, properties)
       case ("edge", _) =>

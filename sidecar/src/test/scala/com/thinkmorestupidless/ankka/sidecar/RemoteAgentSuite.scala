@@ -98,7 +98,7 @@ class RemoteAgentSuite extends munit.FunSuite with LogCapturing:
     settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 5.seconds, 5.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val discovered = Discovery
+    val discovered   = Discovery
       .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
       .fold(p => fail(p.mkString("; ")), identity)
     val models = Models.only(Models.Scripted, model)
@@ -195,7 +195,7 @@ class RemoteAgentSuite extends munit.FunSuite with LogCapturing:
     val handle =
       descriptor.streams(MethodName("stream")).asInstanceOf[StreamHandle[RemoteAgent, Array[Byte]]]
     given org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
-    val tokens = Await.result(
+    val tokens                                        = Await.result(
       kit.componentClient.forAgent(SessionId("s4")).stream(handle)("go".getBytes).runWith(Sink.seq),
       20.seconds
     )

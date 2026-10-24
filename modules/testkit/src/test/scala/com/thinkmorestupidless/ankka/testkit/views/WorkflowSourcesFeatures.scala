@@ -68,8 +68,8 @@ final class WorkflowSourcesFeatures
 
   private def scoped(id: String) = s"$scope-$id"
 
-  private def checkouts       = kit.service.viewClient.forView(Checkouts)
-  private def row(id: String) = checkouts.get(scoped(id))
+  private def checkouts          = kit.service.viewClient.forView(Checkouts)
+  private def row(id: String)    = checkouts.get(scoped(id))
   private def rowNow(id: String) =
     kit.eventually(s"the row $id")(row(id))
 
@@ -180,7 +180,7 @@ final class WorkflowSourcesFeatures
   )
   Then("{string} is handed no change for the failure")((_: String) =>
     settle()
-    val id = "c4"
+    val id   = "c4"
     val seen =
       FlowLog.of("checkouts", scoped(id)).filter(_.standing.exists(_.status == "Failed"))
     assert(seen.isEmpty, s"handed a change for the failure: $seen")

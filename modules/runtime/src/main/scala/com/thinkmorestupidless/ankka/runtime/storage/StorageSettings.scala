@@ -128,7 +128,7 @@ object StorageSettings:
           )
       case "directory" => Right(StorageBackend.Directory)
       case "memory"    => Right(StorageBackend.Memory)
-      case other =>
+      case other       =>
         Left(
           s"${PlatformVariables.StorageBackend} is '$other'; it is one of s3, directory or memory"
         )
@@ -139,7 +139,7 @@ object StorageSettings:
    */
   private def unnamedTarget(env: Map[String, String]): Either[String, Option[S3Target]] =
     env.get(Prefix + "ENDPOINT").filter(_.nonEmpty) match
-      case None => Right(None)
+      case None           => Right(None)
       case Some(endpoint) =>
         for
           uri    <- parseUri(Prefix + "ENDPOINT", endpoint)
@@ -198,11 +198,11 @@ object StorageSettings:
       case None =>
         for
           bucket <- required(env, s"${Prefix}BUCKET_$suffix")
-          base <- shared.toRight(
+          base   <- shared.toRight(
             s"bucket '$name' (${Prefix}BUCKET_$suffix) is made by the platform and ${Prefix}ENDPOINT is not set"
           )
           exposure <- env.get(s"${Prefix}EXPOSURE_$suffix").filter(_.nonEmpty) match
-            case None => Right(BucketExposure.Private)
+            case None       => Right(BucketExposure.Private)
             case Some(word) =>
               BucketExposure
                 .fromWord(word)

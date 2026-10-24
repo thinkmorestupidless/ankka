@@ -16,7 +16,7 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
   private val usage = TokenUsage(120, 30, 5, 2)
 
   private val user = SessionMessage.UserMessage(1L, "What is the weather in Berlin?", "weather")
-  private val ai = SessionMessage.AiMessage(
+  private val ai   = SessionMessage.AiMessage(
     2L,
     "Let me look.",
     "weather",
@@ -224,7 +224,7 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a turn with a tool round counts its usage once, with its last answer") {
-    val k = kit()
+    val k        = kit()
     val toolTurn = SessionMessage.AiMessage(
       2L,
       "",
@@ -266,7 +266,7 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a turn's judgment tokens are persisted after its messages, as their own event") {
-    val k = kit()
+    val k      = kit()
     val result = k.call(SessionMemoryEntity.append)(
       SessionMemoryEntity.Append(Vector(user, ai), usage, judged)
     )

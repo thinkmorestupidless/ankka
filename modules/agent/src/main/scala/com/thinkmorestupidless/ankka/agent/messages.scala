@@ -113,7 +113,7 @@ final case class TokenUsage(
     cacheReadTokens: Int = 0,
     cacheWriteTokens: Int = 0
 ):
-  def total: Int = inputTokens + outputTokens
+  def total: Int                       = inputTokens + outputTokens
   def +(other: TokenUsage): TokenUsage =
     TokenUsage(
       inputTokens + other.inputTokens,
@@ -123,7 +123,7 @@ final case class TokenUsage(
     )
 
 object TokenUsage:
-  val zero: TokenUsage = TokenUsage()
+  val zero: TokenUsage                                  = TokenUsage()
   private[ankka] val serializer: Serializer[TokenUsage] =
     Codecs.serializer[TokenUsage]("token-usage")
 

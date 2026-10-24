@@ -50,7 +50,7 @@ private[ankka] final class LoopbackRoutes(service: AnkkaService):
 
   private val system: ActorSystem[?] = service.system
   private val serialization          = SerializationExtension(system.classicSystem)
-  private val askTimeout = FiniteDuration(
+  private val askTimeout             = FiniteDuration(
     system.settings.config.getDuration("ankka.ask-timeout").toMillis,
     MILLISECONDS
   )
@@ -78,7 +78,7 @@ private[ankka] final class LoopbackRoutes(service: AnkkaService):
     (exchange.getRequestMethod, target(exchange, "/replication/forward")) match
       case ("POST", Some((componentId, entityId))) =>
         read(exchange, classOf[LoopbackCall]) match
-          case None => respond(exchange, 400, "not a forwarded call".getBytes(UTF_8))
+          case None       => respond(exchange, 400, "not a forwarded call".getBytes(UTF_8))
           case Some(call) =>
             val reply = ClusterSharding(system)
               .entityRefFor(EntityKeys.forComponent(componentId), entityId)
@@ -121,7 +121,7 @@ private[ankka] final class LoopbackRoutes(service: AnkkaService):
     (exchange.getRequestMethod, target(exchange, "/replication/report")) match
       case ("POST", Some((componentId, entityId))) =>
         read(exchange, classOf[LoopbackReport]) match
-          case None => respond(exchange, 400, "not a report".getBytes(UTF_8))
+          case None         => respond(exchange, 400, "not a report".getBytes(UTF_8))
           case Some(report) =>
             ReplicationPeer
               .reported(system, componentId, entityId, report.installation, report.position)
@@ -181,7 +181,7 @@ object LoopbackReplication:
     private given ExecutionContext = system.executionContext
     private val serialization      = SerializationExtension(system.classicSystem)
     private val http               = HttpClient.newHttpClient()
-    private val askTimeout = FiniteDuration(
+    private val askTimeout         = FiniteDuration(
       system.settings.config.getDuration("ankka.ask-timeout").toMillis,
       MILLISECONDS
     )
@@ -200,7 +200,7 @@ object LoopbackReplication:
           )
         case Some(address) =>
           def enc(s: String) = java.net.URLEncoder.encode(s, UTF_8)
-          val request = HttpRequest
+          val request        = HttpRequest
             .newBuilder(
               URI(
                 s"$address/replication/$route/${enc(componentId.toString)}/${enc(entityId.toString)}"

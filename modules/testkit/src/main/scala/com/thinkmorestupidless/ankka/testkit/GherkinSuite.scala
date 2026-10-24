@@ -130,7 +130,7 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
   parsed.pickles.foreach { case Located(pickle, uri, line, stepLines) =>
     val elsewhere = ranElsewhere.get(pickle.getName)
     val outside   = ranOutside.get(pickle.getName)
-    val name = (elsewhere, outside) match
+    val name      = (elsewhere, outside) match
       case (Some(suite), _) => s"${pickle.getName} ($uri:$line) is run by $suite"
       case (_, Some(why)) => s"${pickle.getName} ($uri:$line) is run outside this repository: $why"
       case _              => s"${pickle.getName} ($uri:$line)"
@@ -148,8 +148,8 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
   }
 
   private def run(step: PickleStep, uri: String, line: Int): Unit =
-    val text  = step.getText
-    val where = s"$uri:$line"
+    val text    = step.getText
+    val where   = s"$uri:$line"
     val matches = definitions.toVector.flatMap { d =>
       d.expression
         .`match`(text)
@@ -225,7 +225,7 @@ object GherkinSuite:
     given three[A, B, C, R](using a: StepValue[A], b: StepValue[B], c: StepValue[C]): StepBody[
       (A, B, C) => R
     ] with
-      def arity = 3
+      def arity                                             = 3
       def run(body: (A, B, C) => R, values: Seq[Any]): Unit =
         body(a(values(0)), b(values(1)), c(values(2))): Unit
 
@@ -235,7 +235,7 @@ object GherkinSuite:
         c: StepValue[C],
         d: StepValue[D]
     ): StepBody[(A, B, C, D) => R] with
-      def arity = 4
+      def arity                                                = 4
       def run(body: (A, B, C, D) => R, values: Seq[Any]): Unit =
         body(a(values(0)), b(values(1)), c(values(2)), d(values(3))): Unit
 
@@ -246,7 +246,7 @@ object GherkinSuite:
         d: StepValue[D],
         e: StepValue[E]
     ): StepBody[(A, B, C, D, E) => R] with
-      def arity = 5
+      def arity                                                   = 5
       def run(body: (A, B, C, D, E) => R, values: Seq[Any]): Unit =
         body(a(values(0)), b(values(1)), c(values(2)), d(values(3)), e(values(4))): Unit
 
@@ -258,7 +258,7 @@ object GherkinSuite:
         e: StepValue[E],
         g: StepValue[G]
     ): StepBody[(A, B, C, D, E, G) => R] with
-      def arity = 6
+      def arity                                                      = 6
       def run(body: (A, B, C, D, E, G) => R, values: Seq[Any]): Unit =
         body(
           a(values(0)),
@@ -284,7 +284,7 @@ object GherkinSuite:
     given StepValue[Long]       = v => number(v).longValue
     given StepValue[Double]     = v => number(v).doubleValue
     given StepValue[BigDecimal] = v => BigDecimal(String.valueOf(v))
-    given StepValue[Boolean] = v =>
+    given StepValue[Boolean]    = v =>
       String.valueOf(v).toLowerCase match
         case "true" | "yes" => true
         case "false" | "no" => false

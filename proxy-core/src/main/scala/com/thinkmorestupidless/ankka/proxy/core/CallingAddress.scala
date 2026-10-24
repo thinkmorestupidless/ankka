@@ -25,7 +25,7 @@ object CallingAddress:
     val (path, query) = target.indexOf('?') match
       case -1 => (target, "")
       case at => (target.substring(0, at), target.substring(at))
-    val trimmed = path.stripPrefix("/")
+    val trimmed        = path.stripPrefix("/")
     val (first, after) = trimmed.indexOf('/') match
       case -1 => (trimmed, "")
       case at => (trimmed.substring(0, at), trimmed.substring(at))

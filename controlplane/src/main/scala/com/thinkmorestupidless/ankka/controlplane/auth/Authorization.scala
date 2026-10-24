@@ -159,7 +159,7 @@ final class Authorization(clients: EndpointClients, clock: Clock):
     val admin      = isAdmin(principal)
     if !sufficient && !admin then
       role match
-        case None => throw notFound(organizationId)
+        case None    => throw notFound(organizationId)
         case Some(_) =>
           throw CommandError(
             s"owner role required in organization '$organizationId'",

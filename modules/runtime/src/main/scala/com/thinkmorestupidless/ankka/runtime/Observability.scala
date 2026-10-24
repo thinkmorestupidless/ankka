@@ -86,7 +86,7 @@ final class Observability(
     val named = CallOrigin.from(incoming)
     if !named.contains(CallOrigin.Console) then
       val origin = named.filter(o => declaredNames.validate(o.component, o.handler))
-      val key = handler match
+      val key    = handler match
         case Some(declared) => keyOf(origin, callee, declared)
         case None           => keyOf(origin, names.intern(callee), undeclared)
       key.foreach(calls.unanswered(_, Unanswered.Undelivered, System.currentTimeMillis()))
@@ -109,7 +109,7 @@ final class Observability(
   ): Unit =
     if !origin.contains(CallOrigin.Console) then
       val caller = believed(origin)
-      val key =
+      val key    =
         if declaredNames.validate(callee, method) then keyOf(caller, callee, method)
         else if declaredNames.registered(callee) then
           keyOf(caller, names.intern(callee), undeclared)
@@ -236,7 +236,7 @@ final class Observability(
       streaming: Boolean = false
   )(outcomeOf: A => SpanOutcome)(body: => A): A =
     val inbound = Trace.inbound(incoming)
-    val span = recorder.begin(
+    val span    = recorder.begin(
       traceIdHigh = inbound.traceIdHigh,
       traceId = inbound.traceId,
       parentSpanId = inbound.parentSpanId,
@@ -262,7 +262,7 @@ object Observability extends ExtensionId[Observability]:
       if system.settings.config.hasPath("ankka.observability.ring-capacity") then
         system.settings.config.getInt("ankka.observability.ring-capacity")
       else 4096
-    val config = system.settings.config
+    val config                                      = system.settings.config
     def millis(path: String, otherwise: Long): Long =
       if config.hasPath(path) then config.getDuration(path).toMillis else otherwise
     def int(path: String, otherwise: Int): Int =

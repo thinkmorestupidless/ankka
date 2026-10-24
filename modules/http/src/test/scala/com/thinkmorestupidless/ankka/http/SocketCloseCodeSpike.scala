@@ -41,13 +41,13 @@ class SocketCloseCodeSpike extends munit.FunSuite:
     val sockets  = base.websocketSettings
     val handler: HttpRequest => HttpResponse = request =>
       AnkkaSocketUpgrade.of(request) match
-        case None => HttpResponse(StatusCodes.UpgradeRequired)
+        case None          => HttpResponse(StatusCodes.UpgradeRequired)
         case Some(upgrade) =>
           assert(AnkkaSocketUpgrade.choosesCloseCodes(upgrade), upgrade.getClass.getName)
           val path                                    = request.uri.path.toString
           val code                                    = path.stripPrefix("/").toIntOption
           @volatile var chosen: Option[(Int, String)] = None
-          val messages: Flow[Message, Message, Any] = code match
+          val messages: Flow[Message, Message, Any]   = code match
             // Closes as soon as it opens, having chosen the code the path names.
             case Some(c) =>
               Flow.fromSinkAndSourceCoupled(

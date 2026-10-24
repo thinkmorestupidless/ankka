@@ -72,7 +72,7 @@ abstract class SecretStoreBehaviours extends munit.FunSuite with LogCapturing:
   protected def dump(): Vector[(String, String)] =
     given org.apache.pekko.actor.typed.ActorSystem[?] = testKit.service.system
     val database                                      = Database()
-    val tables = Await.result(
+    val tables                                        = Await.result(
       database.query(
         SqlFragment.raw(
           "SELECT table_name FROM information_schema.tables " +

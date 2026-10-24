@@ -22,12 +22,12 @@ class GraphFixturesSuite extends munit.FunSuite:
   for file <- Seq("keys.json", "deltas.json") do
     test(s"$file is what the builder writes for its elements") {
       val recorded = rows(file)
-      val built = recorded.map { row =>
+      val built    = recorded.map { row =>
         val element = row.field("delta").getOrElse(fail(s"$file row has no delta"))
         val delta   = build(element)
         val text    = new String(GraphDelta.serializer.toBytes(delta), UTF_8)
         val written = GraphJson.parse(text.getBytes(UTF_8)).toOption.get
-        val fields = Vector("delta" -> written, "key" -> GraphJson.Str(delta.key)) ++
+        val fields  = Vector("delta" -> written, "key" -> GraphJson.Str(delta.key)) ++
           row.field("reads").map("reads" -> _).toVector
         GraphJson.Obj(fields)
       }

@@ -77,7 +77,7 @@ object Plugins:
         else
           running.get(word) match
             case Some(first) => Status.Hidden(first)
-            case None =>
+            case None        =>
               running(word) = program
               Status.Runs
       Candidate(word, program, status)
@@ -120,9 +120,9 @@ object Plugins:
    */
   def environment(err: PrintStream): Map[String, String] =
     val settings = Settings.resolve(None, None, None)
-    val token = Session.credential(settings) match
-      case Session.Credential.Token(value) => Some("ANKKA_TOKEN" -> value)
-      case Session.Credential.NotLoggedIn  => None
+    val token    = Session.credential(settings) match
+      case Session.Credential.Token(value)    => Some("ANKKA_TOKEN" -> value)
+      case Session.Credential.NotLoggedIn     => None
       case Session.Credential.Refused(reason) =>
         err.println(
           s"warning: ${settings.url} rejected the login ($reason); run 'ankka login'"

@@ -26,7 +26,7 @@ private[ankka] object SecretBackend:
   def parse(word: String): Either[String, SecretBackend] =
     word.trim match
       case "" => Right(Postgres)
-      case w =>
+      case w  =>
         SecretBackend.values
           .find(_.word == w)
           .toRight(

@@ -39,7 +39,7 @@ abstract class TopicSettingsOfflineFeatures(feature: String)
 
   override val munitTimeout = 4.minutes
 
-  private lazy val identity = TestIdentity()
+  private lazy val identity   = TestIdentity()
   private lazy val OwnerToken =
     identity.token(
       "owner",
@@ -208,11 +208,11 @@ abstract class TopicSettingsOfflineFeatures(feature: String)
       token: String = OwnerToken,
       answer: String = ""
   ): Unit =
-    val isNew = !listed(p).exists(_.name == t)
+    val isNew      = !listed(p).exists(_.name == t)
     val partitions =
       if isNew && !flags.contains("--partitions") then Seq("--partitions", "3") else Seq.empty
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Console.withIn(ByteArrayInputStream(answer.getBytes(UTF_8))) {
       Console.withOut(PrintStream(out, true, UTF_8)) {
         Main.run(
@@ -426,7 +426,7 @@ class TopicCopiesOfflineFeature extends TopicSettingsOfflineFeatures("copies.fea
     assertEquals(result._1, 0, result._2)
   }
   When("a member reads the topics of {string}") { (p: String) =>
-    val id = project(p)
+    val id   = project(p)
     val spec = {
       val deadline = 30.seconds.fromNow
       while cluster.project(deployConfig.namespaceFor(id), id).forall(_.topics.isEmpty) && deadline

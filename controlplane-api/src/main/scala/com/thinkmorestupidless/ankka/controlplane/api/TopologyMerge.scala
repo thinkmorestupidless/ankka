@@ -28,7 +28,7 @@ object TopologyMerge:
     val pods      = answered.map(_._1)
     val documents = answered.map(_._2)
 
-    val nodes = documents.flatMap(_.nodes).distinctBy(_.id).sortBy(n => (n.layer, n.id))
+    val nodes    = documents.flatMap(_.nodes).distinctBy(_.id).sortBy(n => (n.layer, n.id))
     val declared =
       documents.flatMap(_.declared).distinct.sortBy(e => (e.from, e.to, e.kind))
 
@@ -79,7 +79,7 @@ object TopologyMerge:
   private def sum(pairs: Vector[CallPair]): CallPair =
     val histogram = pairs.map(_.histogram).filter(_.nonEmpty) match
       case Vector() => Vector.empty[Long]
-      case several =>
+      case several  =>
         val width = several.map(_.size).max
         Vector.tabulate(width)(i => several.map(h => if i < h.size then h(i) else 0L).sum)
     val duration =

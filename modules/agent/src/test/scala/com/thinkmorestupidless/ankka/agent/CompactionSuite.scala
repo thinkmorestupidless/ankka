@@ -10,7 +10,7 @@ class CompactionSuite extends munit.FunSuite:
   private def user(text: String)    = SessionMessage.UserMessage(1L, text, "a")
   private def ai(text: String)      = SessionMessage.AiMessage(2L, text, "a")
   private def summary(text: String) = SessionMessage.SummaryMessage(3L, text, "ankka-compactor")
-  private def toolOk(text: String) =
+  private def toolOk(text: String)  =
     SessionMessage.ToolResultMessage(4L, "c1", "lookup", text, isError = false, "a")
   private def toolBad(text: String) =
     SessionMessage.ToolResultMessage(4L, "c1", "lookup", text, isError = true, "a")
@@ -62,7 +62,7 @@ class CompactionSuite extends munit.FunSuite:
 
   test("a refusal to summarise is an error, not an empty summary") {
     // Returning "" would replace real history with nothing.
-    val model = TestModelProvider().expectRefusal("I cannot summarise that.")
+    val model   = TestModelProvider().expectRefusal("I cannot summarise that.")
     val failure = intercept[ModelCallFailed] {
       ModelSummariser(model, 5.seconds).summarise(Vector(user("x")))
     }

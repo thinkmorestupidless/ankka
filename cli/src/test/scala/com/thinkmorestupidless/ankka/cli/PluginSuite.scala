@@ -70,8 +70,8 @@ class PluginSuite extends munit.FunSuite:
       |env | grep '^ANKKA_' > "$rec/env" || true""".stripMargin
 
   private def run(args: String*): (Int, String, String) =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args,
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -431,7 +431,7 @@ class PluginSuite extends munit.FunSuite:
         |wait $!""".stripMargin
     )
     val java = Paths.get(sys.props("java.home"), "bin", "java").toString
-    val cli = ProcessBuilder(
+    val cli  = ProcessBuilder(
       java,
       s"-Dankka.config=${dir.resolve("config.json")}",
       s"-Dankka.path=$bin",
@@ -440,7 +440,7 @@ class PluginSuite extends munit.FunSuite:
       "com.thinkmorestupidless.ankka.cli.Main",
       "sleepy"
     ).redirectErrorStream(true).start()
-    val lines = LinkedBlockingQueue[String]()
+    val lines  = LinkedBlockingQueue[String]()
     val reader = Thread(() =>
       BufferedReader(InputStreamReader(cli.getInputStream, StandardCharsets.UTF_8)).lines
         .forEach(lines.put)

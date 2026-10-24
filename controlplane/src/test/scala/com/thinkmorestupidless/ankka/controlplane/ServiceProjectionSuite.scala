@@ -62,7 +62,7 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("the instance type is resolved to numbers, because the operator cannot look it up") {
-    val Right(small) = ServiceProjection.project(service(d = descriptor()), config): @unchecked
+    val Right(small)  = ServiceProjection.project(service(d = descriptor()), config): @unchecked
     val Right(medium) =
       ServiceProjection.project(
         service(d = descriptor(instanceType = "medium")),
@@ -238,7 +238,7 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     val Right(without) = ServiceProjection.project(service(), config): @unchecked
     assertEquals(without.imagePullSecret, None)
 
-    val credential = RegistryRef("ghcr.io", "octocat", "ankka-registry")
+    val credential   = RegistryRef("ghcr.io", "octocat", "ankka-registry")
     val Right(with_) =
       ServiceProjection.project(service(), config, Some(credential)): @unchecked
     // The *name*, not the credential: nothing about the registry itself crosses into the resource,
@@ -389,8 +389,8 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a named bucket whose store name would be over 63 characters is not projected") {
-    val name = "a" * 20
-    val d    = withBuckets(BucketSpec(name))
+    val name           = "a" * 20
+    val d              = withBuckets(BucketSpec(name))
     val Left(problems) =
       ServiceProjection.project(service(projectId = "p" * 40, d = d), config): @unchecked
     assertEquals(problems.size, 1, problems)
@@ -399,7 +399,7 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("only supplied buckets need nothing of the installation's store") {
-    val d = withBuckets(BucketSpec("a" * 20, supplied = Some(supplied)))
+    val d           = withBuckets(BucketSpec("a" * 20, supplied = Some(supplied)))
     val Right(spec) =
       ServiceProjection.project(service(projectId = "p" * 40, d = d), config): @unchecked
     assertEquals(spec.buckets.map(_.name), List("a" * 20))

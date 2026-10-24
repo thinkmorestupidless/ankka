@@ -18,7 +18,7 @@ class ProjectRenderingSuite extends munit.FunSuite:
 
   private val broker = Some(BrokerStack.settings)
   private val ref    = ServiceRef("ankka-money", "money")
-  private val money = AnkkaProjectSpec(
+  private val money  = AnkkaProjectSpec(
     "money",
     List(
       ProjectTopicEntry("transactions", 12, "2026-10-05T10:00:00Z"),
@@ -181,7 +181,7 @@ class ProjectRenderingSuite extends munit.FunSuite:
   ) {
     val five = ProjectTopicEntry("transactions", 12, "2026-10-08T10:00:00Z", replicas = Some(5))
     val spec = AnkkaProjectSpec("money", List(five))
-    val as = ProjectReconciler.actions(
+    val as   = ProjectReconciler.actions(
       ServiceRef("ankka-money", "money"),
       spec,
       broker,

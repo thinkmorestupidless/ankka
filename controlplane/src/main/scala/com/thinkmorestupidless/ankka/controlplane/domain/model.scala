@@ -196,7 +196,7 @@ final case class Organization(
   ): Organization =
     val key = Organization.key(email)
     invitations.get(key) match
-      case None => this
+      case None             => this
       case Some(invitation) =>
         copy(
           invitations = invitations - key,
@@ -466,7 +466,7 @@ object ReceivedGrant:
       recorded: GrantRecordedFields
   ): Map[String, ReceivedGrant] =
     val entry = GrantChangeEntry(recorded.change, recorded.actor, recorded.at)
-    val next = held.get(recorded.id) match
+    val next  = held.get(recorded.id) match
       case Some(had) =>
         had.copy(state = stateAfter(recorded.change), changes = had.changes :+ entry)
       case None =>
@@ -630,7 +630,7 @@ final case class Project(
       at: Option[Instant]
   ): Project =
     restores.get(name) match
-      case None => this
+      case None          => this
       case Some(restore) =>
         copy(restores =
           restores.updated(
@@ -704,8 +704,8 @@ final case class Project(
   def onCreated(name: String, organizationId: String): Project =
     copy(name = name, organizationId = organizationId)
 
-  def onRenamed(name: String): Project = copy(name = name)
-  def onDeleted: Project               = copy(deleted = true)
+  def onRenamed(name: String): Project                           = copy(name = name)
+  def onDeleted: Project                                         = copy(deleted = true)
   def onDeleted(by: Option[Actor], at: Option[Instant]): Project =
     copy(deleted = true, deletion = Some(Deletion(by, at)))
 
@@ -758,7 +758,7 @@ final case class Project(
       at: Option[Instant]
   ): Project =
     topics.get(name) match
-      case None => this
+      case None    => this
       case Some(t) =>
         copy(topics =
           topics.updated(name, t.copy(settings = Some(settings), defaulted = defaulted.toSet))
@@ -793,7 +793,7 @@ final case class Project(
 
   def onSecretEntryRemoved(name: String, entry: String): Project =
     secrets.get(name) match
-      case None => this
+      case None      => this
       case Some(ref) =>
         val left = ref.entries - entry
         if left.isEmpty then copy(secrets = secrets - name)
@@ -977,7 +977,7 @@ final case class Service(
     else
       held.find(_.generation == n) match
         case Some(found) => Right(found)
-        case None =>
+        case None        =>
           held.find(_.generation < n) match
             case Some(ran) if held.lastOption.exists(_.generation < n) =>
               Left(RollbackRefusal.NoDescriptor(n, ran.generation))
@@ -1293,11 +1293,11 @@ enum RollbackRefusal:
 
   def message(service: String): String = this match
     case NoSuchGeneration(n) => s"service '$service' has no generation $n"
-    case NotKept(n, oldest) =>
+    case NotKept(n, oldest)  =>
       s"the descriptor of generation $n is no longer kept; the oldest kept is generation $oldest"
     case NoDescriptor(n, ran) =>
       s"generation $n was a restart and ran the descriptor of generation $ran"
-    case SameDescriptor(n) => s"service '$service' already has the descriptor of generation $n"
+    case SameDescriptor(n)   => s"service '$service' already has the descriptor of generation $n"
     case NothingToRollBackTo =>
       s"service '$service' has no earlier generation with a different descriptor"
 

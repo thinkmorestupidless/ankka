@@ -135,7 +135,7 @@ class ReconcileSuite extends munit.FunSuite:
   }
 
   test("a fetch that succeeds settles as served, with the digest and capabilities Ollama reports") {
-    val p = plan(Vector(small))
+    val p        = plan(Vector(small))
     val outcomes = Vector(
       Outcome(Action.Pull(small), Right(Vector.empty)),
       Outcome(Action.Load(small), Right(Vector.empty)),

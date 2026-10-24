@@ -16,7 +16,7 @@ final class ProjectTrigger(client: ComponentClient) extends Consumer[ProjectEven
   def onMessage(event: ProjectEvent): Effect =
     event match
       case ProjectDeleted(actor, at) =>
-        val project = messageContext.subject
+        val project  = messageContext.subject
         val received =
           client
             .forEventSourcedEntity(EntityId(project))

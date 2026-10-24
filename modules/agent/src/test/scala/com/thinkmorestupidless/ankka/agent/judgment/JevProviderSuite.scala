@@ -67,7 +67,7 @@ class JevProviderSuite extends munit.FunSuite:
     server.createContext(
       "/",
       exchange =>
-        val body = String(exchange.getRequestBody.readAllBytes(), "UTF-8")
+        val body    = String(exchange.getRequestBody.readAllBytes(), "UTF-8")
         val headers =
           exchange.getRequestHeaders.asScala.map((k, v) => k.toLowerCase -> v.get(0)).toMap
         received.add(Received(exchange.getRequestURI.getPath, headers, body)): Unit

@@ -50,9 +50,9 @@ object BackupStatus:
     val archiveDown = observation.cluster
       .flatMap(_.conditions.find(_.`type` == "ContinuousArchiving"))
       .filter(_.status == "False")
-    val backupFailed = lastFailure.exists(f => lastSuccess.forall(_.isBefore(f)))
-    val lag          = archive.flatMap(_.lagSeconds)
-    val copied       = copiedAt.filter(c => lastSuccess.exists(s => !c.isBefore(s)))
+    val backupFailed    = lastFailure.exists(f => lastSuccess.forall(_.isBefore(f)))
+    val lag             = archive.flatMap(_.lagSeconds)
+    val copied          = copiedAt.filter(c => lastSuccess.exists(s => !c.isBefore(s)))
     val (phase, reason) =
       if archiveDown.isDefined then
         Failing -> Some(

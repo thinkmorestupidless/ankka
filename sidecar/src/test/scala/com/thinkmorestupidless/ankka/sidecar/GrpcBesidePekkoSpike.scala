@@ -19,7 +19,7 @@ import scala.concurrent.ExecutionContext
 class GrpcBesidePekkoSpike extends munit.FunSuite with LogCapturing:
 
   test("a shaded-netty gRPC server serves a bidirectional stream beside an ActorSystem") {
-    val system = ActorSystem(Behaviors.empty[Nothing], "spike")
+    val system  = ActorSystem(Behaviors.empty[Nothing], "spike")
     val service = new EventSourcedGrpc.EventSourced:
       def handle(out: StreamObserver[EventSourcedOut]): StreamObserver[EventSourcedIn] =
         new StreamObserver[EventSourcedIn]:
@@ -48,7 +48,7 @@ class GrpcBesidePekkoSpike extends munit.FunSuite with LogCapturing:
     val stub           = EventSourcedGrpc.stub(channel)
     val latch          = new CountDownLatch(3)
     @volatile var seen = Vector.empty[Long]
-    val in = stub.handle(new StreamObserver[EventSourcedOut]:
+    val in             = stub.handle(new StreamObserver[EventSourcedOut]:
       def onNext(o: EventSourcedOut): Unit =
         o.message.reply.foreach { r =>
           seen :+= r.commandId; latch.countDown()

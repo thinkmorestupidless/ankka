@@ -35,7 +35,7 @@ class BrokerTokenSuite extends munit.FunSuite:
 
   private val issuer   = "https://cart.shop.example/_ankka/sign-in/mcp"
   private val resource = "https://cart.shop.example/mcp"
-  private val ada = SignedIn(
+  private val ada      = SignedIn(
     "ada",
     Some("Ada"),
     Some("ada@example.com"),
@@ -140,7 +140,7 @@ class BrokerTokenSuite extends munit.FunSuite:
 
   test("an unbound authenticator answers unavailable, and one with no bearer challenges") {
     import com.thinkmorestupidless.ankka.http.{AuthDecision, QueryParams, SimpleRequestContext}
-    val auth = BrokerAuthenticator("/mcp")
+    val auth                                = BrokerAuthenticator("/mcp")
     def request(headers: (String, String)*) =
       SimpleRequestContext("POST", "/mcp", QueryParams.empty, headers.toVector, None)
     assert(auth(request()).isInstanceOf[AuthDecision.Unauthenticated])

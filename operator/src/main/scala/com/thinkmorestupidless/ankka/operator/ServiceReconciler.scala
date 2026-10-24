@@ -66,12 +66,12 @@ final class ServiceReconciler(
     val movePass     = decideMove(ref, resource, spec)
     val reported     = ObjectStorage.reported(resource)
     // The move's state as this pass leaves it, or as the last pass did once it is over.
-    val moveStatus  = movePass.fold(reported.flatMap(_.move))(_.step.status)
-    val storagePlan = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
+    val moveStatus   = movePass.fold(reported.flatMap(_.move))(_.step.status)
+    val storagePlan  = decideObjectStoragePlan(ref, spec, reported, cloudBucket.map(_.plans))
     val namedBuckets =
       decideNamedBuckets(ref, spec, reported, cloudBucket.fold(Map.empty)(_.named))
     val namedHeld = ObjectStorage.namedWithheld(namedBuckets)
-    val withheld =
+    val withheld  =
       ObjectStorage.withheld(storagePlan, spec, settings, reported).orElse(namedHeld)
     val refused      = ObjectStorage.refused(storagePlan, spec, settings, reported)
     val secretAccess = decideSecretAccess(ref, resource, spec, cloudBucket)
@@ -117,7 +117,7 @@ final class ServiceReconciler(
           case waiting =>
             withheld match
               case Some(_) if refused.isDefined => observed.copy(lifecycle = "Failed")
-              case held =>
+              case held                         =>
                 held
                   .orElse(waiting.collect { case SecretAccess.Hold.Waiting(why) => why })
                   .fold(observed)(why =>
@@ -293,7 +293,7 @@ final class ServiceReconciler(
     else
       // A bucket in the cloud is the provider's to answer: Garage is asked only about its own.
       val inCloud = ServiceReconciler.namedInCloud(spec, settings, reported).map(_.name).toSet
-      val made = spec.buckets
+      val made    = spec.buckets
         .filter(b => b.made && !inCloud(b.name))
         .map(b => Buckets.named(spec.projectId, spec.serviceName, b.name))
       val observed =
@@ -342,8 +342,8 @@ final class ServiceReconciler(
       request <- spec.objectStorageMove
       if !current.exists(_.state == StorageMove.State.Switched.toString)
     yield
-      val moved = ObjectStorage.movedNamed(spec, ObjectStorage.reported(resource))
-      val pass  = cloudBucketPass(ref, resource, spec, cloud, true, moved)
+      val moved              = ObjectStorage.movedNamed(spec, ObjectStorage.reported(resource))
+      val pass               = cloudBucketPass(ref, resource, spec, cloud, true, moved)
       val (requests, target) =
         ObjectStorage.moveRequests(pass.plans, moved.flatMap(b => pass.named.get(b.name)))
       val phase = current.map(_.state) match
@@ -387,7 +387,7 @@ final class ServiceReconciler(
       case CloudPlan.Ready(outputs, _, _, _) => outputs.get(key)
       case _                                 => None
     val projectLocation = executor.projectLocation(ref.namespace, spec.projectId)
-    val first =
+    val first           =
       ObjectStorage.cloudRequests(
         resource,
         settings,
@@ -456,14 +456,14 @@ final class ServiceReconciler(
   ): Option[ServiceReconciler.SecretAccessPass] =
     for cloud <- settings.cloud if SecretAccess.takesCloudPath(spec, settings)
     yield
-      val now = Instant.now(clock)
+      val now                                                                = Instant.now(clock)
       def answered(request: com.thinkmorestupidless.ankka.crd.CloudResource) =
         val seen = executor.observeCloudResource(ref.namespace, request.getMetadata.getName)
         seen -> CloudProvisioning.decide(request, seen, now, cloud.acknowledgementBound)
-      val identityRequest = SecretAccess.identityRequest(resource, cloud)
+      val identityRequest              = SecretAccess.identityRequest(resource, cloud)
       val (identitySeen, identityPlan) = bucket match
         case Some(pass) => (Some(true), pass.plans.identity)
-        case None =>
+        case None       =>
           val (seen, plan) = answered(identityRequest)
           (seen.map(_.acknowledged), plan)
       val identity = identityPlan match
@@ -489,9 +489,9 @@ final class ServiceReconciler(
       spec: AnkkaServiceSpec
   ): ServiceReconciler.ProjectSecretsPass =
     settings.cloud.filter(_ => ProjectSecretSync.takesCloudPath(settings)) match
-      case None => ServiceReconciler.ProjectSecretsPass(Vector.empty, unacknowledged = false)
+      case None        => ServiceReconciler.ProjectSecretsPass(Vector.empty, unacknowledged = false)
       case Some(cloud) =>
-        val now = Instant.now(clock)
+        val now  = Instant.now(clock)
         val seen = ProjectSecretSync
           .referenced(spec, executor.projectSecrets(ref.namespace, spec.projectId))
           .map { secret =>
@@ -518,7 +518,7 @@ final class ServiceReconciler(
    */
   private def observeBroker(ref: ServiceRef, spec: AnkkaServiceSpec): BrokerObservation =
     settings.broker.filter(_ => BrokerProvisioning.known(spec, settings.broker)) match
-      case None => BrokerObservation.empty
+      case None         => BrokerObservation.empty
       case Some(broker) =>
         executor
           .observeBroker(broker.namespace, BrokerNames.user(spec.projectId, spec.serviceName))

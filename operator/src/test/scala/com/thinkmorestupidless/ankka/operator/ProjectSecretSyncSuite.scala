@@ -64,7 +64,7 @@ class ProjectSecretSyncSuite extends munit.FunSuite:
     def foreignObjectAt(namespace: String, name: String)                       = false
     def podProblems(namespace: String, serviceName: String, projectId: String) = Vector.empty
     def observeRoute(namespace: String, name: String)                          = None
-    def observeDatabase(namespace: String, cluster: String, service: String) =
+    def observeDatabase(namespace: String, cluster: String, service: String)   =
       DatabaseObservation.empty
     def resourceCreatedAt(namespace: String, name: String)       = None
     def observeBroker(namespace: String, user: String)           = BrokerObservation.empty
@@ -90,7 +90,7 @@ class ProjectSecretSyncSuite extends munit.FunSuite:
     try
       val stub     = Stub(answers)
       val resource = service(env)
-      val seen = new ServiceReconciler(client, settings, stub, Clock.fixed(now, ZoneOffset.UTC))
+      val seen     = new ServiceReconciler(client, settings, stub, Clock.fixed(now, ZoneOffset.UTC))
         .decideProjectSecrets(ServiceRef("ankka-shop", "payments"), resource.getSpec)
       seen -> stub.asked.toVector
     finally client.close()

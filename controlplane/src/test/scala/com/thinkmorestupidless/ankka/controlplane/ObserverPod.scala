@@ -96,7 +96,7 @@ object ObserverPod:
         if code == 200 then
           Try(readFromString[InstanceTopologyDocument](body)).toOption match
             case Some(document) => InstanceTopology(pod, InstanceStatus.Ok) -> Some(document)
-            case None =>
+            case None           =>
               InstanceTopology(pod, InstanceStatus.Unreachable, Some("undecodable")) -> None
         else InstanceTopology(pod, InstanceStatus.Unreachable, Some(s"answered $code")) -> None
       ,

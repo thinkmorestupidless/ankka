@@ -43,7 +43,7 @@ class WorkflowRecordCompatibilitySuite extends munit.FunSuite with LogCapturing:
     "delete"     -> WorkflowRecord.deleted
   )
 
-  private def hex(bytes: Array[Byte]): String = bytes.map(b => f"$b%02x").mkString
+  private def hex(bytes: Array[Byte]): String  = bytes.map(b => f"$b%02x").mkString
   private def unhex(text: String): Array[Byte] =
     text.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
 
@@ -97,7 +97,7 @@ class WorkflowRecordCompatibilitySuite extends munit.FunSuite with LogCapturing:
   test("a stamped state record round-trips with its standing") {
     val standing = StandingRecord("Paused", "charge", Map("reserve" -> 1), "")
     val record   = WorkflowRecord.stateUpdated(state, Some(standing))
-    val back = serialization
+    val back     = serialization
       .deserialize(serialization.serialize(record).get, classOf[WorkflowRecord])
       .get
     assert(same(back, record))

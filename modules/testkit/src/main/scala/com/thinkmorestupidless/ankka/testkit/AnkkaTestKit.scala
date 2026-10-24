@@ -390,7 +390,7 @@ object AnkkaTestKit:
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
     // identity that could not be read, which only ankka's own tests have reason to. The store in
     // memory likewise: one per kit, so a restart reads what was kept before it.
-    val memoryStorage = StorageBackendChoice.store(storage)
+    val memoryStorage                                = StorageBackendChoice.store(storage)
     val configured: ServiceBuilder => ServiceBuilder =
       builder =>
         val handed = memoryStorage.fold(builder)(builder.withStorage(_))

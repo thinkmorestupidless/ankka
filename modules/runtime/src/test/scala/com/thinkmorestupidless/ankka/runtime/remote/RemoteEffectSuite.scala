@@ -45,7 +45,7 @@ class RemoteEffectSuite extends munit.FunSuite:
 
   test("a refusal persists nothing and carries its code") {
     val error = CommandError("no", ErrorCode.Conflict)
-    val m = RemoteEffect
+    val m     = RemoteEffect
       .materialise(reply(outcome = RemoteOutcome.Error(error)), command, 1, false)
       .toOption
       .get
@@ -56,7 +56,7 @@ class RemoteEffectSuite extends munit.FunSuite:
 
   test("a refusal that also changed state is a violation, not a partial write") {
     val error = CommandError("no", ErrorCode.Conflict)
-    val r = RemoteEffect.materialise(
+    val r     = RemoteEffect.materialise(
       reply(events = Vector(event), outcome = RemoteOutcome.Error(error)),
       command,
       1,

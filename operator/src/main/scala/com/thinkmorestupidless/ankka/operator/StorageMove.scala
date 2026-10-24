@@ -148,7 +148,7 @@ object StorageMove:
       )
     val bound   = s.pauseBound.orElse(Some(asked.writePauseBound)).flatMap(seconds).getOrElse(600L)
     val elapsed = s.pauseStartedAt.map(at => Duration.between(Instant.parse(at), o.now).getSeconds)
-    val bucket = o.requests match
+    val bucket  = o.requests match
       case Requests.Ready(names) => Some(names)
       case _                     => None
     State.valueOf(s.state) match

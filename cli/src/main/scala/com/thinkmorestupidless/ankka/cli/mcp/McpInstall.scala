@@ -124,7 +124,7 @@ private[cli] object McpInstall:
     servers(ServerName) match
       case Some(existing) if same(existing, entry) => (root, Outcome.Unchanged)
       case Some(existing) if !force                => (root, Outcome.Kept(existing))
-      case existing =>
+      case existing                                =>
         val updated = put(servers, ServerName, entry)
         (
           put(root, "mcpServers", updated),
@@ -160,7 +160,7 @@ private[cli] object McpInstall:
   def install(file: Path, entry: Json, force: Boolean, dryRun: Boolean): (Outcome, String) =
     val (merged, outcome) = merge(read(file), entry, force)
     val text              = merged.pretty + "\n"
-    val writes = outcome match
+    val writes            = outcome match
       case Outcome.Added | Outcome.Replaced => true
       case _                                => false
     if writes && !dryRun then
@@ -204,7 +204,7 @@ private[cli] object McpInstall:
       launch.env.flatMap((k, v) => Vector("-e", s"$k=$v")) ++
       Vector(ServerName, "--", launch.command) ++ launch.args
 
-  val claudeGet: Vector[String] = Vector("claude", "mcp", "get", ServerName)
+  val claudeGet: Vector[String]    = Vector("claude", "mcp", "get", ServerName)
   val claudeRemove: Vector[String] =
     Vector("claude", "mcp", "remove", "--scope", "user", ServerName)
 
@@ -250,7 +250,7 @@ private[cli] object McpInstall:
           "--scope project is for Claude Code; Claude Desktop has one configuration"
         )
       case (Client.Code, Scope.Project) =>
-        val file = request.dir.resolve(".mcp.json").toAbsolutePath.normalize
+        val file            = request.dir.resolve(".mcp.json").toAbsolutePath.normalize
         val (outcome, text) =
           install(file, ProjectLaunch.entry, request.force, request.dryRun)
         report(outcome, file.toString, text, request.dryRun) +
@@ -296,7 +296,7 @@ private[cli] object McpInstall:
 
   private def report(outcome: Outcome, file: String, text: String, dryRun: Boolean): String =
     outcome match
-      case Outcome.Unchanged => s"$file already starts ankka mcp; nothing to change"
+      case Outcome.Unchanged      => s"$file already starts ankka mcp; nothing to change"
       case Outcome.Kept(existing) =>
         s"""$file already has a server named '$ServerName', different from this one; left as it is:
            |

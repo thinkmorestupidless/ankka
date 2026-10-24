@@ -222,7 +222,7 @@ class OutputSuite extends munit.FunSuite:
 
   // features/topics/gap.feature: the retention gap and the warning in `services get`
   test("a service's topic sources say what their topics still hold, and its warnings are listed") {
-    val at = java.time.Instant.parse("2026-09-01T10:00:00Z")
+    val at     = java.time.Instant.parse("2026-09-01T10:00:00Z")
     val source = TopicSourceReport(
       "view",
       "entries",

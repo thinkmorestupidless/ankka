@@ -567,7 +567,7 @@ object AnkkaService:
   /** Builds a resource for one service. */
   def apply(namespace: String, name: String, spec: AnkkaServiceSpec): AnkkaService =
     val resource = new AnkkaService
-    val meta = new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
+    val meta     = new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
       .withNamespace(namespace)
       .withName(name)
       .build()

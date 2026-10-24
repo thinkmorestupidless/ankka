@@ -63,7 +63,7 @@ class MachineTokensSuite extends munit.FunSuite:
   }
 
   test("a minute's difference between clocks is allowed, and no more") {
-    val issued = Instant.parse("2026-10-09T10:00:00Z")
+    val issued         = Instant.parse("2026-10-09T10:00:00Z")
     def at(t: Instant) =
       MachineTokens.withKeys(
         issuer,
@@ -109,7 +109,7 @@ class MachineTokensSuite extends munit.FunSuite:
         exchange.close()
     )
     server.start()
-    val now = AtomicReference(Instant.parse("2026-10-09T10:00:00Z"))
+    val now   = AtomicReference(Instant.parse("2026-10-09T10:00:00Z"))
     val clock = new Clock:
       def getZone                                = ZoneOffset.UTC
       override def withZone(z: java.time.ZoneId) = this

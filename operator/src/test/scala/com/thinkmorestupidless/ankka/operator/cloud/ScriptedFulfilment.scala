@@ -230,7 +230,7 @@ final class ScriptedFulfilment(
       previous: Option[CloudResourceStatus],
       secrets: SecretWrites
   ): CloudResourceStatus = synchronized {
-    val now = clock()
+    val now  = clock()
     val base = CloudResourceStatus(
       observedGeneration = Some(generation),
       account = account,
@@ -245,7 +245,7 @@ final class ScriptedFulfilment(
       .orElse(
         stalls.get(name).map(reason => base.copy(phase = CloudKinds.Waiting, detail = Some(reason)))
       ) match
-      case Some(answer) => answer
+      case Some(answer)                                => answer
       case None if !CloudKinds.all.contains(spec.kind) =>
         failed(s"kind ${spec.kind} is not implemented by $version")
       case None =>
@@ -258,7 +258,7 @@ final class ScriptedFulfilment(
             failed("made in another account or location")
           case _ =>
             answer(namespace, spec, now, previous, existing.map(_.outputs), secrets) match
-              case Left(reason) => failed(reason)
+              case Left(reason)                 => failed(reason)
               case Right((outputs, credential)) =>
                 memory.made(key) = memory.Made(account, base.location, outputs)
                 // Recovered means the thing was there before this request was: a later generation
@@ -330,7 +330,7 @@ final class ScriptedFulfilment(
           ) ++ Option.when(public)(Keys.PublicUrl -> store.publicUrl(bucket)) -> None
         )
       case CloudKinds.BucketCredential => credential(namespace, spec, now, previous, secrets)
-      case CloudKinds.WrappingKey =>
+      case CloudKinds.WrappingKey      =>
         Right(Map(Keys.Key -> p(Keys.Key)) -> None)
 
   /**

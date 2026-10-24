@@ -72,7 +72,7 @@ private[http] final class DirectoryStorageEndpoint(
   ): Future[HttpResponse] =
     Future(bucket.get(objectName))(using AnkkaExecutors.virtual)
       .map {
-        case None => problem(HttpProblem.notFound(s"no object '$objectName'"))
+        case None    => problem(HttpProblem.notFound(s"no object '$objectName'"))
         case Some(o) =>
           val contentType =
             ContentType.parse(o.contentType).getOrElse(ContentTypes.`application/octet-stream`)

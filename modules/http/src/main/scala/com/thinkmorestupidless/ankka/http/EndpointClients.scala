@@ -74,7 +74,7 @@ final class EndpointClients private[ankka] (
       timeout: FiniteDuration
   ): Source[SseEvent, NotUsed] =
     given ExecutionContext = ExecutionContext.parasitic
-    val end =
+    val end                =
       componentClient.transportRef
         .awaitEnd(companion.componentId, workflowId, timeout, Metadata.empty)
         .map((bytes, metadata) => SseEvent.ended(EndpointClients.asJson(bytes, metadata)))

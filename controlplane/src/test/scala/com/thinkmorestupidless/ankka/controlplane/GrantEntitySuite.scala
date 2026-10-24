@@ -31,7 +31,7 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def spinvibe =
     val kit = EventSourcedTestKit.of(ProjectEntity, "spinvibe")
-    val _ =
+    val _   =
       kit.call(ProjectEntity.createProject, ada.metadata)(CreateProject("Spinvibe", "eitheror"))
     val _ = kit.call(ProjectEntity.declareTopic, ada.metadata)(
       DeclareTopic("affiliates.attribution", Some(3))
@@ -168,7 +168,7 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a topic the project has not declared cannot be granted, and the refusal says so") {
-    val kit = spinvibe
+    val kit    = spinvibe
     val result =
       make(kit, "g1", merchant, GrantTarget.topic("casino.sessions", "consume"), pending = false)
     assertEquals(result.error.code, ErrorCode.NotFound)
@@ -209,7 +209,7 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("a grant that allows decryption, and the erasure right, are held as any grant is") {
     val kit = spinvibe
-    val _ = make(
+    val _   = make(
       kit,
       "d",
       merchant,
@@ -238,7 +238,7 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("a grantee project records each change once, and a change recorded twice is a conflict") {
     val kit = EventSourcedTestKit.of(ProjectEntity, "payments")
-    val _ =
+    val _   =
       kit.call(ProjectEntity.createProject, ada.metadata)(CreateProject("Payments", "eitheror"))
     val made =
       kit.call(ProjectEntity.recordGrantChange, ada.metadata)(record("g1", GrantChange.Made))
@@ -260,7 +260,7 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("a deleted grantee project still reads what it was granted, so a deletion can lapse it") {
     val kit = EventSourcedTestKit.of(ProjectEntity, "payments")
-    val _ =
+    val _   =
       kit.call(ProjectEntity.createProject, ada.metadata)(CreateProject("Payments", "eitheror"))
     val _ = kit.call(ProjectEntity.recordGrantChange, ada.metadata)(record("g1", GrantChange.Made))
     val _ = kit.call(ProjectEntity.delete, ada.metadata)
@@ -268,8 +268,8 @@ class GrantEntitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("an organization records the changes to grants its machines were offered") {
-    val kit = EventSourcedTestKit.of(OrganizationEntity, "affiliates")
-    val _   = kit.call(OrganizationEntity.createOrganization, bo.metadata)("Affiliates")
+    val kit     = EventSourcedTestKit.of(OrganizationEntity, "affiliates")
+    val _       = kit.call(OrganizationEntity.createOrganization, bo.metadata)("Affiliates")
     val offered =
       RecordGrantChange("g1", "spinvibe", "eitheror", network, attribution, GrantChange.Offered)
     assertEquals(

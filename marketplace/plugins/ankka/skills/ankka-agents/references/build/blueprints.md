@@ -517,7 +517,7 @@ A tool called during a run can read which run it serves, so what it writes can s
 ```scala
 /** A tool that records which run it was told it serves: `None` outside any run. */
 object Told:
-  val seen = CopyOnWriteArrayList[Option[RunRef]]()
+  val seen               = CopyOnWriteArrayList[Option[RunRef]]()
   val tell: FunctionTool = FunctionTool
     .named("tell")
     .describedAs("Tells the test which run called it.")

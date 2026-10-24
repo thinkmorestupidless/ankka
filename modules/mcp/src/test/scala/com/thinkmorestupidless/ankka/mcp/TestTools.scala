@@ -9,8 +9,8 @@ import scala.collection.mutable
 object TestTools:
 
   final class Declaring:
-    private val held = mutable.ListBuffer.empty[McpTool]
-    val bindings     = Reference.Bindings()
+    private val held                    = mutable.ListBuffer.empty[McpTool]
+    val bindings                        = Reference.Bindings()
     def tool(name: String): ToolBuilder =
       ToolBuilder(name, "", None, t => { held += t; t }, bindings)
     def tools: Vector[McpTool] = held.toVector

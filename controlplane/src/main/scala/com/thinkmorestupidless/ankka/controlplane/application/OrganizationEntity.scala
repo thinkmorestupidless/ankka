@@ -171,7 +171,7 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
     if !currentState.exists || currentState.disabled then effects.reply(None)
     else
       currentState.invitations.get(key) match
-        case None => effects.reply(None)
+        case None             => effects.reply(None)
         case Some(invitation) =>
           effects
             .persist(InvitationClaimed(key, claim.subject, claim.display, actor, at))
@@ -407,7 +407,7 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
 
   private def notFoundMessage = s"no such organization '${context.entityId}'"
   private def notFound        = effects.error(notFoundMessage, ErrorCode.NotFound)
-  private def disabled =
+  private def disabled        =
     effects.error(s"organization '${context.entityId}' is disabled", ErrorCode.Conflict)
   private def lastOwner =
     effects.error(s"'${context.entityId}' would be left with no owner", ErrorCode.Conflict)

@@ -146,7 +146,7 @@ object Dependencies {
   val pekkoKafka           = "org.apache.pekko" %% "pekko-connectors-kafka" % V.pekkoKafka
 
   // ── Serialization ────────────────────────────────────────────────────────
-  val jsoniterCore = "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % V.jsoniter
+  val jsoniterCore   = "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % V.jsoniter
   val jsoniterMacros =
     "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % V.jsoniter
 

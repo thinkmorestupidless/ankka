@@ -19,7 +19,7 @@ class CallStepSuite extends munit.FunSuite with LogCapturing:
 
   private val model = TestModelProvider()
   private val seen  = ConcurrentLinkedQueue[(Option[RunRef], Json)]()
-  private val keep = BlueprintHandler("keep_paper") { (ref, input) =>
+  private val keep  = BlueprintHandler("keep_paper") { (ref, input) =>
     seen.add(Some(ref) -> input): Unit
     Json.obj("kept" -> Json.num(input("papers").flatMap(_.asArray).map(_.size).getOrElse(0)))
   }

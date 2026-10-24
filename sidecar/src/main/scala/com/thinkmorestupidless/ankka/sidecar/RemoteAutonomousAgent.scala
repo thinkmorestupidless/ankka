@@ -26,7 +26,7 @@ object RemoteAutonomousAgent:
 
   /** Everything wrong with an autonomous agent's detail, all at once. */
   def problems(id: String, d: AutonomousAgentDetail): Vector[String] =
-    val p = Vector.newBuilder[String]
+    val p                                             = Vector.newBuilder[String]
     def named(what: String, names: Seq[String]): Unit =
       if names.exists(_.isEmpty) then p += s"autonomous agent '$id': a $what has no name"
       names.groupBy(identity).collect { case (n, ns) if n.nonEmpty && ns.sizeIs > 1 => n }.foreach {
@@ -119,7 +119,7 @@ object RemoteAutonomousAgent:
 
     val guardrails = detail.guardrails.toVector.map { guardName =>
       new Guardrail:
-        val name: String = guardName
+        val name: String                                            = guardName
         override def checkInput(text: String): Either[String, Unit] =
           await(
             conversation.checkGuardrail(

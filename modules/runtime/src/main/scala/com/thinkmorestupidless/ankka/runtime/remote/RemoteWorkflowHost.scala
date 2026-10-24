@@ -158,8 +158,8 @@ private[ankka] object RemoteWorkflowHost:
               )
             case Right(m) =>
               val outcome: Outcome[Payload, Array[Byte]] = m.reply match
-                case Left(error) => Outcome.Fail(error)
-                case Right(None) => Outcome.NoReply
+                case Left(error)            => Outcome.Fail(error)
+                case Right(None)            => Outcome.NoReply
                 case Right(Some((p, meta))) =>
                   Outcome.Reply(
                     _ => p.data,
@@ -211,7 +211,7 @@ private[ankka] object RemoteWorkflowHost:
       conversation: Conversation,
       commandTimeout: FiniteDuration
   ): WorkflowDescriptor[Proxy, Payload] =
-    val sessions = new ConcurrentHashMap[EntityId, Live]()
+    val sessions                                         = new ConcurrentHashMap[EntityId, Live]()
     val handlers: Map[MethodName, HandlerBinding[Proxy]] =
       remote.handlers.map { (name, h) =>
         name -> new CommandHandle[Proxy, Array[Byte], Array[Byte]](

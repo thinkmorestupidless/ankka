@@ -267,7 +267,7 @@ final class HeldClient(underlying: AnkkaServiceClient, hold: RestoreHold)
   def watch(onChange: AnkkaServiceResource => Unit): AutoCloseable = underlying.watch(onChange)
   def connected: Boolean                                           = underlying.connected
   override def close(): Unit                                       = underlying.close()
-  override def projectSpec(namespace: String, name: String) =
+  override def projectSpec(namespace: String, name: String)        =
     underlying.projectSpec(namespace, name)
   override def platformProjects(): Vector[String] = underlying.platformProjects()
   override def copyStatus(): Map[String, String]  = underlying.copyStatus()

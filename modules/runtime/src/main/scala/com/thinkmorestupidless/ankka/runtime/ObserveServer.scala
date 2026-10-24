@@ -66,7 +66,7 @@ object ObserveServer:
    * service out of rotation.
    */
   def startIfEnabled(system: ActorSystem[?], documents: Documents): Option[ObserveServer] =
-    val config = system.settings.config
+    val config                                 = system.settings.config
     def string(key: String, otherwise: String) =
       if config.hasPath(key) then config.getString(key) else otherwise
     val enabled =

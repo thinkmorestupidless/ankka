@@ -63,7 +63,7 @@ final class FakeCollector private (val port: Int):
   private def handle(exchange: HttpExchange): Unit =
     acceptedCount.incrementAndGet()
     try
-      val body = exchange.getRequestBody.readAllBytes()
+      val body    = exchange.getRequestBody.readAllBytes()
       val headers =
         exchange.getRequestHeaders.asScala.toVector.flatMap((k, vs) =>
           vs.asScala.map(v => k.toLowerCase -> v)
@@ -80,7 +80,7 @@ object FakeCollector:
   /** Started on a free port of loopback. */
   def apply(): FakeCollector =
     val probe = java.net.ServerSocket(0, 0, java.net.InetAddress.getByName("127.0.0.1"))
-    val port =
+    val port  =
       try probe.getLocalPort
       finally probe.close()
     new FakeCollector(port).start()
@@ -197,7 +197,7 @@ object FakeCollector:
       for
         key   <- kv.string(1)
         value <- kv.message(2)
-        any <- value
+        any   <- value
           .string(1)
           .orElse(value.long(2).map(_ == 1L))
           .orElse(value.long(3))
@@ -263,7 +263,7 @@ object Protobuf:
     while at < bytes.length do
       val tag    = varint()
       val number = (tag >>> 3).toInt
-      val value = (tag & 7).toInt match
+      val value  = (tag & 7).toInt match
         case 0 => Value.Varint(varint())
         case 1 => Value.Fixed64(littleEndian(8))
         case 5 => Value.Fixed32(littleEndian(4).toInt)

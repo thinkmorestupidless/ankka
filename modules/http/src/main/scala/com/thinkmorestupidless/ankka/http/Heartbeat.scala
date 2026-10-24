@@ -18,7 +18,7 @@ object Heartbeat:
 
   def interval(config: Config): FiniteDuration =
     val setting = "ankka.http.sse.heartbeat"
-    val every =
+    val every   =
       if config.hasPath(setting) then config.getDuration(setting).toMillis.millis else Default
     if every <= Duration.Zero then
       throw IllegalArgumentException(s"$setting must be positive, not $every")

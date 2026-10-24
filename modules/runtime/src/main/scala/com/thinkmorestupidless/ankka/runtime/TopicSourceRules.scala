@@ -41,8 +41,8 @@ private[ankka] object TopicSourceRules:
         start ++ versionProblems("consumer", c.componentId, c.version, readsOf(c.source))
       // A view of any source may declare a version: one that reads entities is rebuilt from their
       // journals when it is raised, as one that reads a topic is from the broker.
-      case v: ViewDescriptor[?, ?, ?] => versionProblems("view", v.componentId, v.version, None)
-      case v: RemoteViewDescriptor    => versionProblems("view", v.componentId, v.version, None)
+      case v: ViewDescriptor[?, ?, ?]   => versionProblems("view", v.componentId, v.version, None)
+      case v: RemoteViewDescriptor      => versionProblems("view", v.componentId, v.version, None)
       case v: KeyedViewDescriptor[?, ?] =>
         versionProblems("view", v.componentId, v.version, None)
       case v: RemoteKeyedViewDescriptor =>
@@ -72,7 +72,7 @@ private[ankka] object TopicSourceRules:
       readsComponent: Option[String]
   ): Vector[String] =
     version match
-      case None => Vector.empty
+      case None             => Vector.empty
       case Some(v) if v < 1 =>
         Vector(
           s"$kind '$componentId' declares version $v; a version is a whole number of 1 or more"

@@ -111,7 +111,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   protected val Broker      = BrokerStack.Namespace
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -261,8 +261,8 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     def all: String = out + err
 
   protected def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -294,7 +294,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
     else
       val namespaces = projects.toVector.map(p => s"$Prefix-$p")
       val pods       = namespaces.map(ns => node("kubectl", "get", "pods", "-n", ns, "-o", "wide"))
-      val broker =
+      val broker     =
         node("kubectl", "get", "kafkatopics,kafkausers,kafka,pods", "-n", Broker, "-o", "wide")
       val resources = namespaces.map(ns =>
         node("kubectl", "get", "ankkaservices", "-n", ns, "-o", "jsonpath={.items[*].status}")
@@ -388,7 +388,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   protected def project(name: String): String  = a(name)
 
   /** The partitions each topic of each project has been declared with, so later scenarios agree. */
-  private var partitions: Map[(String, String), Int] = Map.empty
+  private var partitions: Map[(String, String), Int]      = Map.empty
   private def partitionsOf(p: String, topic: String): Int =
     partitions.getOrElse((p, topic), if topic == "transactions" then 12 else 3)
 
@@ -494,7 +494,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   protected def declare(t: String, p: String, n: Int = -1): Run =
     ensureProject(p)
     val count = if n < 0 then partitionsOf(p, t) else n
-    val run =
+    val run   =
       ankka("projects", "topics", "set", t, "--partitions", count.toString, "-p", p)
     if run.code == 0 then partitions += (p, t) -> count
     lastDeclared = Some((p, t))
@@ -571,7 +571,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
 
   protected def checkout(service: String, p: String): String =
     val cart = s"cart-${java.util.UUID.randomUUID().toString.take(8)}"
-    val add = call(
+    val add  = call(
       service,
       p,
       s"/carts/$cart/items",
@@ -604,7 +604,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
   protected def readUntil(service: String, p: String, topic: String, cart: String): Unit =
     // Read with a credential that may read the topic: the publisher's, for its own project's, and a
     // service of the owning project's for another's — a grant to produce does not let it read.
-    val owner = topic.takeWhile(_ != '.')
+    val owner        = topic.takeWhile(_ != '.')
     val (reader, rp) =
       if owner == p then (service, p)
       else
@@ -1487,7 +1487,7 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
       val failures = ConcurrentLinkedQueue[String]()
       val calling  = AtomicBoolean(true)
       val calls    = new java.util.concurrent.atomic.AtomicInteger(0)
-      val caller = Thread.ofVirtual().start { () =>
+      val caller   = Thread.ofVirtual().start { () =>
         while calling.get() do
           val (status, body) = call("early", p, "/carts/steady")
           calls.incrementAndGet(): Unit

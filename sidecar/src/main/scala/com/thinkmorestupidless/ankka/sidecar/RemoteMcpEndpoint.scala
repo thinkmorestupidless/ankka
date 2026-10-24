@@ -66,7 +66,7 @@ final class RemoteMcpEndpoint private (
     // The tool's span, which the endpoint opened around this call; the tool as the caller of
     // whatever the process calls for it.
     val trace = Trace.currentContext.getOrElse(TraceContext(Trace.mintHigh(), Trace.mint(), 0L))
-    val call = RemoteMcpCall(
+    val call  = RemoteMcpCall(
       endpointId = spec.id,
       tool = tool,
       argumentsJson = arguments.render,
@@ -96,7 +96,7 @@ final class RemoteMcpEndpoint private (
           )
         )
       case Right(Left(message)) => Left(message)
-      case Left(failure) =>
+      case Left(failure)        =>
         log.warn(
           "MCP endpoint {}: the process could not run tool '{}': {}",
           spec.path,

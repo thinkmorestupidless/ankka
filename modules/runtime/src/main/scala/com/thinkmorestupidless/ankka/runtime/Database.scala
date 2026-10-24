@@ -85,7 +85,7 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
       run(connection.beginTransaction()).flatMap { _ =>
         work(Database.Transaction(connection)).transformWith {
           case scala.util.Success(value) => run(connection.commitTransaction()).map(_ => value)
-          case scala.util.Failure(e) =>
+          case scala.util.Failure(e)     =>
             run(connection.rollbackTransaction()).transform(_ => scala.util.Failure(e))
         }
       }

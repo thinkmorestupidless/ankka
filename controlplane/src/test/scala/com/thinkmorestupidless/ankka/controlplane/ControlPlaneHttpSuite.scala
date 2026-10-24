@@ -42,7 +42,7 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
   // A real issuer is not needed to prove anything here: an in-process one mints tokens the
   // verifier accepts, and KeycloakRealmSuite is where real ones are read.
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
 
   private var testKit: AnkkaTestKit = null
@@ -70,7 +70,7 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
    */
   private val proofRecords =
     scala.collection.concurrent.TrieMap.empty[String, Either[ProofLookup.Failure, Vector[String]]]
-  private val proofsAsked = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+  private val proofsAsked         = new java.util.concurrent.ConcurrentLinkedQueue[String]()
   private val proofs: ProofLookup = name =>
     proofsAsked.add(name): Unit
     proofRecords.getOrElse(name, Left(ProofLookup.Failure.NoRecord))
@@ -1054,7 +1054,7 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a URL for a server, or an empty field, is refused before the cluster is touched") {
-    val before = cluster.pullSecretCount
+    val before                               = cluster.pullSecretCount
     def attempt(body: String): (Int, String) =
       send("PUT", "/projects/reg-a-app/registry", Some(body))
 
@@ -1698,7 +1698,7 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
   test(
     "custom hostnames: a platform administrator takes one away, and another service may claim it"
   ) {
-    val admin = identity.token("root", roles = Set("platform-admin"))
+    val admin          = identity.token("root", roles = Set("platform-admin"))
     val (status, body) =
       send("DELETE", "/services/hosts/web/hostnames/app.hosts.test", token = Some(admin))
     assertEquals(status, 200, body)

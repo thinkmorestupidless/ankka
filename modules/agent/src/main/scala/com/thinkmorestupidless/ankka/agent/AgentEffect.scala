@@ -224,7 +224,7 @@ object Guardrail:
 
   /** Rejects input longer than `maxChars`, before it costs a model call. */
   def maxInputLength(maxChars: Int): Guardrail = new Guardrail:
-    val name = s"max-input-length($maxChars)"
+    val name                                                    = s"max-input-length($maxChars)"
     override def checkInput(text: String): Either[String, Unit] =
       if text.length <= maxChars then Right(())
       else Left(s"input is ${text.length} characters, over the $maxChars limit")
@@ -232,7 +232,7 @@ object Guardrail:
   /** Rejects input, output or an MCP server's result matching `pattern`. */
   def forbidding(guardName: String, pattern: scala.util.matching.Regex): Guardrail =
     new Guardrail:
-      val name = guardName
+      val name                                                    = guardName
       override def checkInput(text: String): Either[String, Unit] =
         if pattern.findFirstIn(text).isEmpty then Right(())
         else Left(s"input rejected by $guardName")

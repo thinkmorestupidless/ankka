@@ -54,7 +54,7 @@ class PresetsSuite extends munit.FunSuite:
   for name <- required.toVector.sorted do
     standIn.test(s"every preset the platform names is configured from its name: $name") { at =>
       val preset = Presets.named(name).get
-      val url =
+      val url    =
         if preset.protocol == ModelProtocol.Anthropic then at.address else s"${at.address}/v1"
       val config = ProviderConfig(
         "p",
@@ -71,7 +71,7 @@ class PresetsSuite extends munit.FunSuite:
       val provider = ModelProviders.configure(resolved)
       val request  = ask.copy(settings = ModelSettings(provider.modelName, temperature = Some(0.3)))
       assertEquals(Await.result(provider.complete(request), 30.seconds).text, "ok")
-      val sent = at.lastRequest
+      val sent         = at.lastRequest
       val expectedPath = (preset.protocol, preset.shape) match
         case (ModelProtocol.Anthropic, _)            => "/v1/messages"
         case (ModelProtocol.OpenAi, Shape.Responses) => "/v1/responses"

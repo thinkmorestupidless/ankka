@@ -66,7 +66,7 @@ object SecretManagerProjectSecretWriter:
 
   /** The control plane's writer on Secret Manager, as the installation's settings describe it. */
   def from(config: Config, backend: SecretBackendConfig): SecretManagerProjectSecretWriter =
-    val token = config.getString("ankka.secrets.secret-manager.token").trim
+    val token  = config.getString("ankka.secrets.secret-manager.token").trim
     val client = SecretManager(
       config.getString("ankka.secrets.secret-manager.endpoint"),
       backend.cloudAccount.getOrElse(

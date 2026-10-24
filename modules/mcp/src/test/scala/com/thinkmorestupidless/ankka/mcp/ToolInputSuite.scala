@@ -64,7 +64,7 @@ class ToolInputSuite extends munit.FunSuite:
   }
 
   test("a scalar input named with input offers two string properties, and is sent as raw UTF-8") {
-    val d = Declaring()
+    val d    = Declaring()
     val tool =
       d.tool("book_job").describedAs("Books").command(JobEntity.book, id = "jobId", input = "slot")
     assertEquals(propertiesOf(tool), Vector("jobId", "slot"))
@@ -83,7 +83,7 @@ class ToolInputSuite extends munit.FunSuite:
   }
 
   test("a handle that takes nothing offers the id alone") {
-    val d = Declaring()
+    val d    = Declaring()
     val tool =
       d.tool("checkout").describedAs("Checks out").command(CartEntity.checkout, id = "cartId")
     assertEquals(propertiesOf(tool), Vector("cartId"))

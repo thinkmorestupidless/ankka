@@ -148,7 +148,7 @@ class KafkaConnectionSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a subscription by the declared name reads the project's topic") {
-    val seen = new ConcurrentLinkedQueue[String]()
+    val seen       = new ConcurrentLinkedQueue[String]()
     val subscriber =
       KafkaSubscriber(KafkaConnection(bootstrap, topicPrefix = "money."), 1.second, 5.seconds)
     subscriber.subscribe(
@@ -176,7 +176,7 @@ class KafkaConnectionSuite extends munit.FunSuite with LogCapturing:
   test("a consumer that publishes to a topic no descriptor declares waits for it") {
     val publisher = KafkaPublisher(KafkaConnection(bootstrap, topicPrefix = "money."))
     val started   = System.nanoTime()
-    val refused = Try(
+    val refused   = Try(
       Await.result(publisher.publish("entries", "early".getBytes(UTF_8), Metadata.empty), 2.minutes)
     )
     val waited = scala.concurrent.duration.Duration.fromNanos(System.nanoTime() - started)

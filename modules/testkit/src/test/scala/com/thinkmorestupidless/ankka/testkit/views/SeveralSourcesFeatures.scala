@@ -75,8 +75,8 @@ final class SeveralSourcesFeatures
     case "customer" => Customer
     case other      => fail(s"no entity '$other'")
 
-  private def shipments        = kit.service.viewClient.forView(Shipments)
-  private def row(key: String) = shipments.get(scoped(key))
+  private def shipments         = kit.service.viewClient.forView(Shipments)
+  private def row(key: String)  = shipments.get(scoped(key))
   private def keys: Set[String] =
     shipments
       .all(100000)
@@ -258,7 +258,7 @@ final class SeveralSourcesFeatures
     val a     = script(400, ops*)
     val b     = script(400, ops*)
     val other = peer.map(_.componentClient).getOrElse(kit.componentClient)
-    val both = Seq(
+    val both  = Seq(
       Future(record("shipment", shipmentId, a)),
       Future(record("customer", customerId, b, other))
     )

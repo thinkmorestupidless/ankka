@@ -62,7 +62,7 @@ object Main:
   final case class Started(door: Door, keeper: Keeper, stop: () => Unit)
 
   private def serve(settings: KeeperSettings, tls: RotatingTls, started: Started => Unit): Int =
-    val keeper = Keeper(settings, OllamaClient(settings.ollama))
+    val keeper    = Keeper(settings, OllamaClient(settings.ollama))
     val telemetry = settings.otlpEndpoint match
       case Some(endpoint) =>
         KeeperTelemetry.otlp(
@@ -78,7 +78,7 @@ object Main:
     door.start()
     keeper.start()
     val stopped = new CountDownLatch(1)
-    val stop = () =>
+    val stop    = () =>
       if stopped.getCount > 0 then
         log.info("stopping")
         door.stop()

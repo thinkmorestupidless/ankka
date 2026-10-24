@@ -107,7 +107,7 @@ class ConsumerTestKitSuite extends munit.FunSuite:
   }
 
   test("a graph consumer is read back as deltas: kind, id, version, labels, properties") {
-    val kit = ConsumerTestKit.graph(ProfileGraph)
+    val kit    = ConsumerTestKit.graph(ProfileGraph)
     val deltas =
       kit.onMessage(Profile("Ada", "ada@example.com", 2), subject = "p1", sequenceNumber = 3)
 
@@ -141,7 +141,7 @@ class ConsumerTestKitSuite extends munit.FunSuite:
   test(
     "a graph consumer over a source with no sequence number is refused unless it states a version"
   ) {
-    val kit = ConsumerTestKit.graph(StockGraph)
+    val kit     = ConsumerTestKit.graph(StockGraph)
     val failure = intercept[GraphElementRefused](
       kit.onMessage(StockEvent("s1", 9, "w1"), "s1", sequenceNumber = 0)
     )
@@ -164,7 +164,7 @@ class ConsumerTestKitSuite extends munit.FunSuite:
     com.thinkmorestupidless.ankka.testkit.views.FlowState("t1", "end", "deposit", None)
 
   test("a consumer of a workflow is handed the standing a test gives, and acts on it") {
-    val kit = ConsumerTestKit.of(com.thinkmorestupidless.ankka.testkit.views.Settlement)
+    val kit    = ConsumerTestKit.of(com.thinkmorestupidless.ankka.testkit.views.Settlement)
     val result =
       kit.onMessage(transfer, subject = "t1", sequenceNumber = 5, standing = Some(completed))
     assertEquals(
@@ -184,7 +184,7 @@ class ConsumerTestKitSuite extends munit.FunSuite:
     replication.BuildsKit("vienna", log, replication.VehicleKind("vehicle"), mirrored = true)
 
   test("a mirrored change's context names the installation that wrote it and is not local") {
-    val log = replication.ChangesGiven()
+    val log    = replication.ChangesGiven()
     val result = ConsumerTestKit
       .of(builds(log))
       .onMessage(

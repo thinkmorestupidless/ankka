@@ -45,7 +45,7 @@ private[ankka] object McpTools:
       val transport: McpTransport =
         variables(McpServer.urlVariable(server.name)).filter(_.nonEmpty) match
           case Some(url) => McpTransport.Url(url, settings.connectTimeout, settings.callTimeout)
-          case None =>
+          case None      =>
             server.address match
               case McpServer.Address.Url(url) =>
                 McpTransport.Url(url, settings.connectTimeout, settings.callTimeout)
@@ -66,7 +66,7 @@ private[ankka] object McpTools:
       }
 
       val client = McpClient(server.name, transport, headers, settings.clientVersion)
-      val tools =
+      val tools  =
         try
           client.initialize()
           client.listTools()

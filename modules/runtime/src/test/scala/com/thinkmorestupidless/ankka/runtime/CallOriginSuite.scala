@@ -21,8 +21,8 @@ final class CallOriginSuite extends FunSuite:
 
   private def descriptor(id: String, of: ComponentKind, handlers: String*): ComponentDescriptor =
     new ComponentDescriptor:
-      val componentId: ComponentId = ComponentId(id)
-      val kind: ComponentKind      = of
+      val componentId: ComponentId                           = ComponentId(id)
+      val kind: ComponentKind                                = of
       override def declaredHandlers: Vector[DeclaredHandler] =
         handlers.toVector.map(DeclaredHandler(_, HandlerKind.Command))
 

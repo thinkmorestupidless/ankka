@@ -31,7 +31,7 @@ class PatternFeatures
   private val judge = TestJudgmentProvider()
 
   private val relevant = Question.yesNo("relevant", "Is the paper relevant?")
-  private val novelty =
+  private val novelty  =
     Question.score("novelty", "How new is it?")("old hat", "fresh", "unheard of")
   private val namesPaper = Question.yesNo("names a paper", "Does every statement name a paper?")
 
@@ -53,8 +53,8 @@ class PatternFeatures
       inFlight.decrementAndGet(): Unit
       "counted"
     }
-  private val list   = BlueprintHandler("list")((_, _) => Json.Arr(listItems))
-  private val select = BlueprintHandler("select")((_, _) => Json.Arr(selected.map(Json.str)))
+  private val list      = BlueprintHandler("list")((_, _) => Json.Arr(listItems))
+  private val select    = BlueprintHandler("select")((_, _) => Json.Arr(selected.map(Json.str)))
   private val keepPaper = BlueprintHandler("keep_paper") { (ref, input) =>
     handed.add(ref -> input): Unit
     Json.obj("kept" -> Json.num(input("papers").flatMap(_.asArray).map(_.size).getOrElse(0)))
@@ -101,9 +101,9 @@ class PatternFeatures
   private val text  = Shape.obj("text" -> Shape.string)
   private val input = Json.obj("topic" -> Json.str("ducks"))
 
-  private var pending: Blueprint         = Blueprint("x")
-  private var completeAt: Option[Int]    = None
-  private var refuseItem: Option[String] = None
+  private var pending: Blueprint                     = Blueprint("x")
+  private var completeAt: Option[Int]                = None
+  private var refuseItem: Option[String]             = None
   private var verdicts: Vector[Either[String, Unit]] =
     Vector.empty // Left(reason) returns, Right passes
   private var done: Option[RunSnapshot] = None

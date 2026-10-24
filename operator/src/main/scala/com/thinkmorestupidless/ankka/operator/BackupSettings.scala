@@ -60,8 +60,8 @@ object BackupSettings:
       objectStore: Option[ObjectStoreSettings]
   ): BackupSettings =
     val Vector(target, retention, schedule, copy, ttl) = Variables.map(read.tupled)
-    val named = target.getOrElse("none") match
-      case "none" => None
+    val named                                          = target.getOrElse("none") match
+      case "none"         => None
       case "object-store" =>
         if objectStore.isEmpty then
           throw new IllegalArgumentException(

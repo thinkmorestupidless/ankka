@@ -67,7 +67,7 @@ private[ankka] final class RunWorker(
           case e: CommandError if e.code == ErrorCode.NotFound =>
             pause(1.second) // woken by a caller before its record was written
           case _: InterruptedException => running = false
-          case NonFatal(e) =>
+          case NonFatal(e)             =>
             log.warn(s"run '$runId' hit a fault; looking at its record again in a second", e)
             pause(1.second)
     catch case _: InterruptedException => ()
@@ -97,7 +97,7 @@ private[ankka] final class RunWorker(
               case e: CommandError if e.code == ErrorCode.Conflict =>
                 log.debug("run '{}': step '{}' ended after the run did", runId, s.name)
               case _: InterruptedException => ()
-              case NonFatal(e) =>
+              case NonFatal(e)             =>
                 log.warn(s"run '$runId': step '${s.name}' hit a fault", e)
             finally
               inFlight.remove(s.name): Unit

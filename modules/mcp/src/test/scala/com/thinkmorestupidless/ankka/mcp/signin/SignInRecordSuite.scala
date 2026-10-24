@@ -17,7 +17,7 @@ import scala.concurrent.duration.*
 class SignInRecordSuite extends munit.FunSuite:
   import SignInRecord.*
 
-  private val at = Instant.parse("2026-10-19T10:00:00Z")
+  private val at     = Instant.parse("2026-10-19T10:00:00Z")
   private val person = SignedIn(
     "ada",
     Some("Ada"),
@@ -50,7 +50,7 @@ class SignInRecordSuite extends munit.FunSuite:
       "refresh:d1" -> RefreshToken("c1", person, "https://shop.example/mcp", at, at.plusSeconds(60))
     )
     records.foreach { (id, record) =>
-      val k = kit(id)
+      val k       = kit(id)
       val written =
         if record.isInstanceOf[Grant] then
           k.call(SignInRecordEntity.beginGrant)(PutSignInRecord(record, 60000))

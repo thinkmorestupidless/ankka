@@ -302,7 +302,7 @@ object Mover:
   private def guard[A](key: Option[String], side: String)(body: => A): A =
     try body
     catch
-      case e: NoSuchKeyException => throw e
+      case e: NoSuchKeyException                                    => throw e
       case e: S3Exception if e.statusCode() == 404 && key.isDefined =>
         throw new MoveFailure(key, "404", 1)
       case e: S3Exception if e.statusCode() == 403 || e.statusCode() == 401 =>

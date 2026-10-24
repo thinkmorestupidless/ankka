@@ -33,7 +33,7 @@ final class TestModelProvider(
 ) extends ModelProvider:
 
   private val scripted = ConcurrentLinkedQueue[ModelResponse]()
-  private val rules =
+  private val rules    =
     CopyOnWriteArrayList[(ModelRequest => Boolean, ModelRequest => ModelResponse)]()
   private val seen = ConcurrentLinkedQueue[ModelRequest]()
 
@@ -158,7 +158,7 @@ final class TestModelProvider(
     seen.add(request): Unit
     Option(scripted.poll()) match
       case Some(response) => Future.successful(response)
-      case None =>
+      case None           =>
         rules.asScala.collectFirst {
           case (matches, respond) if matches(request) => respond(request)
         } match

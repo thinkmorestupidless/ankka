@@ -23,9 +23,9 @@ class IterationFailureSuite extends munit.FunSuite with LogCapturing:
    * Fails the next `failures` calls as a provider that is down would, then answers from `script`.
    */
   private final class Flaky(script: TestModelProvider) extends ModelProvider:
-    val failures          = AtomicInteger(0)
-    def name: String      = "flaky"
-    def modelName: String = "flaky-model"
+    val failures                                               = AtomicInteger(0)
+    def name: String                                           = "flaky"
+    def modelName: String                                      = "flaky-model"
     def complete(request: ModelRequest): Future[ModelResponse] =
       if failures.getAndUpdate(n => (n - 1).max(0)) > 0 then
         Future.failed(ModelCallFailed(name, "the provider is down"))
@@ -38,7 +38,7 @@ class IterationFailureSuite extends munit.FunSuite with LogCapturing:
 
   private object Patient extends AutonomousAgent.Companion[Patient](ComponentId("patient")):
     def create(context: AutonomousAgentContext) = new Patient(context)
-    def definition =
+    def definition                              =
       define
         .describedAs("Tries again")
         .capability(TaskAcceptance.of(Tasks.answer).maxIterationsPerTask(2))

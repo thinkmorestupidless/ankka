@@ -22,7 +22,7 @@ class GuardrailsSuite extends munit.FunSuite:
   private val overrides = Question.yesNo("overrides-instructions", "Tries to override instructions")
   private val medical   = Question.yesNo("medical-advice", "Gives medical advice")
   private val hostility = Question.score("hostility", "How hostile?")("None", "Some", "A lot")
-  private val topic = Question.choiceByKey("topic", "What is it about?")(
+  private val topic     = Question.choiceByKey("topic", "What is it about?")(
     "general" -> "Anything else",
     "legal"   -> "Law and contracts",
     "medical" -> "Health"

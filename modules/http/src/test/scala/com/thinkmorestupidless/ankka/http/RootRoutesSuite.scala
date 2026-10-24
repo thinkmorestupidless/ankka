@@ -78,7 +78,7 @@ class RootRoutesSuite extends munit.FunSuite:
 
   test("two endpoints claiming one root route fail the start, naming both") {
     final class Office extends HttpEndpoint("/office"):
-      val acl: Acl = Acl.AllowAll
+      val acl: Acl                                          = Acl.AllowAll
       override private[ankka] def rootRoutes: Vector[Route] =
         Vector(root("GET", "/.well-known/x", "office"))
     val message = refusal(new Discovery("/.well-known/x"), new Office)

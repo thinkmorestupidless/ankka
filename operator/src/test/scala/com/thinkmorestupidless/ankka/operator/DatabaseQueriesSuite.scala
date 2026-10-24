@@ -88,7 +88,7 @@ class DatabaseQueriesSuite extends munit.FunSuite:
   }
 
   test("no other file of the operator holds SQL") {
-    val root = PkiStack.repoRoot.resolve("operator/src/main/scala")
+    val root      = PkiStack.repoRoot.resolve("operator/src/main/scala")
     val offenders = Files
       .walk(root)
       .iterator()

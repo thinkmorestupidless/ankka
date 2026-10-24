@@ -14,7 +14,7 @@ import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId}
 class ResumePointSuite extends munit.FunSuite with LogCapturing:
 
   private val router = EntityRouter()
-  private val loop = IterationLoop(
+  private val loop   = IterationLoop(
     Answerer.definition,
     Answerer.create(
       SimpleAutonomousAgentContext(
@@ -101,7 +101,7 @@ class ResumePointSuite extends munit.FunSuite with LogCapturing:
   // ── Settling a response with calls that require approval ─────────────────
 
   private val operator = ComponentId("operator")
-  private val opLoop = IterationLoop(
+  private val opLoop   = IterationLoop(
     Operator.definition,
     Operator.create(
       SimpleAutonomousAgentContext(

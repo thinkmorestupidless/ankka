@@ -87,7 +87,7 @@ object CloudSettings:
       case Duration(n, "h")      => n.toLong.hours
       case Duration(n, "m")      => n.toLong.minutes
       case Duration(n, "s" | "") => n.toLong.seconds
-      case other =>
+      case other                 =>
         throw IllegalStateException(
           s"$variable is '$other'; it must be a whole number of seconds, minutes or hours, " +
             "such as 30s, 2m or 1h"

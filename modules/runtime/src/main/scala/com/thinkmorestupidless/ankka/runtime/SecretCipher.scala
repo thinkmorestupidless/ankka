@@ -28,7 +28,7 @@ object SecretKey:
       catch case _: IllegalArgumentException => None
     decoded match
       case Some(bytes) if bytes.length == Length => Right(SecretKey(bytes))
-      case Some(bytes) =>
+      case Some(bytes)                           =>
         Left(s"${PlatformVariables.SecretKey} must be $Form; it decodes to ${bytes.length} bytes")
       case None => Left(s"${PlatformVariables.SecretKey} must be $Form; it is not base64")
 

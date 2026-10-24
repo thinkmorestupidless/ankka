@@ -18,7 +18,7 @@ class ToolCallIdsSuite extends munit.FunSuite:
   }
 
   test("a call and its result in different messages get the same id, and nothing else changes") {
-    val call = ToolCall("toolu_01ABC", "lookup", Json.obj())
+    val call     = ToolCall("toolu_01ABC", "lookup", Json.obj())
     val messages = Vector(
       ChatMessage.User.text("weather?"),
       ChatMessage.Assistant("Let me look.", Vector(call)),

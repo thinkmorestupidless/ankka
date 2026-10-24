@@ -121,7 +121,7 @@ class RehearsalsClusterFeatures
       "--duration=10m"
     )
     assertEquals(minted.getExitCode, 0, minted.getStderr)
-    val token = minted.getStdout.trim
+    val token      = minted.getStdout.trim
     val asOperator = new io.fabric8.kubernetes.client.KubernetesClientBuilder()
       .withConfig(
         new io.fabric8.kubernetes.client.ConfigBuilder(k8s.getConfiguration)

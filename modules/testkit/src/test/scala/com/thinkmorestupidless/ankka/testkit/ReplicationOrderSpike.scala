@@ -56,7 +56,7 @@ class ReplicationOrderSpike extends munit.FunSuite with LogCapturing:
       val database: TestDatabase,
       val system: ActorSystem[Nothing]
   ):
-    given ActorSystem[?] = system
+    given ActorSystem[?]              = system
     def pid(entityId: String): String =
       ReplicationId(TypeName, entityId, ReplicaId(id)).persistenceId.id
 
@@ -131,7 +131,7 @@ class ReplicationOrderSpike extends munit.FunSuite with LogCapturing:
       SharedPostgres.release(database)
 
   private def start(id: String, databases: Map[String, TestDatabase]): Replica =
-    val own = databases(id)
+    val own      = databases(id)
     val siblings = databases.toSeq
       .filterNot(_._1 == id)
       .map { (sibling, db) =>

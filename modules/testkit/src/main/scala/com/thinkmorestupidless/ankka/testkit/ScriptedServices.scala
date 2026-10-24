@@ -82,7 +82,7 @@ final class ScriptedServices(ownProject: String = "local") extends ServiceClient
       Option(scripts.get((project, name))) match
         case Some(Script.Answer(handler)) => handler(made)
         case Some(Script.Fail(failure))   => throw failure(target)
-        case None =>
+        case None                         =>
           throw AssertionError(
             s"the test called the service '$target', and nothing is scripted for it: " +
               s"""script it with `answer("$name"${

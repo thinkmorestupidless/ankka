@@ -69,7 +69,7 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
       )
     case OrganizationRenamed(name, _, _) => effects.updateRow(row.copy(name = name))
     case _: OrganizationDeleted          => effects.deleteRow()
-    case MemberInvited(email, _, _, _) =>
+    case MemberInvited(email, _, _, _)   =>
       effects.updateRow(row.copy(invitations = (row.invitations :+ email).distinct))
     case InvitationRevoked(email, _, _) =>
       effects.updateRow(row.copy(invitations = row.invitations.filterNot(_ == email)))
@@ -83,7 +83,7 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
         )
       )
     case MemberAdded(subject, role, _, _, _, _) => effects.updateRow(withMember(subject, role))
-    case MemberRemoved(subject, _, _) =>
+    case MemberRemoved(subject, _, _)           =>
       effects.updateRow(
         row.copy(
           members = row.members.filterNot(_ == subject),
@@ -91,7 +91,7 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
         )
       )
     case MemberRoleChanged(subject, role, _, _) => effects.updateRow(withMember(subject, role))
-    case OrganizationDisabled(actor, at) =>
+    case OrganizationDisabled(actor, at)        =>
       effects.updateRow(row.copy(disabled = true, disabledBy = actor, disabledAt = at))
     case OrganizationEnabled(actor, at) =>
       effects.updateRow(row.copy(disabled = false, disabledBy = actor, disabledAt = at))

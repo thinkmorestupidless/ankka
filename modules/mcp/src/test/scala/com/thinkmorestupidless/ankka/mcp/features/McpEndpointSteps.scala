@@ -142,7 +142,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
       val acl      = ordersAcl
       val own      = cancelAcl
       val brokered = brokeredSignIn
-      val started = HttpServer.at("127.0.0.1", 0)(
+      val started  = HttpServer.at("127.0.0.1", 0)(
         _ => OrdersMcp(acl, own, brokered),
         clients => KeysEndpoint(clients)
       )
@@ -167,7 +167,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
       awaitReady(k.service)
       k
     else if observing then
-      val acl = endpointAcl
+      val acl     = endpointAcl
       val started = HttpServer.at("127.0.0.1", 0)(
         clients => CartMcp(clients, references, acl),
         clients => KeysEndpoint(clients)
@@ -662,7 +662,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
     refusedTool = tool
     assertEquals(entity, "job")
     // A handle the entity does not declare: the wire name no registered handler has.
-    val book = JobEntity.book
+    val book   = JobEntity.book
     val vanish = com.thinkmorestupidless.ankka.sdk.CommandHandle[JobEntity, String, Job](
       book.componentId,
       com.thinkmorestupidless.ankka.core.MethodName(command),
@@ -952,7 +952,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
   Then(
     "the client key is listed with its id, its subject {string}, its attributes, {string}, its scope, when it was issued, when it expires and when it was last used"
   ) { (subject: String, label: String) =>
-    val text = listing.get
+    val text   = listing.get
     val listed =
       readFromString[Vector[ClientKeySummary]](text).find(_.id == key.id).getOrElse(fail(text))
     assertEquals((listed.subject, listed.label), (subject, Some(label)))
@@ -1102,7 +1102,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
     "the trace shows the tool call to {string} as the subject {string} with the client key's id"
   ) { (tool: String, subject: String) =>
     val names = Observability(running.service.system).names
-    val span = traceRead
+    val span  = traceRead
       .find(s => names.nameOf(s.handlerRef).contains(s"/mcp $tool"))
       .getOrElse(fail(s"no span for $tool in ${traceRead.map(s => names.nameOf(s.handlerRef))}"))
     assertEquals(names.nameOf(span.componentRef), Some("mcp"))
@@ -1111,7 +1111,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
   }
 
   Then("nothing in the trace, the logs or the listing reads as the client key") { () =>
-    val names = Observability(running.service.system).names
+    val names  = Observability(running.service.system).names
     val traces = traceRead
       .map(s => s"${names.nameOf(s.handlerRef)} ${s.subject} ${s.attributes}")
       .mkString("\n")
@@ -1353,7 +1353,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
   When("the developer reads the trace of the request in the local console") { () =>
     // What the local console reads: the service's recorder, through the observability routes.
     val observability = Observability(running.service.system)
-    val tool = observability.recorder
+    val tool          = observability.recorder
       .snapshot()
       .find(s => observability.names.nameOf(s.handlerRef).contains("/mcp get_cart"))
     traceRead =
@@ -1385,7 +1385,7 @@ abstract class McpEndpointSteps(feature: String) extends GherkinSuite(feature) w
   }
 
   Then("nothing in the trace reads as the client key") { () =>
-    val names = Observability(running.service.system).names
+    val names  = Observability(running.service.system).names
     val traces = traceRead
       .map(s => s"${names.nameOf(s.handlerRef)} ${s.subject} ${s.attributes}")
       .mkString("\n")

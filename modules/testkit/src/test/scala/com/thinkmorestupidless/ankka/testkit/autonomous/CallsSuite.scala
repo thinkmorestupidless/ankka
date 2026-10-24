@@ -24,7 +24,7 @@ class CallsSuite extends munit.FunSuite with LogCapturing:
 
   test("a task is created pending, with an id when none is given") {
     val router = EntityRouter()
-    val id = router.client.tasks
+    val id     = router.client.tasks
       .create(answer, "How many?")
       .attach("brief", "text/plain", "Be brief.")
       .create()
@@ -36,7 +36,7 @@ class CallsSuite extends munit.FunSuite with LogCapturing:
 
   test("a missing dependency is refused before anything is written") {
     val router = EntityRouter()
-    val error = intercept[CommandError](
+    val error  = intercept[CommandError](
       router.client.tasks.create(answer, "x").withId("b").dependsOn("ghost").create()
     )
     assertEquals(error.code, ErrorCode.NotFound)
@@ -106,7 +106,7 @@ class CallsSuite extends munit.FunSuite with LogCapturing:
     }
     val companion = new AutonomousAgent.Companion[Nothing](ComponentId("answerer")):
       def create(context: AutonomousAgentContext) = ???
-      def definition =
+      def definition                              =
         define.describedAs("x").capability(TaskAcceptance.of(Task.named("answer").describedAs("x")))
     val id = router.client.forAutonomousAgent(companion).runSingleTask(answer, "How many?")
     assertEquals(router.client.forTask(id).get().status, TaskStatus.Pending)

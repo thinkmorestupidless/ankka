@@ -75,7 +75,7 @@ class TlsClusterFormationSuite extends munit.FunSuite:
       host: String
   ): ActorSystem[Nothing] =
     val endpoints = contactPoints.map((h, p) => s"{ host = \"$h\", port = $p }").mkString(", ")
-    val config = ConfigFactory
+    val config    = ConfigFactory
       .parseString(s"""
         |pekko.actor.provider = cluster
         |pekko.remote.artery {

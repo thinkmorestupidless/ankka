@@ -117,7 +117,7 @@ class CloudProviderClusterFeatures
         .getOrElse(fail("-Dankka.cloud.external needs ANKKA_CLOUD_PROVIDER and its settings"))
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -264,8 +264,8 @@ class CloudProviderClusterFeatures
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -752,7 +752,7 @@ class CloudProviderClusterFeatures
   Then(
     "the instances of {string} are replaced, and the new ones are given the new storage credential"
   ) { (logical: String) =>
-    val name = real(logical)
+    val name                                                                  = real(logical)
     def annotation(template: io.fabric8.kubernetes.api.model.PodTemplateSpec) =
       Option(template.getMetadata.getAnnotations).flatMap(a =>
         Option(a.get(Labels.StorageCredentialKey))

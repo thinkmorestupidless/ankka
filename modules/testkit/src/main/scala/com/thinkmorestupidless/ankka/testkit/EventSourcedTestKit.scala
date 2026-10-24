@@ -44,7 +44,7 @@ final case class CommandResult[S, E, O](
   def eventOfType[T <: E](using tag: ClassTag[T]): T =
     events.collect { case tag(e) => e } match
       case Vector(single) => single
-      case Vector() =>
+      case Vector()       =>
         throw AssertionError(
           s"no ${tag.runtimeClass.getSimpleName} among ${events.map(_.getClass.getSimpleName)}"
         )

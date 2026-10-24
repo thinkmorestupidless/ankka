@@ -12,7 +12,7 @@ enum Phase:
 object Phase:
   /** A word on the wire, for the reason `TaskStatus` is one. */
   given JsonValueCodec[Phase] = new JsonValueCodec[Phase]:
-    def nullValue: Phase = null
+    def nullValue: Phase                                   = null
     def decodeValue(in: JsonReader, default: Phase): Phase =
       val word = in.readString(null)
       Phase.values
@@ -26,7 +26,7 @@ enum Struggle:
 
 object Struggle:
   given JsonValueCodec[Struggle] = new JsonValueCodec[Struggle]:
-    def nullValue: Struggle = null
+    def nullValue: Struggle                                      = null
     def decodeValue(in: JsonReader, default: Struggle): Struggle =
       val word = in.readString(null)
       Struggle.values
@@ -183,8 +183,8 @@ final class InstanceEntity(context: EventSourcedEntityContext)
         working(w => w.copy(warned = if reset then w.warned - struggle else w.warned + struggle))
       case E.TaskEnded(_, _, _, at) =>
         touch(at).copy(current = None)
-      case E.Suspended(at) => touch(at).copy(suspended = true)
-      case E.Resumed(at)   => touch(at).copy(suspended = false)
+      case E.Suspended(at)  => touch(at).copy(suspended = true)
+      case E.Resumed(at)    => touch(at).copy(suspended = false)
       case E.Terminated(at) =>
         touch(at).copy(terminated = true, suspended = false, current = None, queue = Vector.empty)
       case E.ApprovalRequested(request) =>
@@ -218,10 +218,10 @@ final class InstanceEntity(context: EventSourcedEntityContext)
 
   private def problem(s: InstanceRecord, event: InstanceEvent): Option[(String, ErrorCode)] =
     import ErrorCode.*
-    def conflict(message: String) = Some(message -> Conflict)
+    def conflict(message: String)     = Some(message -> Conflict)
     def needsTask(id: Option[String]) =
       s.current match
-        case None => conflict("it is not working on a task")
+        case None                                => conflict("it is not working on a task")
         case Some(w) if id.exists(_ != w.taskId) =>
           conflict(s"it is working on '${w.taskId}', not '${id.get}'")
         case _ => None
@@ -233,7 +233,7 @@ final class InstanceEntity(context: EventSourcedEntityContext)
       case _ if s.terminated              => conflict("it has been terminated")
       case E.Suspended(_) if s.suspended  => conflict("it is already suspended")
       case E.Resumed(_) if !s.suspended   => conflict("it is not suspended")
-      case E.TaskSelected(id, _) =>
+      case E.TaskSelected(id, _)          =>
         if s.current.isDefined then conflict(s"it is already working on '${s.current.get.taskId}'")
         else if !s.queue.contains(id) then conflict(s"task '$id' is not queued")
         else None

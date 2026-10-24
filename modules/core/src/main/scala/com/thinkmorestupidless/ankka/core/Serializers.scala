@@ -67,7 +67,7 @@ object Serializers:
   /** Lifts any serializer to `Option`, encoding `None` as zero bytes. */
   given option[A](using inner: Serializer[A]): Serializer[Option[A]] =
     new Serializer[Option[A]]:
-      val manifest = s"option[${inner.manifest}]"
+      val manifest                  = s"option[${inner.manifest}]"
       def toBytes(value: Option[A]) = value match
         case Some(a) => Array[Byte](1) ++ inner.toBytes(a)
         case None    => Array.emptyByteArray

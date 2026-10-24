@@ -236,7 +236,7 @@ class OpenAiProviderSuite extends munit.FunSuite:
       case Shape.ChatCompletions => at.lastRequest.body("reasoning_effort").flatMap(_.asString)
 
   for (shape, _) <- shapes do
-    val s = shape.wireName
+    val s     = shape.wireName
     val known =
       Quirks.compatibleOpenAi.copy(reasoningEfforts = Some(Vector("low", "medium", "high")))
 
@@ -317,7 +317,7 @@ class OpenAiProviderSuite extends munit.FunSuite:
     "a tool call's id is rewritten for a model provider that constrains it and the session keeps the model's"
   ) { at =>
     at.answer(ModelResponse("Sunny."))
-    val mistral = Presets.named("mistral").get.quirks
+    val mistral  = Presets.named("mistral").get.quirks
     val original = request(
       ChatMessage.User.text("weather?"),
       ChatMessage.Assistant("", Vector(call.copy(id = "toolu_01ABC"))),

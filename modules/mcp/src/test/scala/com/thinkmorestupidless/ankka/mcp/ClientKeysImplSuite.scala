@@ -33,7 +33,7 @@ class ClientKeysImplSuite extends munit.FunSuite:
   }
 
   test("a key for one endpoint scoped to a tool of another is refused naming the tool") {
-    val keys = runtime(Tools("/mcp", "list_jobs"), Tools("/office", "close_books")).clientKeys
+    val keys    = runtime(Tools("/mcp", "list_jobs"), Tools("/office", "close_books")).clientKeys
     val refused = refusal(
       keys.issue("acme", Expiry.Never, endpoint = Some("/office"), scope = Set("list_jobs"))
     )

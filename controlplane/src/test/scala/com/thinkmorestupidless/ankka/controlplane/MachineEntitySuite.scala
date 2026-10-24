@@ -20,7 +20,7 @@ class MachineEntitySuite extends munit.FunSuite with LogCapturing:
   private def kit = EventSourcedTestKit.of(MachineEntity, Machine.key("affiliates", "network"))
 
   private def registered(secret: String = "s3cret") =
-    val k = kit
+    val k      = kit
     val result = k.call(MachineEntity.register, bo.metadata)(
       RegisterMachine("affiliates", "network", MachineSecrets.digest(secret))
     )
@@ -39,7 +39,7 @@ class MachineEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("a machine registered and not deleted cannot be registered again") {
     val (k, _) = registered()
-    val again =
+    val again  =
       k.call(MachineEntity.register, bo.metadata)(RegisterMachine("affiliates", "network", "x"))
     assertEquals(again.error.code, ErrorCode.Conflict)
   }

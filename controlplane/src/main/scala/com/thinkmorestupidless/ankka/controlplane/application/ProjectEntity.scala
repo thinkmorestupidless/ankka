@@ -41,7 +41,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     case ProjectDeleted(actor, at)                  => currentState.onDeleted(actor, at)
     case RegistryConfigured(server, username, secretName, actor, at) =>
       currentState.onRegistryConfigured(server, username, secretName, actor, at)
-    case _: RegistryCleared => currentState.onRegistryCleared
+    case _: RegistryCleared                                => currentState.onRegistryCleared
     case ProjectSecretEntriesSet(name, entries, actor, at) =>
       currentState.onSecretEntriesSet(name, entries, actor, at)
     case ProjectSecretEntryRemoved(name, entry, _, _) =>
@@ -205,7 +205,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     currentState.restores.get(observed.name) match
       case None => effects.error(s"no restore named ${observed.name}", ErrorCode.NotFound)
       case Some(restore) if restore.outcome.isDefined => effects.reply(Done)
-      case Some(_) =>
+      case Some(_)                                    =>
         observed.phase match
           case "Verified" | "InUse" =>
             effects
@@ -345,14 +345,14 @@ final class ProjectEntity(context: EventSourcedEntityContext)
           else
             val before = has.flatMap(_.settings)
             val after  = request.settings.orElse(before)
-            val fixed = (has, request.settings) match
+            val fixed  = (has, request.settings) match
               case (Some(_), Some(now)) =>
                 now.copies != before.flatMap(_.copies) || now.minInSync != before.flatMap(
                   _.minInSync
                 )
               case _ => false
             val changes: Vector[SettingChange] = (before, request.settings) match
-              case (Some(b), Some(a)) => TopicSettingsRules.changes(b, a)
+              case (Some(b), Some(a))               => TopicSettingsRules.changes(b, a)
               case (None, Some(a)) if has.isDefined =>
                 Setting.values.toVector.collect {
                   case setting if setting != Setting.Copies && setting != Setting.MinInSync =>
@@ -406,7 +406,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       }
       if unfilled.isEmpty then effects.reply(FilledTopics(Vector.empty))
       else
-        val now = at.orElse(Some(java.time.Instant.now()))
+        val now    = at.orElse(Some(java.time.Instant.now()))
         val events = unfilled.map { (name, t) =>
           val filled = TopicSettingsRules.legacy(t.compacted, request.defaults)
           ProjectTopicSettingsFilled(
@@ -507,7 +507,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
   def makeGrant(request: MakeGrant): Effect[Grant] =
     if !currentState.exists then notFound
     else
-      val problems = Grantee.problems(request.grantee) ++ GrantTarget.problems(request.target)
+      val problems   = Grantee.problems(request.grantee) ++ GrantTarget.problems(request.target)
       val undeclared = request.target.topic.filter(t =>
         request.target.kind == GrantTarget.Topic && !currentState.topics.contains(t)
       )
@@ -520,7 +520,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
             effects.error(GrantRules.ownService)
           case _ =>
             currentState.liveGrant(request.grantee, request.target) match
-              case Some(live) => effects.reply(live)
+              case Some(live)                                       => effects.reply(live)
               case None if currentState.grants.contains(request.id) =>
                 effects.error(s"grant '${request.id}' already exists", ErrorCode.Conflict)
               case None =>
@@ -620,7 +620,7 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     if !currentState.exists then notFound
     else
       currentState.grants.get(id) match
-        case None => noSuchGrant(id)
+        case None                       => noSuchGrant(id)
         case Some(g) if g.state != from =>
           effects.error(GrantRules.cannot(id, g.state, verb, applies), ErrorCode.Conflict)
         case Some(_) => effects.persist(event).thenReply(_ => Done)
@@ -781,7 +781,7 @@ object ProjectEntity
 
   val setDatabase = command("set-database")(_.setDatabase)
 
-  val reissueBackupCredential = command("reissue-backup-credential")(_.reissueBackupCredential)
+  val reissueBackupCredential    = command("reissue-backup-credential")(_.reissueBackupCredential)
   val backupCredentialGeneration =
     query("backup-credential-generation")(_.backupCredentialGeneration)
 

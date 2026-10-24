@@ -296,16 +296,16 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     val expiries                                 = mutable.Map.empty[String, Instant]
     private var n                                = 0
     def bucket(name: String): Option[BucketInfo] = buckets.get(name)
-    def createBucket(name: String): BucketInfo =
+    def createBucket(name: String): BucketInfo   =
       val made = BucketInfo(s"id-$name", start, Set.empty)
       buckets(name) = made
       made
     def keysNamed(name: String): Vector[String] = keys.collect { case (id, `name`) => id }.toVector
-    def createKey(name: String): IssuedKey =
+    def createKey(name: String): IssuedKey      =
       n += 1
       keys(s"GK$n") = name
       IssuedKey(s"GK$n", s"secret-$n")
-    def deleteKey(accessKeyId: String): Unit = keys -= accessKeyId
+    def deleteKey(accessKeyId: String): Unit                               = keys -= accessKeyId
     def allow(bucketId: String, accessKeyId: String, write: Boolean): Unit =
       update(bucketId)(b => b.copy(allowedKeys = b.allowedKeys + accessKeyId))
     def setCors(bucketId: String, origins: Seq[String]): Unit =
@@ -313,10 +313,10 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     def setWebsite(bucketId: String, enabled: Boolean): Unit =
       update(bucketId)(_.copy(website = enabled))
     def expire(accessKeyId: String, at: Instant): Unit = expiries(accessKeyId) = at
-    def keyInfo(accessKeyId: String): Option[KeyInfo] =
+    def keyInfo(accessKeyId: String): Option[KeyInfo]  =
       keys.get(accessKeyId).map(KeyInfo(accessKeyId, _, false, expiries.get(accessKeyId)))
-    def keysOf(bucket: String): Vector[KeyInfo]           = Vector.empty
-    def deny(bucketId: String, accessKeyId: String): Unit = ()
+    def keysOf(bucket: String): Vector[KeyInfo]                       = Vector.empty
+    def deny(bucketId: String, accessKeyId: String): Unit             = ()
     private def update(id: String)(f: BucketInfo => BucketInfo): Unit =
       buckets.find(_._2.id == id).foreach((name, b) => buckets(name) = f(b))
 
@@ -324,7 +324,7 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     var now     = start
     val garage  = new Garage
     val secrets = new Secrets
-    val f = ScriptedFulfilment(
+    val f       = ScriptedFulfilment(
       "gcp",
       "acct",
       "europe-west2",
@@ -358,7 +358,7 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
   test(
     "in Garage: a bucket is made under the contract's name with its origins, at the store's port"
   ) {
-    val fx = InGarage()
+    val fx     = InGarage()
     val status =
       fx.fulfil("reports-bucket", garageBucket("https://play.example,https://shop.example"))
     assertEquals(
@@ -462,7 +462,7 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
   }
 
   test("055: one credential over three buckets is one key, granted on each") {
-    val fx = InGarage()
+    val fx      = InGarage()
     val buckets = Vector(
       fx.fulfil("reports-bucket", garageBucket()),
       fx.fulfil("reports-bucket-photos", namedBucket("photos", public = true)),

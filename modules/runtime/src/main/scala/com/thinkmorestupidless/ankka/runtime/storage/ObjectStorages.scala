@@ -48,7 +48,7 @@ object ObjectStorages:
         ) =
           S3Bucket(target, name, exposure, publicUrl, settings.timeout, settings.maxSignedUrl, http)
         val unnamed = settings.unnamed.map(t => bucket(t, None, settings.unnamedExposure, None))
-        val named = settings.named
+        val named   = settings.named
           .map(n => n.name -> bucket(n.target, Some(n.name), n.exposure, n.publicUrl))
           .toMap
         Right(BuiltStorage(StorageBackend.S3, S3ObjectStorage(unnamed, named), None))
@@ -63,7 +63,7 @@ object ObjectStorages:
 /** The S3 store's buckets, by name. */
 final class S3ObjectStorage(unnamed: Option[Bucket], named: Map[String, Bucket])
     extends ObjectStorage:
-  def default: Bucket = unnamed.getOrElse(throw StorageRefusals.noBucket())
+  def default: Bucket              = unnamed.getOrElse(throw StorageRefusals.noBucket())
   def bucket(name: String): Bucket =
     named.getOrElse(name, throw StorageRefusals.unknown(name, named.keys))
   def buckets: Vector[Bucket] = named.values.toVector

@@ -107,7 +107,7 @@ final class CartsView extends View[CartEvent, CartRow]:
   def onChange(event: CartEvent): Effect =
     val subject = updateContext.subject
     val before  = rowState.getOrElse(CartRow(subject, 0, false, 0L, 0))
-    val after = event match
+    val after   = event match
       case CartEvent.Opened(dueAt) => before.copy(dueAt = dueAt)
       case CartEvent.ItemAdded     => before.copy(items = before.items + 1)
       case CartEvent.CheckedOut    => before.copy(checkedOut = true)

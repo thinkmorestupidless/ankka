@@ -91,7 +91,7 @@ class ConsumerGroupsSuite extends munit.FunSuite:
   test(
     "every group of a deployed service starts with its project and service, and no other's does"
   ) {
-    val ids = Vector("summary", "x.y", "view", "orders.view.summary")
+    val ids                            = Vector("summary", "x.y", "view", "orders.view.summary")
     def all(identity: ServiceIdentity) =
       for kind <- Vector(View, Consumer); id <- ids; v <- Vector(1, 2)
       yield name(identity, kind, id, v)

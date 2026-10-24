@@ -83,7 +83,7 @@ class ApprovalSuite extends munit.FunSuite with LogCapturing:
     val componentClient = testKit.componentClient
     // docs:start ask-and-decide
     val session = componentClient.forAgent(SessionId("s-42"))
-    val answer = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
+    val answer  = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
       case AgentOutcome.Answered(text)             => text
       case AgentOutcome.AwaitingApproval(requests) =>
         // In a real service the requests are shown to a person, and the decision arrives later,

@@ -17,7 +17,7 @@ class MirroringSuite extends CopiesSuite:
   import EntityProtocol.ReplicateAck.{Persisted, Refused}
 
   test("records handed over in order are persisted byte for byte") {
-    val c = copy("leipzig")
+    val c       = copy("leipzig")
     val records = Vector(home("vienna"), set("vienna", Set("vienna", "leipzig"))) ++
       Vector("frame", "wheels", "doors").map(step("vienna", _))
     records.zipWithIndex.foreach((r, i) => c.replicate(i + 1L, r))

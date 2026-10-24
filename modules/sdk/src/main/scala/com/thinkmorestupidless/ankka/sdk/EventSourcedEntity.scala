@@ -67,7 +67,7 @@ abstract class EventSourcedEntity[S, E]:
   // ── Runtime hooks ─────────────────────────────────────────────────────────
   private[ankka] def _setState(state: S): Unit                      = stateOpt = Some(state)
   private[ankka] def _setContext(ctx: Option[CommandContext]): Unit = contextOpt = ctx
-  private[ankka] def _applyEvent(state: S, event: E): S =
+  private[ankka] def _applyEvent(state: S, event: E): S             =
     _setState(state)
     applyEvent(event)
 

@@ -153,7 +153,7 @@ object HostnameRendering:
     val fields = Map[String, AnyRef](
       "secretName" -> secretName(hostname),
       "dnsNames"   -> List(hostname).asJava,
-      "issuerRef" -> Map(
+      "issuerRef"  -> Map(
         "name"  -> issuer,
         "kind"  -> "ClusterIssuer",
         "group" -> "cert-manager.io"

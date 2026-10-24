@@ -119,7 +119,7 @@ final class VerificationOverheadBenchmark extends munit.FunSuite with LogCapturi
       // faster than doing nothing. Rotating the starting arm gives each the same share of every
       // position.
       val iterations = 1_500
-      val rounds = (0 until 6).map { round =>
+      val rounds     = (0 until 6).map { round =>
         val order    = arms.indices.map(i => (i + round) % arms.size)
         val measured = Array.fill(arms.size)(0.0)
         order.foreach(i => measured(i) = arms(i).measure(iterations))
@@ -182,7 +182,7 @@ final class VerificationOverheadBenchmark extends munit.FunSuite with LogCapturi
     val allow: Acl = Acl.Authenticate(_ => AuthDecision.Allow(Principal("bench")))
     val deploy     = DeployConfig.default.copy(baseDomain = Some("bench.test"))
     val plain      = HttpServer.at("127.0.0.1", 0)(ControlPlane.endpoints(allow, deploy)*)
-    val tls =
+    val tls        =
       HttpServer.at("127.0.0.1", 0)(ControlPlane.endpoints(allow, deploy)*).withTls(serverDir)
     val testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), plain, tls))
     val tlsClient = HttpClient

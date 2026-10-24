@@ -62,7 +62,7 @@ object PathTemplate:
       .filter(_.nonEmpty)
       .map { segment =>
         segment match
-          case Placeholder(name) => PathSegment.Param(name)
+          case Placeholder(name)                                         => PathSegment.Param(name)
           case literal if literal.contains('{') || literal.contains('}') =>
             throw IllegalArgumentException(
               s"malformed path segment '$literal' in '$raw': a parameter must be the whole " +

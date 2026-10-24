@@ -488,8 +488,8 @@ final class WatchingFeatures
   )
 
   When("a browser reads the route and the cart {string} is then opened")((key: String) =>
-    val lines = LinkedBlockingQueue[String]()
-    val port  = server.boundPort.getOrElse(fail("the server did not bind"))
+    val lines    = LinkedBlockingQueue[String]()
+    val port     = server.boundPort.getOrElse(fail("the server did not bind"))
     val response = HttpClient
       .newHttpClient()
       .send(
@@ -666,7 +666,7 @@ final class SlowReader(source: Source[WatchEvent[CartRow], NotUsed])(using Mater
 
   /** An end the watch came to without being read: its failure, or none when it completed. */
   def ended(within: FiniteDuration = 10.seconds): Option[Option[Throwable]] =
-    val deadline = System.nanoTime() + within.toNanos
+    val deadline                          = System.nanoTime() + within.toNanos
     def loop(): Option[Option[Throwable]] =
       val left = deadline - System.nanoTime()
       if left <= 0 then None
@@ -770,7 +770,7 @@ final class WatchRulesFeatures
       .toVector
 
   private def ofKind(watcher: Watcher, key: String, within: FiniteDuration = 30.seconds): CartRow =
-    val deadline = System.nanoTime() + within.toNanos
+    val deadline        = System.nanoTime() + within.toNanos
     def loop(): CartRow =
       watcher.next((deadline - System.nanoTime()).nanos.max(1.milli)) match
         case Some(Right(WatchEvent.Row(k, row))) if k == scoped(key) => row
@@ -779,7 +779,7 @@ final class WatchRulesFeatures
     loop()
 
   private def endedWith(watcher: Watcher): Option[Throwable] =
-    val deadline = System.nanoTime() + 10.seconds.toNanos
+    val deadline                  = System.nanoTime() + 10.seconds.toNanos
     def loop(): Option[Throwable] =
       watcher.next((deadline - System.nanoTime()).nanos.max(1.milli)) match
         case Some(Left(end)) => end
@@ -1003,7 +1003,7 @@ final class WatchRulesFeatures
   Then("the topology shows one observed call from the handler to {string}, handled as ok")(
     (view: String) =>
       val address = kit.service.observabilityAddress.getOrElse(fail("no observability endpoint"))
-      val body = kit.eventually("the watch is counted") {
+      val body    = kit.eventually("the watch is counted") {
         val response = HttpClient
           .newHttpClient()
           .send(
@@ -1051,7 +1051,7 @@ final class WatchRulesFeatures
 
   Then("the handler is given nothing for {string} until {string} writes the row {string} again")(
     (key: String, _: String, _: String) =>
-      val w = watchers.head
+      val w                                = watchers.head
       def mineNext(within: FiniteDuration) =
         Iterator
           .continually(w.next(within))

@@ -76,7 +76,7 @@ final class CallCounts(val windowMillis: Long, buckets: Int, val startedMillis: 
   def snapshot(nowMillis: Long): Snapshot =
     val present = nowMillis / bucketMillis
     val oldest  = present - buckets + 1
-    val held = edges.asScala.iterator.map((k, e) => (k, e, false)) ++
+    val held    = edges.asScala.iterator.map((k, e) => (k, e, false)) ++
       streams.asScala.iterator.map((k, e) => (k, e, true))
     val pairs = held.flatMap { (key, edge, streaming) =>
       val totals = edge.total(oldest, present)

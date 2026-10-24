@@ -12,7 +12,7 @@ class HealthCheckSuite extends munit.FunSuite:
     val check    = HealthCheck.serve(0, () => problems.get())
     try
       val client = HttpClient.newHttpClient()
-      def get() =
+      def get()  =
         client.send(
           HttpRequest
             .newBuilder(URI.create(s"http://127.0.0.1:${check.port}${HealthCheck.Path}"))

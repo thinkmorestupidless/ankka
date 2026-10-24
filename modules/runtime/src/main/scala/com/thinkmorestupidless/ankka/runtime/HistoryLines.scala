@@ -45,7 +45,7 @@ final class HistoryLines private[ankka] (val current: String, database: () => Da
       // A database without the table (one the service supplies, or a local one made before it)
       // keeps the random ids every message had before; nothing else depends on the lines.
       try
-        val db = database()
+        val db      = database()
         val written = db
           .execute(
             SqlFragment.raw("INSERT INTO ankka_history_lines (line_id) VALUES (") ++

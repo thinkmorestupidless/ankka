@@ -120,7 +120,7 @@ private[ankka] object KeyValueEntityHost:
             // returned, parented by whatever the caller's metadata carried.
             val metadata = MetaEntry.toMetadata(invoke.metadata)
             val inbound  = Trace.inbound(metadata)
-            val span = observability.recorder.begin(
+            val span     = observability.recorder.begin(
               traceIdHigh = inbound.traceIdHigh,
               traceId = inbound.traceId,
               parentSpanId = inbound.parentSpanId,
@@ -190,7 +190,7 @@ private[ankka] object KeyValueEntityHost:
         (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
       case Right(replyValue) =>
-        val builder = storageEffect(result, empty)
+        val builder   = storageEffect(result, empty)
         val effectOut = replyValue match
           case Some(value) =>
             builder.thenReply(invoke.replyTo) { _ =>

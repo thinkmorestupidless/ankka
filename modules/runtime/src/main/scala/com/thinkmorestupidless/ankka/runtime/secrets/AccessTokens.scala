@@ -53,7 +53,7 @@ private[ankka] object AccessTokens:
     def token(): String =
       held.get match
         case Some(h) if clock.instant().isBefore(h.refreshAfter) => h.token
-        case _ =>
+        case _                                                   =>
           val fresh = fetch()
           held.set(Some(fresh))
           fresh.token

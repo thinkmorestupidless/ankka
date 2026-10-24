@@ -157,7 +157,7 @@ class RestoreRenderingSuite extends munit.FunSuite:
   test("a service on the project database renders exactly what it did before the feature") {
     val serialization = AnkkaSerialization()
     val pod           = deploymentOf(rendered(wallet)).getSpec.getTemplate.getSpec
-    val names = (pod.getContainers.asScala ++ pod.getInitContainers.asScala)
+    val names         = (pod.getContainers.asScala ++ pod.getInitContainers.asScala)
       .flatMap(_.getEnv.asScala.map(_.getName))
     assert(!names.contains("ANKKA_DB_LINE"), names.toString)
     assert(!names.contains("ANKKA_DB_HOST"), names.toString)
@@ -187,7 +187,7 @@ class RestoreRenderingSuite extends munit.FunSuite:
         "max(db_timestamp)" -> "2026-10-08T09:19:58Z"
       )
     )
-    val spec = com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec("shop", restores = List(entry))
+    val spec   = com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec("shop", restores = List(entry))
     val result = ProjectReconciler.restores(
       "ankka-shop",
       spec,
@@ -207,8 +207,8 @@ class RestoreRenderingSuite extends munit.FunSuite:
   }
 
   test("a verified restore is not read again, and is in use once a service is switched to it") {
-    val reads = new ProjectBackupsSuiteReads(None, Map.empty)
-    val spec  = com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec("shop", restores = List(entry))
+    val reads  = new ProjectBackupsSuiteReads(None, Map.empty)
+    val spec   = com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec("shop", restores = List(entry))
     val before = com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus(restores =
       List(
         com.thinkmorestupidless.ankka.crd
@@ -232,8 +232,8 @@ class RestoreRenderingSuite extends munit.FunSuite:
   }
 
   test("a project database every service has left is listed as left") {
-    val reads = new ProjectBackupsSuiteReads(None, Map.empty)
-    val spec  = com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec("shop", restores = List(entry))
+    val reads  = new ProjectBackupsSuiteReads(None, Map.empty)
+    val spec   = com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec("shop", restores = List(entry))
     val before = com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus(restores =
       List(
         com.thinkmorestupidless.ankka.crd
@@ -256,10 +256,10 @@ final class ProjectBackupsSuiteReads(cluster: Option[ClusterStatus], answers: Ma
     extends Executor:
   val asked                         = scala.collection.mutable.ArrayBuffer.empty[(String, String)]
   def execute(action: Action): Unit = ()
-  def snapshot(namespace: String, name: String): Option[ClusterSnapshot]     = None
-  def foreignObjectAt(namespace: String, name: String): Boolean              = false
-  def podProblems(namespace: String, serviceName: String, projectId: String) = Vector.empty
-  def observeRoute(namespace: String, name: String)                          = None
+  def snapshot(namespace: String, name: String): Option[ClusterSnapshot]           = None
+  def foreignObjectAt(namespace: String, name: String): Boolean                    = false
+  def podProblems(namespace: String, serviceName: String, projectId: String)       = Vector.empty
+  def observeRoute(namespace: String, name: String)                                = None
   def observeDatabase(namespace: String, clusterName: String, serviceName: String) =
     cnpg.DatabaseObservation.empty
   def resourceCreatedAt(namespace: String, name: String) = None

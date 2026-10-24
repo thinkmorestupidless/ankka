@@ -712,8 +712,8 @@ the same everywhere.
 ```scala
 def applyEvent(event: VehicleEvent): Vehicle =
   val vehicle = event match
-    case Created(id)     => currentState.copy(id = id)
-    case StepAdded(step) => currentState.copy(steps = currentState.steps :+ step)
+    case Created(id)              => currentState.copy(id = id)
+    case StepAdded(step)          => currentState.copy(steps = currentState.steps :+ step)
     case InspectionRecorded(note) =>
       currentState.copy(inspections = currentState.inspections :+ note)
     case Sold => currentState.copy(sold = true)

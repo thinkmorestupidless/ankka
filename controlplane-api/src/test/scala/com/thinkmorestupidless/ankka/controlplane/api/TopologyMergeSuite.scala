@@ -89,8 +89,8 @@ class TopologyMergeSuite extends FunSuite:
   test("percentiles of the merge are those of the combined distribution's buckets") {
     // One instance saw fast calls, the other slow ones; together the median moves up a bucket and
     // the maximum is the slow instance's.
-    val fast = pair(10L, buckets = histogram(8 -> 10L))
-    val slow = pair(10L, buckets = histogram(12 -> 10L))
+    val fast   = pair(10L, buckets = histogram(8 -> 10L))
+    val slow   = pair(10L, buckets = histogram(12 -> 10L))
     val merged = TopologyMerge.merge(
       "cart",
       2,

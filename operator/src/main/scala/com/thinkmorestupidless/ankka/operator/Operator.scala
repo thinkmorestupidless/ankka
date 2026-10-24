@@ -115,7 +115,7 @@ final class Operator(
       inner: ResourceEventHandler[T]
   ): ResourceEventHandler[T] =
     new ResourceEventHandler[T]:
-      def onAdd(obj: T): Unit = inner.onAdd(obj)
+      def onAdd(obj: T): Unit                = inner.onAdd(obj)
       def onUpdate(old: T, updated: T): Unit =
         val resync = old.getMetadata.getResourceVersion == updated.getMetadata.getResourceVersion
         val generation = old.getMetadata.getGeneration != updated.getMetadata.getGeneration
@@ -330,7 +330,7 @@ final class Operator(
    */
   private val platform: Option[java.util.concurrent.ScheduledExecutorService] =
     Option.when(PlatformBackups.actions(settings).nonEmpty) {
-      val executor = Fabric8Executor.of(client, settings)
+      val executor  = Fabric8Executor.of(client, settings)
       val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r =>
         val thread = new Thread(r, "ankka-operator-platform-backups")
         thread.setDaemon(true)
@@ -378,8 +378,8 @@ object Operator:
    */
   def ownerOf(request: CloudResource): Option[(Owner, ServiceRef)] =
     for
-      meta <- Option(request.getMetadata)
-      ns   <- Option(meta.getNamespace)
+      meta  <- Option(request.getMetadata)
+      ns    <- Option(meta.getNamespace)
       owner <- Option(meta.getOwnerReferences).toVector
         .flatMap(_.asScala)
         .find(o => Option(o.getController).exists(_.booleanValue))

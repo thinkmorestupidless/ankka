@@ -16,7 +16,7 @@ import scala.concurrent.duration.Duration
  */
 final class FleetEndpoint(clients: EndpointClients) extends HttpEndpoint("/vehicles"):
   import FleetEndpoint.given
-  val acl: Acl = Acl.AllowAll
+  val acl: Acl                    = Acl.AllowAll
   private def vehicle(id: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(id))
   postBody("/{id}") { (id: String, input: CreateVehicle) =>

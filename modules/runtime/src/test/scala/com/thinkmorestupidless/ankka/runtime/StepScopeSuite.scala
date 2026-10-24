@@ -15,7 +15,7 @@ class StepScopeSuite extends munit.FunSuite:
 
   test("a keep outside a step is refused with the step's words, and nothing is kept") {
     val (underlying, scoped) = fresh()
-    val refused =
+    val refused              =
       intercept[CommandError](scoped.default.putBytes("a.txt", "a".getBytes(UTF_8), "text/plain"))
     assertEquals(refused.code, ErrorCode.BadRequest)
     assert(refused.getMessage.contains("in a step, not in a command handler"), refused.getMessage)
@@ -23,8 +23,8 @@ class StepScopeSuite extends munit.FunSuite:
   }
 
   test("every operation outside a step is refused, a signed URL included") {
-    val (_, scoped) = fresh()
-    val photos      = scoped.bucket("photos")
+    val (_, scoped)                        = fresh()
+    val photos                             = scoped.bucket("photos")
     val calls: Vector[(String, () => Any)] = Vector(
       "get"       -> (() => photos.get("a")),
       "stat"      -> (() => photos.stat("a")),

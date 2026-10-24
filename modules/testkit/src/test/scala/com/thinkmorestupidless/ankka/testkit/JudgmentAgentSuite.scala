@@ -254,7 +254,7 @@ class JudgmentAgentSuite extends munit.FunSuite with LogCapturing:
     output(medical = 0.95)
     model.expectText("Take two of these.")
     val tokens = java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val done = agent("g-stream")
+    val done   = agent("g-stream")
       .stream(TriageAgent.guardedChat)("I have a headache.")
       .runWith(Sink.foreach(t => tokens.add(t): Unit))
     val failure = intercept[CommandError](scala.concurrent.Await.result(done, 30.seconds))

@@ -37,9 +37,9 @@ class KeeperSuite extends munit.FunSuite with LogCapturing:
       interval: String = "30s",
       ollamaUrl: Option[String] = None
   )(models: String*): Rig =
-    val ollama = FakeOllama.start(keepAlive)
-    val dir    = Files.createTempDirectory("keeper")
-    val file   = dir.resolve("models.json")
+    val ollama   = FakeOllama.start(keepAlive)
+    val dir      = Files.createTempDirectory("keeper")
+    val file     = dir.resolve("models.json")
     val settings = KeeperSettings
       .fromEnvironment(
         Map(

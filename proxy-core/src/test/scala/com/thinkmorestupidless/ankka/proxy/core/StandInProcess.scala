@@ -146,8 +146,8 @@ object StandInProcess:
       lines.mkString("", "\n", "\n").getBytes("UTF-8")
 
     def parse(text: String): Received =
-      val lines = text.split("\n").toVector.filter(_.nonEmpty)
-      val first = lines.head.split(" ", 2)
+      val lines   = text.split("\n").toVector.filter(_.nonEmpty)
+      val first   = lines.head.split(" ", 2)
       val headers = lines.tail.map { line =>
         val parts = line.split(": ", 2)
         parts(0) -> parts.lift(1).getOrElse("")

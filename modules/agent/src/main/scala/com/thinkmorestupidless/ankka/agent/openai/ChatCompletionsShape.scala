@@ -66,7 +66,7 @@ private[openai] object ChatCompletionsShape:
 
   private def tool(spec: ToolSpec): Json =
     Json.obj(
-      "type" -> Json.str("function"),
+      "type"     -> Json.str("function"),
       "function" -> Json.obj(
         "name"        -> Json.str(spec.name),
         "description" -> Json.str(spec.description),
@@ -79,7 +79,7 @@ private[openai] object ChatCompletionsShape:
       case ChatMessage.User(content) =>
         Vector(
           Json.obj(
-            "role" -> Json.str("user"),
+            "role"    -> Json.str("user"),
             "content" -> Json.str(
               content.collect { case MessageContent.Text(t) => t }.mkString("\n")
             )
@@ -91,14 +91,14 @@ private[openai] object ChatCompletionsShape:
         if text.isBlank && calls.isEmpty then Vector.empty
         else
           val content = if text.isBlank then Json.Null else Json.str(text)
-          val called =
+          val called  =
             if calls.isEmpty then Vector.empty
             else
               Vector(
                 "tool_calls" -> Json.Arr(calls.map { call =>
                   Json.obj(
-                    "id"   -> Json.str(call.id),
-                    "type" -> Json.str("function"),
+                    "id"       -> Json.str(call.id),
+                    "type"     -> Json.str("function"),
                     "function" -> Json.obj(
                       "name"      -> Json.str(call.name),
                       "arguments" -> Json.str(call.arguments.render)
@@ -127,7 +127,7 @@ private[openai] object ChatCompletionsShape:
     val message = choice.flatMap(_("message"))
     val text    = message.flatMap(_("content")).flatMap(_.asString).getOrElse("")
     val refusal = message.flatMap(_("refusal")).flatMap(_.asString).filter(_.nonEmpty)
-    val calls =
+    val calls   =
       message.flatMap(_("tool_calls")).flatMap(_.asArray).getOrElse(Vector.empty).map { call =>
         val function = call("function")
         ToolCall(
@@ -181,7 +181,7 @@ private[openai] object ChatCompletionsShape:
           .flatMap(_.asArray)
           .flatMap(_.headOption)
           .flatMap(_("delta"))
-        val text = delta.flatMap(_("content")).flatMap(_.asString).filter(_.nonEmpty)
+        val text    = delta.flatMap(_("content")).flatMap(_.asString).filter(_.nonEmpty)
         val started = delta
           .flatMap(_("tool_calls"))
           .flatMap(_.asArray)

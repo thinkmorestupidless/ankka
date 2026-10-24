@@ -192,10 +192,10 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   /** Sends `command` to `id` at `name` without waiting, and remembers the call. */
   private def send(name: String, command: String, id: String): Call =
     noteJournals(id)
-    val target = entity(name, id)
+    val target              = entity(name, id)
     val answer: Future[Any] = command match
-      case "create"   => target.call(kind.createVehicle).invokeAsync(CreateVehicle())
-      case "add-step" => target.call(kind.addStep).invokeAsync(nextStep())
+      case "create"            => target.call(kind.createVehicle).invokeAsync(CreateVehicle())
+      case "add-step"          => target.call(kind.addStep).invokeAsync(nextStep())
       case "record-inspection" =>
         counter += 1
         target.call(kind.recordInspection).invokeAsync(s"inspection-$counter")
@@ -262,8 +262,8 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
 
   /** One record of a journal: its sequence number, the record, and its bytes as stored. */
   final case class Row(seq: Long, record: JournalRecord, bytes: Vector[Byte]):
-    def writer: Option[String] = record.installation
-    def isDomain: Boolean      = record.kind == JournalRecord.KindDomain
+    def writer: Option[String]      = record.installation
+    def isDomain: Boolean           = record.kind == JournalRecord.KindDomain
     def event: Option[VehicleEvent] =
       Option.when(isDomain)(FleetCodecs.event.fromBytes(record.payload))
 
@@ -278,7 +278,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
             s"WHERE persistence_id = '$pid' ORDER BY seq_nr"
         )
       ) { row =>
-        val bytes = row.get("event_payload", classOf[Array[Byte]])
+        val bytes  = row.get("event_payload", classOf[Array[Byte]])
         val record = serialization
           .deserialize(
             bytes,
@@ -622,7 +622,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   Then(
     "the trace shows one call from the caller to {string}, forwarded from {string} to {string}"
   ) { (component: String, from: String, to: String) =>
-    val command = lastCall.command
+    val command             = lastCall.command
     def fresh(name: String) = eventually(s"$name recorded the call") {
       val found = spans(name)
         .filterNot(s => spansBefore.getOrElse(name, Set.empty)(s.spanId))
@@ -777,8 +777,8 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   Then(
     "the history of {string} at every installation in its replication set holds the handover at the same sequence number"
   ) { (id: String) =>
-    val to  = homeOf(id)
-    val set = status(to, id).replicationSet
+    val to   = homeOf(id)
+    val set  = status(to, id).replicationSet
     val seqs = set.toVector.map { name =>
       eventually(s"$name holds the handover")(homeRecord(journal(name, id), to)).seq
     }
@@ -813,7 +813,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
     (after: String) =>
       val id     = homes.keys.head
       val target = started.names.find(n => started.transport.isPaused(n)).get
-      val error = intercept[CommandError](
+      val error  = intercept[CommandError](
         entity(homeOf(id), id).awaitHandover(kind, target, 30.seconds)
       )
       assertEquals(error.code, ErrorCode.Unavailable, error.toString)
@@ -1165,7 +1165,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
       assertEquals(command, "record-inspection")
       val (name, server) = servers.headOption.getOrElse(fail("no person is calling anywhere"))
       noteJournals(id)
-      val http = java.net.http.HttpClient.newHttpClient()
+      val http     = java.net.http.HttpClient.newHttpClient()
       val response = http.send(
         java.net.http.HttpRequest
           .newBuilder(
@@ -1208,7 +1208,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
     "the record of the inspection in the journal of {string} carries {string} as its attribution and {string} as where it was forwarded from"
   ) { (id: String, person: String, forwarder: String) =>
     val home = homeOf(id)
-    val row = journal(home, id)
+    val row  = journal(home, id)
       .findLast(_.event.exists(_.isInstanceOf[VehicleEvent.InspectionRecorded]))
       .getOrElse(fail(s"no inspection in the journal of $id at $home"))
     assertEquals(row.record.attribution, Some(person))

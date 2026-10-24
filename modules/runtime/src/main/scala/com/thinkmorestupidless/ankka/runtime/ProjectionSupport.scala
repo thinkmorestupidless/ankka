@@ -61,7 +61,7 @@ private[ankka] object ProjectionSupport:
   )(body: => A): (A, TraceContext) =
     val componentRef = observability.names.intern(component)
     val handlerRef   = observability.names.intern(handler)
-    val span = parent match
+    val span         = parent match
       case Some(p) =>
         observability.recorder.begin(
           p.traceIdHigh,

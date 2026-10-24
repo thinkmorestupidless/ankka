@@ -81,7 +81,7 @@ object GatewayStack:
     waitForRollout(k8s, "envoy-gateway-system", "envoy-gateway")
 
     val component = repoRoot.resolve("kustomization/components/gateway")
-    val files = Vector(
+    val files     = Vector(
       component.resolve("namespace.yaml"),
       component.resolve("gatewayclass.yaml"),
       component.resolve("envoyproxy.yaml"),

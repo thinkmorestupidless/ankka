@@ -29,7 +29,7 @@ class DescriptorFeatures
   override val munitTimeout = 4.minutes
 
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
 
   private var testKit: AnkkaTestKit = null
@@ -111,7 +111,7 @@ class DescriptorFeatures
 
   private def json: String =
     val hosting = if web then Vector(""""hosting":"web"""") else Vector.empty
-    val lists = Vector(
+    val lists   = Vector(
       Option.when(mounts.nonEmpty)(mounts.mkString(""""mounts":[""", ",", "]")),
       Option.when(callers.nonEmpty)(
         callers.map(c => s""""$c"""").mkString(""""callers":[""", ",", "]")
@@ -136,7 +136,7 @@ class DescriptorFeatures
     "says the service serves no requests" -> (() => fields :+= """"http":false"""),
     "declares a protocol version"         -> (() => fields :+= """"protocol":"1.0""""),
     "declares a runtime version"          -> (() => fields :+= """"runtime":"0.9.0""""),
-    "declares a database of its own" -> { () =>
+    "declares a database of its own"      -> { () =>
       variable = "ANKKA_DB_HOST"
       env :+= s"""{"name":"$variable","value":"postgres"}"""
     },
@@ -256,8 +256,8 @@ class DescriptorFeatures
     val file = Files.createTempFile("ankka-descriptor", ".json")
     try
       Files.writeString(file, json): Unit
-      val out = ByteArrayOutputStream()
-      val err = ByteArrayOutputStream()
+      val out  = ByteArrayOutputStream()
+      val err  = ByteArrayOutputStream()
       val code = Main.run(
         Seq("services", "apply", "-f", file.toString, "-p", "shop", "--url", url, "--token", Token),
         PrintStream(out, true, StandardCharsets.UTF_8),

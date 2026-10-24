@@ -76,8 +76,8 @@ private[mcp] object Jwt:
   /** The public key a JWK names, when it is an RSA one. */
   def publicKey(jwk: Json): Option[PublicKey] =
     for
-      n <- jwk("n").flatMap(_.asString).flatMap(decode)
-      e <- jwk("e").flatMap(_.asString).flatMap(decode)
+      n   <- jwk("n").flatMap(_.asString).flatMap(decode)
+      e   <- jwk("e").flatMap(_.asString).flatMap(decode)
       key <- Try(
         KeyFactory
           .getInstance("RSA")

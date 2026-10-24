@@ -78,7 +78,7 @@ class AwaitEventsSuite extends munit.FunSuite:
 
   test("a failed workflow ends the stream with its step and reason") {
     val failure = WorkflowEnd.Failure(Some("render"), "out of paper", deleted = false)
-    val all = Await.result(
+    val all     = Await.result(
       events(Future.failed(CommandError("failed", ErrorCode.WorkflowFailed, failure.details))),
       5.seconds
     )

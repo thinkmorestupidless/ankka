@@ -46,9 +46,9 @@ private[ankka] object KeyedViewRules:
     }
 
   private def problemsOf(view: String, sources: Vector[Read]): Vector[String] =
-    val topics   = sources.collect { case Read.Topic(name) => name }
-    val entities = sources.collect { case c: Read.Component => c }
-    val repeated = entities.groupBy(_.id).collect { case (id, same) if same.size > 1 => id }
+    val topics      = sources.collect { case Read.Topic(name) => name }
+    val entities    = sources.collect { case c: Read.Component => c }
+    val repeated    = entities.groupBy(_.id).collect { case (id, same) if same.size > 1 => id }
     val notEntities = entities.filterNot(c =>
       c.kind == ComponentKind.EventSourcedEntity || c.kind == ComponentKind.KeyValueEntity ||
         c.kind == ComponentKind.Workflow

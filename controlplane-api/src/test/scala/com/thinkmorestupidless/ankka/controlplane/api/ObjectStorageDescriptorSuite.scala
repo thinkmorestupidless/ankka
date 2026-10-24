@@ -70,7 +70,7 @@ class ObjectStorageDescriptorSuite extends munit.FunSuite:
 
   // A store of the service's own (US3) and a bucket reachable from the internet (US4).
 
-  private def literal(name: String) = EnvVar(name, value = Some("x"))
+  private def literal(name: String)    = EnvVar(name, value = Some("x"))
   private def fromSecret(name: String) =
     EnvVar(name, secretKeyRef = Some(SecretKeyRef("my-store", "key")))
 

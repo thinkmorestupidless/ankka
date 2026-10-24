@@ -45,7 +45,7 @@ class McpToolsSuite extends munit.FunSuite:
   }
 
   test("a server's approval is every one of its tools'") {
-    val s = tickets()
+    val s     = tickets()
     val tools = connect(
       Vector(McpServer.named("tickets").requiresApproval),
       Map("ANKKA_MCP_TICKETS_URL" -> s.url)
@@ -70,7 +70,7 @@ class McpToolsSuite extends munit.FunSuite:
   }
 
   test("a service whose agent takes a credential from a variable that is not set does not start") {
-    val s = tickets()
+    val s       = tickets()
     val problem = refusal(
       connect(
         Vector(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN")),
@@ -93,7 +93,7 @@ class McpToolsSuite extends munit.FunSuite:
   }
 
   test("a server that refuses the credential fails the start, naming the server") {
-    val s = tickets().requireHeader("Authorization", "Bearer right")
+    val s       = tickets().requireHeader("Authorization", "Bearer right")
     val problem = refusal(
       connect(
         Vector(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN")),
@@ -152,7 +152,7 @@ class McpToolsSuite extends munit.FunSuite:
   }
 
   test("a time limit for a server's approval needs timers") {
-    val s = tickets()
+    val s       = tickets()
     val problem = refusal(
       connect(
         Vector(McpServer.named("tickets").requiresApproval(1.minute)),

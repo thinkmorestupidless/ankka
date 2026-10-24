@@ -70,10 +70,10 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
   // The realm's tokens live five minutes and the suite runs for longer, so one is minted again once
   // the last is four minutes old.
   @volatile private var minted: Option[(String, Long)] = None
-  private def ownerToken: String =
+  private def ownerToken: String                       =
     minted.filter((_, at) => System.nanoTime() - at < 4.minutes.toNanos) match
       case Some((token, _)) => token
-      case None =>
+      case None             =>
         val token = KeycloakStack.mintToken(
           GatewayStack.exportCa(k8s),
           BaseDomain,
@@ -135,7 +135,7 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
 
       // The control plane's schema ConfigMap, as deploy-local.sh makes it: the single-copy DDL and
       // the grants literal.
-      val ddl = repoRoot.resolve("modules/runtime/src/main/resources/ankka/ddl")
+      val ddl    = repoRoot.resolve("modules/runtime/src/main/resources/ankka/ddl")
       val schema = Files
         .list(ddl)
         .iterator()
@@ -252,7 +252,7 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
     val pods = k8s.pods().inNamespace(namespace).list().getItems.asScala
     pods
       .map { pod =>
-        val name = pod.getMetadata.getName
+        val name   = pod.getMetadata.getName
         val states = Option(pod.getStatus.getContainerStatuses).toList
           .flatMap(_.asScala)
           .map(c => s"${c.getName} ready=${c.getReady} restarts=${c.getRestartCount} ${c.getState}")
@@ -313,7 +313,7 @@ class SecretsClusterSuite extends munit.FunSuite with LogCapturing:
           Option(p.getStatus.getContainerStatuses).exists(_.asScala.exists(_.getReady))
       )
       .getOrElse(fail(s"no ready control plane pod\n${diagnose(Namespace)}"))
-    val dir = "/var/run/secrets/ankka/service"
+    val dir  = "/var/run/secrets/ankka/service"
     val curl = Vector(
       "curl",
       "-sS",

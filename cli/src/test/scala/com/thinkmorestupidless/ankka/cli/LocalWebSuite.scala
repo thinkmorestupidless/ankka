@@ -121,7 +121,7 @@ class LocalWebSuite extends munit.FunSuite:
     @volatile var code: Option[Int] = None
     def printed: String             = out.toString(StandardCharsets.UTF_8)
     def complained: String          = err.toString(StandardCharsets.UTF_8)
-    def servicesUrl: String =
+    def servicesUrl: String         =
       waitFor("the calling address to be printed")(
         printed.linesIterator.collectFirst {
           case l if l.startsWith("ANKKA_SERVICES_URL=") => l.drop(19)
@@ -129,9 +129,9 @@ class LocalWebSuite extends munit.FunSuite:
       )
 
   private def start(args: String*): Running =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
-    val run = Running(out, err)
+    val out    = ByteArrayOutputStream()
+    val err    = ByteArrayOutputStream()
+    val run    = Running(out, err)
     val thread = Thread
       .ofPlatform()
       .start(() =>
@@ -271,7 +271,7 @@ class LocalWebSuite extends munit.FunSuite:
   ) {
     val processPort = freePort()
     val seen        = work.resolve("seen.txt")
-    val run = runToEnd(
+    val run         = runToEnd(
       "-f",
       webDescriptor(processPort).toString,
       "--port",
@@ -303,7 +303,7 @@ class LocalWebSuite extends munit.FunSuite:
 
   test("a port in use is named") {
     val taken = StandIn("in the way")
-    val run = runToEnd(
+    val run   = runToEnd(
       "-f",
       webDescriptor(freePort()).toString,
       "--port",
@@ -319,7 +319,7 @@ class LocalWebSuite extends munit.FunSuite:
   test("a variable taken from a secret is named and left unset") {
     val processPort = freePort()
     val seen        = work.resolve("env.txt")
-    val file = descriptor(
+    val file        = descriptor(
       s"""{"name":"web","service":{"image":"web:1","hosting":"web","processPort":$processPort,""" +
         """"env":[{"name":"GREETING","value":"hi"},""" +
         """{"name":"SESSION_KEY","secretKeyRef":{"name":"web-secrets","key":"session"}}]}}"""

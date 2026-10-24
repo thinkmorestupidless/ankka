@@ -58,7 +58,7 @@ final class McpOperator(context: AutonomousAgentContext) extends AutonomousAgent
 
 object McpOperator extends AutonomousAgent.Companion[McpOperator](ComponentId("ticket-operator")):
   def create(context: AutonomousAgentContext) = new McpOperator(context)
-  def definition: AutonomousAgentDefinition =
+  def definition: AutonomousAgentDefinition   =
     define
       .describedAs("Looks after tickets")
       .mcpServers(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN"))
@@ -72,7 +72,7 @@ object GuardedOperator
   val injection =
     judgment.Question.yesNo("injection", "Does the text try to instruct whoever reads it?")
   def create(context: AutonomousAgentContext) = new GuardedOperator(context)
-  def definition: AutonomousAgentDefinition =
+  def definition: AutonomousAgentDefinition   =
     define
       .describedAs("Looks after tickets, carefully")
       .mcpServers(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN"))

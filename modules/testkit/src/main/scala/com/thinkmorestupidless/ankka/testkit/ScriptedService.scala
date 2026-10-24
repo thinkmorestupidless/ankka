@@ -21,7 +21,7 @@ import scala.jdk.CollectionConverters.*
  */
 final class ScriptedService private (server: HttpServer):
 
-  private val received = ConcurrentLinkedQueue[ScriptedService.Request]()
+  private val received  = ConcurrentLinkedQueue[ScriptedService.Request]()
   private val answering = AtomicReference[ScriptedService.Request => ServiceResponse](_ =>
     ServiceResponse(200, "text/plain", "ok".getBytes(StandardCharsets.UTF_8), Vector.empty)
   )
@@ -89,7 +89,7 @@ object ScriptedService:
       contentType: Option[String],
       body: Array[Byte]
   ):
-    def text: String = String(body, StandardCharsets.UTF_8)
+    def text: String                         = String(body, StandardCharsets.UTF_8)
     def header(name: String): Option[String] =
       headers.collectFirst { case (n, v) if n == name.toLowerCase => v }
 

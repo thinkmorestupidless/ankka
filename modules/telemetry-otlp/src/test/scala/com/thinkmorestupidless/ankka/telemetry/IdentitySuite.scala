@@ -33,7 +33,7 @@ class IdentitySuite extends munit.FunSuite:
 
   test("without a certificate the configuration says, and failing that the actor system's name") {
     val config = ConfigFactory.load()
-    val named = Identity.of(
+    val named  = Identity.of(
       config,
       "ankka",
       settings("ankka.telemetry.service-name = orders\nankka.telemetry.project = shop")

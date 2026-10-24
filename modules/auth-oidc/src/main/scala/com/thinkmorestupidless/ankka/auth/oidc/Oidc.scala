@@ -53,8 +53,8 @@ object Oidc:
   private final class Issuers(verifier: OidcVerifier, challenge: String)
       extends TokenAuthenticator
       with OidcIssuers:
-    def authorizationServers: Vector[String] = verifier.issuers
-    def configured: Vector[Issuer]           = verifier.configured
+    def authorizationServers: Vector[String]         = verifier.issuers
+    def configured: Vector[Issuer]                   = verifier.configured
     def apply(context: RequestContext): AuthDecision =
       context.caller match
         // A registered machine whose token the server already verified (feature 040): its token
@@ -76,7 +76,7 @@ object Oidc:
 
   private def fromIssuers(context: RequestContext, verifier: OidcVerifier, challenge: String) =
     presented(context) match
-      case None => AuthDecision.Unauthenticated(challenge)
+      case None        => AuthDecision.Unauthenticated(challenge)
       case Some(token) =>
         verifier.verify(token) match
           case Verification.Verified(claims, issuer) =>

@@ -45,7 +45,7 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
 
   private val K3sImage     = "rancher/k3s:v1.35.1-k3s1"
   private val SidecarImage = s"ankka-sidecar:${BuildInfo.imageTag}"
-  private val PythonImage =
+  private val PythonImage  =
     sys.props.getOrElse("ankka.python.image", s"sample-shopping-cart-python:${BuildInfo.imageTag}")
 
   /**
@@ -222,7 +222,7 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
         .asScala
         .toSeq
         .map { p =>
-          val name = p.getMetadata.getName
+          val name     = p.getMetadata.getName
           val statuses =
             Option(p.getStatus.getContainerStatuses).map(_.asScala.toSeq).getOrElse(Nil) ++
               Option(p.getStatus.getInitContainerStatuses).map(_.asScala.toSeq).getOrElse(Nil)
@@ -366,7 +366,7 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
    * reach keys the suite holds.
    */
   private def deployKeys(): Unit =
-    val jwks = scala.io.Source.fromURL(authIssuer.jwksUrl).mkString
+    val jwks      = scala.io.Source.fromURL(authIssuer.jwksUrl).mkString
     val configMap = new io.fabric8.kubernetes.api.model.ConfigMapBuilder()
       .withMetadata(new ObjectMetaBuilder().withName("jwks").withNamespace(Namespace).build())
       .withData(Map("jwks" -> jwks).asJava)
@@ -593,7 +593,7 @@ spec:
         seen.exists(_.service == Service)
       }: Unit
     // The address is the sidecar's, never the process's.
-    val containers = pods.head.getSpec.getContainers.asScala
+    val containers        = pods.head.getSpec.getContainers.asScala
     def has(name: String) =
       containers
         .find(_.getName == name)
@@ -603,7 +603,7 @@ spec:
   }
 
   test("the credential and the database reach the sidecar only; the process knows how to find it") {
-    val pod = pods.head
+    val pod             = pods.head
     val (_, sidecarEnv) =
       kubectl("exec", "-n", Namespace, pod.getMetadata.getName, "-c", Service, "--", "env")
     val (_, appEnv) =
@@ -668,7 +668,7 @@ spec:
     waitFor(300.seconds)(readyReplicasOf(AuthService) >= 1)
     val pod             = podsOf(AuthService).head.getMetadata.getName
     val (_, sidecarEnv) = kubectl("exec", "-n", Namespace, pod, "-c", AuthService, "--", "env")
-    val (_, appEnv) =
+    val (_, appEnv)     =
       kubectl("exec", "-n", Namespace, pod, "-c", s"$AuthService-app", "--", "env")
     assert(sidecarEnv.contains("ANKKA_AUTH_ISSUERS=staff"), sidecarEnv)
     assert(!appEnv.contains("ANKKA_AUTH_"), appEnv)
@@ -689,8 +689,8 @@ spec:
     applyAs(UnlistedService, authSpec(listsIssuer = false))
     def logs: String =
       podsOf(UnlistedService).map { p =>
-        val name    = p.getMetadata.getName
-        val current = kubectl("logs", "-n", Namespace, name, "-c", UnlistedService)._2
+        val name     = p.getMetadata.getName
+        val current  = kubectl("logs", "-n", Namespace, name, "-c", UnlistedService)._2
         val previous =
           kubectl("logs", "-n", Namespace, name, "-c", UnlistedService, "--previous")._2
         current + previous
@@ -714,7 +714,7 @@ spec:
    * `MultiNodeClusterSuite` kills a JVM through crictl.
    */
   private def hostPidOfApp(): Int =
-    val (_, id) = nodeExec("crictl", "ps", "-q", "--name", s"$Service-app")
+    val (_, id)  = nodeExec("crictl", "ps", "-q", "--name", s"$Service-app")
     val (_, pid) =
       nodeExec("crictl", "inspect", "-o", "go-template", "--template", "{{.info.pid}}", id.trim)
     pid.trim.toInt
@@ -775,7 +775,7 @@ spec:
    * is picked up within a second.
    */
   private def followLogs(service: String): Unit =
-    val dir = s"/tmp/rollout-logs/$service"
+    val dir    = s"/tmp/rollout-logs/$service"
     val script =
       s"""mkdir -p $dir
          |while true; do
@@ -804,8 +804,8 @@ spec:
     while slow(seen).isEmpty && deadline.hasTimeLeft() do
       Thread.sleep(2000)
       seen = CollectorStack.spans(k3s)
-    val mine                  = seen.filter(_.service == service)
-    def age(instance: String) = if before.contains(instance) then "old" else "new"
+    val mine                                 = seen.filter(_.service == service)
+    def age(instance: String)                = if before.contains(instance) then "old" else "new"
     def line(s: CollectorLog.Span, t0: Long) =
       val a = s.attributes
       s"  +${(s.startNanos - t0) / 1000000}ms ${s.durationMillis}ms ${s.instance}(${age(s.instance)}) " +
@@ -886,7 +886,7 @@ spec:
   }
 
   test("SC-008 the protocol ports are unreachable from another pod in the namespace") {
-    val podIp = pods.head.getStatus.getPodIP
+    val podIp  = pods.head.getStatus.getPodIP
     val (_, _) = kubectl(
       "run",
       "probe",
@@ -1201,7 +1201,7 @@ spec:
 
   test("the process of a service that calls other services holds no certificate") {
     startCallers()
-    val pod = podsOf(OrdersService).head.getMetadata.getName
+    val pod        = podsOf(OrdersService).head.getMetadata.getName
     val (_, found) = kubectl(
       "exec",
       "-n",

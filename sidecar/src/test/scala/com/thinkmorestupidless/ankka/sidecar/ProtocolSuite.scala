@@ -60,7 +60,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   override def afterAll(): Unit = kit.shutdownTestKit()
 
   private val recorder = ProcessDouble.recorder("conformance", snapshotEvery = 3)
-  private val spec = ProcessDouble.DoubleSpec(
+  private val spec     = ProcessDouble.DoubleSpec(
     entities = Vector(recorder),
     endpoints = Vector(
       ProcessDouble.Endpoint(
@@ -106,7 +106,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   test("discovery: the spec round-trips into remote descriptors and endpoints") {
     withDouble(spec) { (_, _, channel) =>
       val discovered = Discovery.discover(channel, settings(), "test").toOption.get
-      val entity = discovered.descriptors.collectFirst { case d: RemoteEventSourcedDescriptor =>
+      val entity     = discovered.descriptors.collectFirst { case d: RemoteEventSourcedDescriptor =>
         d
       }.get
       assertEquals(entity.componentId, ComponentId("conformance"))
@@ -306,7 +306,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
 
   test("discovery: a declared start position reaches the remote topic source") {
     import ankka.protocol.v1.discovery.StartFrom as P
-    val at = java.time.Instant.parse("2026-10-01T12:00:00Z")
+    val at         = java.time.Instant.parse("2026-10-01T12:00:00Z")
     val discovered = validateSpec(
       topicSpec(
         "1.7",
@@ -329,7 +329,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   test("discovery 1.14: a topic source's contract, broker and parallel reach the remote source") {
     import ankka.protocol.v1.discovery.StartFrom as P
     val stated = Some(Contract("order.v1", "sha256:ab"))
-    val src = Source(
+    val src    = Source(
       Source.Source.Topic("orders"),
       named(P.Named.EARLIEST),
       contract = stated,
@@ -630,7 +630,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   test(
     "discovery: a view's declared queries reach its descriptor, and a refused one is a problem"
   ) {
-    val table = "ankka_view_summary"
+    val table                                = "ankka_view_summary"
     def summary(declared: (String, String)*) = Component(
       Kind.VIEW,
       "summary",
@@ -667,7 +667,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
 
   test("discovery: a declared version reaches the remote view and consumer, and is checked") {
     import ankka.protocol.v1.discovery.StartFrom as P
-    val latest = Some(P(P.Position.Named(P.Named.LATEST)))
+    val latest    = Some(P(P.Position.Named(P.Named.LATEST)))
     val versioned = validateSpec(
       topicSpec(
         "1.7",
@@ -740,7 +740,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     // An SDK speaking 1.3 had no way to say one. Refusing it would stop a running service from
     // restarting after the platform was upgraded; it starts at the earliest message, as it did.
     val discovered = validateSpec(topicSpec("1.6", consumer("notifier", overTopic(None))))
-    val notifier = discovered.toOption.get.descriptors.collectFirst {
+    val notifier   = discovered.toOption.get.descriptors.collectFirst {
       case c: RemoteConsumerDescriptor => c
     }.get
     assertEquals(notifier.startDeclarable, false)
@@ -1220,7 +1220,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
       Route as PbRoute
     }
     import ankka.protocol.v1.payload.Empty
-    val granted = PbMatcher(PbMatcher.Kind.Granted(Empty()))
+    val granted               = PbMatcher(PbMatcher.Kind.Granted(Empty()))
     def spec(version: String) = Spec(
       version,
       None,

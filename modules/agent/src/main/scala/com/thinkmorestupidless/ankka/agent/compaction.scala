@@ -80,9 +80,9 @@ object ModelSummariser:
   private[agent] def transcript(messages: Vector[SessionMessage]): String =
     messages
       .map {
-        case m: SessionMessage.UserMessage    => s"User: ${m.text}"
-        case m: SessionMessage.AiMessage      => s"Assistant: ${m.text}"
-        case m: SessionMessage.SummaryMessage => s"Earlier summary: ${m.text}"
+        case m: SessionMessage.UserMessage       => s"User: ${m.text}"
+        case m: SessionMessage.AiMessage         => s"Assistant: ${m.text}"
+        case m: SessionMessage.SummaryMessage    => s"Earlier summary: ${m.text}"
         case m: SessionMessage.ToolResultMessage =>
           val outcome = if m.isError then "failed" else "returned"
           s"Tool ${m.toolName} $outcome: ${m.content}"

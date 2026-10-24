@@ -34,7 +34,7 @@ object ModelServerSettings:
       case Vector(Some(address), Some(statusUrl), Some(namespace)) =>
         Some(ModelServerSettings(address, statusUrl, namespace))
       case values if values.forall(_.isEmpty) => None
-      case values =>
+      case values                             =>
         val missing = Variables.zip(values).collect { case ((_, variable), None) => variable }
         throw IllegalStateException(
           s"the model server is configured by halves: ${missing.mkString(", ")} " +

@@ -163,7 +163,7 @@ final class RunEntity(context: EventSourcedEntityContext)
           None,
           deadline
         )
-      case E.StepStarted(step, _) => s.withStep(step)(identity)
+      case E.StepStarted(step, _)  => s.withStep(step)(identity)
       case E.ItemEnded(step, item) =>
         s.withStep(step)(r => r.copy(items = r.items.filterNot(_.index == item.index) :+ item))
       case E.RoundEnded(step, round) => s.withStep(step)(r => r.copy(rounds = r.rounds :+ round))
@@ -191,7 +191,7 @@ final class RunEntity(context: EventSourcedEntityContext)
             waiting = Vector.empty
           )
         )
-      case E.CancelRequested(by, _) => s.copy(cancelRequested = Some(by))
+      case E.CancelRequested(by, _)    => s.copy(cancelRequested = Some(by))
       case E.Ended(status, reason, at) =>
         s.copy(status = status, reason = reason, endedAt = Some(at))
 

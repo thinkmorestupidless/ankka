@@ -160,7 +160,7 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
     val elsewhere                       = ConcurrentLinkedQueue[Option[CallSite]]()
     def last: Option[CallSite]          = seen.asScala.lastOption.flatten
     def lastElsewhere: Option[CallSite] = elsewhere.asScala.lastOption.flatten
-    val values: ImportValues = ImportValues
+    val values: ImportValues            = ImportValues
       .builder()
       .addFunction(
         new HostFunction(
@@ -410,8 +410,8 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
   }
 
   private def refusedThroughConversation(kind: ComponentKind): Unit =
-    val calls = answering(response(200, "ok"))
-    val talk  = conversation(forwarding(toWallet), imports(Some(calls)))
+    val calls  = answering(response(200, "ok"))
+    val talk   = conversation(forwarding(toWallet), imports(Some(calls)))
     val failed = Await.result(
       talk.open(Init(kind, tellerId, EntityId("e1"), None)).command(command("credit")),
       10.seconds
@@ -454,7 +454,7 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
   test("a view in a module that calls another service fails the event it was reading") {
     val calls = answering(response(200, "ok"))
     val talk  = conversation(forwarding(toWallet), imports(Some(calls)))
-    val text =
+    val text  =
       outcome(() => talk.handleView(ViewRequest(tellerId, Some(unit), Metadata.empty, None)))
     assert(text.contains("request may not be called from the view teller"), text)
     assertEquals(calls.asked, Vector.empty)
@@ -604,7 +604,7 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
   test("a module is given random bytes that differ each time it asks") {
     // Two buffers that start as different constants, so one left alone would show.
     val constants = Array.fill[Byte](16)(0xaa.toByte) ++ Array.fill[Byte](16)(0xbb.toByte)
-    val twice = guest(
+    val twice     = guest(
       randomImport,
       "(call $random (i32.const 100) (i32.const 16)) (call $random (i32.const 116) (i32.const 16)) " +
         s"(i64.const ${Abi.pack(100, 32)})",

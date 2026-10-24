@@ -73,7 +73,7 @@ class ProjectTopicsSuite extends munit.FunSuite:
   }
 
   test("a schema larger than 64 KiB is refused, naming its size") {
-    val big = "{" + (1 to 2000).map(i => s""""f$i":"${"x" * 30}"""").mkString(",") + "}"
+    val big     = "{" + (1 to 2000).map(i => s""""f$i":"${"x" * 30}"""").mkString(",") + "}"
     val request =
       TopicDeclarationRequest(
         Some(3),
@@ -93,7 +93,7 @@ class ProjectTopicsSuite extends munit.FunSuite:
 
   // ── Settings (feature 043): fill, merge, bounds, changes and removal ──────────
 
-  private val d = TopicDefaults.Shipped
+  private val d                                        = TopicDefaults.Shipped
   private def parsed(request: TopicDeclarationRequest) =
     TopicSettingsRules.parse("transactions", request).fold(p => fail(p.mkString("; ")), identity)
   private def first(request: TopicDeclarationRequest) = TopicSettingsRules.fill(parsed(request), d)
@@ -146,7 +146,7 @@ class ProjectTopicsSuite extends munit.FunSuite:
 
   test("a redeclaration keeps every setting it leaves out, and its mark") {
     val declared = first(TopicDeclarationRequest(Some(12), retention = Some("90d")))
-    val merged = TopicSettingsRules
+    val merged   = TopicSettingsRules
       .merge(parsed(TopicDeclarationRequest(retentionSize = Some("10GiB"))), declared)
       .fold(fail(_), identity)
     assertEquals(merged.settings.retention, days(90))

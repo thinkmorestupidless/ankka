@@ -64,7 +64,7 @@ class AutonomousAgentDefinitionSuite extends munit.FunSuite:
 
   test("tools named like the built-ins, or twice, are refused") {
     def tool(name: String) = FunctionTool.named(name).describedAs("does a thing").handle(() => "ok")
-    val problems = AutonomousAgentDefinition.toolProblems(
+    val problems           = AutonomousAgentDefinition.toolProblems(
       Seq(tool("complete_task"), tool("lookup"), tool("lookup"), tool("fail_task"))
     )
     assert(problems.exists(_.contains("'complete_task' is reserved")), problems.toString)

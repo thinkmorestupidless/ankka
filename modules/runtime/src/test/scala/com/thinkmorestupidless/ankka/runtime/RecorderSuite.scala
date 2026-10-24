@@ -121,7 +121,7 @@ final class RecorderSuite extends FunSuite:
   }
 
   test("concurrent writers do not produce a torn span") {
-    val r = Recorder(1024)
+    val r       = Recorder(1024)
     val threads = (1 to 8).map { t =>
       Thread
         .ofVirtual()

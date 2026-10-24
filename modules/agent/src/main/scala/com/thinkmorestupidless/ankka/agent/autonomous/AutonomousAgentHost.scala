@@ -84,7 +84,7 @@ private[ankka] object AutonomousAgentHost:
         Behaviors.withStash(1024) { stash =>
           val self     = ctx.self
           val settings = descriptor.definition.settings
-          val context = SimpleAutonomousAgentContext(
+          val context  = SimpleAutonomousAgentContext(
             descriptor.componentId,
             instanceId,
             componentClient,
@@ -95,7 +95,7 @@ private[ankka] object AutonomousAgentHost:
           )
           val emit: Notification => Unit = n => self ! Emit(n)
           val model                      = descriptor.definition.model.orElse(defaultModel)
-          val ops =
+          val ops                        =
             Operations(descriptor, instanceId, componentClient, emit, approvalTimers)
           val worker = Worker(
             descriptor,
@@ -252,7 +252,7 @@ private[ankka] object AutonomousAgentHost:
   ): Unit =
     val observability = Observability(ctx.system)
     val incoming      = MetaEntry.toMetadata(invoke.metadata)
-    val work = Future {
+    val work          = Future {
       // An operation is a call to the agent like any other: a span, the origin of the records it
       // reads and writes, and one handled call from whoever asked.
       val result = observability.invocation[Either[CommandError, Array[Byte]]](
@@ -269,10 +269,10 @@ private[ankka] object AutonomousAgentHost:
       case Success(Right(bytes)) =>
         OpDone(invoke.replyTo, EntityProtocol.Succeeded(bytes, Vector.empty))
       case Success(Left(error)) => OpDone(invoke.replyTo, EntityProtocol.Rejected(error))
-      case Failure(failure) =>
+      case Failure(failure)     =>
         val error = failure match
           case e: CommandError => e
-          case other =>
+          case other           =>
             CommandError(Option(other.getMessage).getOrElse(other.toString), ErrorCode.Internal)
         OpDone(invoke.replyTo, EntityProtocol.Rejected(error))
     }
@@ -324,7 +324,7 @@ private[ankka] object AutonomousAgentHost:
             done
           case HostProtocol.Terminate => terminate()
           case HostProtocol.Decide    => decide(HostProtocol.decide.fromBytes(payload))
-          case HostProtocol.Dequeue =>
+          case HostProtocol.Dequeue   =>
             val request = HostProtocol.dequeue.fromBytes(payload)
             val current = get()
             if current.queue.contains(request.taskId) then
@@ -362,9 +362,9 @@ private[ankka] object AutonomousAgentHost:
     private def decide(
         decision: com.thinkmorestupidless.ankka.agent.Decision
     ): Either[CommandError, Array[Byte]] =
-      val id      = decision.approvalId
-      val current = get().current
-      val held    = current.exists(_.approvals.exists(_.id == id))
+      val id            = decision.approvalId
+      val current       = get().current
+      val held          = current.exists(_.approvals.exists(_.id == id))
       val decidedBefore = !held && current.exists { w =>
         client
           .forEventSourcedEntity(EntityId(IterationLoop.sessionIdFor(w.taskId)))
@@ -452,7 +452,7 @@ private[ankka] object AutonomousAgentHost:
 
       if !current.created then record(InstanceEvent.Created(single, now())): Unit
       val outcomes = records.map {
-        case (id, Left(e)) => id -> Left(e)
+        case (id, Left(e))  => id -> Left(e)
         case (id, Right(_)) =>
           id -> (try Right(task(id).call(TaskEntity.assign).invoke(me))
           catch case e: CommandError => Left(e))
@@ -784,11 +784,11 @@ private[ankka] object AutonomousAgentHost:
     private def iterate(t0: TaskRecord, acceptance: TaskAcceptance, loop: IterationLoop): Boolean =
       val rec = get()
       rec.current.filter(_.taskId == t0.id).filter(_.started) match
-        case None => false // failed at start, or ended: the next round sees it
+        case None    => false // failed at start, or ended: the next round sees it
         case Some(w) =>
           val t      = taskRecord(t0.id)
           val budget = acceptance.budget
-          val deps = t.dependencies
+          val deps   = t.dependencies
             .map(taskRecord)
             .map(d => IterationLoop.DependencyResult(d.id, d.typeName, d.result.getOrElse("")))
           val point = loop.resumePoint(w)
@@ -802,9 +802,9 @@ private[ankka] object AutonomousAgentHost:
           val iteration = after.current.map(_.iteration).getOrElse(w.iteration)
           val usage     = after.taskUsage
           result match
-            case IterationLoop.IterationResult.Waiting        => ()
-            case IterationLoop.IterationResult.Continue       => ()
-            case IterationLoop.IterationResult.Faulted(error) => faulted(t, after, error)
+            case IterationLoop.IterationResult.Waiting           => ()
+            case IterationLoop.IterationResult.Continue          => ()
+            case IterationLoop.IterationResult.Faulted(error)    => faulted(t, after, error)
             case IterationLoop.IterationResult.Completed(result) =>
               writeEnd(t.id, TaskOutcome.Completed)(
                 task(t.id)

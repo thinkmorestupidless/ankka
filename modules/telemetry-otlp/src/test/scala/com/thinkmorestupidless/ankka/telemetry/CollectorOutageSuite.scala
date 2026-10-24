@@ -60,7 +60,7 @@ class CollectorOutageSuite extends munit.FunSuite with LogCapturing:
     val cursor          = recorder.cursor()
     val (logger, lines) = capturing(log)
     val outage          = Outage(URI.create(collector.address), logger)
-    val exporter = OtlpHttpSpanExporter
+    val exporter        = OtlpHttpSpanExporter
       .builder()
       .setEndpoint(settings(collector).tracesUrl)
       .addHeader("authorization", "Bearer s3cr3t")

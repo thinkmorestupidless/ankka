@@ -82,7 +82,7 @@ object JsonSchema:
       val schema: Json = Json.obj(
         "type"       -> Json.str("object"),
         "properties" -> Json.Obj(fields.map((name, s) => name -> s.schema).toMap),
-        "required" -> Json.Arr(
+        "required"   -> Json.Arr(
           fields.collect { case (name, s) if s.required => Json.str(name) }.toVector
         ),
         "additionalProperties" -> Json.bool(false)

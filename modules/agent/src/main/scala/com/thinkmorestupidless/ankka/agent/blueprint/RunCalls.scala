@@ -101,7 +101,7 @@ final class RunCalls private[ankka] (
         ErrorCode.BadRequest
       )
     val versions = blueprints.versions(name)
-    val current =
+    val current  =
       versions.lastOption.getOrElse(throw CommandError(s"no blueprint '$name'", ErrorCode.NotFound))
     val held     = blueprints.version(name, current.number)
     val problems = held.input.check(input)
@@ -182,7 +182,7 @@ object RunCalls:
       startedBy: String
   ): RunSnapshot =
     val deadline = held.timeLimit.map(t => System.currentTimeMillis() + t.toMillis)
-    val record = client
+    val record   = client
       .forEventSourcedEntity(EntityId(runId))
       .call(RunEntity.start)
       .invoke(RunEntity.Start(held.name, version, input.render, startedBy, deadline))

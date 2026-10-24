@@ -19,7 +19,7 @@ final class StockHelperEndpoint(client: ComponentClient) extends HttpEndpoint("/
 
   get("/ask") { () =>
     val question = query.optional[String]("question").getOrElse("Are apples in stock?")
-    val reply = client
+    val reply    = client
       .forAgent(SessionId(UUID.randomUUID().toString))
       .call(StockHelper.ask)
       .invoke(question)

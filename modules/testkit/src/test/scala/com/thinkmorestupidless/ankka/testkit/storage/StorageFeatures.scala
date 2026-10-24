@@ -94,7 +94,7 @@ abstract class StorageFeatures(file: String) extends GherkinSuite(file) with Log
   ): Started =
     val timers = TimerRuntime(pollInterval = 200.millis)
     val model  = TestModelProvider()
-    val kit = AnkkaTestKit.start(
+    val kit    = AnkkaTestKit.start(
       components,
       Seq(
         HttpServer.at("127.0.0.1", 0)(clients => PhotosEndpoint(clients)),
@@ -160,7 +160,7 @@ abstract class StorageFeatures(file: String) extends GherkinSuite(file) with Log
           .method(method, HttpRequest.BodyPublishers.ofString(b))
       case None => builder.method(method, HttpRequest.BodyPublishers.noBody())
     val response = http.send(request.build(), HttpResponse.BodyHandlers.ofString())
-    val told = Answer(
+    val told     = Answer(
       response.statusCode,
       response.headers.firstValue("Content-Type").orElse(""),
       response.body

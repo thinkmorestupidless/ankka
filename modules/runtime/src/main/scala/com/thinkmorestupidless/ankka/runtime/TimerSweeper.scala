@@ -194,7 +194,7 @@ private[ankka] final class Sweep(
             Metadata.empty
           )
           .transformWith {
-            case Success(_) => succeeded(timer)
+            case Success(_)                 => succeeded(timer)
             case Failure(NonFatal(failure)) =>
               log.warn(
                 s"timer '${timer.name}' could not wake workflow '$workflowId' " +
@@ -422,7 +422,7 @@ private[ankka] final class Sweep(
 
   /** The handler failed: run again after the backoff, for the same due. */
   private def failed(timer: DueTimer): Future[Boolean] =
-    val at = Instant.now(clock).plusSeconds(TimerStore.backoff(timer.attempts))
+    val at        = Instant.now(clock).plusSeconds(TimerStore.backoff(timer.attempts))
     val statement = timer.recurring match
       case None if timer.oldTable =>
         TimerStore.legacyReschedule(timer.name, timer.attempts, timer.dueAt.get, at)

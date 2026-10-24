@@ -75,7 +75,7 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
   protected val Prefix      = "ankka"
 
   protected lazy val identity = TestIdentity()
-  protected lazy val Token = identity.token(
+  protected lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -96,7 +96,7 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
   protected var s3Forward: io.fabric8.kubernetes.client.LocalPortForward = null
 
   /** What the installation backs up, as both processes are told; switched by a scenario's Given. */
-  @volatile private var backingUp: Boolean = true
+  @volatile private var backingUp: Boolean        = true
   protected def controlPlaneBackups: BackupConfig =
     if backingUp then BackupConfig("object-store", 30, copyRequired = false)
     else BackupConfig.default
@@ -278,8 +278,8 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
     def all: String = out + err
 
   protected def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -499,8 +499,8 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
       .asScala
       .headOption
       .getOrElse(fail(s"$project's database has no primary"))
-    val out = new ByteArrayOutputStream
-    val err = new ByteArrayOutputStream
+    val out   = new ByteArrayOutputStream
+    val err   = new ByteArrayOutputStream
     val watch = k8s
       .pods()
       .inNamespace(namespace(project))

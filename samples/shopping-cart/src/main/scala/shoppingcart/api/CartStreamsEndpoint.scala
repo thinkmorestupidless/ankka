@@ -38,7 +38,7 @@ final class CartStreamsEndpoint(clients: EndpointClients)
     var added = 0
     items.foreach { request =>
       val item = request.item.getOrElse(LineItem())
-      val _ = cart(request.cartId)
+      val _    = cart(request.cartId)
         .call(ShoppingCartEntity.addItem)
         .invoke(domain.LineItem(item.productId, item.name, item.quantity))
       added += 1

@@ -53,7 +53,7 @@ final case class ServiceDescriptor(name: String, service: ServiceSpec):
    */
   def digest: String =
     def sorted(map: Map[String, String]) = scala.collection.immutable.ListMap.from(map.toSeq.sorted)
-    val canonical = copy(service =
+    val canonical                        = copy(service =
       service.copy(labels = sorted(service.labels), annotations = sorted(service.annotations))
     )
     val bytes = com.github.plokhotnyuk.jsoniter_scala.core
@@ -474,7 +474,7 @@ final case class ServiceSpec(
    * project is known: the control plane's apply and its projection.
    */
   private def objectStorageProblems: Vector[String] =
-    val own = env.map(_.name).filter(PlatformVariables.objectStorage)
+    val own  = env.map(_.name).filter(PlatformVariables.objectStorage)
     val both =
       if provisionObjectStorage then
         own.map(name =>
@@ -662,8 +662,8 @@ final case class EnvVar(
     if name.isEmpty then Vector("env var name must not be empty")
     else
       (value, secretKeyRef) match
-        case (Some(_), None) => Vector.empty
-        case (None, Some(_)) => Vector.empty
+        case (Some(_), None)    => Vector.empty
+        case (None, Some(_))    => Vector.empty
         case (Some(_), Some(_)) =>
           Vector(s"env var '$name' sets both value and secretKeyRef")
         case (None, None) =>
@@ -708,7 +708,7 @@ object Mount:
           .toVector
       path ++ service
     }
-    val paths = mounts.map(_.path).distinct
+    val paths      = mounts.map(_.path).distinct
     val duplicates =
       paths
         .filter(p => mounts.count(_.path == p) > 1)
@@ -2092,7 +2092,7 @@ object ProjectTopics:
         val nameProblem = Option.when(!Contract.validName(c.name))(
           s"topic '$name': contract name '${c.name}' is not ${Contract.NameRule}"
         )
-        val size = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
+        val size        = com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema).length
         val sizeProblem = Option.when(size > MaxSchemaBytes)(
           s"topic '$name': the schema of '${c.name}' is $size bytes, more than $MaxSchemaBytes"
         )
@@ -2127,7 +2127,7 @@ object ProjectSecrets:
   val MaxNameLength: Int = 253
   val MaxValueBytes: Int = 65536
   val ReservedPrefix     = "ankka-"
-  val ReservedSuffixes =
+  val ReservedSuffixes   =
     Vector(
       "-db",
       "-cluster-tls",
@@ -2182,7 +2182,7 @@ object ProjectSecrets:
       if entries.isEmpty then Vector("a project secret is set with at least one entry")
       else Vector.empty
     val entryNames = entries.keys.toVector.sorted.flatMap(entryProblems)
-    val values = entries.toVector.sortBy(_._1).flatMap { (entry, value) =>
+    val values     = entries.toVector.sortBy(_._1).flatMap { (entry, value) =>
       val bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
       if value.isEmpty then Vector(s"entry '$entry' must not be empty")
       else if bytes > MaxValueBytes then
@@ -2209,7 +2209,7 @@ object DeployTokenRules:
         Vector("a deploy token's label is one line")
       else Vector.empty
     val lifetimeProblems = expiresIn match
-      case Some(seconds) if seconds < 0 => Vector("a lifetime cannot be negative")
+      case Some(seconds) if seconds < 0               => Vector("a lifetime cannot be negative")
       case Some(seconds) if seconds > MaximumLifetime =>
         Vector(s"a deploy token may live at most ${MaximumLifetime / 86400} days")
       case _ => Vector.empty
@@ -2289,32 +2289,32 @@ object Wire:
   given setProjectLocationCodec: JsonValueCodec[SetProjectLocation] =
     Codecs.make[SetProjectLocation]
 
-  given createTokenCodec: JsonValueCodec[CreateDeployToken]   = Codecs.make[CreateDeployToken]
-  given tokenCreatedCodec: JsonValueCodec[DeployTokenCreated] = Codecs.make[DeployTokenCreated]
-  given tokenSummaryCodec: JsonValueCodec[DeployTokenSummary] = Codecs.make[DeployTokenSummary]
+  given createTokenCodec: JsonValueCodec[CreateDeployToken]     = Codecs.make[CreateDeployToken]
+  given tokenCreatedCodec: JsonValueCodec[DeployTokenCreated]   = Codecs.make[DeployTokenCreated]
+  given tokenSummaryCodec: JsonValueCodec[DeployTokenSummary]   = Codecs.make[DeployTokenSummary]
   given tokensCodec: JsonValueCodec[Vector[DeployTokenSummary]] =
     Codecs.make[Vector[DeployTokenSummary]]
-  given setRegistryCodec: JsonValueCodec[SetRegistry] = Codecs.make[SetRegistry]
-  given contractCodec: JsonValueCodec[Contract]       = Codecs.make[Contract]
+  given setRegistryCodec: JsonValueCodec[SetRegistry]                    = Codecs.make[SetRegistry]
+  given contractCodec: JsonValueCodec[Contract]                          = Codecs.make[Contract]
   given brokerDeclarationCodec: JsonValueCodec[BrokerDeclarationRequest] =
     Codecs.make[BrokerDeclarationRequest]
-  given projectBrokerCodec: JsonValueCodec[ProjectBroker] = Codecs.make[ProjectBroker]
+  given projectBrokerCodec: JsonValueCodec[ProjectBroker]          = Codecs.make[ProjectBroker]
   given projectBrokersCodec: JsonValueCodec[Vector[ProjectBroker]] =
     Codecs.make[Vector[ProjectBroker]]
   given topicDeclarationCodec: JsonValueCodec[TopicDeclarationRequest] =
     Codecs.make[TopicDeclarationRequest]
   // Feature 041.
-  given projectStatusCodec: JsonValueCodec[ProjectStatus] = Codecs.make[ProjectStatus]
+  given projectStatusCodec: JsonValueCodec[ProjectStatus]           = Codecs.make[ProjectStatus]
   given installationStatusCodec: JsonValueCodec[InstallationStatus] =
     Codecs.make[InstallationStatus]
-  given restoreRequestCodec: JsonValueCodec[RestoreRequest]   = Codecs.make[RestoreRequest]
-  given restoreViewCodec: JsonValueCodec[RestoreView]         = Codecs.make[RestoreView]
-  given databaseSettingCodec: JsonValueCodec[DatabaseSetting] = Codecs.make[DatabaseSetting]
-  given restoreHoldCodec: JsonValueCodec[RestoreHoldStatus]   = Codecs.make[RestoreHoldStatus]
+  given restoreRequestCodec: JsonValueCodec[RestoreRequest]         = Codecs.make[RestoreRequest]
+  given restoreViewCodec: JsonValueCodec[RestoreView]               = Codecs.make[RestoreView]
+  given databaseSettingCodec: JsonValueCodec[DatabaseSetting]       = Codecs.make[DatabaseSetting]
+  given restoreHoldCodec: JsonValueCodec[RestoreHoldStatus]         = Codecs.make[RestoreHoldStatus]
   given credentialReissuedCodec: JsonValueCodec[CredentialReissued] =
     Codecs.make[CredentialReissued]
-  given rehearsalRequestCodec: JsonValueCodec[RehearsalRequest] = Codecs.make[RehearsalRequest]
-  given rehearsalViewCodec: JsonValueCodec[RehearsalView]       = Codecs.make[RehearsalView]
+  given rehearsalRequestCodec: JsonValueCodec[RehearsalRequest]    = Codecs.make[RehearsalRequest]
+  given rehearsalViewCodec: JsonValueCodec[RehearsalView]          = Codecs.make[RehearsalView]
   given rehearsalViewsCodec: JsonValueCodec[Vector[RehearsalView]] =
     Codecs.make[Vector[RehearsalView]]
   given restoreViewsCodec: JsonValueCodec[Vector[RestoreView]] = Codecs.make[Vector[RestoreView]]
@@ -2332,8 +2332,8 @@ object Wire:
     Codecs.make[Vector[ProjectSecretSummary]]
 
   // Cross-project access (feature 040).
-  given grantRequestCodec: JsonValueCodec[GrantRequest] = Codecs.make[GrantRequest]
-  given grantDetailCodec: JsonValueCodec[GrantDetail]   = Codecs.make[GrantDetail]
+  given grantRequestCodec: JsonValueCodec[GrantRequest]        = Codecs.make[GrantRequest]
+  given grantDetailCodec: JsonValueCodec[GrantDetail]          = Codecs.make[GrantDetail]
   given grantDetailsCodec: JsonValueCodec[Vector[GrantDetail]] =
     Codecs.make[Vector[GrantDetail]]
   given receivedGrantCodec: JsonValueCodec[ReceivedGrantDetail] = Codecs.make[ReceivedGrantDetail]

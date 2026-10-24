@@ -44,7 +44,7 @@ class TelemetryStoreSuite extends munit.FunSuite with LogCapturing:
     body.linesIterator.dropWhile(_.isBlank).map(_.stripPrefix("    ")).mkString("\n")
 
   private val network = Network.newNetwork()
-  private val store = Container(imageIn("lgtm.yaml"))
+  private val store   = Container(imageIn("lgtm.yaml"))
     .withNetwork(network)
     .withNetworkAliases("lgtm")
     .withExposedPorts(3000, 3100, 3200, 4318, 9090)
@@ -109,7 +109,7 @@ class TelemetryStoreSuite extends munit.FunSuite with LogCapturing:
   /** The trace of the newest `cart add-item` span this service recorded. */
   private def lastTrace: TraceContext =
     val observability = Observability(testKit.service.system)
-    val span = observability.recorder
+    val span          = observability.recorder
       .snapshot()
       .find(s => observability.names.nameOf(s.handlerRef).contains("add-item"))
       .get
@@ -118,7 +118,7 @@ class TelemetryStoreSuite extends munit.FunSuite with LogCapturing:
   test("a developer reads the trace of a request in the telemetry store") {
     addItem("s-1"): Unit
     val trace = lastTrace
-    val body = eventually(s"trace ${trace.traceIdHex} in Tempo") {
+    val body  = eventually(s"trace ${trace.traceIdHex} in Tempo") {
       val (status, body) = get(3200, s"/api/traces/${trace.traceIdHex}")
       Option.when(status == 200)(body)
     }

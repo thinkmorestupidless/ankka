@@ -78,7 +78,7 @@ object CliReferenceSuite:
   def help(path: Seq[String]): String =
     Main.command.parse(path :+ "--help", Map.empty) match
       case Left(help) => help.toString
-      case Right(_) =>
+      case Right(_)   =>
         throw IllegalStateException(s"--help parsed as a command at ${path.mkString(" ")}")
 
   /**

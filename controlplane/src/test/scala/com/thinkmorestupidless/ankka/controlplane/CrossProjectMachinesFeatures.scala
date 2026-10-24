@@ -70,7 +70,7 @@ class CrossProjectMachinesFeatures
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private val Prefix      = "ankka"
@@ -79,7 +79,7 @@ class CrossProjectMachinesFeatures
   private val JwksUrl     = s"http://jwks.$Edge.svc.cluster.local/jwks.json"
   private val ReloadSlack = 12.seconds
 
-  private lazy val identity = TestIdentity()
+  private lazy val identity           = TestIdentity()
   private def tokenOf(person: String) =
     identity.token(person, Some(s"$person@example.test"), roles = Set.empty, expiresIn = 3.hours)
 
@@ -184,7 +184,7 @@ class CrossProjectMachinesFeatures
    * at.
    */
   private def edge(): Unit =
-    val jwks = writeToString(keys.jwks)
+    val jwks     = writeToString(keys.jwks)
     val manifest =
       s"""apiVersion: v1
          |kind: Namespace
@@ -284,8 +284,8 @@ class CrossProjectMachinesFeatures
     def all: String = out + err
 
   private def ankka(as: String, args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", as),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -365,7 +365,7 @@ class CrossProjectMachinesFeatures
 
   private def ns(project: String) = s"$Prefix-$project"
 
-  private var people: Map[String, String] = Map.empty
+  private var people: Map[String, String]  = Map.empty
   private def person(name: String): String =
     people.getOrElse(name, { val t = tokenOf(name); people += name -> t; t })
 
@@ -621,7 +621,7 @@ class CrossProjectMachinesFeatures
   ) { (owner: String, name: String, organization: String, route: String, service: String) =>
     val project      = projectOf(service)
     val (method, at) = route.trim.span(_ != ' ')
-    val run = ok(
+    val run          = ok(
       ankka(
         person(owner),
         "projects",
@@ -768,7 +768,7 @@ class CrossProjectMachinesFeatures
   }
 
   Then("the client secret is never shown again") { () =>
-    val owner = person(ownerOf(machineOrganization))
+    val owner  = person(ownerOf(machineOrganization))
     val listed =
       ankka(owner, "organizations", "machines", "list", machineOrganization, "-o", "json")
     assert(!listed.all.contains(machine.clientSecret), listed.all)
@@ -797,7 +797,7 @@ class CrossProjectMachinesFeatures
   }
 
   Then("the machine token expires {string} minutes after it was issued") { (minutes: String) =>
-    val claims = claimsOf(accessToken(tokenAnswer._2))
+    val claims                = claimsOf(accessToken(tokenAnswer._2))
     def number(claim: String) =
       s""""$claim":(\\d+)""".r
         .findFirstMatchIn(claims)

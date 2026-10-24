@@ -22,7 +22,7 @@ object TopicsCommand:
       input: => BufferedReader
   ): Option[ContractDeclaration] =
     (name, schemaPath) match
-      case (None, None) => None
+      case (None, None)    => None
       case (Some(_), None) =>
         throw ApiError(0, "--contract needs --schema: a contract is a name and a schema document")
       case (None, Some(_)) =>

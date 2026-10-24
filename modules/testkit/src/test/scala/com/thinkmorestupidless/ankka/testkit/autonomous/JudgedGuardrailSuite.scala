@@ -25,9 +25,9 @@ class JudgedGuardrailSuite extends munit.FunSuite with LogCapturing:
 
   /** The scripted provider, except that the result check can be made to fail as an outage would. */
   private final class Wrapped(inner: TestJudgmentProvider) extends JudgmentProvider:
-    val resultCheckFailures = AtomicInteger(0)
-    def name: String        = "wrapped"
-    def modelName: String   = inner.modelName
+    val resultCheckFailures                               = AtomicInteger(0)
+    def name: String                                      = "wrapped"
+    def modelName: String                                 = inner.modelName
     def judge(request: JudgmentRequest): Future[Judgment] =
       val isResultCheck = request.questions.exists(_.id == leaksSecrets.id)
       if isResultCheck && resultCheckFailures.getAndUpdate(n => (n - 1).max(0)) > 0 then
@@ -175,7 +175,7 @@ object JudgedGuardrailSuite:
 
   object Careful extends AutonomousAgent.Companion[Careful](ComponentId("careful")):
     def create(context: AutonomousAgentContext) = new Careful(context)
-    def definition =
+    def definition                              =
       define
         .describedAs("Answers carefully")
         .guardrails(
@@ -191,7 +191,7 @@ object JudgedGuardrailSuite:
 
   object Empty extends AutonomousAgent.Companion[Unguarded](ComponentId("empty")):
     def create(context: AutonomousAgentContext) = new Unguarded(context)
-    def definition =
+    def definition                              =
       define
         .describedAs("Guards nothing")
         .guardrails(Guardrail.judged("nothing"))

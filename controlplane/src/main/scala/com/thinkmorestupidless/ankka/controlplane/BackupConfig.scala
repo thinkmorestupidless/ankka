@@ -35,7 +35,7 @@ object BackupConfig:
           "or object-store"
       )
     val retention = section.getString("retention-days").trim
-    val days = retention.toIntOption
+    val days      = retention.toIntOption
       .filter(_ > 0)
       .getOrElse(
         throw IllegalArgumentException(

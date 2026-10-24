@@ -114,7 +114,7 @@ final class HostImports(
    */
   private[sidecar] def awaitEnd(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => InvokeReply(InvokeReply.Result.Error(notReady)).toByteArray
+      case None    => InvokeReply(InvokeReply.Result.Error(notReady)).toByteArray
       case Some(c) =>
         val asked = AwaitEndRequest.parseFrom(request)
         await(c.awaitEnd(asked), asked.timeoutMillis.max(0L).millis + commandTimeout).toByteArray
@@ -173,7 +173,7 @@ final class HostImports(
    */
   private[sidecar] def scheduleRecurring(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => ScheduleRecurringReply(Some(notReady)).toByteArray
+      case None    => ScheduleRecurringReply(Some(notReady)).toByteArray
       case Some(c) =>
         await(
           c.scheduleRecurring(ScheduleRecurringRequest.parseFrom(request)),
@@ -184,13 +184,13 @@ final class HostImports(
 
   private def getSecret(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => GetSecretReply(GetSecretReply.Result.Error(notReady)).toByteArray
+      case None    => GetSecretReply(GetSecretReply.Result.Error(notReady)).toByteArray
       case Some(c) =>
         await(c.getSecret(GetSecretRequest.parseFrom(request)), commandTimeout).toByteArray
 
   private def putSecret(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => PutSecretReply(Some(notReady)).toByteArray
+      case None    => PutSecretReply(Some(notReady)).toByteArray
       case Some(c) =>
         await(c.putSecret(PutSecretRequest.parseFrom(request)), commandTimeout).toByteArray
 
@@ -208,7 +208,7 @@ final class HostImports(
 
   private def listClientKeys(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => ListClientKeysReply(error = Some(notReady)).toByteArray
+      case None    => ListClientKeysReply(error = Some(notReady)).toByteArray
       case Some(c) =>
         await(
           c.listClientKeys(ListClientKeysRequest.parseFrom(request)),
@@ -217,7 +217,7 @@ final class HostImports(
 
   private def revokeClientKey(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => RevokeClientKeyReply(Some(notReady)).toByteArray
+      case None    => RevokeClientKeyReply(Some(notReady)).toByteArray
       case Some(c) =>
         await(
           c.revokeClientKey(RevokeClientKeyRequest.parseFrom(request)),
@@ -226,7 +226,7 @@ final class HostImports(
 
   private def deleteSecret(request: Array[Byte]): Array[Byte] =
     logic match
-      case None => DeleteSecretReply(Some(notReady)).toByteArray
+      case None    => DeleteSecretReply(Some(notReady)).toByteArray
       case Some(c) =>
         await(c.deleteSecret(DeleteSecretRequest.parseFrom(request)), commandTimeout).toByteArray
 
@@ -257,7 +257,7 @@ final class HostImports(
     )
     site.mayRequest.left.foreach(reason => throw ImportRefused("request", reason))
     calls match
-      case None => ServiceReply(ServiceReply.Result.Error(notReady)).toByteArray
+      case None         => ServiceReply(ServiceReply.Result.Error(notReady)).toByteArray
       case Some(client) =>
         val call = ServiceRequest
           .parseFrom(asked)

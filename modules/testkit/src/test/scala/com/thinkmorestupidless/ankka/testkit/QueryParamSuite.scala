@@ -76,7 +76,7 @@ class QueryParamSuite extends munit.FunSuite with LogCapturing:
   test("an error body is valid JSON whatever characters its message holds") {
     // A gRPC status reached a client as {"error":"<AioRpcError ...\tstatus = ..."} with the tab raw,
     // and the client failed parsing the error rather than reporting it.
-    val reason = "line one\n\tindented \"quoted\" back\\slash \u0001"
+    val reason         = "line one\n\tindented \"quoted\" back\\slash \u0001"
     val (status, body) =
       get(s"/search/refuse?reason=${java.net.URLEncoder.encode(reason, "UTF-8")}")
     assertEquals(status, 400)

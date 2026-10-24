@@ -82,7 +82,7 @@ object Expiry:
   private val wire: JsonValueCodec[Wire] = Codecs.make[Wire]
 
   given JsonValueCodec[Expiry] = new JsonValueCodec[Expiry]:
-    def nullValue: Expiry = null.asInstanceOf[Expiry]
+    def nullValue: Expiry                             = null.asInstanceOf[Expiry]
     def encodeValue(x: Expiry, out: JsonWriter): Unit =
       wire.encodeValue(
         x match
@@ -98,7 +98,7 @@ object Expiry:
         case Wire(Some(after), None, None) => After(FiniteDuration(after, MILLISECONDS))
         case Wire(None, Some(at), None)    => At(at)
         case Wire(None, None, Some(true))  => Never
-        case _ =>
+        case _                             =>
           in.decodeError("an expiry is one of after (milliseconds), at (an instant) or never")
 
 /** What `issue` answers: the key's id, and the key itself, shown this once. */

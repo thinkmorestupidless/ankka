@@ -87,7 +87,7 @@ object ClusterFormation:
    * reach and that reports nothing.
    */
   private def clusterTls(system: ActorSystem[?], directory: String): RotatingTls =
-    val config = system.settings.config
+    val config   = system.settings.config
     val interval =
       if config.hasPath(ReloadKey) then
         FiniteDuration(

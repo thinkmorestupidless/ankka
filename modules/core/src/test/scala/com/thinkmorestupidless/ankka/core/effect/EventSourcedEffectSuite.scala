@@ -114,7 +114,7 @@ class EventSourcedEffectSuite extends munit.FunSuite:
     // If the builder were eager, this would throw at construction rather than at
     // materialisation — the property the whole declarative model rests on.
     var evaluated = false
-    val effect = effects.persist(Increased(1)).thenReply { _ =>
+    val effect    = effects.persist(Increased(1)).thenReply { _ =>
       evaluated = true; "computed"
     }
     assert(!evaluated, "reply function must not run while the effect is being built")

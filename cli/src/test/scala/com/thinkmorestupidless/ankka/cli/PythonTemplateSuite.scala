@@ -21,7 +21,7 @@ class PythonTemplateSuite extends PolyglotTemplateSuite(Language.Python, "uv"):
     // again when any `.proto` is newer than they are: a developer's stubs from before a protocol
     // change would otherwise fail this test on the sidecar's newer messages, as a stale `approval`
     // field once did, while CI, which has none, passes.
-    val stubs = sdk.resolve("src/ankka/_proto")
+    val stubs  = sdk.resolve("src/ankka/_proto")
     val protos = Files
       .walk(repoRoot.resolve("protocol/src/main/protobuf"))
       .iterator()

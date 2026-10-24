@@ -148,7 +148,7 @@ abstract class McpEndpoint(val path: String = "/mcp") extends HttpEndpoint(path)
     if !ResourceMetadata.admitsTokens(declaredAcl) then Vector.empty
     else
       // A brokered endpoint names its broker alone, at the host the client reached it by.
-      val declaredServers = ResourceMetadata.authorizationServers(declaredAcl)
+      val declaredServers                  = ResourceMetadata.authorizationServers(declaredAcl)
       def servers(context: RequestContext) =
         if brokered then Option(broker.get()).map(_.issuerUrl(context)).toVector
         else declaredServers
@@ -217,7 +217,7 @@ abstract class McpEndpoint(val path: String = "/mcp") extends HttpEndpoint(path)
     val recorder      = observability.recorder
     val componentRef  = observability.names.intern("mcp")
     val handlerRef    = observability.names.intern(s"$path ${tool.name}")
-    val span = Trace.currentContext match
+    val span          = Trace.currentContext match
       case Some(parent) =>
         recorder.begin(
           parent.traceIdHigh,
@@ -371,12 +371,12 @@ abstract class McpEndpoint(val path: String = "/mcp") extends HttpEndpoint(path)
             }
             None
     tool.kind match
-      case ToolKind.Handler                 => None
-      case ToolKind.Command(component, cmd) => handler(component, cmd, "command")
-      case ToolKind.Query(component, query) => handler(component, query, "query")
+      case ToolKind.Handler                      => None
+      case ToolKind.Command(component, cmd)      => handler(component, cmd, "command")
+      case ToolKind.Query(component, query)      => handler(component, query, "query")
       case ToolKind.Route(prefix, method, whole) =>
         val wanted = McpEndpoint.normalised(whole)
-        val found = mounting.endpoints
+        val found  = mounting.endpoints
           .filter(e => McpEndpoint.normalised(e.prefix) == McpEndpoint.normalised(prefix))
           .flatMap(e => e.routes.map(r => (e, r)))
           .find((e, r) =>

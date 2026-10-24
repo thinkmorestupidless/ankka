@@ -117,8 +117,8 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
     // The agent skills are the documentation, which may tell a reader where the SDKs live in the
     // ankka repository; the project's own files must not depend on it.
     val skills = project.resolve(".claude")
-    val leaks = files.flatMap { f =>
-      val text = Files.readString(f)
+    val leaks  = files.flatMap { f =>
+      val text  = Files.readString(f)
       val paths =
         if f.startsWith(skills) then Vector()
         else Vector("sdks/python", "sdks/typescript", "sdks/rust")

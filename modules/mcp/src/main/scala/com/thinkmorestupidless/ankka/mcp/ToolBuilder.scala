@@ -111,7 +111,7 @@ final class ToolBuilder private[mcp] (
       call =>
         RawArguments.problems(inputSchema, call.arguments).headOption match
           case Some(refused) => ToolOutcome.BadArguments(refused)
-          case None =>
+          case None          =>
             try run(call).fold(ToolOutcome.Failed(_), ToolOutcome.Answered(_))
             catch
               case scala.util.control.NonFatal(failure) =>
@@ -172,7 +172,7 @@ final class Arguments[A] private[mcp] (
       ToolKind.Handler,
       call =>
         Params.argumentsOf(call) match
-          case Left(refused) => ToolOutcome.BadArguments(refused)
+          case Left(refused)    => ToolOutcome.BadArguments(refused)
           case Right(arguments) =>
             val decoded =
               try Right(readFromString(arguments.render)(using codec))
@@ -248,8 +248,8 @@ private[mcp] object Params:
 
   /** What a refusal says: a command's, a route's, or whatever the failure's message is. */
   def reasonOf(failure: Throwable): String = failure match
-    case refusal: CommandError => refusal.message
-    case problem: HttpProblem  => problem.message
+    case refusal: CommandError                    => refusal.message
+    case problem: HttpProblem                     => problem.message
     case _: java.util.concurrent.TimeoutException =>
       "the tool did not answer in time"
     case other => Option(other.getMessage).getOrElse(other.getClass.getSimpleName)
@@ -297,7 +297,7 @@ private[mcp] object Reference:
       input: ToolInput[I],
       readOnly: Boolean
   )(using out: ToolOutput[O]): McpTool =
-    val bound = transportFor(builder)
+    val bound      = transportFor(builder)
     val properties = (id -> Json.obj(
       "type"        -> Json.str("string"),
       "description" -> Json.str(s"The id of the ${handle.componentId}")
@@ -307,12 +307,12 @@ private[mcp] object Reference:
       kindOf(handle.componentId.toString, handle.name.toString, readOnly),
       call =>
         bound.get match
-          case None => unbound(builder.name)
+          case None                                => unbound(builder.name)
           case Some(Transport(transport, timeout)) =>
             idAndArguments(call, id).flatMap((entity, arguments) =>
               input.decode(arguments).map(entity -> _)
             ) match
-              case Left(refused) => ToolOutcome.BadArguments(refused)
+              case Left(refused)          => ToolOutcome.BadArguments(refused)
               case Right((entity, value)) =>
                 Params.answering(
                   handle.outputSerializer.fromBytes(
@@ -343,10 +343,10 @@ private[mcp] object Reference:
       kindOf(handle.componentId.toString, handle.name.toString, readOnly),
       call =>
         bound.get match
-          case None => unbound(builder.name)
+          case None                                => unbound(builder.name)
           case Some(Transport(transport, timeout)) =>
             idAndArguments(call, id) match
-              case Left(refused) => ToolOutcome.BadArguments(refused)
+              case Left(refused)      => ToolOutcome.BadArguments(refused)
               case Right((entity, _)) =>
                 Params.answering(
                   handle.outputSerializer.fromBytes(
@@ -366,10 +366,10 @@ private[mcp] object Reference:
     )
 
   def route(builder: ToolBuilder, prefix: String, method: String, path: String): McpTool =
-    val bound    = routeFor(builder)
-    val template = PathTemplate.parse(path)
-    val names    = template.parameterNames
-    val withBody = method == "POST" || method == "PUT" || method == "PATCH"
+    val bound      = routeFor(builder)
+    val template   = PathTemplate.parse(path)
+    val names      = template.parameterNames
+    val withBody   = method == "POST" || method == "PUT" || method == "PATCH"
     val properties = names.map(n => n -> Json.obj("type" -> Json.str("string"))) ++
       Option.when(withBody)("body" -> Json.obj("type" -> Json.str("object")))
     builder.finish(
@@ -377,7 +377,7 @@ private[mcp] object Reference:
       ToolKind.Route(prefix, method.toUpperCase, path),
       call =>
         bound.get match
-          case None => unbound(builder.name)
+          case None        => unbound(builder.name)
           case Some(route) =>
             Params.argumentsOf(call).flatMap { arguments =>
               names
@@ -396,7 +396,7 @@ private[mcp] object Reference:
                 }
                 .map(args => args -> arguments("body").map(_.render).getOrElse(""))
             } match
-              case Left(refused) => ToolOutcome.BadArguments(refused)
+              case Left(refused)       => ToolOutcome.BadArguments(refused)
               case Right((args, body)) =>
                 try
                   val response = route.run(args, body.getBytes("UTF-8"))

@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.operator
 /** Which Deployments need the one non-rolling transition to mutual TLS (feature 014). */
 class TransitionSuite extends munit.FunSuite:
 
-  private val identity = Labels.identity("checkout", "cart")
+  private val identity   = Labels.identity("checkout", "cart")
   private val preFeature =
     identity + (Labels.FormationKey -> Labels.FormationBootstrap)
 

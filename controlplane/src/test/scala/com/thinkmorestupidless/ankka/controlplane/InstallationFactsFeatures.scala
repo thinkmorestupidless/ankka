@@ -29,7 +29,7 @@ class InstallationFactsFeatures
   override val munitTimeout = 4.minutes
 
   private lazy val identity = TestIdentity()
-  private lazy val caller =
+  private lazy val caller   =
     identity.token("caller", Some("caller@example.test"), expiresIn = 2.hours)
 
   /** The settings the scenario gives, over the shipped ones. */

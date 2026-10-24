@@ -56,8 +56,8 @@ private[ankka] object StepScope:
    * harmless; a request made outside a step is refused, for the reason a secret is.
    */
   def stepsOnly(underlying: ServiceClients): ServiceClients = new ServiceClients:
-    def apply(name: String): ServiceClient                  = guarded(underlying(name))
-    def apply(project: String, name: String): ServiceClient = guarded(underlying(project, name))
+    def apply(name: String): ServiceClient                    = guarded(underlying(name))
+    def apply(project: String, name: String): ServiceClient   = guarded(underlying(project, name))
     private def guarded(client: ServiceClient): ServiceClient = new ServiceClient:
       def target: String = client.target
       def request(

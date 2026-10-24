@@ -95,7 +95,7 @@ private[ankka] final class ViewListener(using system: ActorSystem[?]):
       else
         current match
           case Some(open) => open
-          case None =>
+          case None       =>
             val opening = connect()
             current = Some(opening)
             // One that could not be opened is tried again by the next subscriber.
@@ -109,14 +109,14 @@ private[ankka] final class ViewListener(using system: ActorSystem[?]):
   private def dispatch(parameter: String): Unit =
     val bar = parameter.indexOf('|')
     if bar > 0 then
-      val table = parameter.substring(0, bar)
+      val table        = parameter.substring(0, bar)
       val announcement = parameter.substring(bar + 1) match
         case ViewStore.Rebuilt => Announcement.Rebuilt
         case key               => Announcement.Written(key)
       subscribers.asScala.foreach(s => if s.table == table then s.heard(announcement))
 
   private def connect(): Future[Listening] =
-    val block = system.settings.config.getConfig("pekko.persistence.r2dbc.connection-factory")
+    val block   = system.settings.config.getConfig("pekko.persistence.r2dbc.connection-factory")
     val builder = ConnectionFactoryOptions
       .builder()
       .option(ConnectionFactoryOptions.DRIVER, "postgresql")
@@ -129,7 +129,7 @@ private[ankka] final class ViewListener(using system: ActorSystem[?]):
     for
       connection <- Source.fromPublisher(factory.create()).runWith(Sink.last).map {
         case postgres: PostgresqlConnection => postgres
-        case other =>
+        case other                          =>
           throw IllegalStateException(s"a view listener needs a Postgres connection, not $other")
       }
       _ <- Source

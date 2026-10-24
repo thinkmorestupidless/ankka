@@ -24,8 +24,8 @@ final case class HandBuiltSpan(
 ) extends SpanData:
   private val now = System.currentTimeMillis() * 1_000_000L
 
-  def getName: String   = name
-  def getKind: SpanKind = kind
+  def getName: String             = name
+  def getKind: SpanKind           = kind
   def getSpanContext: SpanContext =
     SpanContext.create(traceId, spanId, TraceFlags.getSampled, TraceState.getDefault)
   def getParentSpanContext: SpanContext = parentSpanId match

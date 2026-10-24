@@ -102,7 +102,7 @@ final class InstallationEndpoint(
       case bound                    => InstallationRetention(Some(bound.text), unbounded = false)
 
   private def backupsNow(): InstallationStatus =
-    val config = backups
+    val config       = backups
     val controlPlane =
       if !config.enabled then None
       else

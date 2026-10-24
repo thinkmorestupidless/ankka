@@ -193,7 +193,7 @@ abstract class QuerySteps(feature: String) extends GherkinSuite(feature) with Lo
       // before it, so every level holds `width` nodes and the last is `deep` below the root.
       val width = below.toInt / deep.toInt
       place(root, None)
-      val keys = (1 to below.toInt).map(i => s"n$i")
+      val keys    = (1 to below.toInt).map(i => s"n$i")
       val placing = keys.zipWithIndex.map { (key, i) =>
         scala.concurrent.Future(place(key, Some(if i < width then root else keys(i - width))))
       }
@@ -246,7 +246,7 @@ abstract class QuerySteps(feature: String) extends GherkinSuite(feature) with Lo
 
   When("{string} is started")((_: String) =>
     declared match
-      case None => started = Some(Try(kit.service))
+      case None                    => started = Some(Try(kit.service))
       case Some((name, statement)) =>
         val service = Ankka.service.registerAll(
           Seq(NodeEntity.descriptor, nodesDeclaring(name, statement), Accounts.descriptor)
@@ -321,7 +321,7 @@ abstract class QuerySteps(feature: String) extends GherkinSuite(feature) with Lo
   )
   Then("the database is no longer running the statement")(() =>
     val database = Database()(using kit.service.system)
-    val running = Await.result(
+    val running  = Await.result(
       database.query(
         SqlFragment.raw(
           "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND " +

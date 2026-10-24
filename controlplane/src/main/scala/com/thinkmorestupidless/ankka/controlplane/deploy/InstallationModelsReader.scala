@@ -36,9 +36,9 @@ object InstallationModelsReader:
   /** From the control plane's environment and its service certificate's mount. */
   def fromEnvironment(env: String => Option[String] = sys.env.get): InstallationModelsReader =
     env(PlatformVariables.ModelsAddress).map(_.trim).filter(_.nonEmpty) match
-      case None => none
+      case None          => none
       case Some(address) =>
-        val config = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
+        val config    = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
         val directory =
           Option
             .when(config.hasPath(InstanceTopologies.ServiceDirectoryKey))(
@@ -83,7 +83,7 @@ object InstallationModelsReader:
               unread(s"the model server answered ${response.statusCode}")
             else
               ModelServerDocumentJson.read(response.body) match
-                case Left(why) => unread(why)
+                case Left(why)       => unread(why)
                 case Right(document) =>
                   ClusterModels(
                     cluster = Home,

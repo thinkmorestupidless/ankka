@@ -640,7 +640,7 @@ object WalletRelay
     )
     .fold(why => throw IllegalArgumentException(why), identity)
 
-  def create(ctx: ConsumerContext) = new Relay
+  def create(ctx: ConsumerContext)                           = new Relay
   override val outputSerializer: Option[Serializer[FanLine]] = Some(
     Codecs.serializer[FanLine]("fan-line")
   )

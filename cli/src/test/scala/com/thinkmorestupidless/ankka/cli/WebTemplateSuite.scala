@@ -41,8 +41,8 @@ class WebTemplateSuite extends munit.FunSuite:
     if !munitIgnore then
       TemplateSwitch.requireTools("web", missingTools)
       workspace = Files.createTempDirectory("ankka-web-template")
-      val out = ByteArrayOutputStream()
-      val err = ByteArrayOutputStream()
+      val out  = ByteArrayOutputStream()
+      val err  = ByteArrayOutputStream()
       val code = Main.run(
         Seq("init", Name, "--language", "web", "--dir", workspace.toString),
         PrintStream(out),
@@ -148,7 +148,7 @@ class WebTemplateSuite extends munit.FunSuite:
           PrintStream(err)
         ): Unit
       )
-    val http = HttpClient.newHttpClient()
+    val http              = HttpClient.newHttpClient()
     def get(path: String) =
       http.send(
         HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port$path")).build(),

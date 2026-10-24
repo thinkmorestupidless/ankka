@@ -35,7 +35,7 @@ class DatabaseTlsSuite extends munit.FunSuite:
 
   override def beforeAll(): Unit =
     val server = serverAuthority.issue(dnsNames = Seq("localhost"))
-    val hba =
+    val hba    =
       """local all all trust
         |hostssl all all all cert clientcert=verify-full
         |""".stripMargin

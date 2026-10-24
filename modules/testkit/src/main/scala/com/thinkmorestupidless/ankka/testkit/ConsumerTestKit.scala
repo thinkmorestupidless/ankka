@@ -79,7 +79,7 @@ final class ConsumerTestKit[Src, Out] private (
       finally consumer._setContext(None)
 
     val publisher = InMemoryPublisher()
-    val applied = ProjectionSupport.applyConsumer(
+    val applied   = ProjectionSupport.applyConsumer(
       effect.asInstanceOf[ConsumerEffect[Any]],
       subject,
       descriptor.asInstanceOf[ConsumerDescriptor[Consumer[Any, Any], Any, Any]],

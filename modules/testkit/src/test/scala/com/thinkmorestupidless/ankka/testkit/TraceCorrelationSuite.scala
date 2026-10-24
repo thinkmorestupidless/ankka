@@ -31,7 +31,7 @@ final class TraceCorrelationSuite extends FunSuite with LogCapturing:
     val id = EntityId("root-1")
     // Span ids start at a random number per recorder, so "after" is what was not there before.
     val before = recorder.snapshot().map(_.spanId).toSet
-    val _ = testKit.componentClient
+    val _      = testKit.componentClient
       .forKeyValueEntity(id)
       .call(ProfileEntity.register)
       .invoke(Profile("Ada", "ada@example.com", 1))
@@ -48,7 +48,7 @@ final class TraceCorrelationSuite extends FunSuite with LogCapturing:
 
   test("a component calling another component produces one trace, not two") {
     val id = EntityId("nested-1")
-    val _ = testKit.componentClient
+    val _  = testKit.componentClient
       .forKeyValueEntity(id)
       .call(ProfileEntity.register)
       .invoke(Profile("Grace", "grace@example.com", 1))
@@ -76,7 +76,7 @@ final class TraceCorrelationSuite extends FunSuite with LogCapturing:
 
   test("the trace assembles into a tree with the caller above the callee") {
     val id = EntityId("tree-1")
-    val _ = testKit.componentClient
+    val _  = testKit.componentClient
       .forKeyValueEntity(id)
       .call(ProfileEntity.register)
       .invoke(Profile("Alan", "alan@example.com", 1))

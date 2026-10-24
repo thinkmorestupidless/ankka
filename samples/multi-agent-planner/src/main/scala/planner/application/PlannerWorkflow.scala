@@ -61,7 +61,7 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
       .invoke(s"Plan a trip to $destination")
 
     // Ignore anything the model invented that is not a real specialist.
-    val known = selection.specialists.filter(Specialist.All.contains)
+    val known  = selection.specialists.filter(Specialist.All.contains)
     val chosen =
       if known.nonEmpty then known
       // A selector that names nothing usable should not stall the plan.

@@ -247,7 +247,7 @@ object ConformanceTarget:
   private def withImpostor(builder: ServiceBuilder): ServiceBuilder =
     builder.withReplicationTransport((_, _, _) => Unreachable).withServices { real =>
       new ServiceClients:
-        def apply(name: String): ServiceClient = apply("local", name)
+        def apply(name: String): ServiceClient                  = apply("local", name)
         def apply(project: String, name: String): ServiceClient =
           if name != "impostor" then real(project, name)
           else
@@ -428,7 +428,7 @@ object ConformanceTarget:
   /** The Scala reference service on `AnkkaTestKit`. */
   final class InProcess(val model: TestModelProvider) extends ConformanceTarget:
     private val timers = TimerRuntime(200.millis)
-    private val kit = AnkkaTestKit.start(
+    private val kit    = AnkkaTestKit.start(
       reference.descriptors ++ AgentRuntime.descriptors ++ McpRuntime.descriptors,
       Seq(
         ProjectionRuntime
@@ -475,7 +475,7 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
     def refusalAt(protocolVersion: String): Option[Option[String]]                  = None
-    def mirroredChanges(id: String): Option[Boolean] =
+    def mirroredChanges(id: String): Option[Boolean]                                =
       reference.descriptors.collectFirst {
         case c: com.thinkmorestupidless.ankka.sdk.ConsumerDescriptor[?, ?, ?]
             if c.componentId.toString == id =>
@@ -505,7 +505,7 @@ object ConformanceTarget:
     def handleBoth(first: Int, second: Int): Vector[Option[Int]] =
       // In process the handler is the SDK's own class: two instances, two threads, both answered.
       given ExecutionContext = system.executionContext
-      val answers = Vector(first, second).map(n =>
+      val answers            = Vector(first, second).map(n =>
         scala.concurrent.Future {
           new reference.ContractRelay().onMessage(reference.Fanned(n)) match
             case com.thinkmorestupidless.ankka.core.effect.ConsumerEffect.Produce(payload, _) =>
@@ -520,7 +520,7 @@ object ConformanceTarget:
 
   /** The sidecar's wiring in this JVM, on `AnkkaTestKit`'s Postgres, in front of `address`. */
   final class Sidecar(address: String, val model: TestModelProvider) extends ConformanceTarget:
-    given ExecutionContext = ExecutionContext.global
+    given ExecutionContext              = ExecutionContext.global
     private val channel: ManagedChannel =
       val Array(host, port) = address.split(':')
       ManagedChannelBuilder.forAddress(host, port.toInt).usePlaintext().build()
@@ -547,7 +547,7 @@ object ConformanceTarget:
         )
     private val conversation = GrpcConversation(channel, settings)
     private val timers       = TimerRuntime(200.millis)
-    private val agents = discovered.agents.map { c =>
+    private val agents       = discovered.agents.map { c =>
       RemoteAgent.descriptor(
         RemoteAgent.spec(c).toOption.get,
         conversation,
@@ -607,9 +607,9 @@ object ConformanceTarget:
     def recordedReads: Vector[ReadRecord] = kit.recordedReads
     def restart(): Unit                   = kit.restartService()
     def isProcess: Boolean                = true
-    def problems: Vector[String] =
+    def problems: Vector[String]          =
       val client = HttpClient.newHttpClient()
-      val r = client.send(
+      val r      = client.send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/conformance/problems")).GET().build(),
         HttpResponse.BodyHandlers.ofString()
       )
@@ -619,7 +619,7 @@ object ConformanceTarget:
         .flatMap(_.asArray)
         .map(_.flatMap(_.asString))
         .getOrElse(Vector.empty)
-    def componentIds: Set[String] = discovered.spec.components.map(_.id).toSet
+    def componentIds: Set[String]                    = discovered.spec.components.map(_.id).toSet
     def mirroredChanges(id: String): Option[Boolean] =
       ConformanceTarget.mirroredIn(discovered.spec, id)
     def readOnlyHandlers: Set[(String, String)] =
@@ -729,7 +729,7 @@ object ConformanceTarget:
 
     private def discover(protocolVersion: String) =
       val bootstrap = GuestInstance.build(module, imports.values, settings.wasmMaxMemoryPages)
-      val result = WasmDiscovery.discover(
+      val result    = WasmDiscovery.discover(
         bootstrap,
         module,
         BuildInfo.version,
@@ -812,7 +812,7 @@ object ConformanceTarget:
     def componentIds: Set[String]  = discovered.spec.components.map(_.id).toSet
     def mirroredChanges(id: String): Option[Boolean] =
       ConformanceTarget.mirroredIn(discovered.spec, id)
-    def recordedReads: Vector[ReadRecord] = kit.recordedReads
+    def recordedReads: Vector[ReadRecord]       = kit.recordedReads
     def readOnlyHandlers: Set[(String, String)] =
       discovered.spec.components
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))

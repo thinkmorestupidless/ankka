@@ -397,7 +397,7 @@ object TopicSettingsRules:
   def parse(name: String, request: TopicDeclarationRequest): Either[Vector[String], GivenSettings] =
     def field[A](label: String, value: Option[String], parse: String => Either[String, A]) =
       value match
-        case None => Right(None)
+        case None       => Right(None)
         case Some(text) =>
           parse(text).map(Some(_)).left.map(p => s"topic '$name': $label \"$text\" is not $p")
     val retention     = field("retention", request.retention, RetentionTime.parse)
@@ -412,7 +412,7 @@ object TopicSettingsRules:
     else
       val compacted    = Option.when(request.compacted)(CleanupPolicy.Compact)
       val cleanupGiven = cleanup.toOption.flatten
-      val agreement = (cleanupGiven, request.compacted) match
+      val agreement    = (cleanupGiven, request.compacted) match
         case (Some(CleanupPolicy.Delete), true) =>
           Vector(s"topic '$name': compacted and cleanup disagree")
         case _ => Vector.empty
@@ -538,7 +538,7 @@ object TopicSettingsRules:
    */
   def removal(before: TopicSettings, after: TopicSettings): Option[String] =
     val deletesAfter = after.cleanup.deletes
-    val shorter = Option.when(deletesAfter && after.retention.shorterThan(before.retention))(
+    val shorter      = Option.when(deletesAfter && after.retention.shorterThan(before.retention))(
       s"messages older than ${after.retention.text}"
     )
     val smaller =

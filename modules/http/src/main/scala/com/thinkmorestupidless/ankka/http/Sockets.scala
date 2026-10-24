@@ -161,7 +161,7 @@ private[http] final class OpenSocket(settings: SocketSettings, registry: OpenSoc
 
   private def accept(frame: Either[CloseReason, String]): Unit = frame match
     case Left(reason) => close(reason)
-    case Right(text) =>
+    case Right(text)  =>
       if waiting.get >= settings.unreadFrames then close(CloseReason.Unread)
       else
         waiting.incrementAndGet(): Unit
@@ -177,11 +177,11 @@ private[http] final class OpenSocket(settings: SocketSettings, registry: OpenSoc
       .fromMaterializer { (materializer, _) =>
         given Materializer     = materializer
         given ExecutionContext = materializer.executionContext
-        val (queue, source) =
+        val (queue, source)    =
           Source.queue[Message](16, OverflowStrategy.backpressure).preMaterialize()
         outbound = queue
         registry.add(this)
-        val max = settings.maxFrameSize
+        val max                                                         = settings.maxFrameSize
         val frames: Flow[Message, Either[CloseReason, String], NotUsed] =
           Flow[Message].mapAsync(1) {
             case TextMessage.Strict(text) =>

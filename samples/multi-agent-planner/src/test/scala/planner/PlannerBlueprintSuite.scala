@@ -21,7 +21,7 @@ class PlannerBlueprintSuite extends munit.FunSuite with LogCapturing:
 
   private var testKit: AnkkaTestKit = null
   private val model                 = TestModelProvider()
-  private val agents =
+  private val agents                =
     AgentRuntime.withDefaultModel(model).withBlueprints(PlannerBlueprint.registry)
 
   override def beforeAll(): Unit =
@@ -127,7 +127,7 @@ class PlannerBlueprintSuite extends munit.FunSuite with LogCapturing:
       .call(PreferencesEntity.set)
       .invoke(Preferences("u-1", List("museums"), List("hiking"), 120)): Unit
     selections = Vector(Vector(Specialist.Activity))
-    val _ = plan("bp-prefs")
+    val _         = plan("bp-prefs")
     val afterTool =
       model.requests.find(r => Scripted.forStep(r, "consult") && Scripted.afterTool(r)).get
     val toolText = afterTool.messages
@@ -155,7 +155,7 @@ class PlannerBlueprintSuite extends munit.FunSuite with LogCapturing:
     assertEquals(consulted(run), Vector(Specialist.Activity))
     // Two answers from the selector: the refused one and the corrected one.
     assertEquals(run.stepNamed("select").map(_.modelCalls), Some(2))
-    val retry = model.requests.filter(r => Scripted.forStep(r, "select")).last
+    val retry   = model.requests.filter(r => Scripted.forStep(r, "select")).last
     val refusal = retry.messages.collect { case ChatMessage.User(content) =>
       content.collect { case MessageContent.Text(t) => t }.mkString
     }.last

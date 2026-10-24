@@ -46,7 +46,7 @@ class SecretAccessSuite extends munit.FunSuite:
     def foreignObjectAt(namespace: String, name: String)                       = false
     def podProblems(namespace: String, serviceName: String, projectId: String) = Vector.empty
     def observeRoute(namespace: String, name: String)                          = None
-    def observeDatabase(namespace: String, cluster: String, service: String) =
+    def observeDatabase(namespace: String, cluster: String, service: String)   =
       DatabaseObservation.empty
     def resourceCreatedAt(namespace: String, name: String)       = None
     def observeBroker(namespace: String, user: String)           = BrokerObservation.empty
@@ -169,7 +169,7 @@ class SecretAccessSuite extends munit.FunSuite:
       val ref      = ServiceRef("ankka-shop", "reports")
       val bucket   = r.decideCloudBucket(ref, resource, resource.getSpec)
       val access   = r.decideSecretAccess(ref, resource, resource.getSpec, bucket)
-      val names = (bucket.get.requests ++ access.get.requests)
+      val names    = (bucket.get.requests ++ access.get.requests)
         .distinctBy(_.getMetadata.getName)
         .map(_.getMetadata.getName)
       assertEquals(names.count(_ == "reports-identity"), 1)
@@ -178,7 +178,7 @@ class SecretAccessSuite extends munit.FunSuite:
   }
 
   test("the Deployment is not applied while access is held, and is once it is granted") {
-    val resource = service("payments")
+    val resource                                 = service("payments")
     def applies(hold: Option[SecretAccess.Hold]) =
       Rendering
         .render(resource, onSecretManager, ProvisioningPlan.Supplied, secretHold = hold)

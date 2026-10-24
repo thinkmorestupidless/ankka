@@ -67,7 +67,7 @@ class OidcAclSuite extends munit.FunSuite:
       path: String,
       token: Option[String] = None
   ): (Int, String, Map[String, String]) =
-    val headers = token.map(t => RawHeader("Authorization", s"Bearer $t")).toList
+    val headers  = token.map(t => RawHeader("Authorization", s"Bearer $t")).toList
     val response =
       Await.result(router.handle(HttpRequest(uri = path).withHeaders(headers)), 10.seconds)
     val body = Await.result(response.entity.toStrict(5.seconds), 5.seconds).data.utf8String
@@ -93,7 +93,7 @@ class OidcAclSuite extends munit.FunSuite:
     // A machine's token is the installation's, verified by the server before any ACL runs (the
     // request's caller says so); the issuers this service lists are not asked.
     val (name, value) = LocalCallers.header(Caller.Machine("eitheror", "affiliate-network"))
-    val response = Await.result(
+    val response      = Await.result(
       router(acl()).handle(HttpRequest(uri = "/account/me").withHeaders(RawHeader(name, value))),
       10.seconds
     )

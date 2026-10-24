@@ -48,7 +48,7 @@ abstract class ScriptedFlow(context: WorkflowContext, steps: => FlowSteps)
 
   def firstStep: StepEffect = currentState.script match
     case "pause" => stepEffects.updateState(currentState.copy(note = firstName)).thenPause()
-    case _ =>
+    case _       =>
       stepEffects
         .updateState(currentState.copy(note = firstName))
         .thenTransitionTo(steps.second.ref)
@@ -56,14 +56,14 @@ abstract class ScriptedFlow(context: WorkflowContext, steps: => FlowSteps)
   def secondStep: StepEffect = currentState.script match
     case "compensate" | "bare" => throw RuntimeException("declined")
     case "hold"                => stepEffects.thenPause()
-    case "slow" =>
+    case "slow"                =>
       Thread.sleep(6000)
       stepEffects.updateState(currentState.copy(note = secondName)).thenEnd
     case _ => stepEffects.updateState(currentState.copy(note = secondName)).thenEnd
 
   def failoverStep: StepEffect = currentState.script match
     case "bare" => stepEffects.thenFail("declined")
-    case _ =>
+    case _      =>
       stepEffects
         .updateState(currentState.copy(note = "refunded", reason = Some("declined")))
         .thenFail("declined")
@@ -73,8 +73,8 @@ abstract class ScriptedFlow(context: WorkflowContext, steps: => FlowSteps)
 
 /** `checkout`: `reserve`, then `charge`, failing over to `refund`. */
 final class CheckoutFlow(context: WorkflowContext) extends ScriptedFlow(context, CheckoutFlow):
-  protected def firstName  = "reserve"
-  protected def secondName = "charge"
+  protected def firstName                 = "reserve"
+  protected def secondName                = "charge"
   override def settings: WorkflowSettings =
     WorkflowSettings.builder
       .defaultStepTimeout(15.seconds)
@@ -102,8 +102,8 @@ object CheckoutFlow
 
 /** `transfer`: `withdraw`, then `deposit`, failing over to `refund`, within two seconds in all. */
 final class TransferFlow(context: WorkflowContext) extends ScriptedFlow(context, TransferFlow):
-  protected def firstName  = "withdraw"
-  protected def secondName = "deposit"
+  protected def firstName                 = "withdraw"
+  protected def secondName                = "deposit"
   override def settings: WorkflowSettings =
     WorkflowSettings.builder
       .timeout(2.seconds)
@@ -144,13 +144,13 @@ object FlowLog:
 
   private val seen = ConcurrentLinkedQueue[Seen]()
 
-  def add(entry: Seen): Unit = seen.add(entry): Unit
+  def add(entry: Seen): Unit                            = seen.add(entry): Unit
   def of(reader: String, subject: String): Vector[Seen] =
     seen.asScala.toVector.filter(s => s.reader == reader && s.subject == subject)
 
   /** A keyed view's begin and end of each change, to show it handled one at a time. */
-  private val spans            = ConcurrentLinkedQueue[String]()
-  def span(line: String): Unit = spans.add(line): Unit
+  private val spans                           = ConcurrentLinkedQueue[String]()
+  def span(line: String): Unit                = spans.add(line): Unit
   def spansOf(prefix: String): Vector[String] =
     spans.asScala.toVector.filter(_.contains(prefix))
 
@@ -218,7 +218,7 @@ object Checkouts
     ):
   def create(ctx: ViewComponentContext) = new CheckoutsView(FlowVersions.checkouts)
   override def version: Option[Int]     = Some(FlowVersions.checkouts)
-  val byStanding =
+  val byStanding                        =
     query("by-standing")(
       s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
     )
@@ -325,7 +325,7 @@ final class SettlementConsumer(client: ComponentClient) extends Consumer[FlowSta
     )
     standing.map(_.status) match
       case Some("Completed") => effects.produce(Settled(messageContext.subject))
-      case Some("Failed") =>
+      case Some("Failed")    =>
         client
           .forEventSourcedEntity(EntityId(messageContext.subject))
           .call(LedgerEntity.report)

@@ -112,7 +112,7 @@ class SdkBehaviourSuite extends munit.FunSuite with LogCapturing:
     val collector = FakeCollector()
     val values    = Iterator(5L, 9L)
     val current   = AtomicLong(0)
-    val exporter =
+    val exporter  =
       OtlpHttpMetricExporter.builder().setEndpoint(s"${collector.address}/v1/metrics").build()
     val reader =
       PeriodicMetricReader.builder(exporter).setInterval(java.time.Duration.ofDays(1)).build()

@@ -64,10 +64,10 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
   // the last is four minutes old, as ControlPlaneClusterSuite does. Minted once, a case that ran
   // late (on a slower machine than a laptop) failed `authentication required`.
   @volatile private var minted: Option[(String, Long)] = None
-  private def Token: String =
+  private def Token: String                            =
     minted.filter((_, at) => System.nanoTime() - at < 4.minutes.toNanos) match
       case Some((token, _)) => token
-      case None =>
+      case None             =>
         val token = KeycloakStack.mintToken(ca, BaseDomain, httpsPort, "e2e-cli", "e2e-secret")
         minted = Some(token -> System.nanoTime())
         token
@@ -92,7 +92,7 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
    * `Ready`. Case 5 hid it (a rolling update keeps the old pod `Ready`); the first case where that
    * image was the only pod timed out.
    */
-  private val FirstImage = "sample-shopping-cart:latest"
+  private val FirstImage  = "sample-shopping-cart:latest"
   private val SecondImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')}"
 
@@ -210,7 +210,7 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
       // The spoke's issuer and key source are the hub's, named explicitly — exactly what a spoke's
       // overlay sets through ANKKA_AUTH_ISSUER and ANKKA_AUTH_JWKS_URL — while its base domain is
       // its own, so the issuer it would otherwise derive is a different string.
-      val spokeAuth = hubAuth
+      val spokeAuth   = hubAuth
       val spokeDeploy =
         DeployConfig.default.copy(namespacePrefix = "spoke", baseDomain = Some(SpokeDomain))
       val spokeServer = HttpServer.at("127.0.0.1", 0)(
@@ -304,7 +304,7 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
     dir
 
   test("0. nothing answers without a token from the installation's own issuer (SC-001)") {
-    val http = java.net.http.HttpClient.newHttpClient()
+    val http                                             = java.net.http.HttpClient.newHttpClient()
     def status(path: String, token: Option[String]): Int =
       val builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url + path))
       token.foreach(t => builder.header("Authorization", s"Bearer $t"): Unit)
@@ -619,7 +619,7 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
     // And it can deploy — a member's job, done with the credential a CI job would hold. The
     // descriptor names one image and the command line another, which is the whole point of
     // `services deploy`: the applied service must report the one from the command line.
-    val file = descriptorJson(FirstImage)
+    val file                   = descriptorJson(FirstImage)
     val (deployCode, deployed) =
       asToken("services", "deploy", Service, SecondImage, "-f", file.toString, "-p", Project)
     assertEquals(deployCode, 0, deployed)
@@ -762,7 +762,7 @@ spec:
       targetPort: 5000
       nodePort: $RegistryPort
 """
-    val path = "/tmp/registry.yaml"
+    val path  = "/tmp/registry.yaml"
     val write = k3s.execInContainer(
       "sh",
       "-c",

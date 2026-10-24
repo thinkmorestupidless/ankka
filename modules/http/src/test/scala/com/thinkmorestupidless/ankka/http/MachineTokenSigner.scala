@@ -42,8 +42,8 @@ final class MachineTokenSigner(val kid: String = "test-key"):
     val header = b64(
       s"""{"alg":"$alg","kid":"$kidOf","typ":"JWT"}""".getBytes(StandardCharsets.UTF_8)
     )
-    val payload = b64(s"{$claims}".getBytes(StandardCharsets.UTF_8))
-    val signed  = s"$header.$payload"
+    val payload   = b64(s"{$claims}".getBytes(StandardCharsets.UTF_8))
+    val signed    = s"$header.$payload"
     val signature =
       if alg == "RS256" then
         val signer = Signature.getInstance("SHA256withRSA")

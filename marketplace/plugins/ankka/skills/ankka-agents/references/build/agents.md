@@ -73,7 +73,7 @@ object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assista
    * the conversation. Nothing is wrong with a shopper *asking* about a key.
    */
   val noSecrets: Guardrail = new Guardrail:
-    val name = "no-secrets"
+    val name                                                     = "no-secrets"
     override def checkOutput(text: String): Either[String, Unit] =
       if text.contains("sk-") then Left("a key leaked") else Right(())
 
@@ -356,7 +356,7 @@ turn's last awaited decision, the turn goes on and `decide` answers as `ask` wou
 
 ```scala
 val session = componentClient.forAgent(SessionId("s-42"))
-val answer = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
+val answer  = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
   case AgentOutcome.Answered(text)             => text
   case AgentOutcome.AwaitingApproval(requests) =>
     // In a real service the requests are shown to a person, and the decision arrives later,

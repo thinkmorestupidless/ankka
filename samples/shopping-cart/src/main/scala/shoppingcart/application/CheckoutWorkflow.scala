@@ -63,7 +63,7 @@ final class CheckoutWorkflow(context: WorkflowContext) extends Workflow[Checkout
   def reserveStep: StepEffect =
     // A client call from a step: what the cart holds.
     val total = cart.call(ShoppingCartEntity.totalQuantity).invoke()
-    val next =
+    val next  =
       if currentState.mode == "pause" then CheckoutWorkflow.waitForTimeout
       else CheckoutWorkflow.charge
     stepEffects

@@ -27,7 +27,7 @@ final class SecretManagerProjectSecretsSuite extends munit.FunSuite with LogCapt
   override val munitTimeout = 4.minutes
 
   private lazy val identity = TestIdentity()
-  private lazy val Member =
+  private lazy val Member   =
     identity.token("member", Some("member@example.test"), expiresIn = 2.hours)
   private lazy val tokens = new DeployTokenIndex(identity.clock)
   private val fake        = FakeSecretManager.start()
@@ -145,7 +145,7 @@ final class SecretManagerProjectSecretsSuite extends munit.FunSuite with LogCapt
   test(
     "the project's secrets are projected by name and entry, and their fingerprint moves when a value is set again"
   ) {
-    val at = Instant.parse("2026-10-08T12:00:00Z")
+    val at    = Instant.parse("2026-10-08T12:00:00Z")
     val first =
       Vector(ProjectSecretSummary("checkout", Vector("WEBHOOK_KEY", "STRIPE_KEY"), Some(at)))
     val spec = ProjectProjection.spec("shop", Map.empty, Map.empty, first)

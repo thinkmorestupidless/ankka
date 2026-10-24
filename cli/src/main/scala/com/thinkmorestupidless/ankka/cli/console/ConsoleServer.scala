@@ -119,8 +119,8 @@ object ConsoleServer:
      * platform working, and is displayed exactly as a 200 is.
      */
     def invoke(exchange: HttpExchange): Unit =
-      val name = exchange.getRequestURI.getPath.stripPrefix("/api/invoke/")
-      val body = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+      val name    = exchange.getRequestURI.getPath.stripPrefix("/api/invoke/")
+      val body    = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
       val request = InvokeRequest(
         method = str(body, "method").getOrElse("GET"),
         path = str(body, "path").getOrElse("/"),
@@ -134,7 +134,7 @@ object ConsoleServer:
       else if request.method == McpMethod then refuseMcp(exchange)
       else
         source.invoke(name, request) match
-          case None => notFound(exchange)
+          case None           => notFound(exchange)
           case Some(response) =>
             json200(
               exchange,
@@ -171,7 +171,7 @@ object ConsoleServer:
                   case other => builder.append(other)
                 i += 2
               case '"' => done = true
-              case c =>
+              case c   =>
                 builder.append(c)
                 i += 1
           Some(builder.toString)
@@ -185,8 +185,8 @@ object ConsoleServer:
      * thoroughly as a buffered client.
      */
     def invokeStream(exchange: HttpExchange): Unit =
-      val name = exchange.getRequestURI.getPath.stripPrefix("/api/invoke-stream/")
-      val body = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+      val name    = exchange.getRequestURI.getPath.stripPrefix("/api/invoke-stream/")
+      val body    = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
       val request = InvokeRequest(
         method = str(body, "method").getOrElse("GET"),
         path = str(body, "path").getOrElse("/"),
@@ -247,7 +247,7 @@ object ConsoleServer:
         case other    => other.stripPrefix("/")
 
       Option(getClass.getClassLoader.getResourceAsStream(s"console/$path")) match
-        case None => notFound(exchange)
+        case None         => notFound(exchange)
         case Some(stream) =>
           val bytes =
             try stream.readAllBytes()

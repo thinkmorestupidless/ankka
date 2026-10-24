@@ -108,8 +108,8 @@ private[grpc] final class Admission(
       Status.PERMISSION_DENIED.withDescription(reason) -> Metadata()
     )
     acl match
-      case Acl.DenyAll  => refused(Admission.NotPermitted)
-      case Acl.AllowAll => Right(context)
+      case Acl.DenyAll            => refused(Admission.NotPermitted)
+      case Acl.AllowAll           => Right(context)
       case Acl.AllowIf(predicate) =>
         if predicate(context) then Right(context) else refused(Admission.NotPermitted)
       case Acl.AllowCallers(matchers) =>
@@ -126,7 +126,7 @@ private[grpc] final class Admission(
             val trailers = Metadata()
             trailers.put(Admission.Challenge, s"Bearer $challenge")
             Left(Status.UNAUTHENTICATED.withDescription("authentication required") -> trailers)
-          case AuthDecision.Forbidden(reason) => refused(reason)
+          case AuthDecision.Forbidden(reason)   => refused(reason)
           case AuthDecision.Unavailable(reason) =>
             Left(Status.UNAVAILABLE.withDescription(reason) -> Metadata())
       case Acl.AnyOf(acls) =>
@@ -138,13 +138,13 @@ private[grpc] final class Admission(
           .map(acl =>
             decide(acl, context) match
               case Right(admitted) => Some(admitted)
-              case Left(refused) =>
+              case Left(refused)   =>
                 refusals += refused
                 None
           )
           .collectFirst { case Some(admitted) => admitted } match
           case Some(admitted) => Right(admitted)
-          case None =>
+          case None           =>
             val all                                = refusals.result()
             def challengeOf(r: (Status, Metadata)) = Option(r._2.get(Admission.Challenge))
             val unavailable = all.find(_._1.getCode == Status.Code.UNAVAILABLE)

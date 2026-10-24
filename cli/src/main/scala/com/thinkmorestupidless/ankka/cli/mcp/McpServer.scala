@@ -121,14 +121,14 @@ private[cli] final class McpServer(
       case (None, Some(_)) => None
       // A response to a request this server never sends.
       case (_, None) if message("result").isDefined || message("error").isDefined => None
-      case (_, None) =>
+      case (_, None)                                                              =>
         Some(error(id.getOrElse(Json.Null), McpServer.InvalidRequest, "no method"))
       case (Some(requestId), Some(m)) =>
         val reply =
           try dispatch(m, params)
           catch
             case failure: McpServer.Failure => Left(failure)
-            case failure: Exception =>
+            case failure: Exception         =>
               log.println(s"ankka mcp: $m failed: ${failure.getMessage}")
               Left(
                 McpServer.Failure(
@@ -145,14 +145,14 @@ private[cli] final class McpServer(
     method match
       case "initialize" =>
         val requested = params.string("protocolVersion")
-        val agreed =
+        val agreed    =
           requested
             .filter(McpServer.SupportedVersions.contains)
             .getOrElse(McpServer.SupportedVersions.head)
         Right(
           Json.obj(
             "protocolVersion" -> Json.str(agreed),
-            "capabilities" -> Json.obj(
+            "capabilities"    -> Json.obj(
               "tools"     -> Json.obj("listChanged" -> Json.bool(false)),
               "resources" -> Json.obj("listChanged" -> Json.bool(false))
             ),
@@ -171,7 +171,7 @@ private[cli] final class McpServer(
           throw McpServer.Failure(McpServer.InvalidParams, s"no tool named '$toolName'")
         )
         val arguments = params("arguments").getOrElse(Json.obj())
-        val result =
+        val result    =
           try tool.run(arguments)
           catch
             case failure: ApiError                 => ToolResult(failure.detail, isError = true)

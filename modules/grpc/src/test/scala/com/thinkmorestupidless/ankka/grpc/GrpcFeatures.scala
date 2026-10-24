@@ -380,7 +380,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     )
     impostor.filter(_._1 == name) match
       case Some((_, port)) => at(port)
-      case None =>
+      case None            =>
         if served.contains(name) then
           start()
           at(grpcPort.getOrElse(fail(s"the service did not start: $startFailure")))
@@ -611,7 +611,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     assertEquals(endedWith.getCode, Status.Code.OK)
   }
   Then("the service {string} serves the routes of the HTTP endpoint") { (_: String) =>
-    val port = httpPort.getOrElse(fail("no HTTP server was started"))
+    val port     = httpPort.getOrElse(fail("no HTTP server was started"))
     val response = HttpClient
       .newHttpClient()
       .send(
@@ -800,7 +800,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   Given("the stream produces parts and does not end") { () => watchParts = None }
   When("a developer calls the method {string} and goes away after {string} parts") {
     (_: String, n: String) =>
-      val own = GrpcChannels.plaintext(grpcPort.getOrElse { start(); grpcPort.get })
+      val own   = GrpcChannels.plaintext(grpcPort.getOrElse { start(); grpcPort.get })
       val parts = ClientCalls.blockingServerStreamingCall(
         own,
         CartStreamsGrpc.METHOD_WATCH_CART,
@@ -850,7 +850,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   When("a developer calls the method {string} and sends {string} part without ending the stream") {
     (_: String, n: String) =>
       val lines = Iterator.tabulate(n.toInt)(i => Line(s"line $i", i).toByteArray)
-      val call = send(
+      val call  = send(
         CartStreamsGrpc.METHOD_CONVERSE.asInstanceOf[MethodDescriptor[Any, Any]],
         lines,
         end = false,
@@ -905,7 +905,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     "a developer calls the method {string} and sends {string} parts and then a part the gRPC endpoint cannot read"
   ) { (_: String, n: String) =>
     val parts = items(n.toInt) ++ Iterator(Array[Byte](0x0a, 0x7f))
-    val _ = send(
+    val _     = send(
       CartStreamsGrpc.METHOD_IMPORT_ITEMS.asInstanceOf[MethodDescriptor[Any, Any]],
       parts,
       end = true,
@@ -1004,7 +1004,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   ) { (calling: String, method: String, target: String, n: String) =>
     val lines   = Iterator.tabulate(n.toInt)(i => Line(s"line $i", i).toByteArray)
     val through = clientsOf(calling)(target)
-    val call = send(
+    val call    = send(
       methodOf(definitionOf(method), method),
       lines,
       end = false,
@@ -1044,7 +1044,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
       )
   }
   Then("the trace shows the call to the component under the root") { () =>
-    val root = rootsOfThisScenario.headOption.getOrElse(fail("no root was recorded"))
+    val root    = rootsOfThisScenario.headOption.getOrElse(fail("no root was recorded"))
     val beneath = observability.recorder
       .spansOf(root.traceId)
       .filter(_.parentSpanId == root.spanId)
@@ -1072,7 +1072,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
 
   /** One reflection request, as a tool sends it, and its one answer. */
   private def askReflection(request: ServerReflectionRequest): ServerReflectionResponse =
-    val answer = Promise[ServerReflectionResponse]()
+    val answer   = Promise[ServerReflectionResponse]()
     val requests = ServerReflectionGrpc
       .newStub(channel())
       .serverReflectionInfo(new StreamObserver[ServerReflectionResponse]:

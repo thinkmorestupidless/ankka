@@ -29,7 +29,7 @@ class GrantMirrorSuite extends munit.FunSuite with LogCapturing:
   private val bo       = Actor("bo", Some("bo@affiliates.test"))
   private val merchant = Grantee.Service("payments", "merchant")
   private val network  = Grantee.Machine("affiliates", "network")
-  private val route =
+  private val route    =
     GrantTarget.route("wallet", "POST", "/v1/wallets/{player}/{currency}/deposits")
   private val topic = GrantTarget.topic("affiliates.attribution", GrantTarget.Consume)
 
@@ -57,7 +57,7 @@ class GrantMirrorSuite extends munit.FunSuite with LogCapturing:
   test("a grant within one organization is recorded as made, on the grantee's project") {
     val t   = transport()
     val kit = ConsumerTestKit.of(GrantMirror, t.client)
-    val _ = kit.onMessage(
+    val _   = kit.onMessage(
       GrantMade("g1", merchant, route, pending = false, Some(ada), Some(now)),
       "spinvibe"
     )
@@ -125,7 +125,7 @@ class GrantMirrorSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a change already recorded is done: the redelivery completes and records nothing new") {
-    val t = transport(conflict = true)
+    val t      = transport(conflict = true)
     val result = ConsumerTestKit
       .of(GrantMirror, t.client)
       .onMessage(

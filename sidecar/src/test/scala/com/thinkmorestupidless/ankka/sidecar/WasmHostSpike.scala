@@ -358,7 +358,7 @@ class WasmHostSpike extends munit.FunSuite with LogCapturing:
     val n         = 64
     val hold      = 200.millis
     val scheduler = Executors.newSingleThreadScheduledExecutor()
-    val guests = Vector.tabulate(n) { i =>
+    val guests    = Vector.tabulate(n) { i =>
       val language = languages(i % languages.size)
       Guest(
         language,

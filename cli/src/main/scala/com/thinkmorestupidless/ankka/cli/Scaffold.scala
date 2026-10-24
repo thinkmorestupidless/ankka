@@ -72,8 +72,8 @@ object Scaffold:
 
   /** Writes the rendered template into `directory/name`; the directory must be absent or empty. */
   def render(request: Init.Request, version: String): Path =
-    val target = request.directory.resolve(request.name)
-    val values = tokens(request, version)
+    val target             = request.directory.resolve(request.name)
+    val values             = tokens(request, version)
     def fill(text: String) = values.foldLeft(text) { case (acc, (token, value)) =>
       acc.replace(token, value)
     }

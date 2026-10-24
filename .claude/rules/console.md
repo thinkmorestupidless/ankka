@@ -42,6 +42,16 @@ the package and `package/test/fixture-host/` proves a second host works with no 
 
 ## Traps
 
+- **The image carries what the lockfile hoisted, and CI must run it, not only build it.** The Dockerfile
+  copies the workspace root's `node_modules` after `npm prune --omit=dev`; a dependabot bump that moved
+  React Router to 8.5.0 rewrote the lockfile with `react-router`, `@react-router/node` and
+  `@react-router/dev` nested under `host/` and `package/` instead of the root, `npm ci` and every test
+  passed, `docker build` passed, and the image died on its first import (`Cannot find package
+  'react-router' imported from /app/package/dist/context.js`). Only the nightly k3s suite saw it, as
+  three console cases failing with "condition did not hold within 420 seconds" and nothing else. The
+  image now copies each workspace's own `node_modules` too, the `console` job imports the server build
+  inside the pruned image, and `ControlPlaneClusterSuite` prints the console's pods and logs when its
+  wait gives up. `npm dedupe` is what hoists a nested copy back. (2026-10-24)
 - **React Router's route-config loader ignores the host's Vite `resolve.conditions`.** `routes.ts` is
   evaluated by the framework's own loader, so `import "ankka-console/server"` there fails to resolve under a
   source-only condition that works everywhere else in the app (`Failed to resolve entry for package`). The

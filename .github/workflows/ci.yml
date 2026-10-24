@@ -813,3 +813,8 @@ jobs:
             console/e2e/report
             console/e2e/test-results
       - run: docker build -t ankka-console:ci .
+      # The image resolves what it serves: the host's server build and the package's server entry are
+      # imported inside the pruned image, as `node server.ts` would import them. A build alone proved
+      # nothing about the run: a lockfile that nested react-router under the workspaces built an image
+      # that crashed on its first import, and only the nightly k3s suite saw it (2026-10-24).
+      - run: docker run --rm ankka-console:ci node --input-type=module -e "await import('./build/server/index.js'); await import('ankka-console/server')"

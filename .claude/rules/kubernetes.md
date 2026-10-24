@@ -838,6 +838,10 @@ granted by a RoleBinding the control plane writes there (`bind` on `ankka-operat
   node is merely down, with nothing new to take its place, is left alone. Every admin call the hourly
   copy makes is tried three times for the same reason: a 500 on its key lookup read as "no key", and the
   import then failed 409 on a key that was there.
+- **The copy's `rclone sync` of each bucket is tried three times for the same reason** (2026-10-24):
+  a replicated store answered `directory not found` for a bucket it held, the moment after the copy's
+  key was allowed on it, two nightly `DurabilityClusterFeatures` runs in nine; rclone reads that as
+  fatal and never retries it itself.
 - **Every reconciler's executor comes from `Fabric8Executor.of(client, settings)`.** The project
   reconciler built a bare `Fabric8Executor(client)`, with no store, and every rehearsal failed with "an
   object storage action was rendered with no store" — in production as much as in the suite.

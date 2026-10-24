@@ -89,7 +89,13 @@ spec:
                     bucket=$(api "$ADMIN/v2/GetBucketInfo?globalAlias=$b" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' | head -1)
                     api --post-data "{\"bucketId\":\"$bucket\",\"accessKeyId\":\"$id\",\"permissions\":{\"read\":true,\"write\":false,\"owner\":false}}" \
                       "$ADMIN/v2/AllowBucketKey" >/dev/null || fail "the copy could not be allowed to read $b"
-                    log=$(rclone sync "garage:$b" "secondary:$b" -v 2>&1) || fail "the copy of $b failed: $(echo "$log" | tail -1)"
+                    # Tried three times too: a replicated store has answered "directory not found"
+                    # for a bucket it holds, once, the moment after the key was allowed on it.
+                    for try in 1 2 3; do
+                      log=$(rclone sync "garage:$b" "secondary:$b" -v 2>&1) && break
+                      [ "$try" = 3 ] && fail "the copy of $b failed: $(echo "$log" | tail -1)"
+                      sleep 5
+                    done
                     deleted=$((deleted + $(echo "$log" | grep -c ': Deleted' || true)))
                     copied=$((copied + 1))
                   done

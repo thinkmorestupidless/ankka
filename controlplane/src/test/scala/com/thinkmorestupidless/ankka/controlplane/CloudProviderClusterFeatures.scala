@@ -604,16 +604,18 @@ class CloudProviderClusterFeatures
     assertEquals(credentialRequest(logical).getStatus.outputs("secretName"), secretName)
     // This service's alone: the provider is the suite's, and an earlier scenario's credential can
     // be issued or end (its rotation grace passing) inside this one's window.
-    val issued = scripted.issued.drop(issuedBefore)
-    assertEquals(issued.count(_.secretName == secretName), 1, s"one offered, of $issued")
-    assertEquals(
-      scripted.ended
-        .drop(endedBefore)
-        .filter(_.secretName == secretName)
-        .map(e => e.secretName -> e.why),
-      Vector(secretName -> "conflict"),
-      "and the one just made ended, since the Secret was there"
-    )
+    //
+    // At least one offered, not exactly one. A reconcile pass that trails the deletion can write the
+    // deleted service's requests again before the garbage collector removes them a second time, and
+    // the provider answers that request too: it offers a credential, finds the Secret there, and ends
+    // what it offered with "conflict" (issue #162; the trap in `kubernetes.md`). So every offer in
+    // this window ended that way, whatever their number, and none was kept.
+    val issued = scripted.issued.drop(issuedBefore).filter(_.secretName == secretName)
+    val ended  = scripted.ended.drop(endedBefore).filter(_.secretName == secretName)
+    assert(issued.nonEmpty, s"one offered at least, of ${scripted.issued.drop(issuedBefore)}")
+    assert(ended.nonEmpty, s"the one just offered ended, since the Secret was there: $issued")
+    assertEquals(ended.map(_.why).distinct, Vector("conflict"), s"every ending a conflict: $ended")
+    assert(ended.size <= issued.size, s"no more ended than offered: offered $issued, ended $ended")
   }
 
   Then("the status says that {string} was given the bucket it had before") { (logical: String) =>
@@ -818,8 +820,11 @@ class CloudProviderClusterFeatures
     val subject = CloudSubject(Project, real(logical))
     for kind <- Vector(CloudKinds.Bucket, CloudKinds.Identity, CloudKinds.BucketCredential) do
       assert(scripted.holds(kind, subject), s"$kind of $subject was deleted")
-    // This service's alone, for the reason the recovery step gives.
-    val ended = scripted.ended.drop(endedBefore)
+    // This service's alone, for the reason the recovery step gives. A "conflict" ending is not a
+    // removal: it is the provider ending a credential it had just offered for a request a trailing
+    // reconcile pass wrote again after the deletion, because the Secret was already there (issue
+    // #162; the trap in `kubernetes.md`). The credential the service had is the one `holds` found.
+    val ended = scripted.ended.drop(endedBefore).filterNot(_.why == "conflict")
     assertEquals(
       ended.filter(_.secretName == Buckets.cloudSecret(real(logical))),
       Vector.empty,

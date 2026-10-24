@@ -12,12 +12,16 @@ of that architecture, so the images a leg builds and deploys are native to it an
 under emulation: `amd64` on `ubuntu-24.04`, `arm64` on `ubuntu-24.04-arm`.
 
 A run takes as long as its slowest job, and a few Gherkin suites spend five to ten minutes a
-scenario rebuilding databases, so `SHARDS` runs those as several jobs: `"scenario"` is one job per
-scenario (an outline with its rows), and a list of lists is one job per group of feature files. A
-shard is `-Dankka.features.only=<selectors>`, which `GherkinSuite` reads; the suite's other tests
-run in every shard. The table is checked against the tree: a suite it names must be a k3s suite,
-and a grouping must name every feature file of the suite's directory exactly once, so a feature
-added or moved fails this script rather than silently running nowhere.
+scenario rebuilding databases, so `SHARDS` runs those as several jobs, one per group: for a suite of
+one feature file the groups are scenarios, by the line of their header (an outline with its rows);
+for a suite of a directory they are feature files. A shard is `-Dankka.features.only=<selectors>`,
+which `GherkinSuite` reads; the suite's other tests run in every shard. The table is checked
+against the tree: a suite it names must be a k3s suite, and its groups must name every scenario or
+feature file of the suite exactly once, so one added or moved fails this script rather than
+silently running nowhere. The account runs about 34 jobs at once, so a run also takes at least the
+runner-minutes of all its jobs over 34, and every shard pays the compile, the images and the k3s
+fixture again, six to eight minutes: the table aims at about 100 jobs, where the longest is close
+to that bound (measured 2026-10-24: 142 jobs took as long as the 86 they replaced).
 
 Prints `{"include": [{"suite", "class", "project", "name", "slug", "only", "arch", "runner"}, ...]}`
 (`name` is the job's, `slug` the artifact's, `only` the shard's selectors or empty), and fails when
@@ -35,30 +39,23 @@ import sys
 
 root = pathlib.Path(__file__).resolve().parent.parent
 
-# Measured on the nightly of 2026-10-22: a restore is a new CNPG cluster from a backup, five to ten
-# minutes a scenario (AfterRestore 56 min whole, Restoring 48, Rehearsals 32); the object storage
-# and installation model suites have one feature file worth half the suite (`move.feature` 16 min
-# of 36, `isolation.feature` 13 of 32, `lifecycle.feature` 10 of 21).
+# Measured on the nightly of 2026-10-22 and the shard runs of 2026-10-24: a restore is a new CNPG
+# cluster from a backup, six to ten minutes a scenario (AfterRestore 56 min whole, Restoring 48,
+# Rehearsals 32), grouped here to about 25 minutes a job; the object storage and installation model
+# suites have one feature file worth half the suite (`move.feature` 16 min of 36, `isolation.feature`
+# 13 of 32, `lifecycle.feature` 10 of 21).
 SHARDS = {
-    "AfterRestoreClusterFeatures": "scenario",
-    "RestoringClusterFeatures": "scenario",
-    "RehearsalsClusterFeatures": "scenario",
+    "AfterRestoreClusterFeatures": [[18, 26], [32, 37], [50, 58]],
+    "RestoringClusterFeatures": [[16, 21, 31, 39, 65], [48, 55, 71], [77, 83, 89]],
+    "RehearsalsClusterFeatures": [[13, 21, 31], [36, 43, 49]],
     "ObjectStorageGcsClusterFeatures": [
         ["move.feature"],
         ["provisioning.feature", "reachable.feature"],
-        ["isolation.feature", "names.feature"],
-        ["retention.feature", "keyless.feature"],
+        ["isolation.feature", "names.feature", "retention.feature", "keyless.feature"],
     ],
     "ObjectStorageClusterFeatures": [
-        ["isolation.feature"],
-        ["reachable.feature", "provisioning.feature"],
-        [
-            "kept.feature",
-            "own-object-store.feature",
-            "console.feature",
-            "durability.feature",
-            "hostings.feature",
-        ],
+        ["isolation.feature", "console.feature", "durability.feature", "hostings.feature"],
+        ["reachable.feature", "provisioning.feature", "kept.feature", "own-object-store.feature"],
     ],
     "InstallationModelsClusterFeatures": [
         ["lifecycle.feature"],
@@ -146,21 +143,25 @@ def shards(suite, directory, source):
     if not declared:
         sys.exit(f"{suite}: SHARDS names it, but it does not extend a Gherkin suite of one path")
     features = (root / directory / declared.group(1)).resolve()
-    if plan == "scenario":
-        if not features.is_file():
-            sys.exit(f"{suite}: SHARDS asks for a job per scenario, but {features} is not one file")
+    named = [item for group in plan for item in group]
+    if features.is_file():
+        present = dict(scenarios(features))
+        if sorted(named) != sorted(present):
+            sys.exit(
+                f"{suite}: SHARDS must name every scenario of {features} once, by the line of its "
+                f"header; it names {sorted(named)}, the file holds {sorted(present)}"
+            )
         return [
             (
-                f": {features.name}:{header}",
-                f"-{features.stem}-{header}",
-                ",".join(f"{features.name}:{line}" for line in lines),
+                f": {features.name}:{','.join(map(str, group))}",
+                f"-{features.stem}-" + "-".join(map(str, group)),
+                ",".join(f"{features.name}:{line}" for header in group for line in present[header]),
             )
-            for header, lines in scenarios(features)
+            for group in plan
         ]
     if not features.is_dir():
-        sys.exit(f"{suite}: SHARDS groups feature files, but {features} is not a directory")
+        sys.exit(f"{suite}: SHARDS names it, but {features} is neither a file nor a directory")
     present = sorted(p.name for p in features.glob("*.feature"))
-    named = [name for group in plan for name in group]
     if sorted(named) != present:
         sys.exit(
             f"{suite}: SHARDS must name every feature file of {features} once; "

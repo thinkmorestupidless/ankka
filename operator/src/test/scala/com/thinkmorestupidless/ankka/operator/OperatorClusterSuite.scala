@@ -897,11 +897,35 @@ class OperatorClusterSuite extends munit.FunSuite:
       }
       // The listing is the grant under test, so a refusal must surface; what is waited for is the
       // API server's cache of a type served a moment ago, which has answered a list of nothing
-      // right after the apply above succeeded (two nightly runs in nine).
-      def machineNames() =
-        restricted.resources(machines).list().getItems.asScala.map(_.getMetadata.getName).toVector
-      val listDeadline = System.nanoTime() + 30.seconds.toNanos
+      // right after the apply above succeeded (two nightly runs in nine), and once for the whole
+      // of a thirty-second wait (2026-10-24, amd64). A listing still empty at the deadline says
+      // what the admin client and kubectl see of the same type, so the next failure says whether
+      // the object is missing or only the restricted client's view of it.
+      def machineNames(through: KubernetesClient = restricted) =
+        through.resources(machines).list().getItems.asScala.map(_.getMetadata.getName).toVector
+      val listDeadline = System.nanoTime() + 60.seconds.toNanos
       while machineNames().isEmpty && System.nanoTime() < listDeadline do Thread.sleep(250)
+      if machineNames().isEmpty then
+        val admin = scala.util.Try(machineNames(client)).fold(_.getMessage, _.mkString(", "))
+        val shown = scala.util
+          .Try(PkiStack.kubectl(k3s, "get", "ankkamachines", "-o", "wide"))
+          .fold(_.getMessage, identity)
+        val crd = scala.util
+          .Try(
+            PkiStack.kubectl(
+              k3s,
+              "get",
+              "crd",
+              "ankkamachines.ankka.thinkmorestupidless.com",
+              "-o",
+              "jsonpath={.status.conditions}"
+            )
+          )
+          .fold(_.getMessage, identity)
+        fail(
+          s"the restricted client listed no machines within a minute of applying rbac.probe; the admin client lists [$admin]; " +
+            s"kubectl get ankkamachines: $shown; the type's conditions: $crd"
+        )
       assertEquals(machineNames(), Vector("rbac.probe"))
       val unmade = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
         restricted.resources(machines).withName("rbac.probe").delete(): Unit

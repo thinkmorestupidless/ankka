@@ -84,31 +84,51 @@ class WorkflowShapeSuite extends munit.FunSuite:
       "the leg's runner must come from the matrix"
     )
     assert(
-      cluster.contains("name: ${{ matrix.suite }} (${{ matrix.arch }})"),
-      "a job is named by suite and architecture"
+      cluster.contains("name: ${{ matrix.name }} (${{ matrix.arch }})"),
+      "a job is named by the matrix's name (the suite, or the suite and its shard) and architecture"
     )
-    assert(cluster.contains("resources-${{ matrix.suite }}-${{ matrix.arch }}"), cluster)
-    assert(cluster.contains("test-reports-${{ matrix.suite }}-${{ matrix.arch }}"), cluster)
+    assert(cluster.contains("resources-${{ matrix.slug }}-${{ matrix.arch }}"), cluster)
+    assert(cluster.contains("test-reports-${{ matrix.slug }}-${{ matrix.arch }}"), cluster)
     assert(cluster.contains("ARCH: ${{ inputs.arch }}"), "the arch input narrows the matrix")
+    assert(
+      cluster.contains("format('-Dankka.features.only={0}', matrix.only)"),
+      "a shard's scenarios reach the suite as -Dankka.features.only"
+    )
   }
 
-  test("the matrix script lists each suite once per architecture, with its runner") {
+  test("the matrix script lists each job once per architecture, with its runner") {
     val listed = matrix(Nil)
-    val suites = listed.map(_("suite")).distinct
-    assert(suites.nonEmpty, "no suites found")
-    suites.foreach { suite =>
-      val legs = listed.filter(_("suite") == suite).map(l => l("arch") -> l("runner")).sorted
+    val names  = listed.map(_("name")).distinct
+    assert(names.nonEmpty, "no suites found")
+    names.foreach { name =>
+      val legs = listed.filter(_("name") == name).map(l => l("arch") -> l("runner")).sorted
       assertEquals(
         legs,
         Seq("amd64" -> "ubuntu-24.04", "arm64" -> "ubuntu-24.04-arm"),
-        s"$suite does not run once on each architecture"
+        s"$name does not run once on each architecture"
       )
     }
     val one = matrix(Seq("SampleDeploymentClusterSuite", "arm64"))
     assertEquals(
-      one.map(l => (l("suite"), l("arch"))),
-      Seq("SampleDeploymentClusterSuite" -> "arm64")
+      one.map(l => (l("suite"), l("name"), l("only"), l("arch"))),
+      Seq(("SampleDeploymentClusterSuite", "SampleDeploymentClusterSuite", "", "arm64"))
     )
+  }
+
+  test("a sharded suite is several jobs, each held to its scenarios; an unsharded one is whole") {
+    val listed = matrix(Seq("", "amd64"))
+    val shards = listed.filter(_("suite") == "RestoringClusterFeatures")
+    assert(shards.size > 1, "RestoringClusterFeatures is in SHARDS and must be several jobs")
+    shards.foreach { shard =>
+      assert(shard("only").nonEmpty, s"${shard("name")} selects no scenario")
+      assert(shard("name") != shard("suite"), "a shard's job is named by its scenario")
+      assertNotEquals(shard("slug"), shard("suite"), "a shard's artifacts are named by it")
+    }
+    assertEquals(shards.map(_("slug")).distinct.size, shards.size, "two shards share a slug")
+    listed.filter(_("suite") == "SampleDeploymentClusterSuite").foreach { whole =>
+      assertEquals(whole("only"), "", "a suite outside SHARDS runs every scenario")
+      assertEquals(whole("name"), whole("suite"))
+    }
   }
 
   test(

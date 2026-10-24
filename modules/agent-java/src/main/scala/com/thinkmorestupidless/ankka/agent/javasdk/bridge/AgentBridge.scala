@@ -124,7 +124,7 @@ private[ankka] object AgentBridge:
 
   private def javaClient(client: ComponentClient): JavaComponentClient = client match
     case java: JavaComponentClient => java
-    case _ =>
+    case _                         =>
       throw IllegalStateException(
         "an agent is called through the component client a service or a test kit gave"
       )
@@ -241,7 +241,7 @@ private[ankka] object AgentBridge:
   def blueprintFromResource(path: String): javasdk.Blueprint = Blueprints.fromResource(path)
   def worker(name: String): javasdk.Worker                   = JavaWorker(bp.Worker(name))
   def step(name: String): javasdk.Step.Start                 = JavaStart(bp.Step(name))
-  def critic(worker: String): javasdk.Verdict = JavaVerdict(bp.Verdict.critic(worker))
+  def critic(worker: String): javasdk.Verdict            = JavaVerdict(bp.Verdict.critic(worker))
   def verdictJudgment(question: String): javasdk.Verdict = JavaVerdict(
     bp.Verdict.judgment(question)
   )
@@ -324,7 +324,7 @@ private[bridge] final case class JavaAgentModule(
       classes: Vector[(Class[?], Option[String])],
       serializers: Declarations.Serializers
   ): Either[Vector[DeclarationProblem], ModulePlan] =
-    val problems = mutable.ArrayBuffer.empty[DeclarationProblem]
+    val problems                          = mutable.ArrayBuffer.empty[DeclarationProblem]
     val (autonomousClasses, agentClasses) =
       classes.partition((cls, _) => classOf[javasdk.AutonomousAgent].isAssignableFrom(cls))
     val plans = agentClasses.flatMap { (cls, id) =>
@@ -332,11 +332,11 @@ private[bridge] final case class JavaAgentModule(
         case Right(plan) => Some(plan)
         case Left(ps)    => problems ++= ps; None
     }
-    val refs    = RefsHolder()
-    val runtime = agentRuntime(problems, refs, serializers)
+    val refs                 = RefsHolder()
+    val runtime              = agentRuntime(problems, refs, serializers)
     val autonomousCompanions = autonomousClasses.flatMap { (cls, id) =>
       AutonomousReader.read(cls, id) match
-        case Left(ps) => problems ++= ps; None
+        case Left(ps)    => problems ++= ps; None
         case Right(plan) =>
           try
             val companion = JavaAutonomousCompanion(plan, refs, serializers)
@@ -376,7 +376,7 @@ private[bridge] final case class JavaAgentModule(
       case Some(build) => judged.withBlueprints(Blueprints.registry(build, refs, serializers))
       case None        => judged
     compaction match
-      case None => Some(base)
+      case None                                => Some(base)
       case Some((_, _, None)) if model.isEmpty =>
         problems += DeclarationProblem(
           name,
@@ -539,7 +539,7 @@ private[bridge] object AgentReader:
         if count == 1 then serializer(m.getGenericParameterTypes()(0), member, "input")
         else None
       (command, stream) match
-        case (None, None) => None
+        case (None, None)       => None
         case (Some(_), Some(_)) =>
           problem(member, "is both @Command and @Stream; a handler is one or the other"); None
         case (Some(wire), None) =>
@@ -611,7 +611,7 @@ private[bridge] final class JavaAgentCompanion(
 
   override def role: String =
     if plan.settings.role.isEmpty then componentId else plan.settings.role
-  override def maxToolCallSteps: Int = plan.settings.maxToolCallSteps
+  override def maxToolCallSteps: Int                   = plan.settings.maxToolCallSteps
   override def mcpServers: Vector[agent.mcp.McpServer] =
     plan.settings.mcpServers.asScala.toVector.map(Values.scalaMcp)
   override def resultGuardrails: Vector[agent.Guardrail] =
@@ -650,7 +650,7 @@ private[bridge] final class JavaAgentCompanion(
 
   def create(ctx: AgentContext): Shell =
     val shell = Shell()
-    val cell = AgentCell(
+    val cell  = AgentCell(
       () => JavaEffects(() => shell.scalaEffects, serializers),
       ctx.sessionId,
       Clients.of(ctx.componentClient, refs.refs),
@@ -678,7 +678,7 @@ private[bridge] final class JavaEffects(
   def model(provider: javasdk.ModelProvider): javasdk.AgentBuilder =
     builder(scala().model(Values.scalaModel(provider)))
   def judgment(): javasdk.JudgmentBuilder = JavaJudgmentBuilder(scala().judgment, serializers)
-  def error[R](message: String): javasdk.AgentEffect[R] = Held(scala().error[R](message))
+  def error[R](message: String): javasdk.AgentEffect[R]  = Held(scala().error[R](message))
   def error[R](problem: Problem): javasdk.AgentEffect[R] =
     val error = Effects.toCommandError(problem)
     Held(scala().error[R](error.message, error.code))
@@ -702,7 +702,7 @@ private[bridge] final class JavaBuilder(
     next(effect.guardrails(guardrails.map(Values.scalaGuardrail)*))
   def maxToolCallSteps(steps: Int): javasdk.AgentBuilder = next(effect.maxToolCallSteps(steps))
 
-  def thenReply(): javasdk.AgentEffect[String] = Held(effect.thenReply())
+  def thenReply(): javasdk.AgentEffect[String]               = Held(effect.thenReply())
   def thenReply[R](`type`: Class[R]): javasdk.AgentEffect[R] =
     if `type` == classOf[String] then Held(effect.thenReply())
     else Held(effect.thenReplyAs[R](using Values.codec(`type`, serializers)))
@@ -720,7 +720,7 @@ private[bridge] final class JavaAgentRef(
 
   private def commandOf(ref: AnyRef): CommandHandle[Shell, Any, Any] = plan.handle(ref) match
     case h: CommandHandle[?, ?, ?] => h.asInstanceOf[CommandHandle[Shell, Any, Any]]
-    case _ =>
+    case _                         =>
       throw CallerError("that handler takes no input, or streams; call it as it is declared")
 
   private def noArgOf(ref: AnyRef): NoArgHandle[Shell, Any] = plan.handle(ref) match
@@ -771,10 +771,10 @@ private[bridge] final class JavaAgentRef(
       handler: javasdk.AgentStreamRef[A, I],
       input: I
   ): Flow.Publisher[String] =
-    val h = streamOf(handler)
+    val h      = streamOf(handler)
     val system = transport match
       case sharded: runtime.ShardingTransport => sharded.actorSystem
-      case other =>
+      case other                              =>
         throw IllegalStateException(s"a stream is read through a running service, not $other")
     calls
       .stream(h)(input)

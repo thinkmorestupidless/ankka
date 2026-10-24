@@ -30,7 +30,7 @@ final class ViewCell private[bridge] (
 
   def context(): JavaChange = change match
     case Some(ctx) => JavaChangeContext(ctx)
-    case None =>
+    case None      =>
       throw IllegalStateException("the change's context is only available while handling one")
 
   def componentClient(): ComponentClient = client
@@ -57,9 +57,9 @@ object ViewCell:
     finally constructing.remove()
 
 private final case class JavaChangeContext(ctx: ChangeContext) extends JavaChange:
-  def subject(): String      = ctx.subject
-  def sequenceNumber(): Long = ctx.sequenceNumber
-  def localOrigin(): Boolean = ctx.localOrigin
+  def subject(): String                = ctx.subject
+  def sequenceNumber(): Long           = ctx.sequenceNumber
+  def localOrigin(): Boolean           = ctx.localOrigin
   def installation(): Optional[String] =
     ctx.installation.fold(Optional.empty[String]())(Optional.of(_))
   def standing(): Optional[com.thinkmorestupidless.ankka.javasdk.client.WorkflowLifecycle] =

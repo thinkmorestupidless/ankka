@@ -121,7 +121,7 @@ class ViewsSuite extends munit.FunSuite with LogCapturing:
 
   test("a view's declared version is the version the runtime records for it") {
     client.forEventSourcedEntity("cart-v").call(KindRefs.addItem).invoke(LineItem("p", "P", 1))
-    val db = Database()(using kit.service.system)
+    val db       = Database()(using kit.service.system)
     def recorded = Await.result(
       db.queryOne(
         SqlFragment.raw("SELECT version FROM ankka_view_versions WHERE component_id = ") ++

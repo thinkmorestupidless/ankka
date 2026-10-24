@@ -47,7 +47,7 @@ object ClasspathReference:
       throw IllegalArgumentException(s"the class path listing $file lists nothing")
     listed.filterNot(Files.exists(_)) match
       case Vector() => listed
-      case missing =>
+      case missing  =>
         throw IllegalArgumentException(
           s"the class path listing $file lists ${missing.mkString(", ")}, which do not exist"
         )

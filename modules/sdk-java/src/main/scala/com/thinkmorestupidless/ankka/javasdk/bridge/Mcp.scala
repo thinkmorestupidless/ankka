@@ -100,7 +100,7 @@ final class McpCell private[bridge] (
           case obj: Json.Obj =>
             input.decode(obj) match
               case Left(refused) => Left(refused)
-              case Right(value) =>
+              case Right(value)  =>
                 Right(Mcp.answer(Mcp.refusals(run.apply(value))))
           case _ => Left("the arguments are not an object")
       }
@@ -118,10 +118,10 @@ final class McpCell private[bridge] (
     val resolved = refs.getOrElse(
       throw IllegalStateException("a tool can name a handler only in an endpoint a service built")
     )
-    val (component, plan) = resolved.resolve(ref)
-    val componentId       = ComponentId(component.componentId)
-    val wireName          = MethodName(plan.wireName)
-    val output            = CodecBridge.toScala(plan.output)
+    val (component, plan)                        = resolved.resolve(ref)
+    val componentId                              = ComponentId(component.componentId)
+    val wireName                                 = MethodName(plan.wireName)
+    val output                                   = CodecBridge.toScala(plan.output)
     val finish: smcp.ToolBuilder => smcp.McpTool = plan.input match
       case None =>
         val handle =
@@ -178,7 +178,7 @@ object McpCell:
 private[ankka] object Mcp:
 
   def read(cls: Class[?]): Either[Vector[DeclarationProblem], McpPlan] =
-    val problems = Vector.newBuilder[DeclarationProblem]
+    val problems                       = Vector.newBuilder[DeclarationProblem]
     def problem(message: String): Unit =
       problems += DeclarationProblem(cls.getSimpleName, "", message)
     if !classOf[McpEndpoint].isAssignableFrom(cls) then
@@ -218,7 +218,7 @@ private[ankka] object Mcp:
     case _: Done              => "done"
     case n: java.lang.Number  => n.toString
     case b: java.lang.Boolean => b.toString
-    case value =>
+    case value                =>
       String(
         RecordCodec.forType(value.getClass).asInstanceOf[Serializer[Any]].toBytes(value),
         UTF_8
@@ -226,7 +226,7 @@ private[ankka] object Mcp:
 
   /** A handler's answer, structured when its text is a JSON object and it was not a string. */
   def answer(value: Any): smcp.ToolAnswer =
-    val text = output.render(value)
+    val text       = output.render(value)
     val structured = value match
       case _: String => None
       case _         => Json.parse(text).toOption.collect { case obj: Json.Obj => obj }
@@ -266,10 +266,10 @@ private[ankka] object Mcp:
 
   /** A record's components as arguments of their own, beside the id's when there is one. */
   def recordInput(tpe: Type, serializer: Serializer[Any], id: Option[String]): smcp.ToolInput[Any] =
-    val declared = parsed(RecordCodec.schemaOf(tpe))
+    val declared   = parsed(RecordCodec.schemaOf(tpe))
     val properties = declared("properties") match
       case Some(Json.Obj(fields)) => fields.toVector.sortBy(_._1)
-      case _ =>
+      case _                      =>
         throw IllegalArgumentException(
           s"${tpe.getTypeName} is not a record, so it has no arguments of its own; " +
             "name its argument with the input form of command or query"
@@ -277,8 +277,8 @@ private[ankka] object Mcp:
     val requiredFields =
       declared("required").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
     new smcp.ToolInput[Any]:
-      def schema: Vector[(String, Json)] = properties
-      def required: Vector[String]       = requiredFields
+      def schema: Vector[(String, Json)]                   = properties
+      def required: Vector[String]                         = requiredFields
       def decode(arguments: Json.Obj): Either[String, Any] =
         val own = Json.Obj(id.fold(arguments.fields)(arguments.fields - _))
         checked(objectSchema(properties, requiredFields), own)

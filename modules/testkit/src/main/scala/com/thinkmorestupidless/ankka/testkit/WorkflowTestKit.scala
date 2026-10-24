@@ -71,7 +71,7 @@ final class WorkflowTestKit[W <: Workflow[S], S] private (
 
   private val prototype = descriptor.create(context)
   private val settings  = prototype.settings
-  private val empty =
+  private val empty     =
     Run[S](prototype.emptyState, Status.NotStarted, None, Map.empty, 0L, 0L, None, None)
 
   private var run: Run[S]                                    = empty
@@ -128,7 +128,7 @@ final class WorkflowTestKit[W <: Workflow[S], S] private (
     attempt.flatMap { effect =>
       effect.outcome match
         case Outcome.Fail(error) => Left(error)
-        case outcome =>
+        case outcome             =>
           if effect.deleting then apply(Event.Deleted)
           effect.stateChange.foreach(value => apply(Event.StateUpdated(roundTrip(value))))
           effect.transition.foreach { step =>
@@ -188,7 +188,7 @@ final class WorkflowTestKit[W <: Workflow[S], S] private (
   private def stepped(step: String, effect: WorkflowStepEffect[S]): Unit =
     effect.stateChange.foreach(value => apply(Event.StateUpdated(roundTrip(value))))
     effect.next match
-      case StepOutcome.TransitionTo(next) => apply(Event.TransitionedTo(next))
+      case StepOutcome.TransitionTo(next)      => apply(Event.TransitionedTo(next))
       case StepOutcome.Pause(after, onTimeout) =>
         pauseTimeout = after.zip(onTimeout.map(_.name))
         apply(Event.Paused(onTimeout.map(_.name), after.fold(0L)(_.toMillis)))

@@ -91,7 +91,7 @@ private[ankka] object Invocable:
   private def adapter(m: Method): Either[String, HandlerAdapter] =
     loaded match
       case Some(a) => Right(a)
-      case None =>
+      case None    =>
         val loader = Option(m.getDeclaringClass.getClassLoader).getOrElse(getClass.getClassLoader)
         try
           val a = Class

@@ -158,7 +158,7 @@ private[ankka] object Routes:
     def serializer(t: Type): Either[String, Serializer[Any]] =
       Planner.rawClass(t).flatMap(serializers.get) match
         case Some(s) => Right(s.asInstanceOf[Serializer[Any]])
-        case None =>
+        case None    =>
           try Right(RecordCodec.forType(t).asInstanceOf[Serializer[Any]])
           catch case e: EncodingException => Left(e.getMessage)
 
@@ -261,7 +261,7 @@ private[ankka] object Routes:
             .foreach(p => problem(member, s"binds nothing to {$p}: add a parameter @Path(\"$p\")"))
           val reply = (if kind == RouteKind.Sse || kind == RouteKind.Socket then Right(None)
                        else replyOf(m)) match
-            case Right(r) => r
+            case Right(r)  => r
             case Left(why) =>
               problem(member, why)
               None
@@ -413,7 +413,7 @@ private[ankka] object Routes:
       instance: HttpEndpoint,
       serializers: Declarations.Serializers
   ): Served =
-    val acl = Some(Acls.scalaOf(EndpointAcl(instance)))
+    val acl                          = Some(Acls.scalaOf(EndpointAcl(instance)))
     def context: http.RequestContext =
       http.RequestScope.currentContext.getOrElse(throw IllegalStateException("no request"))
     def params(r: RoutePlan, args: Vector[String], body: Array[Byte]): Vector[AnyRef] =
@@ -472,7 +472,7 @@ private[ankka] object Routes:
               (args, body) =>
                 invoke(r.method, instance, params(r, args, body)) match
                   // A wait for a workflow's end: already the Scala events, made where it was asked.
-                  case held: HeldEvents => held.scala
+                  case held: HeldEvents     => held.scala
                   case p: Flow.Publisher[?] =>
                     JavaFlowSupport.Source
                       .fromPublisher(p.asInstanceOf[Flow.Publisher[SseEvent]])
@@ -523,7 +523,7 @@ private[ankka] object Routes:
     val seen     = mutable.Map.empty[(String, String), String]
     plan.routes.foreach(r => seen((r.verb, r.template.render)) = r.method.getName)
     val routes = registrar.routes().asScala.toVector.flatMap { d =>
-      val member = s"${d.verb} ${d.template}"
+      val member                                 = s"${d.verb} ${d.template}"
       def refuse(message: String): Option[Route] =
         problems += DeclarationProblem(name, member, message)
         None
@@ -536,7 +536,7 @@ private[ankka] object Routes:
       val body = Option(d.body).map { t =>
         Planner.rawClass(t).flatMap(serializers.get) match
           case Some(s) => Right(s.asInstanceOf[Serializer[Any]])
-          case None =>
+          case None    =>
             try Right(RecordCodec.forType(t).asInstanceOf[Serializer[Any]])
             catch case e: EncodingException => Left(e.getMessage)
       }
@@ -545,10 +545,10 @@ private[ankka] object Routes:
           refuse(s"'${d.verb}' is not one of ${DeclaredVerbs.toVector.sorted.mkString(", ")}")
         case (None, _)            => None
         case (_, Some(Left(why))) => refuse(s"its body has no serializer: $why")
-        case (Some(t), read) =>
+        case (Some(t), read)      =>
           seen.get((d.verb, t.render)) match
             case Some(other) => refuse(s"is also $other's route")
-            case None =>
+            case None        =>
               seen((d.verb, t.render)) = member
               val reader = read.flatMap(_.toOption)
               Some(
@@ -557,7 +557,7 @@ private[ankka] object Routes:
                   t,
                   reader.isDefined,
                   (args, bytes) =>
-                    val path = t.parameterNames.zip(args).toMap.asJava
+                    val path  = t.parameterNames.zip(args).toMap.asJava
                     val input = reader.map { s =>
                       try s.fromBytes(bytes).asInstanceOf[AnyRef]
                       catch
@@ -602,11 +602,11 @@ private[ankka] object Routes:
   ): EncodedResponse =
     value match
       case null | _: Done => EncodedResponse(204, "text/plain", Array.emptyByteArray)
-      case r: Response =>
+      case r: Response    =>
         val headers = r.headers.asScala.toVector.map(e => e.getKey -> e.getValue)
         r.body.toScala match
           case None => EncodedResponse(r.statusCode, "text/plain", Array.emptyByteArray, headers)
-          case Some(p: Problem) => throw problem(p)
+          case Some(p: Problem)         => throw problem(p)
           case Some(bytes: Array[Byte]) =>
             EncodedResponse(
               r.statusCode,
@@ -641,7 +641,7 @@ private[ankka] final class JavaHttpEndpoint(served: Served) extends http.HttpEnd
 /** The Scala socket, as a Java route is handed it. */
 private final class JavaSocket(scala: http.Socket) extends WebSocket:
   def receive(): Optional[String] = scala.receive().fold(Optional.empty[String]())(Optional.of)
-  def send(text: String): Unit =
+  def send(text: String): Unit    =
     try scala.send(text)
     catch case closed: http.SocketClosed => throw SocketClosed(closed.reason)
 

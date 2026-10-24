@@ -49,7 +49,7 @@ class FacadeCostSuite extends munit.FunSuite with LogCapturing:
   private def median(descriptors: Seq[ComponentDescriptor]): Double =
     val kit = AnkkaTestKit.start(descriptors)
     try
-      val cart = kit.componentClient.forEventSourcedEntity(EntityId("cost"))
+      val cart        = kit.componentClient.forEventSourcedEntity(EntityId("cost"))
       def add(): Unit =
         cart.call(ShoppingCartEntity.addItem).invoke(LineItem("a", "Apple", 1)): Unit
       (1 to Warmup).foreach(_ => add())

@@ -82,7 +82,7 @@ class RecordCodecFixturesSuite extends munit.FunSuite:
   private def neutral(value: Any, codec: Serializer[Any]): JsonNode =
     codec.contentType match
       case ContentType.JSON => mapper.readTree(codec.toBytes(value))
-      case _ =>
+      case _                =>
         val plain: Any = value match
           case null                                          => null
           case _: com.thinkmorestupidless.ankka.javasdk.Done => null

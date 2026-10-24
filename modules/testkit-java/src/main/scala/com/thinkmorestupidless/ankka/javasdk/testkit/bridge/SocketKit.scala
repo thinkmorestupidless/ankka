@@ -10,11 +10,11 @@ import scala.jdk.OptionConverters.*
 
 /** The Java test socket over the Scala one. */
 final class SocketKit private[bridge] (scala: stk.TestSocket):
-  def subprotocol(): Optional[String] = scala.subprotocol.toJava
-  def send(text: String): Unit        = scala.send(text)
+  def subprotocol(): Optional[String]             = scala.subprotocol.toJava
+  def send(text: String): Unit                    = scala.send(text)
   def receive(within: Duration): Optional[String] =
     scala.receive(SocketKit.finite(within)).toJava
-  def close(): Unit = scala.close()
+  def close(): Unit                               = scala.close()
   def closed(within: Duration): TestSocket.Closed =
     val closed = scala.closed(SocketKit.finite(within))
     TestSocket.Closed(closed.code, closed.reason)

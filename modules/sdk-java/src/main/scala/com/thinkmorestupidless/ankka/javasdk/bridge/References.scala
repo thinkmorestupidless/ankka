@@ -70,11 +70,11 @@ private[ankka] object References:
         case 10 | 11 => members(index) = (in.readUnsignedShort(), in.readUnsignedShort())
         case 12      => nameAndType(index) = (in.readUnsignedShort(), in.readUnsignedShort())
         case 8 | 16 | 19 | 20 => in.readUnsignedShort(): Unit
-        case 15 =>
+        case 15               =>
           in.readUnsignedByte()
           in.readUnsignedShort(): Unit
         case 3 | 4 | 9 | 17 | 18 => in.readInt(): Unit
-        case 5 | 6 =>
+        case 5 | 6               =>
           in.readLong()
           index += 1
         case tag => throw IllegalStateException(s"unknown constant pool tag $tag")
@@ -140,7 +140,7 @@ private[ankka] object References:
         case 0xc5                                    => 4
         case 0xb9 | 0xba | 0xc8 | 0xc9               => 5
         case 0xc4                                    => if u1(pc + 1) == 0x84 then 6 else 4
-        case 0xaa =>
+        case 0xaa                                    =>
           val at   = (pc + 4) & ~3
           val low  = s4(at + 4)
           val high = s4(at + 8)
@@ -165,11 +165,11 @@ private[ankka] object References:
         case 1                => strings(index) = in.readUTF()
         case 7                => classes += in.readUnsignedShort()
         case 8 | 16 | 19 | 20 => in.readUnsignedShort(): Unit
-        case 15 =>
+        case 15               =>
           in.readUnsignedByte()
           in.readUnsignedShort(): Unit
         case 3 | 4 | 9 | 10 | 11 | 12 | 17 | 18 => in.readInt(): Unit
-        case 5 | 6 =>
+        case 5 | 6                              =>
           in.readLong()
           index += 1 // a long or a double takes two slots
         case tag => throw IllegalStateException(s"unknown constant pool tag $tag")

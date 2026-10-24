@@ -25,7 +25,7 @@ object AgentKits:
     def expectText(text: String): Unit = scala.expectText(text): Unit
     def expectToolCall(tool: String, argumentsJson: String, callId: String): Unit =
       scala.expectToolCall(tool, json(argumentsJson), callId): Unit
-    def expectRefusal(reason: String): Unit = scala.expectRefusal(reason): Unit
+    def expectRefusal(reason: String): Unit          = scala.expectRefusal(reason): Unit
     def expectCompleteTask(resultJson: String): Unit =
       scala.expectCompleteTaskJson(resultJson): Unit
     def expectCompleteTaskText(text: String): Unit = scala.expectCompleteTaskText(text): Unit
@@ -90,7 +90,7 @@ object AgentKits:
 
     private def handleOf(ref: AnyRef): AnyRef =
       val handle = plan.handle(ref)
-      val owner = handle match
+      val owner  = handle match
         case h: CommandHandle[?, ?, ?] => h.componentId
         case h: NoArgHandle[?, ?]      => h.componentId
         case _                         => ""
@@ -101,10 +101,10 @@ object AgentKits:
       handle
 
   private final case class JavaAgentResult[O](scala: stk.AgentResult[Any]) extends AgentResult[O]:
-    def reply(): O         = scala.reply.asInstanceOf[O]
-    def isError(): Boolean = scala.isError
-    def error(): String    = scala.error.message
-    def problem(): Problem = Effects.toProblem(scala.error)
+    def reply(): O            = scala.reply.asInstanceOf[O]
+    def isError(): Boolean    = scala.isError
+    def error(): String       = scala.error.message
+    def problem(): Problem    = Effects.toProblem(scala.error)
     def isAwaiting(): Boolean =
       scala.outcome.exists(_.isInstanceOf[AgentOutcome.AwaitingApproval[?]])
     def awaiting(): java.util.List[ApprovalRequest] =

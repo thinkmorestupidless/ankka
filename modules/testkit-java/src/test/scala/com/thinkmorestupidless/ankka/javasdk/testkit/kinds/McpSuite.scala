@@ -122,7 +122,7 @@ class McpSuite extends munit.FunSuite with LogCapturing:
 
   test("tools/list lists every tool with its description and its arguments' schema") {
     val listed = rpc(kit, "/mcp", "tools/list", Json.obj())
-    val tools =
+    val tools  =
       listed("result").flatMap(_("tools")).flatMap(_.asArray).getOrElse(fail(listed.render))
     val byName = tools.map(t => t("name").flatMap(_.asString).get -> t).toMap
     assertEquals(
@@ -133,7 +133,7 @@ class McpSuite extends munit.FunSuite with LogCapturing:
       byName("add_item")("description").flatMap(_.asString),
       Some("Adds an item to a cart")
     )
-    val schema = byName("add_item")("inputSchema").get
+    val schema     = byName("add_item")("inputSchema").get
     val properties =
       schema("properties").collect { case Json.Obj(ps) => ps.keySet }.getOrElse(Set.empty)
     assertEquals(properties, Set("cartId", "productId", "name", "quantity"))
@@ -162,7 +162,7 @@ class McpSuite extends munit.FunSuite with LogCapturing:
       )
     )
     assertEquals(text(added), "done", added.render)
-    val cart = call(kit, "/mcp", "get_cart", Json.obj("cartId" -> Json.str("c1")))
+    val cart  = call(kit, "/mcp", "get_cart", Json.obj("cartId" -> Json.str("c1")))
     val items =
       cart("result").flatMap(_("structuredContent")).flatMap(_("items")).flatMap(_.asArray)
     assertEquals(items.map(_.size), Some(1), cart.render)
@@ -284,7 +284,7 @@ class McpSuite extends munit.FunSuite with LogCapturing:
     val client  = BrokerClient(signingIn.http().toString.stripSuffix("/"), outside)
     issuer.signingIn = "ada"
     client.signIn(): Unit
-    val token = client.accessToken.getOrElse(fail(s"no token: ${client.sentBack}"))
+    val token  = client.accessToken.getOrElse(fail(s"no token: ${client.sentBack}"))
     val answer =
       call(signingIn, "/mcp", "whoami", Json.obj(), outside, "Authorization" -> s"Bearer $token")
     assertEquals(text(answer), "ada", answer.render)

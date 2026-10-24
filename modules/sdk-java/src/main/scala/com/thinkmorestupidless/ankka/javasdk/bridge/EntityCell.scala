@@ -55,7 +55,7 @@ final class EntityCell private[bridge] (
   /** Where the event being applied was written; read by the Java base class. */
   def eventContext(): EventContext = event match
     case Some(e) => EventFacts(e)
-    case None =>
+    case None    =>
       throw IllegalStateException("eventContext() is only available inside applyEvent")
 
   /** The instance's context; read by the Java base class. */
@@ -80,8 +80,8 @@ object EntityCell:
 private final class EventFacts(e: sdk.EventContext) extends EventContext:
   def installation(): Optional[String] =
     e.installation.fold(Optional.empty[String]())(Optional.of(_))
-  def isLocal(): Boolean     = e.isLocal
-  def sequenceNumber(): Long = e.sequenceNumber
+  def isLocal(): Boolean              = e.isLocal
+  def sequenceNumber(): Long          = e.sequenceNumber
   def attribution(): Optional[String] =
     e.attribution.fold(Optional.empty[String]())(Optional.of(_))
   def forwardedFrom(): Optional[String] =

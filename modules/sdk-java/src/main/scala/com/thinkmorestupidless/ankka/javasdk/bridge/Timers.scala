@@ -51,7 +51,7 @@ private[ankka] final class ActionIndex(plans: Vector[TimedActionPlan]):
 
   private def resolve(ref: AnyRef): (TimedActionPlan, ActionPlan) =
     val lambda = Refs.serialized(ref)
-    val key = (
+    val key    = (
       lambda.getImplClass.replace('/', '.'),
       lambda.getImplMethodName,
       lambda.getImplMethodSignature
@@ -76,7 +76,7 @@ private[ankka] final class ActionIndex(plans: Vector[TimedActionPlan]):
 
   def call(ref: ActionRef[?, ?], input: Any): sdk.DeferredCall =
     val (plan, action) = resolve(ref)
-    val serializer = action.input.getOrElse(
+    val serializer     = action.input.getOrElse(
       throw CallerError(s"the action '${action.name}' takes no input; name it as a NoArgActionRef")
     )
     sdk.DeferredCall(

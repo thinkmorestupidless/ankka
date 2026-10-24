@@ -26,7 +26,7 @@ object Language:
     case "java"              => Right(Java)
     case "kotlin" | "kt"     => Right(Kotlin)
     case "web"               => Right(Web)
-    case other =>
+    case other               =>
       Left(
         s"unknown language '$other'; one of scala, java, kotlin, python, typescript, rust, web"
       )

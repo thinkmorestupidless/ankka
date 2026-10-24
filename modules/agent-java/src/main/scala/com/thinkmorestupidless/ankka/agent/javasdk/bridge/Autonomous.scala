@@ -57,7 +57,7 @@ private[bridge] final case class JavaTaskType[R](scala: autonomous.TaskType[R])
     if scala.hasResultShape then
       throw IllegalArgumentException(s"task type '${scala.name}' has a result type already")
     val serializer = Values.serializer(`type`, Map.empty).asInstanceOf[Serializer[S]]
-    val shape = new JsonSchema[S]:
+    val shape      = new JsonSchema[S]:
       val schema: Json = Tools.recordSchema(`type`)
     JavaTaskType(
       scala
@@ -177,7 +177,7 @@ private[bridge] object AutonomousReader:
         Invocable.invoke(DefinitionMethod, build()) match
           case d: JavaDefinition => Some(d)
           case null              => problem("definition", "returns null"); None
-          case other =>
+          case other             =>
             problem("definition", s"returns $other, not one AutonomousDefinition made"); None
       catch
         case e: Exception =>
@@ -320,7 +320,7 @@ private[bridge] final class JavaAutonomousRef(
   def notifications(): Flow.Publisher[javasdk.Notification] =
     val system = transport match
       case sharded: runtime.ShardingTransport => sharded.actorSystem
-      case other =>
+      case other                              =>
         throw IllegalStateException(s"notifications are read through a running service, not $other")
     calls
       .notifications()

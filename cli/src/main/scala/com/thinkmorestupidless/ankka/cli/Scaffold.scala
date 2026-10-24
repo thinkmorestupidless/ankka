@@ -117,7 +117,7 @@ object Scaffold:
             case Array(path)           => Entry(path, Mode.Text)
             case Array(path, "binary") => Entry(path, Mode.Binary)
             case Array(path, "exec")   => Entry(path, Mode.Exec)
-            case _ =>
+            case _                     =>
               throw IllegalStateException(s"the ${language.id} template's index has '$line'")
         }
       case None => throw IllegalStateException(s"no ${language.id} template in this CLI")

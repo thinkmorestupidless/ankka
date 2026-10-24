@@ -22,7 +22,7 @@ import scala.jdk.OptionConverters.*
 
 private[bridge] final case class JavaBlueprint(scala: blueprint.Blueprint)
     extends javasdk.Blueprint:
-  def name(): String = scala.name
+  def name(): String                                 = scala.name
   def input(shape: javasdk.Shape): javasdk.Blueprint = JavaBlueprint(
     scala.input(Blueprints.shape(shape))
   )

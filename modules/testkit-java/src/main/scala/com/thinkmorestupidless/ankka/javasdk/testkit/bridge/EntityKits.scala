@@ -104,7 +104,7 @@ object EntityKits:
         case (h: CommandHandle[JavaEventSourcedHost, Any, Any] @unchecked, Some(in)) =>
           kit.call(h)(in)
         case (h: NoArgHandle[JavaEventSourcedHost, Any] @unchecked, None) => kit.call(h)
-        case _ =>
+        case _                                                            =>
           throw CallerError(
             s"'${b.name}' ${if input.isEmpty then "takes an input" else "takes none"}"
           )
@@ -132,7 +132,7 @@ object EntityKits:
       val result = (b, input) match
         case (h: CommandHandle[JavaKeyValueHost, Any, Any] @unchecked, Some(in)) => kit.call(h)(in)
         case (h: NoArgHandle[JavaKeyValueHost, Any] @unchecked, None)            => kit.call(h)
-        case _ =>
+        case _                                                                   =>
           throw CallerError(
             s"'${b.name}' ${if input.isEmpty then "takes an input" else "takes none"}"
           )
@@ -151,14 +151,14 @@ private final case class KitResult[O](
     case Right(Some(value)) => value.asInstanceOf[O]
     case Right(None)        => throw AssertionError("the handler replied with no value")
     case Left(error) => throw AssertionError(s"the handler refused the command: ${error.message}")
-  def isError(): Boolean = outcome.isLeft
+  def isError(): Boolean            = outcome.isLeft
   private def refusal: CommandError = outcome.left.getOrElse(
     throw AssertionError(s"expected a refusal, but the command succeeded with $outcome")
   )
-  def error(): String    = refusal.message
-  def problem(): Problem = Effects.toProblem(refusal)
-  def events(): JList[?] = persisted.asJava
-  def state(): Any       = after
+  def error(): String              = refusal.message
+  def problem(): Problem           = Effects.toProblem(refusal)
+  def events(): JList[?]           = persisted.asJava
+  def state(): Any                 = after
   def handover(): Optional[String] = replication match
     case Some(ReplicationChange.HandOver(to)) => Optional.of(to)
     case _                                    => Optional.empty()

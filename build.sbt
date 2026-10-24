@@ -969,7 +969,7 @@ lazy val cli = project
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
         // only a process service's, which a web-hosted interface and an embedded one are not.
         // `.scaffold-modes` beside a template's root names its binary and executable files.
-        val modesFile = templates / language / ".scaffold-modes"
+        val modesFile                  = templates / language / ".scaffold-modes"
         val modes: Map[String, String] =
           if (!modesFile.exists) Map.empty
           else

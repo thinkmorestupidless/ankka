@@ -182,7 +182,7 @@ object ServiceKit:
     val probe        = stk.TimerProbe()
     val broker       = runtime.InMemoryBroker()
     val timerRuntime = runtime.TimerRuntime(pollInterval = 200.millis, observer = probe)
-    val extensions = read.platformExtensionsWith(
+    val extensions   = read.platformExtensionsWith(
       runtime.ProjectionRuntime.withBroker(broker, broker),
       timerRuntime
     ) ++
@@ -202,10 +202,10 @@ object ServiceKit:
       ) => stk.AnkkaTestKit
   ): ServiceKit =
     val Prepared(read, probe, broker, http) = prepare(service)
-    val scripted =
+    val scripted                            =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
-    val kit =
+    val kit    =
       try
         JavaServiceBuilder.problemsAtStart(
           launch(
@@ -233,7 +233,7 @@ private final class JavaScripted(scala: stk.ScriptedService) extends ScriptedSer
         response.headers.asScala.toVector.map(e => e.getKey -> e.getValue)
       )
     }
-  def failNext(status: Int): Unit = scala.failNext(status)
+  def failNext(status: Int): Unit                         = scala.failNext(status)
   def requests(): java.util.List[ScriptedService.Request] =
     scala.requests.map(request).asJava
   def clear(): Unit = scala.clear()

@@ -133,7 +133,7 @@ object GrpcCell:
 private[ankka] object Grpc:
 
   def read(cls: Class[?]): Either[Vector[DeclarationProblem], GrpcPlan] =
-    val problems = Vector.newBuilder[DeclarationProblem]
+    val problems                       = Vector.newBuilder[DeclarationProblem]
     def problem(message: String): Unit =
       problems += DeclarationProblem(cls.getSimpleName, "", message)
     if !classOf[GrpcEndpoint].isAssignableFrom(cls) then
@@ -154,7 +154,7 @@ private[ankka] object Grpc:
 
   /** The Scala endpoint of a Java one, built for the clients the server hands it. */
   def scalaEndpoint(plan: GrpcPlan, cell: GrpcCell): sgrpc.GrpcEndpoint =
-    val java = GrpcCell.constructing(cell)(plan.construct()).asInstanceOf[GrpcEndpoint]
+    val java    = GrpcCell.constructing(cell)(plan.construct()).asInstanceOf[GrpcEndpoint]
     val service = cell.service.getOrElse(
       throw IllegalStateException(s"${plan.cls.getSimpleName} named no service descriptor")
     )

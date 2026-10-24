@@ -56,7 +56,7 @@ object Acls:
 
   private[bridge] def scalaOf(acl: Acl): http.Acl = acl match
     case Held(scala) => scala
-    case null =>
+    case null        =>
       throw IllegalStateException("acl() returned null; return Acl.denyAll() to admit no one")
     case other => throw IllegalStateException(s"$other is not an Acl built by Acl's factories")
 
@@ -107,12 +107,12 @@ private[bridge] final class JavaRequest(ctx: http.RequestContext) extends Reques
   def path(): String                                 = ctx.path
   def query(name: String): Optional[String]          = ctx.query.raw(name).toJava
   def queryAll(name: String): java.util.List[String] = ctx.query.rawAll(name).asJava
-  def requiredQuery(name: String): String =
+  def requiredQuery(name: String): String            =
     ctx.query
       .raw(name)
       .getOrElse(throw ProblemException(Problem.badRequest(s"query parameter '$name' is required")))
-  def flag(name: String): Boolean            = ctx.query.flag(name)
-  def header(name: String): Optional[String] = ctx.header(name).toJava
+  def flag(name: String): Boolean                                    = ctx.query.flag(name)
+  def header(name: String): Optional[String]                         = ctx.header(name).toJava
   def headers(): java.util.List[java.util.Map.Entry[String, String]] =
     ctx.headers.map((n, v) => java.util.Map.entry(n, v)).asJava
   def caller(): Caller                 = Acls.javaCaller(ctx.caller)
@@ -141,7 +141,7 @@ final class EndpointCell private[bridge] (
   def request(): Request =
     http.RequestScope.currentContext match
       case Some(ctx) => JavaRequest(ctx)
-      case None =>
+      case None      =>
         throw IllegalStateException("request() is only available inside a route, on its own thread")
 
   def componentClient(): ComponentClient = client

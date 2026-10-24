@@ -69,5 +69,5 @@ object GraphDeltas:
     case number: java.lang.Double => number.doubleValue
     case flag: java.lang.Boolean  => flag.booleanValue
     case text: String             => text
-    case other =>
+    case other                    =>
       throw IllegalArgumentException(s"$other is not a property value a graph delta carries")

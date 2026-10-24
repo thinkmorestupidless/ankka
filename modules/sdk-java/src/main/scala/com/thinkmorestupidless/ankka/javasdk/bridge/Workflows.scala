@@ -30,7 +30,7 @@ private[ankka] final class StepIndex(workflow: Class[?], steps: Vector[StepPlan]
 
   def plan(ref: AnyRef): StepPlan =
     val lambda = Refs.serialized(ref)
-    val key = (
+    val key    = (
       lambda.getImplClass.replace('/', '.'),
       lambda.getImplMethodName,
       lambda.getImplMethodSignature
@@ -50,7 +50,7 @@ private[ankka] final class StepIndex(workflow: Class[?], steps: Vector[StepPlan]
     val step = plan(ref)
     step.input match
       case Some(serializer) => se.StepRef(step.name, Some(serializer.toBytes(input)))
-      case None =>
+      case None             =>
         throw CallerError(s"step '${step.name}' takes no input; name it as a NoInputStepRef")
 
   def to(ref: NoInputStepRef[?]): se.StepRef =
@@ -78,7 +78,7 @@ private[bridge] object WorkflowSettingsReader:
   ): Either[Vector[(String, String)], sdk.WorkflowSettings] =
     val index = StepIndex(cls, steps)
     val cell  = EntityCell("", componentId, Clients.unavailable)
-    val java =
+    val java  =
       try Right(EntityCell.constructing(cell)(construct(cell.entityContext())))
       catch case e: Exception => Left(Vector("" -> s"could not be constructed: $e"))
     java.flatMap { instance =>
@@ -94,7 +94,7 @@ private[bridge] object WorkflowSettingsReader:
       index: StepIndex,
       java: WorkflowSettings
   ): Either[Vector[(String, String)], sdk.WorkflowSettings] =
-    val problems = Vector.newBuilder[(String, String)]
+    val problems                          = Vector.newBuilder[(String, String)]
     def name(ref: AnyRef): Option[String] =
       try Some(index.plan(ref).name)
       catch
@@ -136,9 +136,9 @@ private[bridge] final class JavaWorkflowEffects(steps: StepIndex) extends Workfl
     Builder(effects.transitionTo(steps.to(step, input)))
   def transitionTo[W](step: NoInputStepRef[W]): WorkflowBuilder[Any] =
     Builder(effects.transitionTo(steps.to(step)))
-  def delete(): WorkflowBuilder[Any]               = Builder(effects.delete())
-  def reply[R](reply: R): ReadOnlyEffect[R]        = Effects.Held(effects.reply(reply))
-  def error[R](message: String): ReadOnlyEffect[R] = Effects.Held(effects.error(message))
+  def delete(): WorkflowBuilder[Any]                = Builder(effects.delete())
+  def reply[R](reply: R): ReadOnlyEffect[R]         = Effects.Held(effects.reply(reply))
+  def error[R](message: String): ReadOnlyEffect[R]  = Effects.Held(effects.error(message))
   def error[R](problem: Problem): ReadOnlyEffect[R] =
     val e = Effects.toCommandError(problem)
     Effects.Held(effects.error(e.message, e.code))

@@ -128,7 +128,7 @@ class KindKitsSuite extends munit.FunSuite with LogCapturing:
 
   test("a consumer's calls go to the stubbed client, and one nobody stubbed is refused") {
     val placed = ConcurrentLinkedQueue[TreeNode.Placed]()
-    val stubs = TestClient
+    val stubs  = TestClient
       .of(classOf[TreeNode])
       .stub(
         KindRefs.place,

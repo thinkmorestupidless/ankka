@@ -130,7 +130,7 @@ private[ankka] object Adapters:
       try m.invoke(target, args*)
       catch case e: InvocationTargetException => throw e.getCause
 
-    def emptyEventSourced(java: AnyRef): Any = call(esEmpty, java)
+    def emptyEventSourced(java: AnyRef): Any                  = call(esEmpty, java)
     def applyEvent(java: AnyRef, state: Any, event: Any): Any =
       call(esApply, java, state.asInstanceOf[AnyRef], event.asInstanceOf[AnyRef])
     def emptyKeyValue(java: AnyRef): Any = call(kvEmpty, java)
@@ -138,7 +138,7 @@ private[ankka] object Adapters:
 /** A Java event sourced entity, hosted. */
 private[ankka] final class JavaEventSourcedHost(val java: AnyRef, cell: EntityCell)
     extends sdk.EventSourcedEntity[Any, Any]:
-  def emptyState: Any = Adapters.Hooks.emptyEventSourced(java)
+  def emptyState: Any             = Adapters.Hooks.emptyEventSourced(java)
   def applyEvent(event: Any): Any =
     cell.event = scala.util.Try(eventContext).toOption
     try Adapters.Hooks.applyEvent(java, currentState, event)

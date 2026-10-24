@@ -26,7 +26,7 @@ private[ankka] object CodecBridge:
   def state[A](java: JavaSerializer[A]): core.Serializer[A] = NullableState(toScala(java))
 
   private final case class NullableState[A](scala: core.Serializer[A]) extends core.Serializer[A]:
-    def manifest: String = scala.manifest
+    def manifest: String               = scala.manifest
     def toBytes(value: A): Array[Byte] =
       if value == null then Array.emptyByteArray else scala.toBytes(value)
     def fromBytes(bytes: Array[Byte]): A =

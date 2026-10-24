@@ -42,13 +42,13 @@ private[ankka] object Clients:
     def forEventSourcedEntity(entityId: String): EntityRef = refuse
     def forKeyValueEntity(entityId: String): EntityRef     = refuse
     def forWorkflow(workflowId: String): WorkflowRef       = refuse
-    private def refuse =
+    private def refuse                                     =
       throw IllegalStateException("this component was not built by a service or a test kit")
 
   /** A rejection or a failure as a Java caller sees it. */
   private[ankka] def javaFailure(t: Throwable): Throwable = t match
     case e: CompletionException if e.getCause != null => javaFailure(e.getCause)
-    case e: CommandError =>
+    case e: CommandError                              =>
       WorkflowEnd.failure(e) match
         case Some(f) =>
           CommandException(
@@ -60,7 +60,7 @@ private[ankka] object Clients:
 
   /** A workflow's lifecycle as the Java record, read from the engine's answer. */
   private[bridge] val lifecycle: Serializer[Any] = new Serializer[Any]:
-    def manifest(): String = "workflow-lifecycle"
+    def manifest(): String               = "workflow-lifecycle"
     def toBytes(value: Any): Array[Byte] =
       throw UnsupportedOperationException("a workflow's lifecycle is only ever read")
     def fromBytes(bytes: Array[Byte]): Any =
@@ -77,7 +77,7 @@ private[ankka] object Clients:
 
   /** A copy's replication status as the Java record. */
   private[bridge] val replication: Serializer[Any] = new Serializer[Any]:
-    def manifest(): String = "replication-status"
+    def manifest(): String               = "replication-status"
     def toBytes(value: Any): Array[Byte] =
       throw UnsupportedOperationException("a replication status is only ever read")
     def fromBytes(bytes: Array[Byte]): Any =
@@ -96,7 +96,7 @@ private[ankka] final class JavaComponentClient(
 ) extends ComponentClient:
   def forEventSourcedEntity(entityId: String): EntityRef = JavaEntityRef(transport, refs, entityId)
   def forKeyValueEntity(entityId: String): EntityRef     = JavaEntityRef(transport, refs, entityId)
-  def forWorkflow(workflowId: String): WorkflowRef =
+  def forWorkflow(workflowId: String): WorkflowRef       =
     JavaWorkflowRef(JavaEntityRef(transport, refs, workflowId), transport, refs, workflowId)
 
 private final class JavaEntityRef(transport: CallTransport, refs: Refs, entityId: String)
@@ -194,9 +194,9 @@ private final class JavaWorkflowRef(
       workflow: Class[? <: Workflow[?]],
       timeout: Duration
   ): Flow.Publisher[SseEvent] =
-    val plan               = workflowPlan(workflow)
-    val wait               = Effects.finite(timeout)
-    given ExecutionContext = ExecutionContext.parasitic
+    val plan                       = workflowPlan(workflow)
+    val wait                       = Effects.finite(timeout)
+    given ExecutionContext         = ExecutionContext.parasitic
     val end: Future[http.SseEvent] =
       ended(plan, timeout)
         .map((bytes, metadata) => http.SseEvent.ended(http.EndpointClients.asJson(bytes, metadata)))

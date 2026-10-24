@@ -26,7 +26,7 @@ final case class AgentResult[O](
 
   /** The answer. Fails the test when the turn was rejected or waits for a decision. */
   def reply: O = outcome match
-    case Right(AgentOutcome.Answered(value)) => value
+    case Right(AgentOutcome.Answered(value))            => value
     case Right(AgentOutcome.AwaitingApproval(requests)) =>
       throw AssertionError(
         s"the turn waits for ${requests.map(_.tool).mkString(", ")}, not answered"

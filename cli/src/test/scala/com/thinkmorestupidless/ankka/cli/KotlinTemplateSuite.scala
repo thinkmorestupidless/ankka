@@ -62,7 +62,7 @@ class KotlinTemplateSuite extends PolyglotTemplateSuite(Language.Kotlin, "docker
     val (code, _) = gradlew("test")
     assertEquals(code, 0, "./gradlew test")
     val reports = project.resolve("build/test-results/test")
-    val counts = Files
+    val counts  = Files
       .list(reports)
       .iterator()
       .asScala

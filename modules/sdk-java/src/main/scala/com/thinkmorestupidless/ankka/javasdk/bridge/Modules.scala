@@ -60,5 +60,5 @@ private[ankka] object Modules:
 
   def asJava(module: ServiceModule): JavaModule = module match
     case m: JavaModule => m
-    case other =>
+    case other         =>
       throw IllegalArgumentException(s"$other is not a module from one of the SDK's libraries")

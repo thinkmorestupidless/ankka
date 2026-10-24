@@ -29,7 +29,7 @@ object Effects:
   private[ankka] def unwrap(effect: Any, where: => String): Any = effect match
     case held: Holding => held.scala
     case null          => throw IllegalStateException(s"$where returned null rather than an effect")
-    case other =>
+    case other         =>
       throw IllegalStateException(
         s"$where returned ${other.getClass.getName}, which is not an effect built by effects()"
       )
@@ -96,9 +96,9 @@ object Effects:
       with Holding
 
   private object TimedAction extends TimedActionEffects:
-    private val effects                           = new se.TimedActionEffects()
-    def done(): TimedActionEffect                 = HeldAction(effects.done())
-    def error(message: String): TimedActionEffect = HeldAction(effects.error(message))
+    private val effects                            = new se.TimedActionEffects()
+    def done(): TimedActionEffect                  = HeldAction(effects.done())
+    def error(message: String): TimedActionEffect  = HeldAction(effects.error(message))
     def error(problem: Problem): TimedActionEffect =
       val e = toCommandError(problem)
       HeldAction(effects.error(e.message, e.code))
@@ -145,7 +145,7 @@ object Effects:
     override def toString: String       = scala.toString
 
   private object Graph extends GraphEffects:
-    private val effects = new sdk.graph.GraphEffects()
+    private val effects                                          = new sdk.graph.GraphEffects()
     private def scalaOf(e: GraphElement): sdk.graph.GraphElement = e match
       case HeldElement(scala) => scala
       case other => throw IllegalArgumentException(s"$other is not an element built by graph()")
@@ -160,11 +160,11 @@ object Effects:
     private val graph = new sdk.graph.GraphElements()
 
     private def value(name: String, v: Any): PropertyValue = v match
-      case s: String            => s
-      case b: java.lang.Boolean => b.booleanValue
-      case i: java.lang.Integer => i.intValue
-      case l: java.lang.Long    => l.longValue
-      case d: java.lang.Double  => d.doubleValue
+      case s: String                => s
+      case b: java.lang.Boolean     => b.booleanValue
+      case i: java.lang.Integer     => i.intValue
+      case l: java.lang.Long        => l.longValue
+      case d: java.lang.Double      => d.doubleValue
       case items: java.util.List[?] =>
         items.asScala.toVector.map(value(name, _)).map {
           case scalar: (String | Boolean | Int | Long | Double) => scalar
@@ -207,7 +207,7 @@ object Effects:
     def ignore(): ViewEffect[Any]            = HeldView(effects.ignore())
 
   private object Keyed extends KeyedViewEffects[Any]:
-    private val effects = new se.KeyedViewEffects[Any]()
+    private val effects                                        = new se.KeyedViewEffects[Any]()
     def updateRow(key: String, row: Any): KeyedViewEffect[Any] =
       HeldKeyed(effects.updateRow(key, row))
     def deleteRow(key: String): KeyedViewEffect[Any] = HeldKeyed(effects.deleteRow(key))
@@ -222,14 +222,14 @@ object Effects:
   private object EventSourced extends EventSourcedEffects[Any, Any]:
     private val effects: AnyES = new se.EventSourcedEffects[Any, Any]()
 
-    def persist(event: Any): PersistBuilder[Any, Any] = Persist(effects.persist(event))
+    def persist(event: Any): PersistBuilder[Any, Any]              = Persist(effects.persist(event))
     def persist(first: Any, second: Any): PersistBuilder[Any, Any] =
       Persist(effects.persist(first, second))
     def persist(first: Any, second: Any, third: Any): PersistBuilder[Any, Any] =
       Persist(effects.persist(first, second, third))
     def persistAll(events: java.util.List[? <: Any]): PersistBuilder[Any, Any] =
       Persist(effects.persistAll(events.asScala.toVector))
-    def deleteEntity(): PersistBuilder[Any, Any] = Persist(effects.deleteEntity())
+    def deleteEntity(): PersistBuilder[Any, Any]                   = Persist(effects.deleteEntity())
     def handOverTo(installation: String): PersistBuilder[Any, Any] =
       Persist(effects.handOverTo(installation))
     def replicateTo(installation: String): PersistBuilder[Any, Any] =

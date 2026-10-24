@@ -45,7 +45,7 @@ class AgentKitSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a guardrail refuses before the model is asked, as the caller would be refused") {
-    val model = TestModelProvider()
+    val model  = TestModelProvider()
     val result =
       AgentTestKit
         .of(classOf[CartHelper], model)

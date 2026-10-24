@@ -135,7 +135,7 @@ class ConsumersSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a topic's contract, broker and parallel handling reach the runtime, at both ends") {
-    val read = JavaServiceBuilder.read(Vector(classOf[Contracted] -> None), Map.empty)
+    val read     = JavaServiceBuilder.read(Vector(classOf[Contracted] -> None), Map.empty)
     val consumer = read.descriptors.collect {
       case c: com.thinkmorestupidless.ankka.sdk.ConsumerDescriptor[?, ?, ?] => c
     }.head

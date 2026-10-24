@@ -122,7 +122,7 @@ private[ankka] object Declarations:
       val resolved = resolve(tpe, bindings)
       Planner.rawClass(resolved).flatMap(serializers.get) match
         case Some(explicit) => Some(explicit.asInstanceOf[Serializer[Any]])
-        case None =>
+        case None           =>
           try Some(RecordCodec.forType(resolved).asInstanceOf[Serializer[Any]])
           catch
             case e: EncodingException =>
@@ -184,7 +184,7 @@ private[ankka] object Declarations:
             else None
           val reply = replyType(Invocable.genericReturnType(m)) match
             case Some(t) => serializer(t, member, "reply")
-            case None =>
+            case None    =>
               problem(member, "must name its reply type, such as Effect<Done>")
               None
           m.setAccessible(true)
@@ -277,7 +277,7 @@ private[ankka] object Declarations:
         catch case e: InvocationTargetException => throw e.getCause
     constructors.find(_.getParameterTypes.toSeq == Seq(classOf[EntityContext])) match
       case Some(c) => Right(build(accessible(c), ctx => Array(ctx)))
-      case None =>
+      case None    =>
         constructors.find(_.getParameterCount == 0) match
           case Some(c) => Right(build(accessible(c), _ => Array.empty))
           case None    => Left("has no constructor taking nothing or an EntityContext")

@@ -61,7 +61,7 @@ private[bridge] final class Reader(
     val resolved = Declarations.resolve(tpe, bindings)
     Planner.rawClass(resolved).flatMap(serializers.get) match
       case Some(explicit) => Some(explicit.asInstanceOf[Serializer[Any]])
-      case None =>
+      case None           =>
         try Some(RecordCodec.forType(resolved).asInstanceOf[Serializer[Any]])
         catch
           case e: EncodingException =>

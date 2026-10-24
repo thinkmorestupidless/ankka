@@ -138,7 +138,7 @@ class WorkflowTestKitSuite extends munit.FunSuite with LogCapturing:
 
 /** Routes the wallet calls, refusing the first `failures` deposits. */
 private final class FlakyDeposit(failures: Int):
-  private var refused = 0
+  private var refused         = 0
   val client: ComponentClient = TestTransport()
     .stub(WalletEntity.withdraw)(_ => Done)
     .stub(WalletEntity.deposit) { _ =>

@@ -97,7 +97,7 @@ private final class JavaServiceClient(
   private def calling(call: => sdk.ServiceResponse): sdk.ServiceResponse =
     try call
     catch
-      case e: sdk.ServiceUnresolvable => throw ServiceUnresolvable(e.service, e.getMessage, e)
+      case e: sdk.ServiceUnresolvable     => throw ServiceUnresolvable(e.service, e.getMessage, e)
       case e: sdk.ServiceIdentityMismatch =>
         throw ServiceIdentityMismatch(e.service, e.getMessage, e)
       case e: sdk.ServiceUnanswered => throw ServiceUnanswered(e.service, e.getMessage, e)

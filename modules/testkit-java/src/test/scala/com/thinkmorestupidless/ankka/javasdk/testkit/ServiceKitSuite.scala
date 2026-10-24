@@ -53,7 +53,7 @@ class ServiceKitSuite extends munit.FunSuite with LogCapturing:
 
   test("a stand-in answers another service's calls as the test says") {
     val settings = Settings.defaults.withScriptedService("pricing")
-    val kit =
+    val kit      =
       AnkkaTestKit.start(Ankka.service("shop").withEndpoint(classOf[PriceEndpoint]), settings)
     try
       kit

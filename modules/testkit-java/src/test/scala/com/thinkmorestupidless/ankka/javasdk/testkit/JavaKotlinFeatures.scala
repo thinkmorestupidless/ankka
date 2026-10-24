@@ -53,8 +53,8 @@ class JavaKotlinFeatures
   private val notYet = Map.empty[String, String]
 
   test("every suite this feature names exists") {
-    val named = ranElsewhere.values.flatMap(_.split(" and ")).toSet
-    val root  = Paths.get("../..").toRealPath()
+    val named   = ranElsewhere.values.flatMap(_.split(" and ")).toSet
+    val root    = Paths.get("../..").toRealPath()
     val sources = Using.resource(Files.walk(root)) { paths =>
       paths.iterator.asScala
         .filter(p =>

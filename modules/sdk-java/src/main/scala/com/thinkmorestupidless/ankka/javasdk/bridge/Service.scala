@@ -212,7 +212,7 @@ private[ankka] object JavaServiceBuilder:
         timers: () => Timers
     ): Vector[EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint] =
       def keys(clients: EndpointClients) = Mcp.clientKeys(clients.clientKeys)
-      val mcpFactories = mcps.map { plan => (clients: EndpointClients) =>
+      val mcpFactories                   = mcps.map { plan => (clients: EndpointClients) =>
         Mcp.scalaEndpoint(
           plan,
           McpCell(
@@ -269,7 +269,7 @@ private[ankka] object JavaServiceBuilder:
     val moduleResults = modules.map { m =>
       m.read(moduleClasses.filter((cls, _) => m.claims(cls)), serializers)
     }
-    val (viewClasses, others) = sdkClasses.partition((cls, _) => Views.isView(cls))
+    val (viewClasses, others)   = sdkClasses.partition((cls, _) => Views.isView(cls))
     val (consumerClasses, rest) =
       others.partition((cls, _) => Consumers.isConsumer(cls))
     val (actionClasses, entityClasses) =
@@ -278,12 +278,12 @@ private[ankka] object JavaServiceBuilder:
     val results       = entityClasses.map((cls, id) => Declarations.read(cls, id, serializers))
     val entities      = results.collect { case Right(plan) => plan }
     // A view is read after the entities, since its source names one of them.
-    val viewResults = viewClasses.map((cls, id) => Views.read(cls, id, serializers, entities))
+    val viewResults     = viewClasses.map((cls, id) => Views.read(cls, id, serializers, entities))
     val consumerResults =
       consumerClasses.map((cls, id) => Consumers.read(cls, id, serializers, entities))
-    val routes = endpoints.map(Routes.read(_, serializers))
-    val grpcs  = grpcEndpoints.map(Grpc.read)
-    val mcps   = mcpEndpoints.map(Mcp.read)
+    val routes   = endpoints.map(Routes.read(_, serializers))
+    val grpcs    = grpcEndpoints.map(Grpc.read)
+    val mcps     = mcpEndpoints.map(Mcp.read)
     val problems = missing ++ moduleResults.collect { case Left(ps) => ps }.flatten ++
       results.collect { case Left(ps) => ps }.flatten ++
       viewResults.collect { case Left(ps) => ps }.flatten ++
@@ -316,7 +316,7 @@ private[ankka] object JavaServiceBuilder:
     val plans       = results.collect { case Right(plan) => plan }
     val modulePlans = moduleResults.collect { case Right(plan) => plan }
     val refs        = Refs(plans, modulePlans)
-    val views = viewResults.collect { case Right(plan) =>
+    val views       = viewResults.collect { case Right(plan) =>
       plan.cls -> (plan.componentId, Views.companion(plan))
     }
     val consumers   = consumerResults.collect { case Right(plan) => plan }
@@ -367,13 +367,13 @@ private[ankka] final class JavaAnkkaService(
   def componentClient(): ComponentClient = client
   def viewClient(): ViewClient           = views
   def secrets(): SecretStore             = Stores.secrets(scala.secrets)
-  def clientKeys(): ClientKeys =
+  def clientKeys(): ClientKeys           =
     Mcp.clientKeys(
       scala.extension[ClientKeysProvider].fold(ScalaClientKeys.unavailable)(_.clientKeys)
     )
   def storage(): ObjectStorage    = Stores.storage(scala.storage)
   def identity(): ServiceIdentity = Stores.identity(scala.identity)
-  def grpcClients(): GrpcClients =
+  def grpcClients(): GrpcClients  =
     scala.extension[sgrpc.GrpcClients].fold(Grpc.noClients)(Grpc.clients)
   def timers(): Timers =
     scala
@@ -385,12 +385,12 @@ private[ankka] final class JavaAnkkaService(
         throw IllegalStateException(s"$name serves no endpoint, or is not ready")
       )
     )
-  def awaitReady(): Unit                  = scala.awaitReady()
-  def awaitReady(timeout: Duration): Unit = scala.awaitReady(Effects.finite(timeout))
+  def awaitReady(): Unit                      = scala.awaitReady()
+  def awaitReady(timeout: Duration): Unit     = scala.awaitReady(Effects.finite(timeout))
   def whenTerminated(): CompletionStage[Void] =
     scala.whenTerminated.map(_ => null.asInstanceOf[Void])(using ExecutionContext.parasitic).asJava
   def terminate(): Unit         = scala.terminate()
   override def toString: String = s"AnkkaService($name)"
-  def close(): Unit =
+  def close(): Unit             =
     scala.terminate()
     Await.ready(scala.whenTerminated, 30.seconds): Unit

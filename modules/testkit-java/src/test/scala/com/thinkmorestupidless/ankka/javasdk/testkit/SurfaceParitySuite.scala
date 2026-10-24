@@ -174,11 +174,11 @@ class SurfaceParitySuite extends munit.FunSuite:
       ).map((m, java) => Row("View", S + "runtime.ViewQueries", m, java, Some("Async"))) ++
       // Consumer
       rows("Consumer", "sdk.Consumer")(
-        "onMessage"   -> j(classOf[component.Consumer[?, ?]], "onChange"),
-        "onDelete"    -> j(classOf[component.Consumer[?, ?]], "onDelete"),
-        "produceTo"   -> j(classOf[component.Consumer[?, ?]], "publishes"),
-        "produces"    -> j(classOf[component.Consumer[?, ?]], "publishes"),
-        "parallelism" -> j(classOf[component.Consumer[?, ?]], "parallelism"),
+        "onMessage"        -> j(classOf[component.Consumer[?, ?]], "onChange"),
+        "onDelete"         -> j(classOf[component.Consumer[?, ?]], "onDelete"),
+        "produceTo"        -> j(classOf[component.Consumer[?, ?]], "publishes"),
+        "produces"         -> j(classOf[component.Consumer[?, ?]], "publishes"),
+        "parallelism"      -> j(classOf[component.Consumer[?, ?]], "parallelism"),
         "outputSerializer" -> byDesign(
           "the output's serializer is the one for its type: derived, or given withSerializer"
         ),
@@ -412,8 +412,8 @@ class SurfaceParitySuite extends munit.FunSuite:
       rows("Running a service", "runtime.Ankka$")(
         "service" -> j(classOf[javasdk.Ankka], "service")
       ) ++ rows("Running a service", "runtime.ServiceBuilder")(
-        "register" -> j(classOf[javasdk.ServiceBuilder], "register"),
-        "start"    -> j(classOf[javasdk.ServiceBuilder], "start"),
+        "register"      -> j(classOf[javasdk.ServiceBuilder], "register"),
+        "start"         -> j(classOf[javasdk.ServiceBuilder], "start"),
         "withExtension" -> byDesign(
           "a Java service names no extension: the platform's are added for what it registers"
         )

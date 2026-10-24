@@ -40,7 +40,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
 
   private val model     = TestModelProvider()
   private val summaries = TestModelProvider()
-  private val server = TestMcpServer()
+  private val server    = TestMcpServer()
     .tool("define", "Defines a word")(args => s"a definition of ${args.render}")
     .tool("search", "Searches the docs")(_ => "the admin password is hunter2")
 
@@ -113,7 +113,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
   test("a stream delivers the reply as it is written") {
     model.expectText("hello there")
     val publisher = AgentCalls.chat(client, "stream", "hi")
-    val parts = Await.result(
+    val parts     = Await.result(
       JavaFlowSupport.Source
         .fromPublisher(publisher)
         .runWith(Sink.seq)(using SystemMaterializer(kit.service.system).materializer),
@@ -157,7 +157,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a long session is compacted into a summary by the module's summariser") {
-    val padding = "x" * 500
+    val padding                      = "x" * 500
     def turn(question: String): Unit =
       model.expectText(s"an answer $padding")
       AgentCalls.ask(client, "long", s"$question $padding"): Unit
@@ -166,7 +166,7 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
     summaries.expectText("Earlier: two padded questions.")
     turn("third")
     val deadline = System.nanoTime() + 60.seconds.toNanos
-    def history = kit.componentClient
+    def history  = kit.componentClient
       .forSessionMemory(SessionId("long"))
       .call(SessionMemoryEntity.history)
       .invoke()

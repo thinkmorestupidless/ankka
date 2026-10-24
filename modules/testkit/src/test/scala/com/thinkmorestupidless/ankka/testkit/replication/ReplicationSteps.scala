@@ -1463,7 +1463,7 @@ object LanguagesFeatures:
     "Python"     -> "cd sdks/python && uv run conformance",
     "TypeScript" -> "cd sdks/typescript && npm run conformance",
     "Rust"       -> "cd sdks/rust && ./conformance.sh",
-    "Java" ->
+    "Java"       ->
       "modules/sdk-java: sbt -Dankka.conformance.reference=java 'sidecar/testOnly *.ConformanceSuite'"
   )
 

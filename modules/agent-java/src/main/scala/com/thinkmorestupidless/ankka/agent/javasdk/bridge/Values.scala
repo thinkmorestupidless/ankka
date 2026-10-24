@@ -47,7 +47,7 @@ private[bridge] final case class JavaMcpServer(scala: agent.mcp.McpServer)
     extends javasdk.McpServer:
   def header(name: String, variable: String): javasdk.McpServer =
     JavaMcpServer(scala.header(name, variable))
-  def requiresApproval(): javasdk.McpServer = JavaMcpServer(scala.requiresApproval)
+  def requiresApproval(): javasdk.McpServer                 = JavaMcpServer(scala.requiresApproval)
   def requiresApproval(within: Duration): javasdk.McpServer =
     JavaMcpServer(scala.requiresApproval(Effects.finite(within)))
 
@@ -104,7 +104,7 @@ private[bridge] object Values:
 
   def scalaModel(p: javasdk.ModelProvider): agent.ModelProvider = p match
     case JavaModelProvider(scala) => scala
-    case other =>
+    case other                    =>
       ScalaModels
         .of(other)
         .getOrElse(
@@ -237,7 +237,7 @@ private[bridge] object Tools:
       serializers: Declarations.Serializers
   ): ToolMethod =
     m.setAccessible(true)
-    val where = s"${cls.getSimpleName}.${m.getName}"
+    val where    = s"${cls.getSimpleName}.${m.getName}"
     val approval =
       if !tool.requiresApproval then
         if tool.approvalWithin.nonEmpty then
@@ -260,7 +260,7 @@ private[bridge] object Tools:
       .foreach(why => throw IllegalArgumentException(s"$where $why"))
     val parameters = com.thinkmorestupidless.ankka.javasdk.bridge.Invocable.parameters(m).toVector
     val inputs: Vector[smcp.ToolInput[Any]] = parameters match
-      case Vector() => Vector.empty
+      case Vector()                           => Vector.empty
       case Vector(p) if recordLike(p.getType) =>
         val tpe = p.getParameterizedType
         Vector(recordInput(p.getType, tpe, Values.serializer(tpe, serializers)))

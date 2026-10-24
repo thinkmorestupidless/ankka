@@ -17,8 +17,8 @@ private[ankka] final case class JavaJudgmentProvider(scala: judgment.JudgmentPro
 
 private[bridge] final case class JavaChoice[T](scala: judgment.ChoiceQuestion[T])
     extends javasdk.ChoiceQuestion[T]:
-  def id(): String           = scala.id
-  def instructions(): String = scala.instructions
+  def id(): String                                       = scala.id
+  def instructions(): String                             = scala.instructions
   def options(): java.util.List[javasdk.ChoiceOption[T]] =
     scala.options.map(o => javasdk.ChoiceOption(o.value, o.key, o.description)).asJava
 
@@ -30,8 +30,8 @@ private[bridge] final case class JavaScore(scala: judgment.ScoreQuestion)
 
 private[bridge] final case class JavaYesNo(scala: judgment.YesNoQuestion)
     extends javasdk.YesNoQuestion:
-  def id(): String           = scala.id
-  def instructions(): String = scala.instructions
+  def id(): String                                               = scala.id
+  def instructions(): String                                     = scala.instructions
   def describing(yes: String, no: String): javasdk.YesNoQuestion =
     JavaYesNo(scala.describing(yes, no))
 
@@ -48,7 +48,7 @@ private[bridge] object JudgmentSerializer extends Serializer[javasdk.Judgment]:
   import judgment.Judgment.given
   private val scala = summon[core.Serializer[judgment.Judgment]]
 
-  def manifest(): String = scala.manifest
+  def manifest(): String                            = scala.manifest
   def toBytes(value: javasdk.Judgment): Array[Byte] = value match
     case JavaJudgment(j) => scala.toBytes(j)
     case other => throw IllegalArgumentException(s"$other is not a judgment a provider gave")
@@ -58,7 +58,7 @@ private[bridge] final case class JavaRefusal(scala: judgment.Refusal[?]) extends
 
 private[bridge] final case class JavaJudged(scala: judgment.JudgedGuardrail)
     extends javasdk.JudgedGuardrail:
-  def name(): String = scala.name
+  def name(): String                                            = scala.name
   def onInput(rules: javasdk.Refusal*): javasdk.JudgedGuardrail =
     JavaJudged(scala.onInput(rules.map(Judgments.scalaRefusal)*))
   def onOutput(rules: javasdk.Refusal*): javasdk.JudgedGuardrail =
@@ -75,7 +75,7 @@ private[bridge] final class JavaJudgmentBuilder(
 ) extends javasdk.JudgmentBuilder:
   private def next(b: agent.JudgmentBuilder) = JavaJudgmentBuilder(b, serializers)
 
-  def state(text: String): javasdk.JudgmentBuilder = next(scala.state(text))
+  def state(text: String): javasdk.JudgmentBuilder  = next(scala.state(text))
   def state(value: Object): javasdk.JudgmentBuilder =
     next(
       scala.state(value)(using
@@ -128,12 +128,12 @@ private[bridge] object Judgments:
         a.confidence
       )
     case (_: JavaYesNo, a: judgment.YesNoAnswer) => javasdk.YesNoAnswer(a.probability)
-    case (question, other) =>
+    case (question, other)                       =>
       throw IllegalStateException(s"question '${question.id}' was answered with $other")
 
   def scalaProvider(p: javasdk.JudgmentProvider): judgment.JudgmentProvider = p match
     case JavaJudgmentProvider(scala) => scala
-    case other =>
+    case other                       =>
       throw IllegalArgumentException(
         s"${other.name} is not a provider JudgmentProviders made: a judgment provider is the platform's"
       )

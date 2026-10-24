@@ -252,7 +252,7 @@ private[ankka] object Views:
     def source(view: AnyRef): JavaSource[?] = call(viewSource, view).asInstanceOf[JavaSource[?]]
     def onChange(view: AnyRef, change: Any): Any =
       call(viewChange, view, change.asInstanceOf[AnyRef])
-    def onDelete(view: AnyRef): Any = call(viewDelete, view)
+    def onDelete(view: AnyRef): Any                        = call(viewDelete, view)
     def version(view: AnyRef, keyed: Boolean): OptionalInt =
       call(if keyed then keyedVersion else viewVersion, view).asInstanceOf[OptionalInt]
     def parallelism(view: AnyRef): Int =
@@ -286,7 +286,7 @@ private[ankka] final class JavaKeyedViewHost(plan: ViewPlan) extends sdk.KeyedVi
       change: Option[Any],
       context: sdk.KeyedChange[Any]
   ): se.KeyedViewEffect[Any] =
-    val keyed = JavaKeyedChange(context, plan)
+    val keyed             = JavaKeyedChange(context, plan)
     val args: Seq[AnyRef] = change.map(_.asInstanceOf[AnyRef]).toSeq ++
       (if m.getParameterCount > change.size then Seq(keyed) else Seq.empty)
     Effects
@@ -315,7 +315,7 @@ private[ankka] object JavaViews:
   val unavailable: ViewClient = new ViewClient:
     def forView[Row](view: Class[? <: View[?, Row]]): ViewQueries[Row]        = refuse
     def forKeyedView[Row](view: Class[? <: KeyedView[Row]]): ViewQueries[Row] = refuse
-    private def refuse =
+    private def refuse                                                        =
       throw IllegalStateException("views are queried from an endpoint, a service or a test kit")
 
   def client(

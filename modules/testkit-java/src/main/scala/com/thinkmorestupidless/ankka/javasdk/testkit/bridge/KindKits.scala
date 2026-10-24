@@ -130,7 +130,7 @@ object KindKits:
     WorkflowKit(cls, workflowId, stubs)
 
   final class WorkflowKit private[bridge] (cls: Class[?], workflowId: String, stubs: Stubs):
-    private val read = readWith(cls, stubs)
+    private val read                = readWith(cls, stubs)
     private val plan: ComponentPlan =
       read.plans
         .find(p => p.cls == cls && p.kind == JavaKind.Workflow)
@@ -156,7 +156,7 @@ object KindKits:
       val result = (binding, input) match
         case (h: CommandHandle[JavaWorkflowHost, Any, Any] @unchecked, Some(in)) => kit.call(h)(in)
         case (h: NoArgHandle[JavaWorkflowHost, Any] @unchecked, None)            => kit.call(h)
-        case _ =>
+        case _                                                                   =>
           throw CallerError(
             s"'${binding.name}' ${if input.isEmpty then "takes an input" else "takes none"}"
           )
@@ -176,7 +176,7 @@ object KindKits:
       case Right(Some(value)) => value.asInstanceOf[O]
       case Right(None)        => throw AssertionError("the handler replied with no value")
       case Left(error) => throw AssertionError(s"the handler refused the command: ${error.message}")
-    def isError(): Boolean = scala.isError
+    def isError(): Boolean            = scala.isError
     private def refusal: CommandError = scala.reply.left.getOrElse(
       throw AssertionError(s"expected a refusal, but the command succeeded with ${scala.reply}")
     )
@@ -269,7 +269,7 @@ object KindKits:
 
   private final case class JavaConsumerResult[O](scala: stk.ConsumerTestKit.Result[Any])
       extends ConsumerResult[O]:
-    def payloads(): java.util.List[O] = scala.payloads.map(_.asInstanceOf[O]).asJava
+    def payloads(): java.util.List[O]         = scala.payloads.map(_.asInstanceOf[O]).asJava
     def messages(): java.util.List[Published] =
       scala.messages.map { m =>
         val headers = java.util.LinkedHashMap[String, String]()

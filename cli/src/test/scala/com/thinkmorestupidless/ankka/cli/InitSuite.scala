@@ -116,7 +116,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("a java project lands in its package, with an executable wrapper and no token left") {
-    val dir = Files.createTempDirectory("init-java")
+    val dir     = Files.createTempDirectory("init-java")
     val request =
       Init.Request("shop", pkg = Some("org.acme.shop"), directory = dir, language = Language.Java)
     assertEquals(Init.problems(request), Vector.empty)

@@ -15,7 +15,7 @@ class JavaTemplateSuite extends PolyglotTemplateSuite(Language.Java, "java", "do
   private def mvnw(goals: String*): (Int, String) =
     val wrapperHome = project.resolve(".test-maven-home")
     val command     = Vector("./mvnw", "-B") ++ goals
-    val process = new ProcessBuilder(command*)
+    val process     = new ProcessBuilder(command*)
       .directory(project.toFile)
       .redirectErrorStream(true)
     process.environment().put("MAVEN_USER_HOME", wrapperHome.toString)
@@ -39,7 +39,7 @@ class JavaTemplateSuite extends PolyglotTemplateSuite(Language.Java, "java", "do
     val (code, _) = mvnw("verify")
     assertEquals(code, 0, "./mvnw verify")
     val reports = project.resolve("target/surefire-reports")
-    val counts = Files
+    val counts  = Files
       .list(reports)
       .iterator()
       .asScala

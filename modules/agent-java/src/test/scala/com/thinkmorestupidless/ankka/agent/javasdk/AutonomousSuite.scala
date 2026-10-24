@@ -110,7 +110,7 @@ class AutonomousSuite extends munit.FunSuite with LogCapturing:
 
   test("an instance's notifications reach a Java subscriber as they happen") {
     given org.apache.pekko.stream.Materializer = SystemMaterializer(kit.service.system).materializer
-    val seen = JavaFlowSupport.Source
+    val seen                                   = JavaFlowSupport.Source
       .fromPublisher(AutonomousCalls.notifications(client, "a-3"))
       .takeWhile(_.kind != "TaskCompleted", inclusive = true)
       .runWith(Sink.seq)

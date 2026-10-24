@@ -74,7 +74,7 @@ class GrpcSuite extends munit.FunSuite with LogCapturing:
     def onCompleted(): Unit         = done.complete(()): Unit
 
   test("a client stream reads every request before it answers") {
-    val answer = Collect()
+    val answer   = Collect()
     val requests = ClientCalls.asyncClientStreamingCall(
       channel.newCall(Greeter.JOIN, CallOptions.DEFAULT),
       answer
@@ -86,7 +86,7 @@ class GrpcSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a bidirectional stream answers each request as it comes") {
-    val answers = Collect()
+    val answers  = Collect()
     val requests = ClientCalls.asyncBidiStreamingCall(
       channel.newCall(Greeter.SHOUT, CallOptions.DEFAULT),
       answers

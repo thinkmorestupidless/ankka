@@ -27,7 +27,7 @@ class EmbeddedReferenceSuite extends munit.FunSuite:
       EmbeddedReference.named(Some("classpath:/no/such/file.jar:x.Y"))
     )
     assert(missing.getMessage.contains("no file at"), missing.getMessage)
-    val dir = Files.createTempDirectory("conformance-entry")
+    val dir     = Files.createTempDirectory("conformance-entry")
     val noClass = intercept[IllegalArgumentException](
       EmbeddedReference.named(Some(s"classpath:$dir:no.such.Entry"))
     )

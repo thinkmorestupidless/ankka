@@ -48,7 +48,7 @@ private[ankka] object Consumers:
     val source      = reader.declaredSource(hooks.source)
     val version     = reader.version(hooks.version)
     val parallelism = reader.parallelism(hooks.parallelism)
-    val mirrored =
+    val mirrored    =
       !graph && reader.hook("mirroredChanges")(Hooks.mirrored).contains(true)
 
     val (publication, output, topic) =
@@ -63,7 +63,7 @@ private[ankka] object Consumers:
           case null => reader.problem("publishes", "returned null; return Optional.empty()"); None
           case p    => Option(p.orElse(null))
         }
-        val out = reader.arguments(classOf[Consumer[?, ?]]).lift(1)
+        val out    = reader.arguments(classOf[Consumer[?, ?]]).lift(1)
         val output = publishes.flatMap { p =>
           out match
             case Some(t) if t == classOf[Void] =>
@@ -163,7 +163,7 @@ private[ankka] object Consumers:
     def source(c: AnyRef): JavaSource[?] = Views.Hooks.call(sourceM, c).asInstanceOf[JavaSource[?]]
     def onChange(c: AnyRef, change: Any): Any =
       Views.Hooks.call(changeM, c, change.asInstanceOf[AnyRef])
-    def onDelete(c: AnyRef): Any = Views.Hooks.call(deleteM, c)
+    def onDelete(c: AnyRef): Any        = Views.Hooks.call(deleteM, c)
     def version(c: AnyRef): OptionalInt =
       Views.Hooks.call(versionM, c).asInstanceOf[OptionalInt]
     def parallelism(c: AnyRef): Int =

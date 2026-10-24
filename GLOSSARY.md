@@ -3035,7 +3035,7 @@ token, and the means to refresh it when it has run out.
 
 ## Everyday words
 
-exits, help, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
+exits, shortly, help, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

@@ -52,7 +52,9 @@ bite:
   fails. `marketplace/` is ankka's part of the Claude Code marketplace, `thinkmorestupidless/ankka-marketplace`,
   which holds one plugin per project (ankka's, satisfactory's, ankka-flow's) plus `pr-review`, the code
   review skills, which this repository owns and which need nothing from ankka (hand-written under
-  `marketplace/plugins/pr-review/`, not rendered from `docs/`). The release workflow's `marketplace` job
+  `marketplace/plugins/pr-review/`, not rendered from `docs/`; its `README.md` is the user's
+  documentation of the plugin, including the three ways a repository customises it and the
+  spec-kit review hook, and changes with the skills). The release workflow's `marketplace` job
   clones that repository, replaces `plugins/ankka/`, `plugins/pr-review/` and their two manifest entries only, and pushes an
   ordinary commit — never a subtree split or a force push, which would erase the other projects' plugins;
   each plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control

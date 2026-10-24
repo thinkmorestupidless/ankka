@@ -18,7 +18,7 @@ class TopicChecksSuite extends munit.FunSuite:
   private val v1         = Contract("order.v1", "sha256:ab")
   private val v2         = Contract("order.v2", "sha256:cd")
   private val declaredAt = Instant.parse("2026-10-07T10:00:00Z")
-  private val declared = Map(
+  private val declared   = Map(
     "orders" -> DeclaredTopic(3, Some(declaredAt), contract = Some(v1)),
     "plain"  -> DeclaredTopic(1, Some(declaredAt))
   )
@@ -34,7 +34,7 @@ class TopicChecksSuite extends munit.FunSuite:
 
   test("a side stating the declared contract is checked; another is a mismatch") {
     val after = "2026-10-07T11:00:00Z"
-    val docs = Vector(
+    val docs  = Vector(
       "wallet" -> document(
         after,
         DeclaredEdge("consumer:relay", "topic:orders", "topic-publication", Some(v1))
@@ -60,7 +60,7 @@ class TopicChecksSuite extends munit.FunSuite:
 
   test("an instance started before the declaration is unchecked, not a mismatch") {
     val before = "2026-10-07T09:00:00Z"
-    val docs = Vector(
+    val docs   = Vector(
       "shop" -> document(
         before,
         DeclaredEdge("topic:orders", "view:by-day", "topic-subscription", None)

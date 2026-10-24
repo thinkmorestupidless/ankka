@@ -61,7 +61,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     metadata.entries.find(_.key == TimerSweeper.AttemptsKey).map(_.value.toInt).getOrElse(-1)
 
   private val recorder = ProcessDouble.recorder("conformance")
-  private val rows = ViewOf(
+  private val rows     = ViewOf(
     "recorder-rows",
     Some((Kind.EVENT_SOURCED_ENTITY, "conformance")),
     None,
@@ -103,7 +103,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
   private def subjectOf(metadata: pb.Metadata): String =
     metadata.entries.find(_.key == Metadata.CeSubject).map(_.value).getOrElse("")
   private val megabyte = "x" * (1024 * 1024)
-  private val fanout = ConsumerOf(
+  private val fanout   = ConsumerOf(
     "fanout",
     Some((Kind.EVENT_SOURCED_ENTITY, "conformance")),
     None,
@@ -152,7 +152,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
   )
   // From an SDK that could not declare where a topic source starts (the double speaks 1.0), over a
   // topic that holds messages before the service starts.
-  private val legacyRead = java.util.concurrent.ConcurrentLinkedQueue[String]()
+  private val legacyRead   = java.util.concurrent.ConcurrentLinkedQueue[String]()
   private val legacyReader = ConsumerOf(
     "legacy-reader",
     None,
@@ -311,7 +311,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
 
   private def query(view: String, name: String, values: Map[String, String] = Map.empty) =
     given ActorSystem[?] = kit.service.system
-    val settings =
+    val settings         =
       Settings("127.0.0.1:0", 0, "127.0.0.1", 5.seconds, 1.second, 5.seconds, 5.seconds)
     Await.result(
       ClientLogic(kit.service, settings, () => None)
@@ -467,7 +467,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
       Some(broker),
       Observability(kit.service.system)
     )
-    val before = broker.publishedTo("fanned").size
+    val before  = broker.publishedTo("fanned").size
     val failure = Try(
       Await.result(
         consumer.handle("big-1", 7L, Some(Payload(Payload.Json, "double-in", "{}".getBytes))),
@@ -643,7 +643,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
 
   test("P10c a remote consumer reading a topic continues the trace its message carries") {
     val parent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
-    val _ = Try(
+    val _      = Try(
       Await.result(
         broker.publish(
           "never-fed",

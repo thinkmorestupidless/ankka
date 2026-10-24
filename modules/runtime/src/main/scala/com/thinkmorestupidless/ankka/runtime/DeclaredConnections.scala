@@ -75,9 +75,9 @@ private[runtime] object DeclaredConnections:
     case _                                  => None
 
   private def of(source: ChangeSource[?]): DeclaredSource = source match
-    case ChangeSource.EventSourced(component, _) => DeclaredSource.Events(component)
-    case ChangeSource.KeyValue(component, _)     => DeclaredSource.State(component)
-    case ChangeSource.Workflow(component, _)     => DeclaredSource.Workflow(component)
+    case ChangeSource.EventSourced(component, _)  => DeclaredSource.Events(component)
+    case ChangeSource.KeyValue(component, _)      => DeclaredSource.State(component)
+    case ChangeSource.Workflow(component, _)      => DeclaredSource.Workflow(component)
     case ChangeSource.Topic(topic, _, _, options) =>
       DeclaredSource.Topic(
         TopicAddress.of(topic, options.project),
@@ -96,7 +96,7 @@ private[runtime] object DeclaredConnections:
       Some(DeclaredSource.State(component))
     case RemoteSource.Component(ComponentKind.Workflow, component) =>
       Some(DeclaredSource.Workflow(component))
-    case RemoteSource.Component(_, _) => None
+    case RemoteSource.Component(_, _)         => None
     case RemoteSource.Topic(name, _, options) =>
       Some(
         DeclaredSource.Topic(

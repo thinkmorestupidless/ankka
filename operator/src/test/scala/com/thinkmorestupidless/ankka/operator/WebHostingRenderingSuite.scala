@@ -329,7 +329,7 @@ class WebHostingRenderingSuite extends munit.FunSuite:
   }
 
   test("the mount certificate comes before the Deployment that mounts it") {
-    val all = actions(web)
+    val all   = actions(web)
     val mount = all.indexWhere {
       case Action.EnsureCertificate(c) => c.getMetadata.getName == "web-mount"
       case _                           => false

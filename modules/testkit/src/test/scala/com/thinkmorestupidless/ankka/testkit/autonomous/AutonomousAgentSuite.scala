@@ -327,7 +327,7 @@ class AutonomousAgentSuite extends munit.FunSuite with LogCapturing:
     import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, EntityTypeKey}
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
     given org.apache.pekko.util.Timeout                       = 5.seconds
-    val key =
+    val key                                                   =
       EntityTypeKey[com.thinkmorestupidless.ankka.runtime.EntityProtocol.Command]("answerer")
     val state = scala.concurrent.Await.result(
       ClusterSharding(system).shardState.ask[CurrentShardRegionState](GetShardRegionState(key, _)),
@@ -640,7 +640,7 @@ class AutonomousAgentSuite extends munit.FunSuite with LogCapturing:
 
   test("US6 a watched instance stays in memory, and leaves once nobody is watching") {
     given org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
-    val (switch, _) = client
+    val (switch, _)                                   = client
       .forAutonomousAgent(Answerer)("watched-idle")
       .notifications()
       .viaMat(org.apache.pekko.stream.KillSwitches.single)(

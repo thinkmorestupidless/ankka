@@ -23,7 +23,7 @@ class TopologyDocumentationSuite extends munit.FunSuite:
   private def section(text: String, heading: String): Option[String] =
     val lines = text.linesIterator.toVector
     lines.indexWhere(_.trim == s"## $heading") match
-      case -1 => None
+      case -1    => None
       case start =>
         val rest = lines.drop(start + 1)
         Some(rest.takeWhile(!_.startsWith("## ")).mkString("\n"))
@@ -45,7 +45,7 @@ class TopologyDocumentationSuite extends munit.FunSuite:
   }
 
   test("the documentation says that the console shows a deployed service's topology") {
-    val console = page("operate/console.md")
+    val console  = page("operate/console.md")
     val topology = section(console, "A service's topology")
       .getOrElse(fail("docs/operate/console.md has no section on a deployed service's topology"))
     assert(prose(topology).contains("partial"), "it says what a partial topology is")

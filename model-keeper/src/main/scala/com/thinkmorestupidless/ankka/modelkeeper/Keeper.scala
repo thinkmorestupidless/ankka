@@ -88,7 +88,7 @@ final class Keeper(
                 detail = declarationProblem.orElse(plan.detail)
               )
             val outcomes = perform(plan.actions)
-            val digests =
+            val digests  =
               if plan.actions.exists(_.isInstanceOf[Action.Pull]) then
                 ollama.tags().getOrElse(observed.held)
               else observed.held

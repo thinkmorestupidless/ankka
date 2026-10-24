@@ -364,8 +364,8 @@ class BackupSpike extends munit.FunSuite:
     )
 
   private def exec(pod: String, container: String, command: String*): String =
-    val out = new ByteArrayOutputStream
-    val err = new ByteArrayOutputStream
+    val out   = new ByteArrayOutputStream
+    val err   = new ByteArrayOutputStream
     val watch = client
       .pods()
       .inNamespace(Namespace)

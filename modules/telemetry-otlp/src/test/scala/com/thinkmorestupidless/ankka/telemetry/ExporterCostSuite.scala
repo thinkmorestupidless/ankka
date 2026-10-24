@@ -39,10 +39,10 @@ class ExporterCostSuite extends munit.FunSuite with LogCapturing:
       (1 to iterations).foreach(i => client.call(CartEntity.addItem).invoke(s"i$i"))
       val perInvocation = (System.nanoTime() - started).toDouble / iterations
 
-      val observability = Observability(kit.service.system)
-      val origin        = CallOrigin("cart", "add-item")
-      val componentRef  = observability.names.intern("cart")
-      val handlerRef    = observability.names.intern("add-item")
+      val observability          = Observability(kit.service.system)
+      val origin                 = CallOrigin("cart", "add-item")
+      val componentRef           = observability.names.intern("cart")
+      val handlerRef             = observability.names.intern("add-item")
       def observed(i: Int): Unit =
         val span = observability.recorder.begin(
           i.toLong,

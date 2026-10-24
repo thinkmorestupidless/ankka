@@ -225,7 +225,7 @@ final class YesNoQuestion private[judgment] (
   private[judgment] def read(stored: Judgment.Stored): Either[String, YesNoAnswer] =
     stored match
       case Judgment.Stored.YesNo(probability) => Right(YesNoAnswer(probability))
-      case other =>
+      case other                              =>
         Left(s"question '$id' is a yes/no, but its answer is a ${Question.kindOf(other)}")
 
   private[judgment] def problemWith(stored: Judgment.Stored): Option[String] = stored match

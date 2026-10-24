@@ -113,7 +113,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
     )
     ConfigFactory.invalidateCaches()
 
-    val broker = InMemoryBroker()
+    val broker   = InMemoryBroker()
     val endpoint = (clients: EndpointClients) =>
       KitEndpoint(
         "/t",
@@ -191,7 +191,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
     response.body
 
   private def topology(): (Document, String) =
-    val address = kit.service.observabilityAddress.getOrElse(fail("no local console endpoint"))
+    val address  = kit.service.observabilityAddress.getOrElse(fail("no local console endpoint"))
     val response = http.send(
       HttpRequest.newBuilder(URI.create(s"$address/observability/topology")).GET().build(),
       HttpResponse.BodyHandlers.ofString()
@@ -203,7 +203,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
   private def pair(from: String, to: String, caller: String, callee: String)(
       counted: Pair => Boolean = _.handled.ok >= 1
   ): Pair =
-    val deadline = System.nanoTime() + 30.seconds.toNanos
+    val deadline           = System.nanoTime() + 30.seconds.toNanos
     def find: Option[Pair] =
       topology()._1.calls
         .filter(c => c.from == from && c.to == to)
@@ -234,7 +234,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
     assertEquals(request("POST", "/t/ask/s-2"), "None.")
 
     val (document, raw) = topology()
-    val memory = document.nodes
+    val memory          = document.nodes
       .find(_.id == "ankka-session-memory")
       .getOrElse(fail(s"no session memory in $raw"))
     assert(memory.platform, "it is the platform's own, and marked so a reader can leave it out")
@@ -263,7 +263,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
     // From a thread that is no handler's, naming a handler that exists: exactly what a forwarded
     // origin looks like. The call is from nobody, and is counted as from nobody.
     val forged = CallOrigin.into(Metadata.empty, CallOrigin("auditor", "on-message"))
-    val _ = Await.result(
+    val _      = Await.result(
       kit.componentClient.transportRef.ask(
         ComponentId("ledger"),
         EntityId("forged"),
@@ -286,7 +286,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
     val _              = request("GET", "/t/stock/n-1")
     val observability  = Observability(kit.service.system)
     def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
-    val named = observability.recorder
+    val named          = observability.recorder
       .snapshot()
       .map(s => name(s.componentRef) -> name(s.handlerRef))
     // What a metric's labels are made of, and what they were before a topology existed.
@@ -332,7 +332,7 @@ final class TopologySuite extends FunSuite with LogCapturing:
     val observability  = Observability(kit.service.system)
     def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
     val spans          = observability.recorder.snapshot()
-    val endpoint = spans
+    val endpoint       = spans
       .find(s => name(s.componentRef) == "http" && name(s.handlerRef) == handler)
       .getOrElse(fail(s"no span for $handler"))
     val call = spans

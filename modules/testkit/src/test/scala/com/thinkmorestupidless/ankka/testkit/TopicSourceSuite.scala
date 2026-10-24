@@ -212,7 +212,7 @@ class TopicSourceSuite extends munit.FunSuite with LogCapturing:
   test("a topic source of a service whose identity could not be read is refused, naming why") {
     // As a deployed service whose certificate names no one: its groups would have no service to be
     // named for, and falling back to the component's name alone is the defect itself.
-    val why = "the certificate at /var/run/secrets/ankka/service/tls.crt carries no identity"
+    val why     = "the certificate at /var/run/secrets/ankka/service/tls.crt carries no identity"
     val failure = intercept[IllegalArgumentException] {
       AnkkaTestKit.start(
         Seq(StockLevels.descriptor),

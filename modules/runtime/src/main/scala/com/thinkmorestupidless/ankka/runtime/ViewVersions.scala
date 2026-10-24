@@ -114,7 +114,7 @@ private[ankka] object ViewVersions:
       for
         _        <- tx.execute(lock(componentId, shared = false))
         recorded <- readVersion(tx, componentId)
-        result <-
+        result   <-
           if recorded < declared then
             for
               _ <- tx.execute(SqlFragment.raw(s"TRUNCATE $table"))
@@ -146,7 +146,7 @@ private[ankka] object ViewVersions:
       for
         _        <- tx.execute(lock(componentId, shared = true))
         recorded <- readVersion(tx, componentId)
-        result <-
+        result   <-
           if recorded == declared then tx.execute(write).map(_ => Written.Wrote)
           else Future.successful(Written.Behind(recorded))
       yield result
@@ -167,7 +167,7 @@ private[ankka] final class ViewGuard(
 
   def write(fragment: SqlFragment): Future[org.apache.pekko.Done] =
     ViewVersions.guarded(database, componentId, declared)(fragment).flatMap {
-      case ViewVersions.Written.Wrote => Future.successful(org.apache.pekko.Done)
+      case ViewVersions.Written.Wrote            => Future.successful(org.apache.pekko.Done)
       case ViewVersions.Written.Behind(recorded) =>
         onBehind(recorded)
         Future.failed(ViewGuard.Behind(componentId, declared, recorded))

@@ -149,7 +149,7 @@ final case class Step(
     Over.Each(read, limit, keepGoing)
   )
   def overWorkers(workers: String*): Step = repeating(Over.Workers(workers.toVector))
-  def chosenBy(read: String): Step = over match
+  def chosenBy(read: String): Step        = over match
     case Over.Workers(ws, _) => copy(over = Over.Workers(ws, Some(read)))
     case _                   => repeating(Over.Workers(Vector.empty, Some(read)))
   def times(n: Int): Step              = repeating(Over.Times(n))
@@ -225,11 +225,11 @@ final case class Blueprint(
     runBudget: Option[Int] = None,
     timeLimit: Option[java.time.Duration] = None
 ):
-  def input(shape: Shape): Blueprint        = copy(input = shape)
-  def worker(w: Worker): Blueprint          = copy(workers = workers :+ w)
-  def step(s: Step): Blueprint              = copy(steps = steps :+ s)
-  def schedule(s: Schedule): Blueprint      = copy(schedule = Some(s))
-  def runBudget(modelCalls: Int): Blueprint = copy(runBudget = Some(modelCalls))
+  def input(shape: Shape): Blueprint              = copy(input = shape)
+  def worker(w: Worker): Blueprint                = copy(workers = workers :+ w)
+  def step(s: Step): Blueprint                    = copy(steps = steps :+ s)
+  def schedule(s: Schedule): Blueprint            = copy(schedule = Some(s))
+  def runBudget(modelCalls: Int): Blueprint       = copy(runBudget = Some(modelCalls))
   def timeLimit(limit: FiniteDuration): Blueprint =
     copy(timeLimit = Some(java.time.Duration.ofMillis(limit.toMillis)))
 

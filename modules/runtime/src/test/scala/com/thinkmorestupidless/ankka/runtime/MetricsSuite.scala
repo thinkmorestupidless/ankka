@@ -164,7 +164,7 @@ final class MetricsSuite extends FunSuite:
   test(
     "a topic source's retention gap is three series: per partition, and whether messages are gone"
   ) {
-    val at = java.time.Instant.parse("2026-09-01T10:00:00Z")
+    val at  = java.time.Instant.parse("2026-09-01T10:00:00Z")
     val gap = RetentionGap(
       Vector(PartitionGap(0, 1240L, Some(at)), PartitionGap(1, 0L, None)),
       compacted = false,

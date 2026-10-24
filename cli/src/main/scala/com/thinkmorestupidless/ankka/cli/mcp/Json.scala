@@ -101,10 +101,10 @@ private[cli] object Json:
           Num(in.readBigDecimal(null))
 
     private def write(value: Json, out: JsonWriter): Unit = value match
-      case Null    => out.writeNull()
-      case Bool(v) => out.writeVal(v)
-      case Str(v)  => out.writeVal(v)
-      case Num(v)  => out.writeVal(v)
+      case Null       => out.writeNull()
+      case Bool(v)    => out.writeVal(v)
+      case Str(v)     => out.writeVal(v)
+      case Num(v)     => out.writeVal(v)
       case Arr(items) =>
         out.writeArrayStart()
         items.foreach(write(_, out))

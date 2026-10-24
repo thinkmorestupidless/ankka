@@ -107,7 +107,7 @@ private[ankka] object EventSourcedEntityHost:
         val componentRef  = observability.names.intern(descriptor.componentId.toString)
         val empty         = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
         val copy          = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
-        val host =
+        val host          =
           Host(descriptor, entity, entityId, observability, componentRef, copy, timers)
 
         val base = EventSourcedBehavior
@@ -166,7 +166,7 @@ private[ankka] object EventSourcedEntityHost:
     extension (builder: EffectBuilder[Journaled[E], Stored[S]])
       private def unstashingNoReply: Effect = builder.thenUnstashAll() match
         case reply: ReplyEffect[?, ?] => reply.asInstanceOf[Effect]
-        case other =>
+        case other                    =>
           throw IllegalStateException(s"Pekko built an effect that is not a reply effect: $other")
 
     def onCommand(state: Stored[S], command: EntityProtocol.Command, lastSeq: Long): Effect =
@@ -190,7 +190,7 @@ private[ankka] object EventSourcedEntityHost:
         case replicate: EntityProtocol.Replicate =>
           copy match
             case Some(c) => onReplicate(c, state, replicate, lastSeq)
-            case None =>
+            case None    =>
               replicate.ack ! EntityProtocol.ReplicateAck.Refused(
                 s"'$componentId' is not replicated here"
               )
@@ -310,7 +310,7 @@ private[ankka] object EventSourcedEntityHost:
           // trace survives a sharding hop without any protocol type changing.
           val metadata = MetaEntry.toMetadata(invoke.metadata)
           val inbound  = Trace.inbound(metadata)
-          val span = observability.recorder.begin(
+          val span     = observability.recorder.begin(
             traceIdHigh = inbound.traceIdHigh,
             traceId = inbound.traceId,
             parentSpanId = inbound.parentSpanId,
@@ -372,7 +372,7 @@ private[ankka] object EventSourcedEntityHost:
         local match
           case Local.Unreplicated =>
             effect.replication match
-              case None => Right((Vector.empty, Vector.empty))
+              case None         => Right((Vector.empty, Vector.empty))
               case Some(change) =>
                 Left(
                   CommandError(
@@ -397,9 +397,9 @@ private[ankka] object EventSourcedEntityHost:
 
         case (outcome, Right((before, after))) =>
           // Each record says who acted and where the command was forwarded from, when it was.
-          val received      = MetaEntry.toMetadata(invoke.metadata)
-          val attribution   = Attribution.from(received)
-          val forwardedFrom = received.get(HostReplication.ForwardedFrom)
+          val received       = MetaEntry.toMetadata(invoke.metadata)
+          val attribution    = Attribution.from(received)
+          val forwardedFrom  = received.get(HostReplication.ForwardedFrom)
           val handlerRecords =
             effect.events.map(Journaled.Domain(_, None, attribution, forwardedFrom)) ++
               retentionRecord(effect.retention)
@@ -472,7 +472,7 @@ private[ankka] object EventSourcedEntityHost:
       else
         descriptor.handler(method) match
           // No such handler: answered as any entity answers it.
-          case None => onInvoke(state, invoke, lastSeq, Local.Unreplicated)
+          case None          => onInvoke(state, invoke, lastSeq, Local.Unreplicated)
           case Some(binding) =>
             val reads   = binding.readOnly
             val refused = c.admission(invoke)
@@ -610,8 +610,8 @@ private[ankka] object EventSourcedEntityHost:
 
   private def retentionRecord[E](retention: Option[Retention]): Vector[Journaled[E]] =
     retention match
-      case None                      => Vector.empty
-      case Some(Retention.DeleteNow) => Vector(Journaled.Deleted)
+      case None                           => Vector.empty
+      case Some(Retention.DeleteNow)      => Vector(Journaled.Deleted)
       case Some(Retention.ExpireAfter(d)) =>
         Vector(Journaled.Expiry(System.currentTimeMillis() + d.toMillis))
 
@@ -639,7 +639,7 @@ private[ankka] object EventSourcedEntityHost:
         // A record with no installation was written here: a follower stamps every record it
         // mirrors, so only the home's own journal holds one, from before replication.
         val installation = written.orElse(self)
-        val context = SimpleEventContext(
+        val context      = SimpleEventContext(
           installation,
           isLocal = installation == self,
           sequenceNumber,
@@ -699,7 +699,7 @@ private[ankka] object EventSourcedEntityHost:
         )
       case JournalRecord.KindDeleted => Journaled.Deleted
       case JournalRecord.KindExpiry  => Journaled.Expiry(record.expiryMillis)
-      case other =>
+      case other                     =>
         Platform
           .of(record)
           .map(Journaled.Replication(_))

@@ -132,7 +132,7 @@ private[grpc] object Binding:
       ): ServerCall.Listener[Array[Byte]] =
         admitted(call, headers, fullName, endpoint.acl, admission) match
           case Left((status, trailers)) => call.close(status, trailers)
-          case Right(_) =>
+          case Right(_)                 =>
             call.close(
               Status.UNIMPLEMENTED.withDescription(s"Method not found: $fullName"),
               Metadata()
@@ -173,7 +173,7 @@ private[grpc] object Binding:
           listener.onRequest { message =>
             span.within {
               parse(declared, message) match
-                case Left(status) => out.close(status, Metadata())
+                case Left(status)   => out.close(status, Metadata())
                 case Right(request) =>
                   try
                     val reply = RequestScope.withContext(context)(run(request))
@@ -190,7 +190,7 @@ private[grpc] object Binding:
             listener.onRequest { message =>
               span.within {
                 parse(declared, message) match
-                  case Left(status) => out.close(status, Metadata())
+                  case Left(status)   => out.close(status, Metadata())
                   case Right(request) =>
                     answerWith(declared, out, readiness, listener, hosting)(
                       RequestScope.withContext(context)(run(request))
@@ -242,7 +242,7 @@ private[grpc] object Binding:
     override def onMessage(message: Array[Byte]): Unit =
       requests match
         case Some(stream) => stream.onMessage(message)
-        case None =>
+        case None         =>
           if request.isDefined then
             tooMany = true
             out.close(
@@ -254,7 +254,7 @@ private[grpc] object Binding:
     override def onHalfClose(): Unit =
       requests match
         case Some(stream) => stream.onHalfClose()
-        case None =>
+        case None         =>
           if !tooMany then
             (single, request) match
               case (Some(handle), Some(message)) =>
@@ -304,7 +304,7 @@ private[grpc] object Binding:
             call.close(status, trailers)
             new ServerCall.Listener[Array[Byte]] {}
           case Right(context) =>
-            val span = spans.call(parent)
+            val span               = spans.call(parent)
             lazy val out: Outgoing = Outgoing(
               call,
               status =>
@@ -368,11 +368,11 @@ private[grpc] object Binding:
   private[grpc] def statusOf(declared: DeclaredMethod, failure: Throwable): Status =
     CommandError.from(failure) match
       case Some(error) => GrpcStatus.toStatus(error)
-      case None =>
+      case None        =>
         failure match
           case e: StatusRuntimeException => e.getStatus
           case e: StatusException        => e.getStatus
-          case other =>
+          case other                     =>
             log.error(s"unhandled failure in ${declared.fullName}", other)
             GrpcStatus.internal
 

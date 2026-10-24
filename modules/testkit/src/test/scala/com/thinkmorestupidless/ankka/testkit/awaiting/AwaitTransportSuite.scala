@@ -45,7 +45,7 @@ class AwaitTransportSuite extends munit.FunSuite with LogCapturing:
       case "notyet"  => replyTo ! (if n < 3 then EntityProtocol.NotYet(10L) else state)
       case "dropped" => if n > 1 then replyTo ! state
       case "silent"  => ()
-      case "old" =>
+      case "old"     =>
         replyTo ! EntityProtocol.Rejected(
           CommandError(
             WorkflowEngine.noHandler(WorkflowLifecycle.AwaitEnd, Component),
@@ -158,7 +158,7 @@ class AwaitTransportSuite extends munit.FunSuite with LogCapturing:
 
   test("a wait is one client span, recorded whole when it ends, however many asks it took") {
     val observability = Observability(kit.service.system)
-    def waits = observability.recorder
+    def waits         = observability.recorder
       .snapshot()
       .filter(s => observability.names.nameOf(s.handlerRef).contains(WorkflowLifecycle.AwaitEnd))
     val before = waits.map(_.spanId).toSet

@@ -52,7 +52,7 @@ final class TestSocket private (ws: WebSocket, listener: TestSocket.Listener):
    * when it has not ended within `within`.
    */
   def closed(within: FiniteDuration = 5.seconds): TestSocket.Closed =
-    val deadline = within.fromNow
+    val deadline                = within.fromNow
     def ended: TestSocket.Event =
       listener.ended.getOrElse {
         listener.next(deadline.timeLeft.max(Duration.Zero)) match

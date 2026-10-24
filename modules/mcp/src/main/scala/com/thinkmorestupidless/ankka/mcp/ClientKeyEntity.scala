@@ -91,7 +91,7 @@ private[mcp] object ClientKeyRules:
     if subject.trim.isEmpty then Some("the subject is blank")
     else
       expiry match
-        case None => Some("the expiry is required: After, At or Never")
+        case None         => Some("the expiry is required: After, At or Never")
         case Some(stated) =>
           expiresAt(stated, now) match
             case Some(at) if !at.isAfter(now) => Some(s"the expiry $at is in the past")
@@ -167,7 +167,7 @@ final class ClientKeyEntity(context: EventSourcedEntityContext)
         request.issuedAt
       ) match
         case Some(problem) => effects.error(problem, ErrorCode.BadRequest)
-        case None =>
+        case None          =>
           effects
             .persist(
               ClientKeyIssued(
@@ -219,7 +219,7 @@ object ClientKeyEntity
   /** The platform's own: it keeps what the platform needs, and no service wrote it. */
   override private[ankka] def platform: Boolean = true
 
-  given Serializer[IssueClientKey] = Codecs.serializer[IssueClientKey]("issue-client-key")
+  given Serializer[IssueClientKey]     = Codecs.serializer[IssueClientKey]("issue-client-key")
   given Serializer[RecordClientKeyUse] =
     Codecs.serializer[RecordClientKeyUse]("record-client-key-use")
   given Serializer[RevokeClientKey]  = Codecs.serializer[RevokeClientKey]("revoke-client-key")

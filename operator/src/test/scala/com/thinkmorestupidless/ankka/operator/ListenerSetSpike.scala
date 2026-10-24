@@ -144,7 +144,7 @@ class ListenerSetSpike extends munit.FunSuite:
         get(k3s, "-n", "acme-test", "deployment", "resolver", "{.status.readyReplicas}") == "1"
       }
       val resolverIp = get(k3s, "-n", "acme-test", "service", "resolver", "{.spec.clusterIP}")
-      val envoyIp = kubectl(
+      val envoyIp    = kubectl(
         k3s,
         "-n",
         "envoy-gateway-system",
@@ -272,7 +272,7 @@ class ListenerSetSpike extends munit.FunSuite:
       extra: Vector[(String, String)] = Vector.empty
   ): String =
     val listeners = hosts.map(h => h -> h) ++ extra
-    val rendered = listeners.map { (name, host) =>
+    val rendered  = listeners.map { (name, host) =>
       val secret = if host.startsWith("*") || host.startsWith("api.") then hosts.head else host
       s"""    - name: $name
          |      hostname: "$host"
@@ -397,7 +397,7 @@ class ListenerSetSpike extends munit.FunSuite:
       "/tmp/spike.yaml"
     )
     var last = ""
-    val ok = (1 to 10).exists { _ =>
+    val ok   = (1 to 10).exists { _ =>
       val r = k3s.execInContainer(
         "kubectl",
         "apply",
@@ -441,7 +441,7 @@ class ListenerSetSpike extends munit.FunSuite:
 
   private def importImages(k3s: K3sContainer, images: Vector[String]): Unit =
     for image <- images do
-      val tar = Files.createTempFile("image", ".tar")
+      val tar   = Files.createTempFile("image", ".tar")
       val saved = new ProcessBuilder("docker", "save", "-o", tar.toString, image)
         .inheritIO()
         .start()

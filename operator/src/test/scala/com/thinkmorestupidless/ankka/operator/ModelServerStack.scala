@@ -40,7 +40,7 @@ object ModelServerStack:
       doorForward: LocalPortForward
   ):
     /** The door as the test JVM reaches it, under a name the certificate carries. */
-    def door: String = s"https://localhost:${doorForward.getLocalPort}"
+    def door: String  = s"https://localhost:${doorForward.getLocalPort}"
     def close(): Unit =
       statusForward.close()
       doorForward.close()
@@ -75,7 +75,7 @@ object ModelServerStack:
       models: Vector[String] = Vector("qwen3:0.6b")
   ): Installed =
     val component = repoRoot.resolve("kustomization/components/models")
-    val parts = Files_.map { file =>
+    val parts     = Files_.map { file =>
       val text = Files.readString(component.resolve(file))
       file match
         case "declaration.yaml" => declaration(models)

@@ -93,7 +93,7 @@ object ProxySettings:
     val service     = required(Service)
     val ownPort     = port(Port)
     val processPort = port(ProcessPort)
-    val mounts = list(Mounts).map { entry =>
+    val mounts      = list(Mounts).map { entry =>
       entry.split("=", 2) match
         case Array(path, service) if path.startsWith("/") && service.nonEmpty =>
           Right(path -> service)

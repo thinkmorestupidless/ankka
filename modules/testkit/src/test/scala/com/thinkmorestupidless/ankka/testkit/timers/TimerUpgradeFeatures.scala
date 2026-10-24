@@ -104,7 +104,7 @@ final class TimerUpgradeFeatures extends TimerSteps("../../features/timers/upgra
     val service = started.service
     val kit     = ofHandler(handler)
     val lacking = kit.descriptor.copy(handlers = kit.descriptor.handlers - MethodName(handler))
-    val sweep = Sweep(
+    val sweep   = Sweep(
       database,
       Map(ComponentId(kit.componentId.toString) -> lacking),
       service.componentClient,
@@ -127,7 +127,7 @@ final class TimerUpgradeFeatures extends TimerSteps("../../features/timers/upgra
       due: Instant
   ): Boolean =
     descriptor.handler(MethodName(method)) match
-      case None => false
+      case None          => false
       case Some(handler) =>
         val context = SimpleTimedActionContext(
           descriptor.componentId,

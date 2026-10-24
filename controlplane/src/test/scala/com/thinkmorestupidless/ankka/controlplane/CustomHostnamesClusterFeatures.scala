@@ -67,7 +67,7 @@ class CustomHostnamesClusterFeatures
   )
 
   private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
-  private val Sample =
+  private val Sample   =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private val Pause      = "registry.k8s.io/pause:3.9"
   private val BaseDomain = "example.test"
@@ -102,7 +102,7 @@ class CustomHostnamesClusterFeatures
   private var channels                  = Vector.empty[ManagedChannel]
 
   /** What DNS says of each proof record, by record name; absent is no record. */
-  private val proofRecords = TrieMap.empty[String, Vector[String]]
+  private val proofRecords        = TrieMap.empty[String, Vector[String]]
   private val proofs: ProofLookup = name =>
     proofRecords.get(name).toRight(ProofLookup.Failure.NoRecord)
 
@@ -203,8 +203,8 @@ class CustomHostnamesClusterFeatures
     def all: String = out + err
 
   private def ankkaAs(token: String, args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -257,7 +257,7 @@ class CustomHostnamesClusterFeatures
           "ankkaservices",
           "{.spec.customHostnames} {.status.hostnames} written {.status.lastTransitionTime} gen {.status.observedGeneration}/{.metadata.generation} lifecycle {.status.lifecycle}"
         ),
-        "now" -> java.time.Instant.now().toString,
+        "now"        -> java.time.Instant.now().toString,
         "read fresh" -> Try {
           val views = new com.thinkmorestupidless.ankka.operator.Fabric8Executor(k8s)
             .observeHostnames("ankka-checkout", "cart", held("cart"))
@@ -287,7 +287,7 @@ class CustomHostnamesClusterFeatures
   private def internet(host: String, path: String = "/carts/c1", https: Boolean = true): Answer =
     val port   = if https then httpsPort else httpPort
     val scheme = if https then "https" else "http"
-    val args = Vector(
+    val args   = Vector(
       "curl",
       "-sS",
       "-v",
@@ -309,7 +309,7 @@ class CustomHostnamesClusterFeatures
     val err     = new String(process.getErrorStream.readAllBytes(), StandardCharsets.UTF_8)
     process.waitFor()
     val lines = body.linesIterator.toVector
-    val code =
+    val code  =
       lines.lastOption.flatMap(_.trim.split(' ').headOption.flatMap(_.toIntOption)).getOrElse(0)
     lastRedirect = lines.lastOption.flatMap(_.trim.split(' ').lift(1)).getOrElse("")
     Answer(code, lines.dropRight(1).mkString("\n"), err)
@@ -531,7 +531,7 @@ class CustomHostnamesClusterFeatures
         standing(name, hostname).exists(_.state == "serving")
       }
       val credentials = TlsChannelCredentials.newBuilder().trustManager(roots.toFile).build()
-      val channel = Grpc
+      val channel     = Grpc
         .newChannelBuilderForAddress("127.0.0.1", httpsPort, credentials)
         .overrideAuthority(hostname)
         .build()

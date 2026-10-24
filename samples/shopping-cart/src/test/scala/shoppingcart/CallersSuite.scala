@@ -81,7 +81,7 @@ class CallersSuite extends munit.FunSuite with LogCapturing:
 
   test("a socket is told who opened it, for every frame, as the whoami route tells a request") {
     val (name, value) = testKit.asCaller(Caller.Gateway)
-    val socket =
+    val socket        =
       testKit
         .socket("/callers/socket", Map(name -> value))
         .fold(r => fail(s"refused: $r"), identity)

@@ -68,7 +68,7 @@ class RevokedStreamsSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a revoked grant ends the stream it admitted, and the next request is refused") {
-    val client = HttpClient.newHttpClient()
+    val client  = HttpClient.newHttpClient()
     val request = HttpRequest
       .newBuilder(URI.create(s"http://$base/v1/wallets/p1/ledger"))
       .header(LocalCallers.Header, LocalCallers.header(merchant)._2)

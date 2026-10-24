@@ -18,7 +18,7 @@ class CartConfigSuite extends munit.FunSuite:
     // The file's own line, resolved against a variable this test can give: the environment's is
     // the JVM's, which no test can set.
     val line = ConfigFactory.parseResources("application.conf")
-    val set = line
+    val set  = line
       .withFallback(ConfigFactory.parseString("CART_ASK_TIMEOUT = 14m"))
       .withFallback(ConfigFactory.defaultReference())
       .resolve()
@@ -27,7 +27,7 @@ class CartConfigSuite extends munit.FunSuite:
 
   test("a cart whose descriptor sets a request timeout holds a request open that long") {
     val line = ConfigFactory.parseResources("application.conf")
-    val set = line
+    val set  = line
       .withFallback(ConfigFactory.parseString("CART_REQUEST_TIMEOUT = 15m"))
       .withFallback(ConfigFactory.defaultReference())
       .resolve()
@@ -41,7 +41,7 @@ class CartConfigSuite extends munit.FunSuite:
 
   test("a cart whose descriptor sets an idle timeout keeps a waiting connection open that long") {
     val line = ConfigFactory.parseResources("application.conf")
-    val set = line
+    val set  = line
       .withFallback(ConfigFactory.parseString("CART_IDLE_TIMEOUT = 16m"))
       .withFallback(ConfigFactory.defaultReference())
       .resolve()

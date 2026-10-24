@@ -79,7 +79,7 @@ class InitSuite extends munit.FunSuite:
     val dir     = Files.createTempDirectory("init-web")
     val request = Init.Request("shop-web", directory = dir, language = Language.Web)
     assertEquals(Init.problems(request), Vector.empty)
-    val target = Scaffold.render(request, "9.9.9")
+    val target     = Scaffold.render(request, "9.9.9")
     val descriptor = com.github.plokhotnyuk.jsoniter_scala.core.readFromString(
       Files.readString(target.resolve("service.json"))
     )(using com.thinkmorestupidless.ankka.controlplane.api.Wire.descriptorCodec)
@@ -97,7 +97,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("--package and --template are refused for a web project") {
-    val dir = Files.createTempDirectory("init-web-options")
+    val dir      = Files.createTempDirectory("init-web-options")
     val problems = Init.problems(
       Init.Request(
         "w",
@@ -121,7 +121,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("a python package is derived from the name, and refused when Python could not import it") {
-    val dir = Files.createTempDirectory("init")
+    val dir                                               = Files.createTempDirectory("init")
     def request(name: String, pkg: Option[String] = None) =
       Init.Request(name, pkg = pkg, directory = dir, language = Language.Python)
     assertEquals(Scaffold.module(request("order-service")), "order_service")
@@ -132,7 +132,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("options that belong to another language are refused rather than ignored") {
-    val dir = Files.createTempDirectory("init")
+    val dir    = Files.createTempDirectory("init")
     val python =
       Init.Request("orders", template = Some("x/y.g8"), directory = dir, language = Language.Python)
     assert(Init.problems(python).exists(_.contains("--template applies to scala only")))

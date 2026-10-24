@@ -69,7 +69,7 @@ final class KeycloakAdmin(
     credential.put("value", password)
     credential.put("temporary", false)
     val created = admin("POST", s"/admin/realms/$realm/users", Some(body.toString))
-    val id = created.statusCode match
+    val id      = created.statusCode match
       case 201 => created.headers.firstValue("Location").orElseThrow().split('/').last
       case 409 =>
         val found = admin("GET", s"/admin/realms/$realm/users?username=$username&exact=true", None)
@@ -236,7 +236,7 @@ object KeycloakAdmin:
    */
   def audiences(claims: JsonNode): Set[String] =
     Option(claims.get("aud")) match
-      case None => Set.empty
+      case None                       => Set.empty
       case Some(node) if node.isArray =>
         val it = node.elements()
         Iterator.continually(it).takeWhile(_.hasNext).map(_.next().asText()).toSet

@@ -48,7 +48,7 @@ final class PostgresSecretStoreSuite extends SecretStoreBehaviours:
   }
 
   test("a service whose secret key is malformed does not start") {
-    val key = testKit.secretKey
+    val key     = testKit.secretKey
     val failure = intercept[IllegalArgumentException](
       testKit.restartService(secretKey = Some("not-a-key"))
     )

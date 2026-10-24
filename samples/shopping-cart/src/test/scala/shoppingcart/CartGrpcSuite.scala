@@ -71,7 +71,7 @@ class CartGrpcSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("the HTTP endpoint of the same service answers beside it") {
-    val _ = carts.addItem(AddItemRequest("grpc-3", Some(LineItem("p1", "Widget", 1))))
+    val _        = carts.addItem(AddItemRequest("grpc-3", Some(LineItem("p1", "Widget", 1))))
     val response = HttpClient
       .newHttpClient()
       .send(

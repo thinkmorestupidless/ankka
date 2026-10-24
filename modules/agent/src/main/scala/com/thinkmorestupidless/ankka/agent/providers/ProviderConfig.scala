@@ -22,7 +22,7 @@ final case class ConfigProblem(
   def describe(variable: String => String): String =
     setting match
       case Some(s) => s"${variable(s)}: $message"
-      case None =>
+      case None    =>
         val hint =
           if fix.isEmpty then "" else fix.map(variable).mkString("; set ", " or ", "")
         s"model provider '$name': $message$hint"
@@ -74,11 +74,11 @@ final case class ProviderConfig(
         Left(ConfigProblem(name, s"an installation model takes no $what", Some(setting)))
       else Right(())
     for
-      _ <- ModelProviders.validName(name).left.map(ConfigProblem(name, _))
-      _ <- refuse(url, "address", "URL")
-      _ <- refuse(key, "key", "KEY")
-      _ <- refuse(protocol, "protocol", "PROTOCOL")
-      _ <- refuse(shape, "shape", "SHAPE")
+      _      <- ModelProviders.validName(name).left.map(ConfigProblem(name, _))
+      _      <- refuse(url, "address", "URL")
+      _      <- refuse(key, "key", "KEY")
+      _      <- refuse(protocol, "protocol", "PROTOCOL")
+      _      <- refuse(shape, "shape", "SHAPE")
       chosen <- model
         .filter(_.nonEmpty)
         .toRight(ConfigProblem(name, "an installation model must be named", Some("MODEL")))
@@ -104,9 +104,9 @@ final case class ProviderConfig(
     ) =
       Left(ConfigProblem(name, message, setting, fix))
     for
-      _ <- ModelProviders.validName(name).left.map(ConfigProblem(name, _))
+      _      <- ModelProviders.validName(name).left.map(ConfigProblem(name, _))
       chosen <- preset match
-        case None => Right(None)
+        case None    => Right(None)
         case Some(p) =>
           Presets
             .named(p)
@@ -119,7 +119,7 @@ final case class ProviderConfig(
               )
             )
       givenProtocol <- protocol match
-        case None => Right(None)
+        case None    => Right(None)
         case Some(p) =>
           ModelProtocol
             .fromWire(p)
@@ -132,7 +132,7 @@ final case class ProviderConfig(
               )
             )
       givenShape <- shape match
-        case None => Right(None)
+        case None    => Right(None)
         case Some(s) =>
           Shape
             .fromWire(s)

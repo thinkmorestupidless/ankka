@@ -55,7 +55,7 @@ final class InvocationTotalsSuite extends FunSuite:
   }
 
   test("eight threads adding to one pair lose no increment") {
-    val t = InvocationTotals(16)
+    val t       = InvocationTotals(16)
     val threads = (1 to 8).map(_ =>
       Thread
         .ofPlatform()
@@ -69,7 +69,7 @@ final class InvocationTotalsSuite extends FunSuite:
   }
 
   test("threads claiming different pairs at once each get their own") {
-    val t = InvocationTotals(64)
+    val t       = InvocationTotals(64)
     val threads = (1 to 8).map(w =>
       Thread
         .ofPlatform()

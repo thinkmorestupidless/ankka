@@ -20,7 +20,7 @@ object Output:
 
   def organizations(rows: Vector[OrganizationSummary], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("ID", "NAME", "PROJECTS", "SERVICES", "INSTANCES", "QUOTA", "ROLE", "STATE"),
@@ -61,7 +61,7 @@ object Output:
 
   def projects(rows: Vector[ProjectSummary], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("ID", "NAME", "ORGANIZATION", "SERVICES", "REGISTRY"),
@@ -86,13 +86,13 @@ object Output:
    */
   def projectTopics(rows: Vector[ProjectTopic], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         def mark(row: ProjectTopic, field: String, value: String) =
           if row.settings.exists(_.defaulted.contains(field)) then s"$value*" else value
         def setting(row: ProjectTopic, field: String, read: TopicSettingsView => String) =
           row.settings.fold("-")(s => mark(row, field, read(s)))
-        def held(row: ProjectTopic) = s"broker (${row.copiesHeld.fold("?")(_.toString)})"
+        def held(row: ProjectTopic)   = s"broker (${row.copiesHeld.fold("?")(_.toString)})"
         def copies(row: ProjectTopic) =
           row.settings.flatMap(_.copies).fold(held(row))(c => mark(row, "copies", c.toString))
         def inSync(row: ProjectTopic) =
@@ -142,7 +142,7 @@ object Output:
   /** A project's declared brokers (feature 037). */
   def projectBrokers(rows: Vector[ProjectBroker], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("BROKER", "BOOTSTRAP", "SHAPE", "SECRET", "DECLARED"),
@@ -154,7 +154,7 @@ object Output:
   /** A project's grants: who, what, where each is in its life, and whether it opens anything. */
   def grants(rows: Vector[GrantDetail], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("ID", "GRANTEE", "TARGET", "STATE", "EFFECT", "BY", "AT"),
@@ -174,7 +174,7 @@ object Output:
   /** One grant just made. */
   def grantMade(grant: GrantDetail, projectId: String, format: Format): String =
     format match
-      case Format.Json => writeToString(grant)
+      case Format.Json  => writeToString(grant)
       case Format.Table =>
         val waits =
           if grant.state == GrantState.Pending then
@@ -185,7 +185,7 @@ object Output:
   /** What a project's services or an organization's machines were granted, and from whom. */
   def receivedGrants(rows: Vector[ReceivedGrantDetail], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("ID", "FROM", "GRANTEE", "TARGET", "STATE", "TOPIC", "LAST CHANGE"),
@@ -209,7 +209,7 @@ object Output:
 
   def projectSecrets(rows: Vector[ProjectSecretSummary], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("NAME", "ENTRIES", "SET", "BY"),
@@ -225,7 +225,7 @@ object Output:
 
   def secretReads(page: SecretReadsPage, format: Format): String =
     format match
-      case Format.Json => writeToString(page)
+      case Format.Json  => writeToString(page)
       case Format.Table =>
         table(
           Vector("AT", "SERVICE", "COMPONENT", "NAME", "OPERATION", "OUTCOME", "TRACE"),
@@ -264,7 +264,7 @@ object Output:
    */
   def projectStatus(status: ProjectStatus, format: Format): String =
     format match
-      case Format.Json => writeToString(status)
+      case Format.Json  => writeToString(status)
       case Format.Table =>
         val headline =
           if status.backedUp then s"${status.id}: backed up"
@@ -296,13 +296,13 @@ object Output:
   /** One restore (feature 041): its fields, then a row per service's database. */
   def restore(view: RestoreView, format: Format): String =
     format match
-      case Format.Json => writeToString(view)
+      case Format.Json  => writeToString(view)
       case Format.Table =>
         val fields = Vector(
-          "name"   -> view.name,
-          "line"   -> view.line,
-          "moment" -> view.moment.toString,
-          "phase"  -> (view.phase + view.detail.fold("")(d => s": $d")),
+          "name"      -> view.name,
+          "line"      -> view.line,
+          "moment"    -> view.moment.toString,
+          "phase"     -> (view.phase + view.detail.fold("")(d => s": $d")),
           "requested" -> (view.requestedAt.fold("-")(_.toString) + view.requestedBy.fold("")(b =>
             s" by $b"
           )),
@@ -310,7 +310,7 @@ object Output:
         )
         val width = fields.map(_._1.length).max
         val head  = fields.map((label, value) => s"${label.padTo(width, ' ')}  $value")
-        val rows =
+        val rows  =
           if view.services.isEmpty then Vector.empty
           else
             "" +: table(
@@ -361,14 +361,14 @@ object Output:
 
   def rehearsal(view: RehearsalView, format: Format): String =
     format match
-      case Format.Json => writeToString(view)
+      case Format.Json  => writeToString(view)
       case Format.Table =>
         s"rehearsal ${view.name} of ${view.line} at ${view.moment}: ${view.outcome}" +
           view.elapsedSeconds.fold("")(s => s", in ${s}s") + view.detail.fold("")(d => s" ($d)")
 
   def rehearsals(views: Vector[RehearsalView], format: Format): String =
     format match
-      case Format.Json => writeToString(views)
+      case Format.Json  => writeToString(views)
       case Format.Table =>
         table(
           Vector("NAME", "MOMENT", "OUTCOME", "TOOK", "REQUESTED", "BY"),
@@ -386,7 +386,7 @@ object Output:
 
   def restoreHold(status: RestoreHoldStatus, format: Format): String =
     format match
-      case Format.Json => writeToString(status)
+      case Format.Json  => writeToString(status)
       case Format.Table =>
         val head =
           if status.held then
@@ -422,7 +422,7 @@ object Output:
 
   def databaseSetting(setting: DatabaseSetting, format: Format): String =
     format match
-      case Format.Json => writeToString(setting)
+      case Format.Json  => writeToString(setting)
       case Format.Table =>
         Vector(
           "replicas"    -> setting.replicas.toString,
@@ -433,7 +433,7 @@ object Output:
 
   def restores(views: Vector[RestoreView], format: Format): String =
     format match
-      case Format.Json => writeToString(views)
+      case Format.Json  => writeToString(views)
       case Format.Table =>
         table(
           Vector("NAME", "LINE", "MOMENT", "PHASE", "REQUESTED BY"),
@@ -448,7 +448,7 @@ object Output:
    */
   def projectHistory(entries: Vector[ProjectHistoryView], format: Format): String =
     format match
-      case Format.Json => writeToString(entries)
+      case Format.Json  => writeToString(entries)
       case Format.Table =>
         table(
           Vector("WHEN", "KIND", "BY", "TOPIC", "DETAIL"),
@@ -468,7 +468,7 @@ object Output:
   /** Where the installation's backups go (feature 041), as fields. */
   def installation(status: InstallationStatus, format: Format): String =
     format match
-      case Format.Json => writeToString(status)
+      case Format.Json  => writeToString(status)
       case Format.Table =>
         val fields = Vector(
           "backups"               -> status.notBackedUp.getOrElse(status.backupTarget),
@@ -492,7 +492,7 @@ object Output:
 
   def services(rows: Vector[ServiceStatus], format: Format): String =
     format match
-      case Format.Json => writeToString(rows)
+      case Format.Json  => writeToString(rows)
       case Format.Table =>
         table(
           Vector("NAME", "STATUS", "INSTANCES", "GEN", "IMAGE", "HOSTNAME"),
@@ -536,7 +536,7 @@ object Output:
     val hostname = row.customHostnames
       .find(_.hostname == requested.trim.toLowerCase(java.util.Locale.ROOT).stripSuffix("."))
     hostname match
-      case None => s"service '${row.name}' holds no hostname '$requested'"
+      case None    => s"service '${row.name}' holds no hostname '$requested'"
       case Some(h) =>
         val point = h.record.map(r => s"create ${record(r)}").toVector ++ h.note.toVector
         (s"added '${h.hostname}' to service '${row.name}'" +: point :+
@@ -693,7 +693,7 @@ object Output:
         case other => other
       }
       val pathWidth = row.mounts.map(_.path.length).maxOption.getOrElse(0)
-      val mounts = row.mounts.map { m =>
+      val mounts    = row.mounts.map { m =>
         val state = if m.state.isEmpty || m.state == "ok" then "" else s"    (${m.state})"
         s"${m.path.padTo(pathWidth, ' ')}  → ${m.service}$state"
       }
@@ -710,7 +710,7 @@ object Output:
   def settings(current: Settings, format: Format, loginSaved: Boolean = false): String =
     val redacted = current.copy(token = current.token.map(_ => "(set)"))
     format match
-      case Format.Json => writeToString(redacted)(using settingsCodec)
+      case Format.Json  => writeToString(redacted)(using settingsCodec)
       case Format.Table =>
         Vector(
           "url     " -> current.url,
@@ -722,7 +722,7 @@ object Output:
 
   def history(entries: Vector[HistoryEntry], format: Format): String =
     format match
-      case Format.Json => writeToString(entries)
+      case Format.Json  => writeToString(entries)
       case Format.Table =>
         table(
           Vector("WHEN", "KIND", "GEN", "IMAGE", "DIGEST", "BY"),
@@ -747,7 +747,7 @@ object Output:
   /** A rollback: which generation it chose, then the status as `services get` prints it. */
   def rolledBack(result: RolledBack, format: Format): String =
     format match
-      case Format.Json => writeToString(result)
+      case Format.Json  => writeToString(result)
       case Format.Table =>
         s"rolled back to generation ${result.rolledBackTo}\n" + service(result.status, format)
 
@@ -760,7 +760,7 @@ object Output:
 
   def members(response: MembersResponse, format: Format): String =
     format match
-      case Format.Json => writeToString(response)
+      case Format.Json  => writeToString(response)
       case Format.Table =>
         val members = table(
           Vector("SUBJECT", "ROLE", "EMAIL", "SINCE", "ADDED BY"),
@@ -799,7 +799,7 @@ object Output:
    */
   def deployTokenCreated(token: DeployTokenCreated, format: Format): String =
     format match
-      case Format.Json => writeToString(token)
+      case Format.Json  => writeToString(token)
       case Format.Table =>
         val expiry = token.expiresAt.fold("It never expires.")(at => s"Expires $at.")
         s"""Deploy token '${token.label}' created. This is the only time the secret is shown.
@@ -811,7 +811,7 @@ object Output:
   /** A machine just registered: its client id, its secret this once, and where to use them. */
   def machineRegistered(machine: MachineRegistered, format: Format): String =
     format match
-      case Format.Json => writeToString(machine)
+      case Format.Json  => writeToString(machine)
       case Format.Table =>
         val broker = machine.brokerBootstrap.fold("")(b => s"\n  broker         $b")
         s"""Machine '${machine.name}' registered. This is the only time the secret is shown.
@@ -826,7 +826,7 @@ object Output:
     format match
       case Format.Json                      => writeToString(machines)
       case Format.Table if machines.isEmpty => "no machines"
-      case Format.Table =>
+      case Format.Table                     =>
         table(
           Vector("NAME", "CLIENT ID", "REGISTERED BY", "AT", "BYTE RATES"),
           machines.map(m =>
@@ -846,7 +846,7 @@ object Output:
     format match
       case Format.Json                    => writeToString(tokens)
       case Format.Table if tokens.isEmpty => "no deploy tokens"
-      case Format.Table =>
+      case Format.Table                   =>
         table(
           Vector("ID", "LABEL", "PROJECT", "CREATED", "BY", "EXPIRES", "LAST USED"),
           tokens.map(t =>
@@ -868,7 +868,7 @@ object Output:
 
   def whoami(who: Whoami, format: Format): String =
     format match
-      case Format.Json => writeToString(who)
+      case Format.Json  => writeToString(who)
       case Format.Table =>
         val identity = Vector(
           "subject        " -> who.subject,
@@ -899,10 +899,10 @@ object Output:
    */
   def installation(installation: Installation, format: Format): String =
     format match
-      case Format.Json => writeToString(installation)
+      case Format.Json  => writeToString(installation)
       case Format.Table =>
         val cloud = installation.cloud match
-          case None => Vector("provider" -> "none")
+          case None    => Vector("provider" -> "none")
           case Some(c) =>
             Vector("provider" -> c.provider, "account" -> c.account, "location" -> c.location) ++
               c.kmsKey.map("kms key" -> _)
@@ -943,7 +943,7 @@ object Output:
 
   def models(models: Option[InstallationModels]): String =
     models.filter(_.clusters.nonEmpty) match
-      case None => "model server: none"
+      case None    => "model server: none"
       case Some(m) =>
         m.clusters
           .map { c =>
@@ -951,7 +951,7 @@ object Output:
             val head  = s"model server (${c.cluster}): ${c.server}, $state"
             val nameWidth  = c.models.map(_.name.length).maxOption.getOrElse(0)
             val stateWidth = c.models.map(_.state.length).maxOption.getOrElse(0)
-            val lines = c.models.map { line =>
+            val lines      = c.models.map { line =>
               val tail = line.state match
                 case "served" => line.digest.map(_.stripPrefix("sha256:").take(8)).getOrElse("")
                 case _        => line.detail.getOrElse("")
@@ -1024,7 +1024,7 @@ object Output:
    */
   def topology(response: ServiceTopology, format: Format): String =
     format match
-      case Format.Json => writeToString(response)
+      case Format.Json  => writeToString(response)
       case Format.Table =>
         val instances =
           s"${response.contributing} of ${response.running} instance" +
@@ -1117,7 +1117,7 @@ object Output:
    */
   def logs(response: LogsResponse, format: Format): String =
     format match
-      case Format.Json => writeToString(response)
+      case Format.Json  => writeToString(response)
       case Format.Table =>
         val many = response.instances.size > 1
         response.instances

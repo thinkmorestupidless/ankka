@@ -201,8 +201,8 @@ class BrokeredSignInFeatures
       issuer.asked
     )
     // The grant is gone once its code was taken; the refresh token holds who signed in, and no more.
-    val code  = IssuerClient.form(URI.create(c.sentBack.get).getRawQuery)("code")
-    val grant = SignInRecordEntity.grantId(code.takeWhile(_ != '.'))
+    val code               = IssuerClient.form(URI.create(c.sentBack.get).getRawQuery)("code")
+    val grant              = SignInRecordEntity.grantId(code.takeWhile(_ != '.'))
     def record(id: String) =
       running.componentClient.forKeyValueEntity(EntityId(id)).call(SignInRecordEntity.get).invoke()
     assertEquals(record(grant), SignInRecord.Absent)

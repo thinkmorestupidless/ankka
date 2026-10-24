@@ -128,7 +128,7 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
     import scala.concurrent.Await
     import scala.concurrent.ExecutionContext.Implicits.global
 
-    val ids = (1 to 20).map(n => s"cart-fan-$n")
+    val ids    = (1 to 20).map(n => s"cart-fan-$n")
     val issued = ids.map { id =>
       cart(id).call(ShoppingCartEntity.addItem).invokeAsync(LineItem("p1", "Widget", 1))
     }

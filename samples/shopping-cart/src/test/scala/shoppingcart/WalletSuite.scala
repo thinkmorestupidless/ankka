@@ -36,7 +36,7 @@ class WalletSuite extends munit.FunSuite with LogCapturing:
   }
 
   private val merchant = Caller.Service("payments", "merchant")
-  private val grants = Grants.of(
+  private val grants   = Grants.of(
     GrantEntry(merchant, GrantTarget.Route("POST", "/v1/wallets/{player}/{currency}/deposits"))
   )
 
@@ -55,7 +55,7 @@ class WalletSuite extends munit.FunSuite with LogCapturing:
 
   private def deposit(as: Caller, key: String): (Int, String) =
     val (name, value) = testKit.asCaller(as)
-    val request = HttpRequest
+    val request       = HttpRequest
       .newBuilder(URI.create(s"$base/v1/wallets/p9/eur/deposits"))
       .header(name, value)
       .header("Idempotency-Key", key)

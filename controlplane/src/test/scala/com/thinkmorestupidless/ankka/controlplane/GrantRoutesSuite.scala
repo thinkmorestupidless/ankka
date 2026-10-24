@@ -53,7 +53,7 @@ class GrantRoutesSuite extends munit.FunSuite with LogCapturing:
 
   test("the same grant made again is the same grant") {
     val target = """{"kind":"erasure"}"""
-    val first = readFromString[GrantDetail](
+    val first  = readFromString[GrantDetail](
       cp.send(
         "POST",
         "/projects/spinvibe/grants",
@@ -73,7 +73,7 @@ class GrantRoutesSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a grant to another organization's machine is pending") {
-    val target = """{"kind":"topic","topic":"affiliates.attribution","right":"consume"}"""
+    val target         = """{"kind":"topic","topic":"affiliates.attribution","right":"consume"}"""
     val (status, body) =
       cp.send(
         "POST",
@@ -87,7 +87,7 @@ class GrantRoutesSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("only the grantee organization's owner answers a grant; a second answer conflicts") {
-    val target = """{"kind":"topic","topic":"affiliates.attribution","right":"consume"}"""
+    val target    = """{"kind":"topic","topic":"affiliates.attribution","right":"consume"}"""
     val (_, body) =
       cp.send(
         "POST",
@@ -218,7 +218,7 @@ class GrantRoutesSuite extends munit.FunSuite with LogCapturing:
     val grant = readFromString[GrantDetail](
       cp.send("POST", "/projects/spinvibe/grants", grantBody("service:payments/auditor"), "ada")._2
     )
-    val _ = cp.send("DELETE", s"/projects/spinvibe/grants/${grant.id}", as = "ada")
+    val _        = cp.send("DELETE", s"/projects/spinvibe/grants/${grant.id}", as = "ada")
     val received = cp.eventually("the revocation reaches payments") {
       val (_, body) = cp.send("GET", "/projects/payments/grants/received", as = "cy")
       readFromString[Vector[ReceivedGrantDetail]](body)

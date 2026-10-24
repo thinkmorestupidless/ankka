@@ -32,7 +32,7 @@ object CommandError:
    */
   def from(failure: Throwable): Option[CommandError] = failure match
     case error: CommandError => Some(error)
-    case other =>
+    case other               =>
       Option(other).flatMap(t => Option(t.getCause)).collect { case error: CommandError => error }
 
 /**

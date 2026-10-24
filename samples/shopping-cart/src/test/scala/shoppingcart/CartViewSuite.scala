@@ -171,7 +171,7 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
       org.apache.pekko.stream.Materializer(testKit.service.system)
     val id = "watched-open"
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 1))
-    val _ =
+    val _  =
       eventually("the cart is in the view")(testKit.service.viewClient.forView(CartRows).get(id))
     val events =
       java.util.concurrent.LinkedBlockingQueue[WatchEvent[shoppingcart.application.CartRow]]()

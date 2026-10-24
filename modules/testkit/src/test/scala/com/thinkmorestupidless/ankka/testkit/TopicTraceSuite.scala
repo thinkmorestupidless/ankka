@@ -135,7 +135,7 @@ class TopicTraceSuite extends munit.FunSuite with LogCapturing:
       deliver("fanout-events", StockEvent("t-2", 5, "w1"), Metadata.empty)
     }
     val fanout = spans.head
-    val lines =
+    val lines  =
       eventually("the lines are published")(Option(carriedBy("fanout-lines")).filter(_.size == 3))
     assertEquals(
       lines.distinct,
@@ -166,7 +166,7 @@ class TopicTraceSuite extends munit.FunSuite with LogCapturing:
     val spans = spansOf("forging-relay") {
       deliver("relay-events", StockEvent("t-5", 1, "w1"), Metadata.empty)
     }
-    val relay = spans.head
+    val relay     = spans.head
     val published =
       eventually("the relay publishes")(Option(carriedBy("relay-alerts")).filter(_.nonEmpty))
     assertEquals(published, Vector(TraceContext(relay.traceIdHigh, relay.traceId, relay.spanId)))
@@ -186,7 +186,7 @@ class TopicTraceSuite extends munit.FunSuite with LogCapturing:
 
   test("a message delivered twice is two spans under the same parent, in the same trace") {
     val parent = Metadata.empty.set(Traceparent.Name, Traceparent.render(publisher))
-    val spans = spansOf("low-stock-notifier") {
+    val spans  = spansOf("low-stock-notifier") {
       deliver("stock-events", StockEvent("t-7", 1, "w1"), parent)
       deliver("stock-events", StockEvent("t-7", 1, "w1"), parent)
     }

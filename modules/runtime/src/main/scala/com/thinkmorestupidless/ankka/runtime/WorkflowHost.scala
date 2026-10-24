@@ -109,7 +109,7 @@ private[ankka] object WorkflowHost:
         // A pause's wake is a timer row, written on first need. A service without a database is
         // refused a workflow at start; the guard keeps a host built some other way from writing.
         val system = ctx.system
-        val wakes =
+        val wakes  =
           if NoDatabase.declared(system.settings.config) then None
           else
             lazy val scheduler = DatabaseTimerScheduler(Database()(using system))
@@ -239,12 +239,12 @@ private[ankka] object WorkflowHost:
             )
           case WorkflowRecord.KindPaused =>
             Event.Paused(Option(record.step).filter(_.nonEmpty), record.deadlineMillis)
-          case WorkflowRecord.KindEnded => Event.Ended
+          case WorkflowRecord.KindEnded  => Event.Ended
           case WorkflowRecord.KindFailed =>
             Event.Failed(record.message, Option(record.step).filter(_.nonEmpty))
           case WorkflowRecord.KindRetryRecorded => Event.RetryRecorded(record.step)
           case WorkflowRecord.KindDeleted       => Event.Deleted
-          case other =>
+          case other                            =>
             throw IllegalStateException(
               s"unknown workflow record kind $other for '${descriptor.componentId}'; " +
                 "the journal was written by a newer runtime"

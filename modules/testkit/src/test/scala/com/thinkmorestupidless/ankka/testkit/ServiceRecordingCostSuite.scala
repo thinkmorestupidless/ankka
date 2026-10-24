@@ -61,12 +61,12 @@ final class ServiceRecordingCostSuite extends FunSuite with LogCapturing:
     // Everything an invocation pays for being observed, on this service's own recorder and
     // counts and with the names it really declared: a span, the caller's name written into the
     // call's metadata, and the call counted from that name where it lands.
-    val observability = Observability(testKit.service.system)
-    val component     = ProfileEntity.descriptor.componentId.toString
-    val handler       = ProfileEntity.rename.name.toString
-    val origin        = CallOrigin(component, handler)
-    val componentRef  = observability.names.intern(component)
-    val handlerRef    = observability.names.intern(handler)
+    val observability          = Observability(testKit.service.system)
+    val component              = ProfileEntity.descriptor.componentId.toString
+    val handler                = ProfileEntity.rename.name.toString
+    val origin                 = CallOrigin(component, handler)
+    val componentRef           = observability.names.intern(component)
+    val handlerRef             = observability.names.intern(handler)
     def observed(i: Int): Unit =
       val span    = observability.recorder.begin(i.toLong + 1, 0L, componentRef, handlerRef)
       val carried = Trace.within(span.traceId, span.id, origin)(Trace.outbound(Metadata.empty))
@@ -114,7 +114,7 @@ final class ServiceRecordingCostSuite extends FunSuite with LogCapturing:
     // The newest span of that handler: the ring may be full from the benchmark before this, so a
     // position counted from before the call says nothing.
     val renameRef = observability.names.intern(ProfileEntity.rename.name.toString)
-    val span = recorder
+    val span      = recorder
       .snapshot()
       .filter(_.handlerRef == renameRef)
       .maxByOption(_.startedNanos)

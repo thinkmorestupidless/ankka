@@ -62,7 +62,7 @@ object ServiceRegistration:
   def observabilityAddressOfInstallation(installation: String): Option[String] =
     val InstallationField = "\"installation\":\"([^\"]*)\"".r
     val AddressField      = "\"observabilityAddress\":\"([^\"]*)\"".r
-    val entries =
+    val entries           =
       try
         Option(directory.toFile.listFiles()).toVector.flatten
           .filter(_.getName.endsWith(".json"))
@@ -83,7 +83,7 @@ object ServiceRegistration:
   private def inventoryOf(name: String): Option[String] =
     val NameField    = "\"name\":\"([^\"]*)\"".r
     val AddressField = "\"observabilityAddress\":\"([^\"]*)\"".r
-    val entries =
+    val entries      =
       try
         Option(directory.toFile.listFiles()).toVector.flatten
           .filter(_.getName.endsWith(".json"))

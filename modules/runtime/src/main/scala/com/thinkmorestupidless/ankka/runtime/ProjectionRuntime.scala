@@ -182,7 +182,7 @@ final class ProjectionRuntime private (
       rejectUndeclared(service.registry.components.toVector)
       ProjectionRuntime.crossProjectProblems(service.registry.components.toVector) match
         case Vector() => ()
-        case found =>
+        case found    =>
           StartRefusal.refuse(found.mkString("; "), IllegalArgumentException(_))
       rejectUnsafeAcks(service.registry.components.toVector)
       rejectUnsupported(views, consumers)
@@ -300,7 +300,7 @@ final class ProjectionRuntime private (
           s"cannot read the project's declarations: $why",
           IllegalArgumentException(_)
         )
-      case Right(None) => ()
+      case Right(None)           => ()
       case Right(Some(declared)) =>
         val problems = Vector.newBuilder[String]
         def side(
@@ -464,7 +464,7 @@ final class ProjectionRuntime private (
       else handler()
     // What the service says about the source (feature 037): the change it is failing on, cleared
     // when one succeeds, and how far behind it is, asked of the broker every thirty seconds.
-    val sources = TopicSources(system)
+    val sources                                 = TopicSources(system)
     val handle: IncomingMessage => Future[Done] = message =>
       given ExecutionContext = ExecutionContext.parasitic
       lanes(message).transform { outcome =>
@@ -577,7 +577,7 @@ final class ProjectionRuntime private (
     // Set once the view has subscribed, so a write that finds it behind can stop it.
     val holder  = java.util.concurrent.atomic.AtomicReference[Option[Subscribed]](None)
     val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
-    val guard = ViewGuard(
+    val guard   = ViewGuard(
       database,
       componentId,
       declared,
@@ -648,7 +648,7 @@ final class ProjectionRuntime private (
       recorded: Int,
       declared: Int
   )(using system: ActorSystem[?]): Future[ViewVersions.Rebuilt] =
-    given ExecutionContext = system.executionContext
+    given ExecutionContext                                     = system.executionContext
     def ask(delay: FiniteDuration): Future[Map[Int, Retained]] =
       broker.earliestRetained(topic).recoverWith { case failure =>
         system.log.warn(
@@ -701,7 +701,7 @@ final class ProjectionRuntime private (
     val database           = Database()
     val table              = ViewDescriptor.tableFor(componentId)
     val log                = system.log
-    val started =
+    val started            =
       ViewVersions.recorded(database, componentId).flatMap { recorded =>
         if recorded == declared then Future.successful(start)
         else if recorded > declared then
@@ -763,10 +763,10 @@ final class ProjectionRuntime private (
       client: ComponentClient
   )(using system: ActorSystem[?]): Unit =
     type AnyView = View[Any, Any]
-    val typed    = descriptor.asInstanceOf[ViewDescriptor[AnyView, Any, Any]]
-    val declared = typed.version.getOrElse(1)
-    val id       = typed.componentId
-    val said     = java.util.concurrent.atomic.AtomicBoolean(false)
+    val typed                           = descriptor.asInstanceOf[ViewDescriptor[AnyView, Any, Any]]
+    val declared                        = typed.version.getOrElse(1)
+    val id                              = typed.componentId
+    val said                            = java.util.concurrent.atomic.AtomicBoolean(false)
     def guard(projection: ProjectionId) =
       EntityViewGuard(id, declared, shared = true, projection, said)
 
@@ -774,7 +774,7 @@ final class ProjectionRuntime private (
       case ChangeSource.EventSourced(sourceId, _) =>
         startEntityView(id, declared) {
           daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
-            val range = eventSliceRanges(typed.parallelism)(index)
+            val range      = eventSliceRanges(typed.parallelism)(index)
             val projection =
               ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
             exactlyOnceEventProjection(
@@ -789,7 +789,7 @@ final class ProjectionRuntime private (
       case ChangeSource.KeyValue(sourceId, _) =>
         startEntityView(id, declared) {
           daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
-            val range = DurableStateSourceProvider.sliceRanges(typed.parallelism)(index)
+            val range      = DurableStateSourceProvider.sliceRanges(typed.parallelism)(index)
             val projection =
               ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
             atLeastOnceStateProjection(
@@ -804,7 +804,7 @@ final class ProjectionRuntime private (
       case ChangeSource.Workflow(sourceId, decoder) =>
         startEntityView(id, declared) {
           daemon(ViewProjections.daemon(id, None), typed.parallelism) { index =>
-            val range = eventSliceRanges(typed.parallelism)(index)
+            val range      = eventSliceRanges(typed.parallelism)(index)
             val projection =
               ProjectionId(ViewProjections.name(id, None, declared), s"${range.min}-${range.max}")
             exactlyOnceWorkflowProjection(
@@ -1185,7 +1185,7 @@ final class ProjectionRuntime private (
     given ExecutionContext = system.executionContext
     val processName        = s"ankka-consumer-${descriptor.componentId}"
     val parallelism        = RemoteProjection.Parallelism
-    def consumer() = RemoteConsumer(
+    def consumer()         = RemoteConsumer(
       descriptor,
       conversation,
       publisherFor(descriptor.publication.flatMap(_.broker)),
@@ -1468,7 +1468,7 @@ object ProjectionRuntime:
    */
   def fromEnv(env: Map[String, String] = sys.env): ProjectionRuntime =
     val installation = KafkaConnection.fromEnv(env).fold(apply())(withKafka)
-    val declared = ProjectDeclarations.fromEnv(env) match
+    val declared     = ProjectDeclarations.fromEnv(env) match
       case Right(None)    => installation
       case Right(Some(d)) => installation.withDeclarations(d)
       case Left(why)      => installation.withUnreadableDeclarations(why)
@@ -1575,7 +1575,7 @@ private final class ViewStateHandler(
             val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
             write(ViewStore.upsert(table, subject, json))
           case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
-          case ViewEffect.Ignore =>
+          case ViewEffect.Ignore    =>
             Future.successful(Done)
       }
 
@@ -1621,7 +1621,7 @@ private final class ConsumerEventHandler[A](
       case SourceChange.Skip => Future.successful(Done)
       // Written at another installation, which publishes it: not this consumer's to publish again.
       case _ if localOnly && !local => Future.successful(Done)
-      case change =>
+      case change                   =>
         consumer._setContext(
           Some(
             SimpleChangeContext(

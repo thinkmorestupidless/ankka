@@ -176,7 +176,7 @@ final class RotatingTls(
     val trustManagers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm)
     trustManagers.init(trustStore)
     val trust = peers match
-      case Peers.Authority => trustManagers.getTrustManagers
+      case Peers.Authority    => trustManagers.getTrustManagers
       case Peers.SameIdentity =>
         val own = ankkaUris(chain.head)
         if own.isEmpty then

@@ -15,7 +15,7 @@ object CloudProviderNeeded:
   def problem(choice: String, needs: String, installation: Option[String]): Option[String] =
     installation match
       case Some(provider) if provider == needs => None
-      case Some(provider) =>
+      case Some(provider)                      =>
         Some(s"$choice needs the cloud provider $needs, and the installation's is $provider")
       case None => Some(s"$choice needs the cloud provider $needs, and the installation has none")
 

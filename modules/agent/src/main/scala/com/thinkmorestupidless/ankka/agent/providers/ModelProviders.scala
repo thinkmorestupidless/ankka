@@ -131,8 +131,8 @@ object ModelProviders:
    */
   def unavailable(providerName: String, model: String, reason: String): ModelProvider =
     new ModelProvider:
-      def name: String      = providerName
-      def modelName: String = model
+      def name: String                                           = providerName
+      def modelName: String                                      = model
       def complete(request: ModelRequest): Future[ModelResponse] =
         Future.failed(ModelCallFailed(providerName, reason))
       override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =

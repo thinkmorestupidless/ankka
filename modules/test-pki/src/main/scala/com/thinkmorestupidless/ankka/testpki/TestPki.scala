@@ -44,7 +44,7 @@ final class TestPki private (val name: String, keyPair: KeyPair, val certificate
       notBefore: Instant = Instant.now().minusSeconds(60)
   ): TestPki.Leaf =
     val leafKeys = TestPki.rsa()
-    val subject = new X500Name(
+    val subject  = new X500Name(
       s"CN=${cn.getOrElse(uris.headOption.orElse(dnsNames.headOption).getOrElse("leaf"))}"
     )
     val builder = new JcaX509v3CertificateBuilder(

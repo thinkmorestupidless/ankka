@@ -140,11 +140,11 @@ class AgentServiceCallSuite extends munit.FunSuite with LogCapturing:
       agent("s-trace").call(WalletAgent.ask).invoke("what is c-2's balance?"): Unit
     }
 
-    val spans = recorder.spansOf(traceId)
+    val spans                                                        = recorder.spansOf(traceId)
     def named(s: com.thinkmorestupidless.ankka.runtime.RecordedSpan) =
       (names.nameOf(s.componentRef).getOrElse("?"), names.nameOf(s.handlerRef).getOrElse("?"))
     val handler = spans.find(s => named(s) == ("wallet-agent", "ask")).getOrElse(fail(s"$spans"))
-    val tool = spans
+    val tool    = spans
       .find(s => named(s)._2 == "read_balance")
       .getOrElse(fail(spans.map(named).toString))
     assertEquals(tool.parentSpanId, handler.spanId, "the tool call is under the agent")

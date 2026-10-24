@@ -119,7 +119,7 @@ final class WasmConversation(
       case ComponentKind.EventSourcedEntity => Kind.EVENT_SOURCED_ENTITY
       case ComponentKind.KeyValueEntity     => Kind.KEY_VALUE_ENTITY
       case ComponentKind.Workflow           => Kind.WORKFLOW
-      case other =>
+      case other                            =>
         throw ProtocolViolation(s"$other is not a stateful kind and has no conversation")
     val held = HeldState(
       s"${init.componentId}/${init.entityId}",
@@ -148,7 +148,7 @@ final class WasmConversation(
     ): Either[GuestFault, Boolean] =
       val events = held.takeUnfolded()
       events.zipWithIndex.foldLeft[Either[GuestFault, Boolean]](Right(resident)) {
-        case (Left(fault), _) => Left(fault)
+        case (Left(fault), _)              => Left(fault)
         case (Right(holds), (replayed, i)) =>
           val request = FoldRequest(
             init.componentId,
@@ -195,7 +195,7 @@ final class WasmConversation(
     def command(cmd: Command): Future[Either[ProcessFailure, Reply]] = Future {
       val sent     = stamped(cmd.metadata).set(WasmConversation.Sequence, held.sequence.toString)
       val metadata = Some(toMetadata(sent))
-      val command = kind match
+      val command  = kind match
         case Kind.EVENT_SOURCED_ENTITY =>
           HandleRequest.Command.EventSourced(
             EventSourcedIn.Command(
@@ -233,7 +233,7 @@ final class WasmConversation(
         }
       }
       answered match
-        case Left(fault) => Left(failure(cmd.id, fault))
+        case Left(fault)                             => Left(failure(cmd.id, fault))
         case Right(reply) if reply.failure.isDefined =>
           Left(fromFailure(reply.getFailure.copy(commandId = cmd.id)))
         case Right(reply) =>
@@ -241,7 +241,7 @@ final class WasmConversation(
             case HandleReply.Reply.EventSourced(r) => Right(fromEventSourcedReply(r))
             case HandleReply.Reply.KeyValue(r)     => Right(fromKeyValueReply(r))
             case HandleReply.Reply.Workflow(r)     => Right(fromWorkflowReply(r))
-            case HandleReply.Reply.Empty =>
+            case HandleReply.Reply.Empty           =>
               Left(
                 ProcessFailure(
                   cmd.id,
@@ -259,7 +259,7 @@ final class WasmConversation(
         metadata: Metadata
     ): Future[Either[ProcessFailure, StepReply]] = Future {
       // A fresh instance holds nothing, so it is always handed the state, whatever the shape.
-      val sent = stamped(metadata)
+      val sent    = stamped(metadata)
       val request = StepRequest(
         init.componentId,
         init.entityId,
@@ -276,7 +276,7 @@ final class WasmConversation(
       blocking.withFresh(fn("run_step"), stepTime)(
         ask(_, fn("run_step"), request, purposeOf(Some(step), sent))(PbStepReply.parseFrom)
       ) match
-        case Left(fault) => Left(failure(id, fault))
+        case Left(fault)                             => Left(failure(id, fault))
         case Right(reply) if reply.failure.isDefined =>
           Left(fromFailure(reply.getFailure.copy(commandId = id)))
         case Right(reply) =>
@@ -314,7 +314,7 @@ final class WasmConversation(
 
   private def orFail[A](answered: Future[Either[GuestFault, A]]): Future[A] =
     answered.flatMap {
-      case Right(a) => Future.successful(a)
+      case Right(a)    => Future.successful(a)
       case Left(fault) =>
         Future.failed(
           CommandError(
@@ -376,7 +376,7 @@ final class WasmConversation(
       argumentsJson: String,
       metadata: Metadata
   ): Future[Either[String, String]] =
-    val sent = stamped(metadata)
+    val sent    = stamped(metadata)
     val request =
       ToolRequest(componentId, sessionId, tool, argumentsJson, Some(Translate.toMetadata(sent)))
     orFail(

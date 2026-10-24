@@ -59,7 +59,7 @@ private[blueprint] object Turns:
       case _                                      => false
     } match
       case -1 => None
-      case i =>
+      case i  =>
         ms.drop(i + 1)
           .collect {
             case SessionMessage.AiMessage(_, text, _, calls, _, _) if calls.isEmpty => text
@@ -92,7 +92,7 @@ private[blueprint] object Turns:
       else
         val history = worker.history(session)
         answered(history, asked) match
-          case Some(value) => found = Some(Right(value))
+          case Some(value)                       => found = Some(Right(value))
           case None if history.awaiting.nonEmpty =>
             found = Some(
               if worker.waitForDecision(stepName, session, history.awaiting) then
@@ -127,13 +127,13 @@ private[blueprint] object Turns:
       val text: Either[Outcome, String] =
         answered(worker.history(session), asked) match
           case Some(found) => Right(found)
-          case None =>
+          case None        =>
             try
               worker
                 .agent(session)
                 .ask(AskAgent.turn)
                 .invoke(WorkerTurn(definition, asked, shape, ref)) match
-                case AgentOutcome.Answered(value) => Right(value)
+                case AgentOutcome.Answered(value)            => Right(value)
                 case AgentOutcome.AwaitingApproval(requests) =>
                   if worker.waitForDecision(stepName, session, requests) then
                     // The decision resumed the turn on its session; the answer, if the turn ended, is there.
@@ -147,14 +147,14 @@ private[blueprint] object Turns:
                 afterTimeout(worker, session, asked, stepName)
               case e: CommandError => Left(Failed(e.getMessage))
       text match
-        case Left(ended) => outcome = Some(ended)
+        case Left(ended)  => outcome = Some(ended)
         case Right(value) =>
           attempts += 1
           Json.parse(value) match
             case Left(_) if attempts < definition.budget =>
               asked =
                 s"$message\n\nYour last answer was not JSON. Answer with JSON of the shape asked for."
-            case Left(_) => outcome = Some(Failed("the worker did not answer with JSON"))
+            case Left(_)     => outcome = Some(Failed("the worker did not answer with JSON"))
             case Right(json) =>
               val problems = shape.check(json)
               if problems.isEmpty then outcome = Some(Answered(json))

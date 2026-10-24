@@ -84,7 +84,7 @@ class SecretsRenderingSuite extends munit.FunSuite:
   }
 
   test("an installation that sets nothing, or only the defaults, renders what it rendered before") {
-    val before = deployment(embedded, Settings.default)
+    val before   = deployment(embedded, Settings.default)
     val defaults = Settings.default.copy(
       secretStore = Settings.SecretStore(backend = Some("postgres"), versionsKept = Some("2"))
     )

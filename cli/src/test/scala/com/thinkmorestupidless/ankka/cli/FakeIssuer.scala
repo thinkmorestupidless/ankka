@@ -159,7 +159,7 @@ final class FakeIssuer:
       Option(exchange.getRequestHeaders.getFirst("Authorization")).foreach(listBearers.add)
       Option(exchange.getRequestHeaders.getFirst("Authorization")) match
         case Some(header) if header == s"Bearer $accessToken" => json(exchange, 200, "[]")
-        case _ =>
+        case _                                                =>
           exchange.getResponseHeaders.add("WWW-Authenticate", """Bearer realm="ankka"""")
           json(exchange, 401, """{"status":401,"error":"authentication required"}""")
   )

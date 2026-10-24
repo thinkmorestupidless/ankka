@@ -46,7 +46,7 @@ class JournalRecordCompatibilitySuite extends munit.FunSuite with LogCapturing:
     "remote-deleted" -> RemoteStateRecord("", Array.emptyByteArray, true, 0L, 20L, 19L)
   )
 
-  private def hex(bytes: Array[Byte]): String = bytes.map(b => f"$b%02x").mkString
+  private def hex(bytes: Array[Byte]): String  = bytes.map(b => f"$b%02x").mkString
   private def unhex(text: String): Array[Byte] =
     text.grouped(2).map(Integer.parseInt(_, 16).toByte).toArray
 

@@ -44,7 +44,7 @@ final class Door(
   private val executor  = Executors.newVirtualThreadPerTaskExecutor()
   private val transport = TlsTransport(tls, bind)
   private val ollama    = settings.ollama.toString.stripSuffix("/")
-  private val client = HttpClient
+  private val client    = HttpClient
     .newBuilder()
     .version(HttpClient.Version.HTTP_1_1)
     .followRedirects(HttpClient.Redirect.NEVER)
@@ -92,7 +92,7 @@ final class Door(
     try
       transport.senderOf(exchange) match
         case Right(Sender.Service(project, service)) => admitted(exchange, project, service)
-        case Right(other) =>
+        case Right(other)                            =>
           log.info("refused {}: {}", Sender.describe(other), target(exchange))
           telemetry.refused()
           json(exchange, 403, NotAService)
@@ -119,7 +119,7 @@ final class Door(
       if body.length > MaxBody then json(exchange, 413, """{"error":"the request is too large"}""")
       else
         val model = modelOf(body).getOrElse(NoModel)
-        val call = telemetry.call(
+        val call  = telemetry.call(
           model,
           project,
           service,
@@ -164,7 +164,7 @@ final class Door(
         values.asScala.foreach(v => out.add(name, v))
     }
     val declared = response.headers.firstValueAsLong("content-length")
-    val length =
+    val length   =
       if declared.isPresent then if declared.getAsLong == 0 then -1L else declared.getAsLong
       else 0L
     exchange.sendResponseHeaders(response.statusCode, length)
@@ -183,7 +183,7 @@ final class Door(
   private def readiness(exchange: HttpExchange): Unit =
     try
       exchange.getRequestURI.getPath match
-        case "/live" => text(exchange, 200, "live")
+        case "/live"  => text(exchange, 200, "live")
         case "/ready" =>
           source.ready match
             case Right(())    => text(exchange, 200, "ready")

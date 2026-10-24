@@ -59,7 +59,7 @@ object KeeperSettings:
     def value(name: String): Option[String] = env(name).map(_.trim).filter(_.nonEmpty)
     def port(name: String, default: Int): Either[String, Int] =
       value(name) match
-        case None => Right(default)
+        case None       => Right(default)
         case Some(text) =>
           text.toIntOption
             .filter(p => p >= 0 && p <= 65535)
@@ -70,17 +70,17 @@ object KeeperSettings:
         Try(URI(text)).toOption
           .filter(u => u.getScheme == "http" && u.getHost != null)
           .toRight(s"$Ollama '$text' is not an http:// address")
-    val address = value(Address).toRight(s"$Address is not set: the address services call")
+    val address  = value(Address).toRight(s"$Address is not set: the address services call")
     val parallel = value(Parallel) match
-      case None => Right(1)
+      case None       => Right(1)
       case Some(text) =>
         text.toIntOption.filter(_ >= 1).toRight(s"$Parallel '$text' is not a number of at least 1")
     val pass = value(PassInterval) match
-      case None => Right(DefaultPass)
+      case None       => Right(DefaultPass)
       case Some(text) =>
         duration(text).toRight(s"$PassInterval '$text' is not a duration such as 30s")
     val otlp = value(OtlpEndpoint) match
-      case None => Right(None)
+      case None       => Right(None)
       case Some(text) =>
         Try(URI(text)).toOption
           .filter(u => Set("http", "https").contains(u.getScheme) && u.getHost != null)

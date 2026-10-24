@@ -105,7 +105,7 @@ final class ServiceEndpoint(
             .forEventSourcedEntity(EntityId(status.projectId))
             .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.topics)
             .invoke()
-        val sources = ServiceEndpoint.topicSourcesOf(read)
+        val sources  = ServiceEndpoint.topicSourcesOf(read)
         val warnings =
           ServiceEndpoint.retentionWarnings(sources, declared, topicPolicy.warningThreshold)
         status.copy(
@@ -364,7 +364,7 @@ final class ServiceEndpoint(
     // Who may ask is decided before anything about the service is read, so a caller outside the
     // project learns nothing of what it holds.
     val metadata = access(projectId, write = true)
-    val current = entity(projectId, name)
+    val current  = entity(projectId, name)
       .call(ServiceEntity.desiredState)
       .invoke()
       .getOrElse(
@@ -426,7 +426,7 @@ final class ServiceEndpoint(
           )
         }
         proofs.proves(hostname, projectId) match
-          case Right(true) => ()
+          case Right(true)                                       => ()
           case Right(false) | Left(ProofLookup.Failure.NoRecord) =>
             refuse(
               s"'$hostname' does not carry the proof record of project '$projectId': create " +
@@ -454,7 +454,7 @@ final class ServiceEndpoint(
   delete("/{projectId}/{name}/hostnames/{hostname}") {
     (projectId: String, name: String, raw: String) =>
       val hostname = CustomHostnames.normalise(decoded(raw))
-      val call =
+      val call     =
         if authz.isAdmin(principal) then
           authz.project(principal, projectId, write = true)
           entity(projectId, name)
@@ -568,7 +568,7 @@ final class ServiceEndpoint(
     // service, the developer's with `-app`; every other pod has the one, and asking for the
     // platform's is refused rather than answered with the only one there is (feature 021).
     val twoContainers = ServiceEndpoint.TwoContainerHostings.contains(status.hosting)
-    val container =
+    val container     =
       if platform && !twoContainers then
         throw CommandError(ServiceEndpoint.PlatformRefusal, ErrorCode.BadRequest)
       else if twoContainers && !platform then s"$name-app"
@@ -672,7 +672,7 @@ object ServiceEndpoint:
       grantsOf: String => Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant]
   ): Vector[CrossProjectTopic] =
     val target = com.thinkmorestupidless.ankka.controlplane.api.GrantTarget
-    val used = documents
+    val used   = documents
       .flatMap(_.declared)
       .filter(_.broker.isEmpty)
       .flatMap { edge =>
@@ -688,7 +688,7 @@ object ServiceEndpoint:
       }
       .distinct
       .sorted
-    val me = Grantee.Service(project, service)
+    val me     = Grantee.Service(project, service)
     val grants = scala.collection.mutable.Map
       .empty[String, Vector[com.thinkmorestupidless.ankka.controlplane.domain.Grant]]
     used.map { (owner, name, right) =>

@@ -17,7 +17,7 @@ class BlueprintFeatures
 
   override val munitTimeout = 4.minutes
 
-  private val model = TestModelProvider()
+  private val model  = TestModelProvider()
   private val search =
     FunctionTool.named("search").describedAs("Searches a source.").handle(() => "[]")
   private val keep =

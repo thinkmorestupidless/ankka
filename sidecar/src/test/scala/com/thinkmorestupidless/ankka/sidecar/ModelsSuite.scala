@@ -268,7 +268,7 @@ class ModelsSuite extends munit.FunSuite with LogCapturing:
     "the preset installation is resolved against the model server, with the service's certificate"
   ) {
     val authority = TestPki.root("service authority")
-    val door = FakeOllama.startTls(
+    val door      = FakeOllama.startTls(
       RotatingTls(
         authority
           .issue(uris = Seq("ankka://platform/models"), dnsNames = Seq("localhost"))

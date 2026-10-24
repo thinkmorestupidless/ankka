@@ -100,7 +100,7 @@ class ControlPlaneRestoreClusterFeatures
     val forward =
       k8s.services().inNamespace("ankka-controlplane").withName(s"$database-rw").portForward(5432)
     val (user, password) = owner
-    val settings = ConfigFactory.parseString(
+    val settings         = ConfigFactory.parseString(
       s"""pekko.persistence.r2dbc.connection-factory {
          |  host = "127.0.0.1"
          |  port = ${forward.getLocalPort}
@@ -109,8 +109,8 @@ class ControlPlaneRestoreClusterFeatures
          |  password = "$password"
          |}""".stripMargin
     )
-    val deploy = DeployConfig.default.copy(namespacePrefix = Prefix, sweepInterval = 2.seconds)
-    val hold   = new RestoreHold()
+    val deploy    = DeployConfig.default.copy(namespacePrefix = Prefix, sweepInterval = 2.seconds)
+    val hold      = new RestoreHold()
     val projector = ServiceProjector.withClient(
       deploy,
       new Fabric8AnkkaServiceClient(k8s, Prefix, resyncMillis = 2000L),
@@ -183,7 +183,7 @@ class ControlPlaneRestoreClusterFeatures
     val source = repoRoot.resolve("kustomization/recovery/controlplane")
     for file <- Vector("kustomization.yaml", "cluster.yaml", "marker-job.yaml") do
       val text = Files.readString(source.resolve(file))
-      val set =
+      val set  =
         if file == "kustomization.yaml" then
           text
             .replace("restoreName=SET", s"restoreName=$restoreName")

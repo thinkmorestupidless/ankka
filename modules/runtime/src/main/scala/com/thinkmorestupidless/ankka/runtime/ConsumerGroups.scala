@@ -46,7 +46,7 @@ private[ankka] object ConsumerGroups:
   private def kindWord(kind: ComponentKind): String = kind match
     case ComponentKind.View     => "view"
     case ComponentKind.Consumer => "consumer"
-    case other =>
+    case other                  =>
       throw IllegalArgumentException(s"only a view or a consumer reads a topic, not a $other")
 
   /**

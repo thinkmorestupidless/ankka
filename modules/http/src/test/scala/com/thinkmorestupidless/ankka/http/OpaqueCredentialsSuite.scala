@@ -19,7 +19,7 @@ class OpaqueCredentialsSuite extends munit.FunSuite:
   }
 
   test("the digest is lower-case hex SHA-256 of the secret half") {
-    val minted = keys.mint()
+    val minted   = keys.mint()
     val expected = java.security.MessageDigest
       .getInstance("SHA-256")
       .digest(minted.secret.getBytes("UTF-8"))

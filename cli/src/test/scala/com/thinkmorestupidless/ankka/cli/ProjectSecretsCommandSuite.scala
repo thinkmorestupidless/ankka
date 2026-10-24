@@ -58,9 +58,9 @@ final class ProjectSecretsCommandSuite extends FunSuite:
   override def beforeEach(context: BeforeEach): Unit = seen.synchronized(seen.clear())
 
   private def run(args: String*): (Int, String, String) =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
-    val url = s"http://127.0.0.1:${server.getAddress.getPort}"
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
+    val url  = s"http://127.0.0.1:${server.getAddress.getPort}"
     val code = Main.run(
       Vector("projects", "secrets") ++ args ++ Vector("--url", url, "--token", "t", "-p", "shop"),
       PrintStream(out),

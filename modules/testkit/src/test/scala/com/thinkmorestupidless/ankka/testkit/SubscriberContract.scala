@@ -50,7 +50,7 @@ trait SubscriberContract:
 
   /** A subscription recording every body it is handed, in order. */
   private def recording(topic: String, group: String, start: StartFrom) =
-    val seen = ConcurrentLinkedQueue[String]()
+    val seen       = ConcurrentLinkedQueue[String]()
     val subscribed = subscriber.subscribe(
       TopicSubscription(topic, group, start),
       (message: IncomingMessage) =>
@@ -133,7 +133,7 @@ trait SubscriberContract:
     val topic                = freshTopic("redeliver")
     val attempts             = ConcurrentLinkedQueue[String]()
     @volatile var failedOnce = false
-    val subscribed = subscriber.subscribe(
+    val subscribed           = subscriber.subscribe(
       TopicSubscription(topic, group(), StartFrom.Earliest),
       (message: IncomingMessage) =>
         val body = String(message.payload, "UTF-8")

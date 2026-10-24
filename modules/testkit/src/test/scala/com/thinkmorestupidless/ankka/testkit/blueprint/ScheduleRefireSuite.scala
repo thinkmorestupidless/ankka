@@ -23,7 +23,7 @@ class ScheduleRefireSuite extends munit.FunSuite with LogCapturing:
   private val clock    = MovableClock.at(Instant.parse("2026-10-01T00:00:00Z"))
   private val echo     = BlueprintHandler("echo")((_, input) => input)
   private val schedule = Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.parse("20:00"), zone)
-  private val digest = Blueprint("refire-digest")
+  private val digest   = Blueprint("refire-digest")
     .step(Step("keep").call("echo").reads("input").result(Shape.any))
     .schedule(schedule)
 
@@ -66,7 +66,7 @@ class ScheduleRefireSuite extends munit.FunSuite with LogCapturing:
     // Back on 20 October: the 4 October timer fires again, with 11 and 18 October missed since.
     clock.moveTo(LocalDate.parse("2026-10-20").atStartOfDay(zone).toInstant)
     val caughtUp = ScheduleTimer.runId(digest.name, sunday("2026-10-18"))
-    val run = kit.eventually("the run covering the outage is started", 30.seconds)(
+    val run      = kit.eventually("the run covering the outage is started", 30.seconds)(
       try Some(agents.runs.get(caughtUp))
       catch case e: CommandError if e.code == ErrorCode.NotFound => None
     )

@@ -60,7 +60,7 @@ private[ankka] final class RecordingSecretStore(
   private def recorded[A](name: String, operation: String)(work: => A)(
       outcome: A => (String, Boolean)
   ): A =
-    val asked = clock.instant()
+    val asked  = clock.instant()
     val result =
       try work
       catch

@@ -110,7 +110,7 @@ object Shape:
       val kind = fields.get("type") match
         case None                                   => Vector(s"$path: a shape needs a 'type'")
         case Some(Json.Str(t)) if Types.contains(t) => Vector.empty
-        case Some(Json.Str(t)) =>
+        case Some(Json.Str(t))                      =>
           Vector(s"$path: type '$t' is not one of ${Types.toVector.sorted.mkString(", ")}")
         case Some(_) => Vector(s"$path: 'type' must be a string")
       val props = fields.get("properties").toVector.flatMap {
@@ -127,7 +127,7 @@ object Shape:
             .map(n => s"$path: required '$n' is not a property")
         case _ => Vector(s"$path: 'required' must be an array of property names")
       }
-      val items = fields.get("items").toVector.flatMap(s => problemsIn(s, s"$path.items"))
+      val items       = fields.get("items").toVector.flatMap(s => problemsIn(s, s"$path.items"))
       val enumeration = fields.get("enum").toVector.flatMap {
         case Json.Arr(vs) if vs.nonEmpty => Vector.empty
         case _                           => Vector(s"$path: 'enum' must be a non-empty array")
@@ -142,7 +142,7 @@ object Shape:
   // ── Checking a value ───────────────────────────────────────────────────────
 
   private def check(schema: Json, value: Json, path: String): Vector[ShapeProblem] =
-    val kind = schema("type").flatMap(_.asString).getOrElse("any")
+    val kind                         = schema("type").flatMap(_.asString).getOrElse("any")
     val ofKind: Vector[ShapeProblem] = (kind, value) match
       case ("object", Json.Obj(fields)) =>
         val properties =
@@ -167,10 +167,10 @@ object Shape:
       case ("number", Json.Num(_)) => Vector.empty
       case ("number", _) => Vector(ShapeProblem(path, s"must be a number, not ${describe(value)}"))
       case ("integer", Json.Num(n)) if n.isWhole => Vector.empty
-      case ("integer", _) =>
+      case ("integer", _)                        =>
         Vector(ShapeProblem(path, s"must be an integer, not ${describe(value)}"))
       case ("boolean", Json.Bool(_)) => Vector.empty
-      case ("boolean", _) =>
+      case ("boolean", _)            =>
         Vector(ShapeProblem(path, s"must be a boolean, not ${describe(value)}"))
       case _ => Vector.empty
     val ofEnum = schema("enum").flatMap(_.asArray) match

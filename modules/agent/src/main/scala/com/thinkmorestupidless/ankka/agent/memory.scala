@@ -67,7 +67,7 @@ final case class MemoryFilter(
 
   private[agent] def matches(message: SessionMessage): Boolean =
     val agentAllowed = agentIds.isEmpty || agentIds.contains(message.agentId)
-    val kindAllowed = message match
+    val kindAllowed  = message match
       case _: SessionMessage.ToolResultMessage => !excludeToolResults
       case _                                   => true
     agentAllowed && kindAllowed

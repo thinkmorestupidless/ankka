@@ -230,7 +230,7 @@ final class McpServerSuite extends FunSuite:
   test("a coding agent is told a local service's tools") {
     object Cart extends console.Source:
       def services(): Vector[console.ServiceSummary] = Vector.empty
-      def service(name: String): Option[String] =
+      def service(name: String): Option[String]      =
         Option.when(name == "cart")(
           """{"name":"cart","instances":[],"components":[],"routes":[""" +
             """{"method":"GET","path":"/carts/{cartId}","streaming":false},""" +
@@ -246,7 +246,7 @@ final class McpServerSuite extends FunSuite:
         false
       def query(n: String, c: String, i: String, m: String): Option[console.QueryResponse] = None
     val tools = AnkkaTools(() => settings, () => Cart)
-    val tool = tools.all
+    val tool  = tools.all
       .find(_.name == "describe_local_service")
       .getOrElse(fail("no describe_local_service"))
     assert(tool.description.contains("MCP endpoints and their tools"), tool.description)

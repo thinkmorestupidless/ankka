@@ -50,7 +50,7 @@ class HomebrewFormulaSuite extends munit.FunSuite:
   }
 
   test("the url and checksum for a platform sit in the block that selects it") {
-    val lines = formula.linesIterator.map(_.trim).toVector
+    val lines                                           = formula.linesIterator.map(_.trim).toVector
     def block(os: String, arch: String): Vector[String] =
       val osAt   = lines.indexOf(s"on_$os do")
       val archAt = lines.indexWhere(_ == s"on_$arch do", osAt)

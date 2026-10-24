@@ -100,7 +100,7 @@ private[ankka] object GraphRules:
       version match
         case Some(v)                     => template.copy(version = v)
         case None if sequenceNumber >= 1 => template.copy(version = sequenceNumber)
-        case None =>
+        case None                        =>
           refuse(
             "no-sequence",
             s"${describe(template)} states no version and this change has no sequence number " +
@@ -244,7 +244,7 @@ private[ankka] object GraphRules:
       case "node" =>
         val labels = json.field("labels") match
           case None | Some(GraphJson.Null) => Vector.empty
-          case Some(GraphJson.Arr(items)) =>
+          case Some(GraphJson.Arr(items))  =>
             items.map {
               case GraphJson.Str(label) if Identifier.matches(label) => label
               case _ => fail("labels must be an array of identifiers")

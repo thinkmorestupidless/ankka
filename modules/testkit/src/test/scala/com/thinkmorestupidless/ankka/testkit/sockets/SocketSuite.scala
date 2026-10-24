@@ -33,7 +33,7 @@ class SocketSuite extends munit.FunSuite with LogCapturing:
 
   /** How many times a handler started, per route: "no handler ran" is a count of zero. */
   private val runs = new java.util.concurrent.ConcurrentHashMap[String, AtomicInteger]()
-  private def ran(route: String): Int = Option(runs.get(route)).fold(0)(_.get)
+  private def ran(route: String): Int      = Option(runs.get(route)).fold(0)(_.get)
   private def started(route: String): Unit =
     runs.computeIfAbsent(route, _ => AtomicInteger()).incrementAndGet(): Unit
 

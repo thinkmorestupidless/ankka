@@ -103,7 +103,7 @@ class GrpcFlowControlSuite extends munit.FunSuite:
 
   test("a caller that goes away stops the stream within a second") {
     stopped.set(false)
-    val own = GrpcChannels.plaintext(server.boundPort.get)
+    val own   = GrpcChannels.plaintext(server.boundPort.get)
     val parts = ClientCalls.blockingServerStreamingCall(
       own,
       CartStreamsGrpc.METHOD_WATCH_CART,
@@ -119,7 +119,7 @@ class GrpcFlowControlSuite extends munit.FunSuite:
   }
 
   test("100,000 parts sent to a handler that pauses are all read, in order, once it resumes") {
-    val done = Promise[ImportSummary]()
+    val done     = Promise[ImportSummary]()
     val requests = CartStreamsGrpc
       .stub(channel)
       .importItems(new StreamObserver[ImportSummary]:

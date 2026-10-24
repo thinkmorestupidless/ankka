@@ -205,7 +205,7 @@ object Discovery:
 
     spec.protocolVersion.split('.').toList match
       case major :: _ if major == protocolVersion.split('.').head => ()
-      case _ =>
+      case _                                                      =>
         problems += s"the SDK speaks protocol '${spec.protocolVersion}' and this sidecar speaks " +
           s"'$protocolVersion'; the major versions must match"
 
@@ -508,7 +508,7 @@ object Discovery:
   ): Vector[String] =
     val problems                 = Vector.newBuilder[String]
     def normalised(path: String) = if path.length > 1 then path.stripSuffix("/") else path
-    val routePaths = spec.endpoints
+    val routePaths               = spec.endpoints
       .flatMap(e =>
         e.routes
           .map(r => normalised((e.prefix.stripSuffix("/") + r.template).replaceAll("//+", "/")))
@@ -526,7 +526,7 @@ object Discovery:
       if routePaths.contains(here) then
         problems += s"$label: its path is a route of an HTTP endpoint of this service"
       def aclProblems(acl: Option[McpAcl], of: String): Unit = acl match
-        case None => problems += s"$of states no ACL; an MCP endpoint must state its ACL"
+        case None    => problems += s"$of states no ACL; an MCP endpoint must state its ACL"
         case Some(a) =>
           val set = Vector(a.allowAll, a.tokens, a.clientKeys, a.callers.nonEmpty).count(identity)
           if !a.denyAll && set == 0 then
@@ -552,7 +552,7 @@ object Discovery:
           problems += s"$label: tool '${t.name}' has no description"
         com.thinkmorestupidless.ankka.agent.Json.parse(t.inputSchemaJson) match
           case Right(_: com.thinkmorestupidless.ankka.agent.Json.Obj) => ()
-          case _ =>
+          case _                                                      =>
             problems += s"$label: tool '${t.name}' has an input schema that is not a JSON object"
         t.acl.foreach(a => aclProblems(Some(a), s"$label: tool '${t.name}'"))
       }
@@ -575,7 +575,7 @@ object Discovery:
       problems: scala.collection.mutable.Builder[String, Vector[String]]
   ): WorkflowSettings =
     detail.settings match
-      case None => WorkflowSettings.default
+      case None           => WorkflowSettings.default
       case Some(declared) =>
         def duration(millis: Long, what: String): Option[FiniteDuration] =
           if millis > 0 then Some(millis.millis)
@@ -667,7 +667,7 @@ object Discovery:
     declared.position match
       case ProtoStartFrom.Position.Named(ProtoStartFrom.Named.EARLIEST) => Some(StartFrom.Earliest)
       case ProtoStartFrom.Position.Named(ProtoStartFrom.Named.LATEST)   => Some(StartFrom.Latest)
-      case ProtoStartFrom.Position.AtMillis(millis) =>
+      case ProtoStartFrom.Position.AtMillis(millis)                     =>
         Some(StartFrom.At(java.time.Instant.ofEpochMilli(millis)))
       case _ =>
         problems += s"$named declares a start position that names none"

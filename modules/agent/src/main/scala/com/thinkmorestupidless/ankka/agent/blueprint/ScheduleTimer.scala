@@ -32,7 +32,7 @@ final class ScheduleTimer(context: TimedActionContext) extends TimedAction:
       try Some(entity.call(BlueprintEntity.get).invoke())
       catch case e: CommandError if e.code == ErrorCode.NotFound => None
     record.flatMap(r => r.current.map(v => (r, v))) match
-      case None => effects.done()
+      case None                    => effects.done()
       case Some((record, version)) =>
         Blueprint.fromJson(version.canonical).toOption.flatMap(bp => bp.schedule.map(bp -> _)) match
           case None =>
@@ -47,7 +47,7 @@ final class ScheduleTimer(context: TimedActionContext) extends TimedAction:
                 ensure(context.timers, context.clock, due.blueprint, Instant.ofEpochMilli(pending))
                 effects.done()
               case _ =>
-                val dueAt = Instant.ofEpochMilli(due.at)
+                val dueAt    = Instant.ofEpochMilli(due.at)
                 val recorded =
                   record.lastPeriodEnd.map(Instant.ofEpochMilli).getOrElse(schedule.previous(dueAt))
                 val now  = context.clock.instant()
@@ -156,7 +156,7 @@ object ScheduleTimer
           timers.foreach(_.delete(timerName(blueprint.name, Instant.ofEpochMilli(pending))))
           entity.call(BlueprintEntity.stopSchedule).invoke(): Unit
         }
-      case (Some(_), None) => ()
+      case (Some(_), None)           => ()
       case (Some(schedule), Some(t)) =>
         val now    = clock.instant()
         val wanted = schedule.next(now)

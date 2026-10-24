@@ -50,7 +50,7 @@ class HttpTraceContextSuite extends munit.FunSuite:
 
   /** Sends one request, and returns the endpoint's span for it and the response's headers. */
   private def request(headers: (String, String)*): (RecordedSpan, HttpResponse[String]) =
-    val before = recorder.snapshot().map(_.spanId).toSet
+    val before  = recorder.snapshot().map(_.spanId).toSet
     val builder =
       HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:${server.boundPort.get}/orders/o1"))
     headers.foreach((k, v) => builder.header(k, v))

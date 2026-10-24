@@ -94,7 +94,7 @@ class MachineRenderingSuite extends munit.FunSuite:
     "a pass renders the user, and the status only when the machine is there and it says something new"
   ) {
     val ready = BrokerObservation(StrimziObjectState(exists = true, ready = Some(true)))
-    val pass =
+    val pass  =
       MachineReconciler.actions(
         "affiliates",
         "network",

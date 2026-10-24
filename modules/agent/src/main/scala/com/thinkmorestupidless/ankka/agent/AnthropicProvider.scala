@@ -62,7 +62,7 @@ final class AnthropicProvider private (
 
   def complete(request: ModelRequest): Future[ModelResponse] =
     connection match
-      case Left(reason) => Future.failed(ModelCallFailed(name, reason))
+      case Left(reason)  => Future.failed(ModelCallFailed(name, reason))
       case Right(client) =>
         Future(
           try translate(client.messages().create(build(request)))
@@ -347,10 +347,10 @@ final class AnthropicProvider private (
     case Json.Null    => null
     case Json.Bool(v) => java.lang.Boolean.valueOf(v)
     case Json.Str(v)  => v
-    case Json.Num(v) =>
+    case Json.Num(v)  =>
       if v.isWhole && v.abs <= Long.MaxValue.toDouble then java.lang.Long.valueOf(v.toLong)
       else java.lang.Double.valueOf(v)
-    case Json.Arr(items) => items.map(toJava).toList.asJava
+    case Json.Arr(items)  => items.map(toJava).toList.asJava
     case Json.Obj(fields) =>
       fields.map((key, field) => key -> toJava(field)).asJava
 
@@ -404,7 +404,7 @@ object AnthropicProvider:
    */
   def fromEnv(env: Map[String, String], modelName: String, defaults: Defaults): AnthropicProvider =
     env.get(KeyVariable).filter(_.nonEmpty) match
-      case None => withoutKey(modelName, defaults)
+      case None      => withoutKey(modelName, defaults)
       case Some(key) =>
         val builder = AnthropicOkHttpClient.builder().apiKey(key)
         env.get("ANTHROPIC_BASE_URL").filter(_.nonEmpty).foreach(url => builder.baseUrl(url): Unit)
@@ -462,7 +462,7 @@ object AnthropicProvider:
       defaults: Defaults = Defaults(),
       quirks: Quirks = Quirks.compatibleAnthropic
   ): AnthropicProvider =
-    val root = address.stripSuffix("/").stripSuffix("/v1")
+    val root   = address.stripSuffix("/").stripSuffix("/v1")
     val client = AnthropicOkHttpClient
       .builder()
       .baseUrl(root)
@@ -478,7 +478,7 @@ object AnthropicProvider:
    */
   private[agent] def failed(name: String, failure: Throwable): ModelCallFailed =
     failure match
-      case already: ModelCallFailed => already
+      case already: ModelCallFailed           => already
       case service: AnthropicServiceException =>
         ModelCallFailed(
           name,

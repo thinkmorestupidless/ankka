@@ -40,9 +40,9 @@ class KeyedBufferSuite extends munit.FunSuite:
     private val subscribed = scala.concurrent.Promise[org.reactivestreams.Subscription]()
     val got = java.util.concurrent.LinkedBlockingQueue[Try[Option[WatchEvent[Int]]]]()
     def onSubscribe(s: org.reactivestreams.Subscription): Unit = subscribed.success(s): Unit
-    def onNext(e: WatchEvent[Int]): Unit = got.put(scala.util.Success(Some(e)))
-    def onError(t: Throwable): Unit      = got.put(scala.util.Failure(t))
-    def onComplete(): Unit               = got.put(scala.util.Success(None))
+    def onNext(e: WatchEvent[Int]): Unit        = got.put(scala.util.Success(Some(e)))
+    def onError(t: Throwable): Unit             = got.put(scala.util.Failure(t))
+    def onComplete(): Unit                      = got.put(scala.util.Success(None))
     def readAll(): Try[Vector[WatchEvent[Int]]] =
       val s = Await.result(subscribed.future, 3.seconds)
       def next(acc: Vector[WatchEvent[Int]]): Try[Vector[WatchEvent[Int]]] =
@@ -59,7 +59,7 @@ class KeyedBufferSuite extends munit.FunSuite:
       elements: WatchEvent[Int]*
   ): Try[Vector[WatchEvent[Int]]] =
     val reader = Reader()
-    val queue = Source
+    val queue  = Source
       .queue[WatchEvent[Int]](elements.size + 1, OverflowStrategy.fail)
       .via(KeyedBuffer[Int](bound, overflow))
       .toMat(Sink.fromSubscriber(reader))(Keep.left)
@@ -133,7 +133,7 @@ class KeyedBufferSuite extends munit.FunSuite:
 
   test("before the caught-up marker it holds nothing back and drops nothing: the rows now") {
     val reader = Reader()
-    val queue = Source
+    val queue  = Source
       .queue[WatchEvent[Int]](100, OverflowStrategy.fail)
       .via(KeyedBuffer[Int](2, Overflow.DropHead, startLive = false))
       .toMat(Sink.fromSubscriber(reader))(Keep.left)

@@ -51,14 +51,14 @@ object ToolInput:
         (props, req.flatMap(_.asString))
       case _ => (Vector.empty, Vector.empty)
     new ToolInput[A]:
-      val schema: Vector[(String, Json)] = properties
-      val required: Vector[String]       = needed
+      val schema: Vector[(String, Json)]                 = properties
+      val required: Vector[String]                       = needed
       def decode(arguments: Json.Obj): Either[String, A] =
         val names = properties.map(_._1).toSet
         val own   = arguments.fields.filter((name, _) => names.contains(name))
         needed.find(name => !own.contains(name)) match
           case Some(missing) => Left(s"argument '$missing' is required")
-          case None =>
+          case None          =>
             try Right(readFromString(Json.Obj(own).render)(using codec))
             catch
               case NonFatal(failure) =>

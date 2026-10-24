@@ -43,7 +43,7 @@ class IssuerClientSuite extends munit.FunSuite:
   customers.test("discovery is read once, and the authorization URL is the broker's own") {
     issuer =>
       val broker = client(issuer)
-      val url = broker
+      val url    = broker
         .authorizationUrl(redirect, "state-1", "nonce-1", "verifier-1")
         .fold(fail(_), identity)
       broker.authorizationUrl(redirect, "state-2", "nonce-2", "verifier-2"): Unit
@@ -63,7 +63,7 @@ class IssuerClientSuite extends munit.FunSuite:
   customers.test("the code is exchanged for an ID token naming the person, with its nonce") {
     issuer =>
       val broker = client(issuer)
-      val back =
+      val back   =
         signIn(broker.authorizationUrl(redirect, "s", "the-nonce", "v").fold(fail(_), identity))
       assertEquals(back("state"), "s")
       val idToken   = broker.exchange(back("code"), redirect, "v").fold(fail(_), identity)
@@ -94,7 +94,7 @@ class IssuerClientSuite extends munit.FunSuite:
 
   customers.test("a confidential client sends its secret, and a wrong one is refused") { issuer =>
     val right = client(issuer, "confidential", Some("s3cret"))
-    val code =
+    val code  =
       signIn(right.authorizationUrl(redirect, "s", "n", "v").fold(fail(_), identity))("code")
     assert(right.exchange(code, redirect, "v").isRight)
     val wrong = client(issuer, "confidential", Some("guess"))

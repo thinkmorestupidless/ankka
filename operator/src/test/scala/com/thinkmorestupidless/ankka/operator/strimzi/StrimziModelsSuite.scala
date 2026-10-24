@@ -132,7 +132,7 @@ class StrimziModelsSuite extends munit.FunSuite:
     rows.elements.asScala.foreach { row =>
       val kafka = row.get("kafka").properties.asScala.map(e => e.getKey -> e.getValue.asText).toMap
       def long(key: String) = kafka.get(key).map(_.toLong)
-      val entry = com.thinkmorestupidless.ankka.crd.ProjectTopicEntry(
+      val entry             = com.thinkmorestupidless.ankka.crd.ProjectTopicEntry(
         "t",
         1,
         "",

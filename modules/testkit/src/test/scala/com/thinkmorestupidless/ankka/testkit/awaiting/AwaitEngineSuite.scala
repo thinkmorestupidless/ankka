@@ -204,7 +204,7 @@ class AwaitEngineSuite extends munit.FunSuite with LogCapturing:
       "boom"
     )
     val serializer = serialization.findSerializerFor(old).asInstanceOf[SerializerWithStringManifest]
-    val read = serializer
+    val read       = serializer
       .fromBinary(serializer.toBinary(old), classOf[WorkflowSnapshot].getName)
       .asInstanceOf[WorkflowSnapshot]
     assertEquals(read.failure, "boom")
@@ -216,7 +216,7 @@ class AwaitEngineSuite extends munit.FunSuite with LogCapturing:
     start("e9")
     ended("e9")
     val observability = Observability(kit.service.system)
-    def handled = observability.calls
+    def handled       = observability.calls
       .snapshot(System.currentTimeMillis())
       .pairs
       .filter(p => observability.names.nameOf(p.calleeHandler).contains(WorkflowLifecycle.AwaitEnd))

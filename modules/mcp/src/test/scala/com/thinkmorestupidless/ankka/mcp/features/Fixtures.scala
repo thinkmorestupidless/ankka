@@ -37,7 +37,7 @@ object Fixtures:
 
   final class CartEntity(context: EventSourcedEntityContext)
       extends EventSourcedEntity[Cart, CartEvent]:
-    def emptyState: Cart = Cart(context.entityId, Nil, checkedOut = false)
+    def emptyState: Cart                   = Cart(context.entityId, Nil, checkedOut = false)
     def applyEvent(event: CartEvent): Cart = event match
       case CartEvent.Added(item) => currentState.copy(items = currentState.items :+ item)
       case CartEvent.CheckedOut  => currentState.copy(checkedOut = true)
@@ -75,7 +75,7 @@ object Fixtures:
 
   final class JobEntity(context: EventSourcedEntityContext)
       extends EventSourcedEntity[Job, JobEvent]:
-    def emptyState: Job = Job(context.entityId, None)
+    def emptyState: Job                  = Job(context.entityId, None)
     def applyEvent(event: JobEvent): Job = event match
       case JobEvent.Booked(slot) => currentState.copy(slot = Some(slot))
 

@@ -77,7 +77,7 @@ class OidcConfigSuite extends munit.FunSuite:
   }
 
   test("two issuers, each with its own optional settings, and the realm") {
-    val ca = Files.writeString(Files.createTempFile("ca", ".pem"), "not read here")
+    val ca  = Files.writeString(Files.createTempFile("ca", ".pem"), "not read here")
     val env = customers ++ Map(
       "ANKKA_AUTH_ISSUERS"          -> "customers, staff",
       "ANKKA_AUTH_STAFF_ISSUER"     -> "https://staff",

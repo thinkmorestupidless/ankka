@@ -218,7 +218,7 @@ class MoveJobRenderingSuite extends munit.FunSuite:
 
   test("055: the mover is given the two lists, parallel, the unnamed bucket first") {
     val names = Vector(target, photos, uploads).map(_.bucket)
-    val copy = actedOnThree(StorageMove.Act.Copy(names)).collectFirst {
+    val copy  = actedOnThree(StorageMove.Act.Copy(names)).collectFirst {
       case Action.EnsureMoveJob(j) => j
     }.get
     val e = env(copy)

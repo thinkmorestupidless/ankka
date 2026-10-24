@@ -29,7 +29,7 @@ class ShutdownOrderSuite extends FunSuite with LogCapturing:
     private var service: AnkkaService      = null
     val systemAliveAtStop                  = AtomicReference[Option[Boolean]](None)
     def start(service: AnkkaService): Unit = this.service = service
-    override def stop(): Unit =
+    override def stop(): Unit              =
       Thread.sleep(2000)
       systemAliveAtStop.set(Some(!service.system.whenTerminated.isCompleted))
 
@@ -60,7 +60,7 @@ class ShutdownOrderSuite extends FunSuite with LogCapturing:
 
   test("coordinated shutdown closes an open socket 1001, going away, and tells its handler") {
     val toldClosed = java.util.concurrent.CountDownLatch(1)
-    val server =
+    val server     =
       com.thinkmorestupidless.ankka.http.HttpServer.at("127.0.0.1", 0)(_ => Waiting(toldClosed))
     val testKit = AnkkaTestKit.start(Nil, Seq(server))
     try

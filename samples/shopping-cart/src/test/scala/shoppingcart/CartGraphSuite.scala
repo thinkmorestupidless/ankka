@@ -87,8 +87,8 @@ class CartGraphSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("every record is a delta in its own right: keyed by element, about the cart, typed") {
-    val id = "graph-2"
-    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Pen", 1))
+    val id      = "graph-2"
+    val _       = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Pen", 1))
     val records = eventually("the record") {
       Some(publisher.publishedTo("cart-graph").filter(_.metadata.subject.contains(id)))
         .filter(_.nonEmpty)
@@ -114,7 +114,7 @@ class CartGraphSuite extends munit.FunSuite with LogCapturing:
     )
 
     // The same id starts again: its node is published above the tombstone, so it is live again.
-    val _ = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p9", "Cap", 1))
+    val _     = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p9", "Cap", 1))
     val again = eventually("the node after the tombstone") {
       published(id).find(d => !d.isTombstone && d.version > tombstone.version)
     }

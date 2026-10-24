@@ -114,13 +114,13 @@ final class DeviceFlow(settings: Settings, sleep: Long => Unit = millis => Threa
         decodeOption[ErrorResponse](response.body).map(_.error) match
           case Some("authorization_pending") => ()
           case Some("slow_down")             => interval += 5
-          case Some("expired_token") =>
+          case Some("expired_token")         =>
             throw ApiError(
               0,
               "the code expired before the login completed; run 'ankka login' again"
             )
           case Some("access_denied") => throw ApiError(0, "the login was refused")
-          case _ =>
+          case _                     =>
             throw ApiError(0, s"the identity provider refused the login: ${failure(response.body)}")
     result.get
 
@@ -139,7 +139,7 @@ final class DeviceFlow(settings: Settings, sleep: Long => Unit = millis => Threa
   /** Best effort: a logout that cannot reach the issuer still forgets the login locally. */
   def revoke(discovery: Discovery, clientId: String, refreshToken: String): Either[String, Unit] =
     discovery.revocationEndpoint match
-      case None => Right(())
+      case None           => Right(())
       case Some(endpoint) =>
         Try(
           form(

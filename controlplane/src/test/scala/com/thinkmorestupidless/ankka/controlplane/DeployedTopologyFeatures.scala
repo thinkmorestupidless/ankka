@@ -43,7 +43,7 @@ abstract class DeployedTopologySteps(feature: String)
   override val munitTimeout: scala.concurrent.duration.Duration = 5.minutes
 
   private lazy val identity = TestIdentity()
-  private lazy val member =
+  private lazy val member   =
     identity.token("member", Some("member@example.test"), expiresIn = 2.hours)
   private lazy val stranger =
     identity.token("stranger", Some("stranger@example.test"), expiresIn = 2.hours)

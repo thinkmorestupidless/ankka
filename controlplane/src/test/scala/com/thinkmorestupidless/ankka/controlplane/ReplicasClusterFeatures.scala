@@ -80,9 +80,9 @@ class ReplicasClusterFeatures extends BackupClusterSteps("../features/databases/
   private def writeContinuously(project: String, service: String): Unit =
     cartWriting.set(true)
     val counter = new AtomicLong(0L)
-    val thread = new Thread(() =>
+    val thread  = new Thread(() =>
       while cartWriting.get() do
-        val item = s"item-${counter.incrementAndGet()}"
+        val item      = s"item-${counter.incrementAndGet()}"
         val (code, _) =
           try
             cart(
@@ -122,7 +122,7 @@ class ReplicasClusterFeatures extends BackupClusterSteps("../features/databases/
       .asScala
       .headOption
       .getOrElse(fail(s"$project's database has no replica"))
-    val out = new ByteArrayOutputStream
+    val out   = new ByteArrayOutputStream
     val watch = k8s
       .pods()
       .inNamespace(namespace(project))

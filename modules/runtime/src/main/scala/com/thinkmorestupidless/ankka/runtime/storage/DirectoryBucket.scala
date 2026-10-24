@@ -81,9 +81,9 @@ final class DirectoryObjectStorage(
 
   final case class DirectoryBucket(name: Option[String], exposure: BucketExposure) extends Bucket:
 
-    val segment: String       = name.getOrElse(DefaultSegment)
-    private val objects: Path = root.resolve(segment).resolve("objects")
-    private val metas: Path   = root.resolve(segment).resolve("meta")
+    val segment: String                          = name.getOrElse(DefaultSegment)
+    private val objects: Path                    = root.resolve(segment).resolve("objects")
+    private val metas: Path                      = root.resolve(segment).resolve("meta")
     private def file(objectName: String): String =
       val encoded = SigV4.encode(objectName, encodeSlash = true)
       if encoded.length <= 200 then encoded
@@ -172,7 +172,7 @@ final class DirectoryObjectStorage(
       ObjectRules.checkName(objectName)
       exposure match
         case BucketExposure.Signed | BucketExposure.Supplied => ()
-        case other =>
+        case other                                           =>
           throw name.fold(StorageRefusals.notExposed())(b => StorageRefusals.notSigned(b, other))
       ObjectRules.checkSpan(span)
       val expires = clock().getEpochSecond + span.toSeconds

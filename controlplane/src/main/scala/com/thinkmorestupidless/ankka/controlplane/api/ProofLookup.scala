@@ -55,14 +55,14 @@ object ProofLookup:
         val context = new InitialDirContext(env)
         try
           val attribute = Option(context.getAttributes(name, Array("TXT")).get("TXT"))
-          val values = attribute.toVector.flatMap { a =>
+          val values    = attribute.toVector.flatMap { a =>
             (0 until a.size()).map(i => unquote(String.valueOf(a.get(i))))
           }
           if values.isEmpty then Left(Failure.NoRecord) else Right(values)
         finally context.close()
       catch
         case _: NameNotFoundException => Left(Failure.NoRecord)
-        case e: NamingException =>
+        case e: NamingException       =>
           Left(Failure.Unreachable(Option(e.getExplanation).getOrElse(e.getClass.getSimpleName)))
         case NonFatal(e) => Left(Failure.Unreachable(e.getClass.getSimpleName))
 

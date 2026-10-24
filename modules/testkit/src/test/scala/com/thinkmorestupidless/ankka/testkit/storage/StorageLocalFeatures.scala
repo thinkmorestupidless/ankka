@@ -31,7 +31,7 @@ final class StorageLocalFeatures
 
   private val browser                                    = HttpClient.newHttpClient()
   private var shown: Option[(URI, HttpResponse[String])] = None
-  private def lastShown: (URI, HttpResponse[String]) =
+  private def lastShown: (URI, HttpResponse[String])     =
     shown.getOrElse(fail("the browser sent nothing"))
 
   private def startLocally(name: String, directory: Path): Unit =

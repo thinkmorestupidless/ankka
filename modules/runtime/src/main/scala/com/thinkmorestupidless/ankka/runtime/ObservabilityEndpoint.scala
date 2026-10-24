@@ -88,7 +88,7 @@ object ObservabilityEndpoint:
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
-      val address = s"http://127.0.0.1:${server.getAddress.getPort}"
+      val address      = s"http://127.0.0.1:${server.getAddress.getPort}"
       val registration =
         ServiceRegistration.announce(serviceName, address, service.replication.map(_.self))
       service.system.log.info("ankka local console endpoint on {}", address)
@@ -130,7 +130,7 @@ object ObservabilityEndpoint:
     private def summaries(): String =
       val recorder = observability.recorder
       val spans    = recorder.snapshot()
-      val traces = spans
+      val traces   = spans
         .groupBy(_.traceId)
         .toVector
         .map((traceId, group) => (traceId, group.minBy(_.startedNanos), group))
@@ -230,7 +230,7 @@ object ObservabilityEndpoint:
 
               reply match
                 case Right(bytes) => respondBytes(exchange, bytes)
-                case Left(why) =>
+                case Left(why)    =>
                   respondError(exchange, 502, s"the component did not answer — $why")
 
         case _ =>

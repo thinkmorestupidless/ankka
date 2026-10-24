@@ -656,7 +656,7 @@ object Main:
           "that removes messages is an owner's, and asks before it is sent."
       ) {
         def setting(name: String, help: String) = Opts.option[String](name, help).orNone
-        val settings = (
+        val settings                            = (
           setting("retention", "How long the topic keeps a message: 90d, 36h, or everything."),
           setting("retention-size", "How much each partition keeps: 50GiB, or none."),
           setting("cleanup", "delete, compact, or compact,delete."),
@@ -712,7 +712,7 @@ object Main:
           (name, partitions, compacted, contractName, schemaPath, asked, removes, ctx) => () =>
             val (retention, size, cleanup, tombstone, minLag, maxLag, copies, minInSync) = asked
             val contract = TopicsCommand.contract(contractName, schemaPath, Console.in)
-            val request = TopicDeclarationRequest(
+            val request  = TopicDeclarationRequest(
               partitions,
               compacted,
               contract,
@@ -1171,7 +1171,7 @@ object Main:
         val status = ctx.client.exposeService(ctx.project, name)
         // The one thing the operator wants back is the address; the whole status is under get.
         ctx.format match
-          case Format.Json => Output.service(status, ctx.format)
+          case Format.Json  => Output.service(status, ctx.format)
           case Format.Table =>
             status.hostname.getOrElse(
               "exposed, but the control plane has no base domain (ANKKA_BASE_DOMAIN)"
@@ -1267,7 +1267,7 @@ object Main:
           case "token"   => current.copy(token = Some(value))
           case "project" => current.copy(project = Some(value))
           case "ca"      => current.copy(ca = Some(value))
-          case other =>
+          case other     =>
             throw ApiError(0, s"unknown setting '$other'; one of url, token, project, ca")
         s"set $key in ${Settings.save(updated)}"
       }
@@ -1281,7 +1281,7 @@ object Main:
           case "project" => current.copy(project = None)
           case "ca"      => current.copy(ca = None)
           case "url"     => current.copy(url = Settings.DefaultUrl)
-          case other =>
+          case other     =>
             throw ApiError(0, s"unknown setting '$other'; one of url, token, project, ca")
         s"cleared $key in ${Settings.save(updated)}"
       }
@@ -1317,7 +1317,7 @@ object Main:
           Console.out.println()
           if !noBrowser then
             openBrowser(device.verificationUriComplete.getOrElse(device.verificationUri))
-          val tokens = flow.poll(endpoints, discovery.clientId, device)
+          val tokens  = flow.poll(endpoints, discovery.clientId, device)
           val refresh = tokens.refreshToken.getOrElse(
             throw ApiError(
               0,
@@ -1352,7 +1352,7 @@ object Main:
             case None        => s"no saved login for ${settings.url}"
             case Some(login) =>
               // Best effort at the issuer; the local entry goes regardless.
-              val flow = DeviceFlow(settings)
+              val flow    = DeviceFlow(settings)
               val revoked =
                 scala.util
                   .Try(flow.discover(login.issuer))
@@ -1362,7 +1362,7 @@ object Main:
                   .flatMap(d => flow.revoke(d, login.clientId, login.refreshToken))
               Credentials.remove(settings.url): Unit
               revoked match
-                case Right(_) => s"logged out of ${settings.url}"
+                case Right(_)     => s"logged out of ${settings.url}"
                 case Left(reason) =>
                   s"logged out of ${settings.url} (the issuer could not be told: $reason)"
       }
@@ -1621,7 +1621,7 @@ object Main:
         }
       }
       val serve = (urlOpt, tokenOpt, projectOpt).mapN { (url, token, project) => () =>
-        val tools = mcp.AnkkaTools(() => Settings.resolve(url, token, project))
+        val tools  = mcp.AnkkaTools(() => Settings.resolve(url, token, project))
         val server = mcp.McpServer(
           "ankka",
           com.thinkmorestupidless.ankka.core.BuildInfo.version,

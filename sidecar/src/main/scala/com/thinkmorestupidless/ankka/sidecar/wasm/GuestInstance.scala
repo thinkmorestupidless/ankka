@@ -42,7 +42,7 @@ final class GuestInstance private (val instance: Instance):
   ): Either[GuestFault, Array[Byte]] =
     brokenBy match
       case Some(f) => Left(GuestFault(function, s"the instance is broken: ${f.message}"))
-      case None =>
+      case None    =>
         try
           CallSite.within(CallSite(function, purpose, this)) {
             val ptr = alloc.apply(request.length.toLong)(0).toInt
@@ -59,7 +59,7 @@ final class GuestInstance private (val instance: Instance):
         catch
           case e: InterruptedException => throw e
           case e: StackOverflowError   => Left(breakWith(function, s"stack overflow: $e"))
-          case NonFatal(e) =>
+          case NonFatal(e)             =>
             Left(breakWith(function, Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.toString)))
 
   private def breakWith(function: String, message: String): GuestFault =

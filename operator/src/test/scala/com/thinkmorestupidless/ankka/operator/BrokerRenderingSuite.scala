@@ -196,7 +196,7 @@ class BrokerRenderingSuite extends munit.FunSuite:
   test("a service of an installation with no broker is deployed as it was before") {
     // Rendered with no broker at all, and with the topics argument absent as every caller before
     // this feature passed it: the two are the same, object for object.
-    val now = actions(wallet, withoutBroker)
+    val now    = actions(wallet, withoutBroker)
     val before =
       Rendering.render(resource(wallet), withoutBroker, ProvisioningPlan.Supplied).toOption.get
     assertEquals(now.map(_.describe), before.map(_.describe))

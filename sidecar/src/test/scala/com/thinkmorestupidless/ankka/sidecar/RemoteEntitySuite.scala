@@ -42,7 +42,7 @@ class RemoteEntitySuite extends munit.FunSuite with LogCapturing:
     val settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 2.seconds, 2.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val descriptors = Discovery
+    val descriptors  = Discovery
       .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
       .toOption
       .get
@@ -224,7 +224,7 @@ class RemoteEntitySuite extends munit.FunSuite with LogCapturing:
     // of this suite have called `count` too, so what is asserted is what this one adds.
     val observability = Observability(kit.service.system)
     def name(id: Int) = observability.names.nameOf(id).getOrElse("?")
-    def toCount =
+    def toCount       =
       observability.calls
         .snapshot(System.currentTimeMillis())
         .pairs

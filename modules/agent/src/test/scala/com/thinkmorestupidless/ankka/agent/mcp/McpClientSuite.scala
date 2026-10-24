@@ -120,7 +120,7 @@ class McpClientSuite extends munit.FunSuite:
   }
 
   test("a server that refuses the credential is a failure naming the status, never the value") {
-    val s = server().refuseWith(401)
+    val s       = server().refuseWith(401)
     val refused = intercept[McpUnavailable](
       client(s, Seq("Authorization" -> "Bearer secret-value")).initialize()
     )

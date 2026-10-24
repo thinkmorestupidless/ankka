@@ -72,7 +72,7 @@ object OidcConfig:
   def fromEnv(env: Map[String, String] = sys.env): Either[Vector[String], OidcConfig] =
     val realm = env.get(RealmVariable).map(_.trim).filter(_.nonEmpty).getOrElse(DefaultRealm)
     env.get(IssuersVariable).map(_.trim).filter(_.nonEmpty) match
-      case None => Right(OidcConfig(Vector.empty, realm))
+      case None         => Right(OidcConfig(Vector.empty, realm))
       case Some(listed) =>
         val names    = listed.split(',').toVector.map(_.trim).filter(_.nonEmpty)
         val problems = Vector.newBuilder[String]
@@ -91,8 +91,8 @@ object OidcConfig:
       env: Map[String, String],
       problems: mutable.Builder[String, Vector[String]]
   ): Option[Issuer] =
-    val prefix                           = s"ANKKA_AUTH_${segment(name)}_"
-    def value(v: String): Option[String] = env.get(prefix + v).map(_.trim).filter(_.nonEmpty)
+    val prefix                              = s"ANKKA_AUTH_${segment(name)}_"
+    def value(v: String): Option[String]    = env.get(prefix + v).map(_.trim).filter(_.nonEmpty)
     def required(v: String): Option[String] =
       val found = value(v)
       if found.isEmpty then problems += s"$prefix$v is not set"
@@ -100,8 +100,8 @@ object OidcConfig:
     val issuer   = required("ISSUER")
     val jwksUrl  = required("JWKS_URL")
     val audience = required("AUDIENCE")
-    val ca = value("CA") match
-      case None => Some(None)
+    val ca       = value("CA") match
+      case None       => Some(None)
       case Some(path) =>
         val p = Path.of(path)
         if Files.isRegularFile(p) then Some(Some(p))
@@ -109,7 +109,7 @@ object OidcConfig:
           problems += s"${prefix}CA: no file at $path"
           None
     val skew = value("CLOCK_SKEW") match
-      case None => Some(Issuer.DefaultClockSkew)
+      case None       => Some(Issuer.DefaultClockSkew)
       case Some(text) =>
         val parsed = duration(text)
         if parsed.isEmpty then problems += s"${prefix}CLOCK_SKEW: '$text' is not a duration"

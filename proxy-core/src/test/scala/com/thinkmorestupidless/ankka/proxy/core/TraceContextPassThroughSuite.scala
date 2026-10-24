@@ -22,7 +22,7 @@ class TraceContextPassThroughSuite extends munit.FunSuite:
   private final class Fixture:
     val process: StandInProcess = StandInProcess().start()
     val orders: StandInProcess  = StandInProcess().start()
-    val engine = ProxyEngine(
+    val engine                  = ProxyEngine(
       ProxySettings(
         project = "shop",
         service = "web",

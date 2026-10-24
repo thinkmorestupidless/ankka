@@ -69,7 +69,7 @@ private[ankka] final class DatabaseSecretStore(
           ErrorCode.Internal
         )
       case e: CommandError => throw e
-      case NonFatal(e) =>
+      case NonFatal(e)     =>
         log.warn("the secret store could not reach the database for '{}': {}", name, e.getMessage)
         throw CommandError(
           s"the secret store is unavailable: ${e.getMessage}",

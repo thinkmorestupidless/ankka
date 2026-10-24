@@ -153,13 +153,13 @@ final class McpRuntime private (clock: Clock, lastUseInterval: Option[FiniteDura
     presented(context) match
       case None                                            => AuthDecision.Unauthenticated(Realm)
       case Some(token) if !Credentials.looksLikeOne(token) => AuthDecision.Unauthenticated(Realm)
-      case Some(token) =>
+      case Some(token)                                     =>
         Credentials.parse(token) match
           case None                    => invalid(NotRecognised)
           case Some(_) if !index.ready => AuthDecision.Unavailable("client keys are not loaded yet")
-          case Some((id, secret)) =>
+          case Some((id, secret))      =>
             index.lookup(id) match
-              case Lookup.Missing => invalid(NotRecognised)
+              case Lookup.Missing      => invalid(NotRecognised)
               case Lookup.Expired(key) =>
                 invalid(if Credentials.matches(key.digest, secret) then Expired else NotRecognised)
               case Lookup.Usable(key) =>
@@ -210,7 +210,7 @@ final class McpRuntime private (clock: Clock, lastUseInterval: Option[FiniteDura
           all match
             case Vector(only) => only
             case Vector()     => refuse("the service has no MCP endpoint", ErrorCode.Unavailable)
-            case several =>
+            case several      =>
               val paths = several.map(_.path)
               refuse(
                 s"the service has MCP endpoints ${paths.init.mkString(", ")} and ${paths.last}; name one"
@@ -367,7 +367,7 @@ private[mcp] final class ClientKeyAuthenticator
   def apply(context: RequestContext): AuthDecision =
     runtime match
       case Some(bound) => bound.authenticate(context)
-      case None =>
+      case None        =>
         AuthDecision.Unavailable(
           "client keys are not bound to the service; declare the ACL as a val, not a def"
         )

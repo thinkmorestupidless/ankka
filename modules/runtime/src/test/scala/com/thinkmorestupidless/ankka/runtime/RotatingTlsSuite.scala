@@ -230,7 +230,7 @@ class RotatingTlsSuite extends munit.FunSuite:
 
   test("a context built once presents a renewed certificate on its next handshake") {
     val directory = dir()
-    val server =
+    val server    =
       RotatingTls(root.issue(uris = Seq("ankka://p/server")).writeTo(directory), 50.millis)
     val client = RotatingTls(root.issue(uris = Seq("ankka://p/client")).writeTo(dir()), 1.minute)
     val serverContext = fixed(server.keyManager, server.trustManager)

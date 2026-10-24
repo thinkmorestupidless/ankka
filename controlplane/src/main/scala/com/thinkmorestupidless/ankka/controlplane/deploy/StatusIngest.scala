@@ -172,14 +172,14 @@ object StatusIngest:
       storage: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus]
   ): Option[String] =
     storage.flatMap(_.detail) match
-      case None => detail
+      case None         => detail
       case Some(reason) =>
         val phrase = s"object storage: $reason"
         Some(detail.fold(phrase)(d => s"$d; $phrase"))
 
   private def withRoute(detail: Option[String], route: Option[String]): Option[String] =
     route.filterNot(_ == "accepted") match
-      case None => detail
+      case None        => detail
       case Some(state) =>
         val phrase = s"route $state"
         Some(detail.fold(phrase)(d => s"$d; $phrase"))

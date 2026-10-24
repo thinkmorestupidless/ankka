@@ -96,7 +96,7 @@ object ModuleLoader:
         val module = Parser.parse(path)
         check(module) match
           case problems if problems.nonEmpty => Left(problems)
-          case _ =>
+          case _                             =>
             compile(path, module).map { factory =>
               val exports = exportNames(module)
               LoadedModule(path, module, factory, exports.contains("_initialize"), exports)

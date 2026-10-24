@@ -35,7 +35,7 @@ final class CartGrpcEndpoint(clients: EndpointClients)
 
   unary(CartServiceGrpc.METHOD_ADD_ITEM) { request =>
     val item = request.item.getOrElse(LineItem())
-    val _ = cart(request.cartId)
+    val _    = cart(request.cartId)
       .call(ShoppingCartEntity.addItem)
       .invoke(domain.LineItem(item.productId, item.name, item.quantity))
     toProto(cart(request.cartId).call(ShoppingCartEntity.getCart).invoke())

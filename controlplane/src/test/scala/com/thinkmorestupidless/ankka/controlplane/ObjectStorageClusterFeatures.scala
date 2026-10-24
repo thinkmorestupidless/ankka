@@ -107,7 +107,7 @@ class ObjectStorageClusterFeatures
   private val RotationGrace = 30.seconds
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -281,8 +281,8 @@ class ObjectStorageClusterFeatures
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -737,7 +737,7 @@ class ObjectStorageClusterFeatures
 
   When("{string} reads the bucket of {string} with its own storage credential") {
     (logical: String, other: String) =>
-      val project = deployed.find(_._2 == real(other)).map(_._1).getOrElse("shop")
+      val project      = deployed.find(_._2 == real(other)).map(_._1).getOrElse("shop")
       val (code, body) =
         s3("shop", real(logical), "GET", s"/${bucketOf(project, other)}/")
       last = Run(code, body, "")

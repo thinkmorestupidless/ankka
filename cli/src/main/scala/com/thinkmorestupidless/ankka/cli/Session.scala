@@ -26,9 +26,9 @@ object Session:
   def credential(settings: Settings): Credential =
     settings.token match
       case Some(token) => Credential.Token(token)
-      case None =>
+      case None        =>
         Credentials.get(settings.url) match
-          case None => Credential.NotLoggedIn
+          case None        => Credential.NotLoggedIn
           case Some(login) =>
             val now = Instant.now().getEpochSecond
             if login.accessTokenUsable(now) then Credential.Token(login.accessToken)
@@ -50,7 +50,7 @@ object Session:
                   Credential.Token(renewed.accessToken)
                 case Success(Left(reason))    => Credential.Refused(reason)
                 case Failure(error: ApiError) => Credential.Refused(error.detail)
-                case Failure(error) =>
+                case Failure(error)           =>
                   Credential.Refused(
                     Option(error.getMessage).getOrElse(error.getClass.getSimpleName)
                   )
@@ -58,7 +58,7 @@ object Session:
   def bearer(settings: Settings): String =
     credential(settings) match
       case Credential.Token(value) => value
-      case Credential.NotLoggedIn =>
+      case Credential.NotLoggedIn  =>
         throw ApiError(0, s"not logged in to ${settings.url}; run 'ankka login'")
       case Credential.Refused(reason) =>
         throw ApiError(0, s"${settings.url} rejected the login ($reason); run 'ankka login'")

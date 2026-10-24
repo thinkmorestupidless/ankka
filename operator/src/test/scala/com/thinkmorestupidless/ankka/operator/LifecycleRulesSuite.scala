@@ -363,7 +363,7 @@ class LifecycleRulesSuite extends munit.FunSuite:
   ) {
     // The proxy is up and answering its probe; what it answers is that nothing accepts a connection
     // on the process's port. The detail names that port, then quotes the kubelet (feature 021).
-    val web = spec.copy(hosting = Rendering.WebHosting, processPort = Some(3000))
+    val web         = spec.copy(hosting = Rendering.WebHosting, processPort = Some(3000))
     val answered503 = PodProblem(
       "web-7d9",
       "Unhealthy",
@@ -397,7 +397,7 @@ class LifecycleRulesSuite extends munit.FunSuite:
   }
 
   test("a web-hosted service whose probe was refused is the proxy itself down, said as before") {
-    val web = spec.copy(hosting = Rendering.WebHosting, processPort = Some(3000))
+    val web     = spec.copy(hosting = Rendering.WebHosting, processPort = Some(3000))
     val refused = PodProblem(
       "web-7d9",
       "Unhealthy",

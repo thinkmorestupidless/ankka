@@ -122,7 +122,7 @@ class ScriptedTaskSuite extends munit.FunSuite:
   }
 
   test("a rule on tool results answers only when the latest results match") {
-    val model = TestModelProvider().whenToolResult("3 items")(ModelResponse("three"))
+    val model    = TestModelProvider().whenToolResult("3 items")(ModelResponse("three"))
     val matching = blank.copy(messages =
       Vector(ChatMessage.ToolResults(Vector(ToolResult("c", "count_items", "there are 3 items"))))
     )

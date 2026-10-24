@@ -135,7 +135,7 @@ class EncodingFixturesSuite extends munit.FunSuite:
   test("protocol/fixtures matches what the codecs produce") {
     Files.createDirectories(dir)
     val generated = fixtures.toMap
-    val existing =
+    val existing  =
       Files.list(dir).iterator().asScala.filter(_.toString.endsWith(".json")).toVector
     val stale =
       existing.map(_.getFileName.toString.stripSuffix(".json")).filterNot(generated.contains)

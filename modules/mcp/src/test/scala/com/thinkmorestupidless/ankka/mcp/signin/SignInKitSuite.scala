@@ -71,7 +71,7 @@ class SignInKitSuite extends munit.FunSuite with LogCapturing:
   kit.test("keys rotate, a token verifies across the rotation, and a key past keeping is removed") {
     k =>
       val clock = MovableClock(at)
-      val keys =
+      val keys  =
         BrokerKeys(k.componentClient, k.secrets, clock, rotateEvery = 30.days, keepFor = 60.days)
       val other =
         BrokerKeys(k.componentClient, k.secrets, clock, rotateEvery = 30.days, keepFor = 60.days)

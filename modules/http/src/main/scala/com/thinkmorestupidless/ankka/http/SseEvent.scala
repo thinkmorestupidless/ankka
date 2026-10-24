@@ -47,7 +47,7 @@ object SseEvent:
    * failed workflow's step, reason and whether it was deleted. The stream's last event.
    */
   def failed(error: CommandError): SseEvent =
-    val end = WorkflowEnd.failure(error)
+    val end    = WorkflowEnd.failure(error)
     val fields = Vector(
       Some(s"\"code\":${JsonText.encode(error.code.toString)}"),
       Some(s"\"message\":${JsonText.encode(error.message)}"),

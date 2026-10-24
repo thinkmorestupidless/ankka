@@ -26,7 +26,7 @@ class SseHeartbeatSuite extends munit.FunSuite with LogCapturing:
 
   private def started(heartbeat: String): (AnkkaTestKit, HttpServer) =
     val server = HttpServer.at("127.0.0.1", 0)(_ => QuietEndpoint())
-    val kit = AnkkaTestKit.start(
+    val kit    = AnkkaTestKit.start(
       Nil,
       Seq(server),
       settings = ConfigFactory.parseString(
@@ -40,7 +40,7 @@ class SseHeartbeatSuite extends munit.FunSuite with LogCapturing:
   test("a quiet stream is kept open by heartbeats past the idle timeout") {
     val (kit, server) = started("500ms")
     try
-      val port = server.boundPort.getOrElse(fail("not bound"))
+      val port  = server.boundPort.getOrElse(fail("not bound"))
       val lines = HttpClient
         .newHttpClient()
         .send(
@@ -61,7 +61,7 @@ class SseHeartbeatSuite extends munit.FunSuite with LogCapturing:
   test("a heartbeat not shorter than the idle timeout is sent at half the idle timeout instead") {
     val (kit, server) = started("3s")
     try
-      val port = server.boundPort.getOrElse(fail("not bound"))
+      val port  = server.boundPort.getOrElse(fail("not bound"))
       val lines = HttpClient
         .newHttpClient()
         .send(

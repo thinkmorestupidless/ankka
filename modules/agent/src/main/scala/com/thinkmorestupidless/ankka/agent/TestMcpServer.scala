@@ -141,7 +141,7 @@ final class TestMcpServer private (http: HttpServer):
         respond(exchange, 404, "", "text/plain")
       else if message("id").isEmpty then respond(exchange, 202, "", "text/plain")
       else
-        val id = message("id").get
+        val id             = message("id").get
         val (extra, reply) = method match
           case "initialize" =>
             val session = s"session-${nextSession.incrementAndGet()}"
@@ -164,8 +164,8 @@ final class TestMcpServer private (http: HttpServer):
     catch case scala.util.control.NonFatal(_) => respond(exchange, 500, "", "text/plain")
 
   private def listing(message: Json): Json =
-    val all  = order.asScala.toVector.flatMap(name => Option(tools.get(name)).map(name -> _))
-    val size = pageSizeRef.get()
+    val all    = order.asScala.toVector.flatMap(name => Option(tools.get(name)).map(name -> _))
+    val size   = pageSizeRef.get()
     val cursor =
       message("params").flatMap(_("cursor")).flatMap(_.asString).map(_.toInt).getOrElse(0)
     val page = if size <= 0 then all else all.slice(cursor, cursor + size)
@@ -188,7 +188,7 @@ final class TestMcpServer private (http: HttpServer):
     val arguments = params("arguments").getOrElse(Json.obj())
     Option(rpcFailing.remove(name)) match
       case Some(error) => rpcError(id, -32000, error)
-      case None =>
+      case None        =>
         Option(failing.remove(name)) match
           case Some(error) =>
             result(

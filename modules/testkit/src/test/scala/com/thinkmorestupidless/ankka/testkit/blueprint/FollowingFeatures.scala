@@ -15,7 +15,7 @@ import scala.jdk.CollectionConverters.*
 // docs:start run-context
 /** A tool that records which run it was told it serves: `None` outside any run. */
 object Told:
-  val seen = CopyOnWriteArrayList[Option[RunRef]]()
+  val seen               = CopyOnWriteArrayList[Option[RunRef]]()
   val tell: FunctionTool = FunctionTool
     .named("tell")
     .describedAs("Tells the test which run called it.")
@@ -87,7 +87,7 @@ class FollowingFeatures
 
   override val munitTimeout = 5.minutes
 
-  private val model = TestModelProvider()
+  private val model  = TestModelProvider()
   private val agents = AgentRuntime
     .withDefaultModel(model)
     .withBlueprints(_ => BlueprintRegistry.empty.tools(Told.tell))
@@ -201,7 +201,7 @@ class FollowingFeatures
   }
 
   Then("the consumer is told the run has started, with its blueprint version and its input") { () =>
-    val id = runId.get
+    val id      = runId.get
     val started = kit.eventually("the watcher sees the run start")(
       eventsOf(id).collectFirst { case s: RunEvent.Started => s }
     )
@@ -217,7 +217,7 @@ class FollowingFeatures
   }
 
   Then("the consumer is given blueprint version 2 of {string}") { (_: String) =>
-    val mine = name
+    val mine       = name
     val registered = kit.eventually("the watcher sees version 2")(
       VersionWatcher.seen.asScala.collectFirst {
         case (`mine`, v: BlueprintEvent.VersionRegistered) if v.number == 2 => v
@@ -235,8 +235,8 @@ class FollowingFeatures
   Then(
     "the consumer is told the step {string} ended, then the step {string} ended, then the run ended, each with its result"
   ) { (first: String, second: String) =>
-    val id  = runId.get
-    val run = agents.runs.get(id)
+    val id     = runId.get
+    val run    = agents.runs.get(id)
     val events = kit.eventually("the watcher sees the run end")(
       Option(eventsOf(id)).filter(_.exists(_.isInstanceOf[RunEvent.Ended]))
     )

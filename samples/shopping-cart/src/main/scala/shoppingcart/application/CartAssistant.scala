@@ -61,7 +61,7 @@ object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assista
    * the conversation. Nothing is wrong with a shopper *asking* about a key.
    */
   val noSecrets: Guardrail = new Guardrail:
-    val name = "no-secrets"
+    val name                                                     = "no-secrets"
     override def checkOutput(text: String): Either[String, Unit] =
       if text.contains("sk-") then Left("a key leaked") else Right(())
 

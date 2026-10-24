@@ -94,7 +94,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
       case RunPendingStep           => onRunPendingStep(state)
       case succeeded: StepSucceeded => onStepSucceeded(state, succeeded)
       case failed: StepFailed       => onStepFailure(state, failed.step, failed.message)
-      case timedOut: StepTimedOut =>
+      case timedOut: StepTimedOut   =>
         onStepFailure(
           state,
           timedOut.step,
@@ -186,7 +186,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           // trace and no metric, and nothing it does can be said to be its doing.
           val metadata = MetaEntry.toMetadata(invoke.metadata)
           val inbound  = Trace.inbound(metadata)
-          val span = observability.recorder.begin(
+          val span     = observability.recorder.begin(
             traceIdHigh = inbound.traceIdHigh,
             traceId = inbound.traceId,
             parentSpanId = inbound.parentSpanId,
@@ -316,7 +316,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 
   private def onRunPendingStep(state: Run[S]): PekkoEffect[Event[S], Run[S]] =
     state.pending match
-      case None => PekkoEffect.none
+      case None      => PekkoEffect.none
       case Some(ref) =>
         descriptor.stepNamed(ref.name) match
           case None =>
@@ -646,7 +646,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     else
       run.status match
         case Status.Completed => Some(stateAnswer(run.value))
-        case Status.Failed =>
+        case Status.Failed    =>
           Some(WorkflowFailed(run.failedStep, run.failure.getOrElse("failed"), deleted = false))
         case _ => None
 

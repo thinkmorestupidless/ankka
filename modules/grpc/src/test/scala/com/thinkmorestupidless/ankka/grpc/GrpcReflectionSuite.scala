@@ -39,7 +39,7 @@ class GrpcReflectionSuite extends munit.FunSuite:
       channel: ManagedChannel,
       request: ServerReflectionRequest
   ): Either[Status, ServerReflectionResponse] =
-    val answer = Promise[ServerReflectionResponse]()
+    val answer   = Promise[ServerReflectionResponse]()
     val requests = ServerReflectionGrpc
       .newStub(channel)
       .serverReflectionInfo(new StreamObserver[ServerReflectionResponse]:
@@ -87,7 +87,7 @@ class GrpcReflectionSuite extends munit.FunSuite:
 
   test("tools that ask the older version are answered too") {
     serving(GrpcServer.at("127.0.0.1", 0)().withReflection(Acl.AllowAll)) { channel =>
-      val answer = Promise[io.grpc.reflection.v1alpha.ServerReflectionResponse]()
+      val answer   = Promise[io.grpc.reflection.v1alpha.ServerReflectionResponse]()
       val requests = io.grpc.reflection.v1alpha.ServerReflectionGrpc
         .newStub(channel)
         .serverReflectionInfo(

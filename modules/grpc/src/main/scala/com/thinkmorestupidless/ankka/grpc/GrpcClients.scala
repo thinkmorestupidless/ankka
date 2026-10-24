@@ -77,7 +77,7 @@ final class GrpcClients private (locate: Option[GrpcClients.Locate]) extends Run
       observability: Option[Observability] = None
   ): GrpcClients =
     val directory = config.getString("ankka.tls.service-directory")
-    val tls = Option.when(directory.nonEmpty)(
+    val tls       = Option.when(directory.nonEmpty)(
       RotatingTls(
         Paths.get(directory),
         FiniteDuration(config.getDuration("ankka.tls.reload-interval").toMillis, MILLISECONDS)
@@ -126,7 +126,7 @@ final class GrpcClients private (locate: Option[GrpcClients.Locate]) extends Run
       case Left(failure) => throw failure
       case Right(found)  => found
     val credentials: ChannelCredentials = setting.tls match
-      case None => InsecureChannelCredentials.create()
+      case None      => InsecureChannelCredentials.create()
       case Some(tls) =>
         TlsChannelCredentials
           .newBuilder()
@@ -217,10 +217,10 @@ object GrpcClients:
     // A resolver that answers the same addresses for ever. grpc-java's registry has no such thing,
     // and a fixed list is what a service on this machine, or a suite's servers, are.
     builder.nameResolverFactory(new NameResolver.Factory:
-      def getDefaultScheme: String = StaticScheme
+      def getDefaultScheme: String                                         = StaticScheme
       def newNameResolver(uri: URI, args: NameResolver.Args): NameResolver =
         new NameResolver:
-          def getServiceAuthority: String = "localhost"
+          def getServiceAuthority: String                            = "localhost"
           override def start(listener: NameResolver.Listener2): Unit =
             listener.onResult(
               NameResolver.ResolutionResult
@@ -258,7 +258,7 @@ object GrpcClients:
                 o.externalServices.nameFor(project, name),
                 o.externalServices.methodFor(method.getFullMethodName)
               )
-              val ended = java.util.concurrent.atomic.AtomicBoolean(false)
+              val ended                           = java.util.concurrent.atomic.AtomicBoolean(false)
               def end(outcome: SpanOutcome): Unit =
                 if ended.compareAndSet(false, true) then o.recorder.complete(span, outcome)
               headers.put(Spans.TraceparentKey, Traceparent.render(span.context))

@@ -42,7 +42,7 @@ class DurabilityClusterFeatures
   override protected def installObjectStore(): ObjectStoreStack.Installed =
     ObjectStoreStack.installReplicated(k3s, k8s, repoRoot)
 
-  @volatile private var copyRequired = false
+  @volatile private var copyRequired         = false
   override protected def controlPlaneBackups =
     super.controlPlaneBackups.copy(copyRequired = copyRequired)
 
@@ -132,7 +132,7 @@ class DurabilityClusterFeatures
    * The bytes under a node's data directory, read by an ephemeral container mounting its volume.
    */
   private def dataBytes(pod: String): Long =
-    val name = s"du-${System.nanoTime()}"
+    val name  = s"du-${System.nanoTime()}"
     val patch =
       s"""{"spec":{"ephemeralContainers":[{"name":"$name","image":"busybox:1.36","command":["sleep","300"],""" +
         s""""volumeMounts":[{"name":"data","mountPath":"/data","readOnly":true}]}]}}"""
@@ -177,7 +177,7 @@ class DurabilityClusterFeatures
   /** A second Garage, one node, beside the first: the secondary store a copy is made to. */
   private lazy val secondaryStore: Unit =
     val component = repoRoot.resolve("kustomization/components/garage")
-    val rename = (text: String) =>
+    val rename    = (text: String) =>
       text
         .replace("name: garage-config", "name: garage-secondary-config")
         .replace("name: { name: garage-config }", "name: { name: garage-secondary-config }")
@@ -236,7 +236,7 @@ class DurabilityClusterFeatures
       .withName("garage-secondary")
       .portForward(3900)
     // The copy, as the component ships it, its secondary's credential this store's key.
-    val copy = repoRoot.resolve("kustomization/components/garage-copy")
+    val copy   = repoRoot.resolve("kustomization/components/garage-copy")
     val secret = Files
       .readString(copy.resolve("secondary.yaml"))
       .replace("ACCESS_KEY_ID: \"SET\"", s"ACCESS_KEY_ID: \"${key.accessKeyId}\"")

@@ -11,7 +11,7 @@ object Version:
   /** `0.2.0`, `0.2.0+3-abc1234-SNAPSHOT` → `Version(0, 2, 0)`; anything else is a message. */
   def parse(text: String): Either[String, Version] = text match
     case Shape(major, minor, patch) => Right(Version(major.toInt, minor.toInt, patch.toInt))
-    case other =>
+    case other                      =>
       Left(
         s"version '$other' is not MAJOR.MINOR.PATCH (optionally followed by +build or -SNAPSHOT)"
       )
@@ -141,7 +141,7 @@ object Compatibility:
 
   /** The supported range as a phrase, for a refusal and for the README. */
   def describe(platform: Version): String =
-    val low = math.max(0, platform.minor - 1)
+    val low   = math.max(0, platform.minor - 1)
     val range =
       if low == platform.minor then s"${platform.major}.${platform.minor}.x"
       else s"${platform.major}.$low.x–${platform.major}.${platform.minor}.x"

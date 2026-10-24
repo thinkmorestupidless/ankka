@@ -71,7 +71,7 @@ class RenderingSuite extends munit.FunSuite:
   }
 
   test("a service with no database is rendered without one, and told so") {
-    val none = spec.copy(database = "none", provisionDatabase = false)
+    val none           = spec.copy(database = "none", provisionDatabase = false)
     val Right(actions) =
       Rendering.render(resource(none), settings, ProvisioningPlan.NotNeeded): @unchecked
     val deployment = actions.collectFirst { case Action.ApplyDeployment(d) => d }.get
@@ -247,7 +247,7 @@ class RenderingSuite extends munit.FunSuite:
 
   test("a change of instance count changes nothing on the pod template") {
     val three = deploymentFor(spec.copy(autoscaling = spec.autoscaling.copy(minInstances = 3)))
-    val five = deploymentFor(
+    val five  = deploymentFor(
       spec.copy(generation = 9L, autoscaling = spec.autoscaling.copy(minInstances = 5))
     )
     assertEquals(three.getSpec.getTemplate, five.getSpec.getTemplate)
@@ -522,7 +522,7 @@ class RenderingSuite extends munit.FunSuite:
     // — compared against the rendered objects, not against Labels.identity, so drift between
     // them cannot pass. Every label in it must be on the pod template, or discovery finds nothing.
     val templateLabels = d.getSpec.getTemplate.getMetadata.getLabels.asScala
-    val expected =
+    val expected       =
       (d.getSpec.getSelector.getMatchLabels.asScala.toMap +
         (Labels.FormationKey -> Labels.FormationBootstrap) +
         (Labels.TransportKey -> Labels.TransportTls)).toSeq.sorted

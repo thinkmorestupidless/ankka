@@ -45,7 +45,7 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
   /** When set, a fetch waits on it after its first status line, as a download of minutes does. */
   @volatile var pullHold: Option[CountDownLatch] = None
 
-  def port: Int = server.getAddress.getPort
+  def port: Int   = server.getAddress.getPort
   def url: String = server match
     case _: HttpsServer => s"https://localhost:$port"
     case _              => s"http://127.0.0.1:$port"
@@ -91,9 +91,9 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
 
   private def handle(exchange: HttpExchange): Unit =
     try
-      val method = exchange.getRequestMethod.toUpperCase
-      val path   = exchange.getRequestURI.getPath
-      val body   = new String(exchange.getRequestBody.readAllBytes(), UTF_8)
+      val method  = exchange.getRequestMethod.toUpperCase
+      val path    = exchange.getRequestURI.getPath
+      val body    = new String(exchange.getRequestBody.readAllBytes(), UTF_8)
       val headers = exchange.getRequestHeaders.asScala
         .map((k, v) => k.toLowerCase -> v.asScala.mkString(","))
         .toMap
@@ -107,7 +107,7 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
         case ("POST", "/api/generate")        => generate(exchange, body)
         case ("DELETE", "/api/delete")        => delete(exchange, body)
         case ("POST", "/v1/chat/completions") => chat(exchange, body)
-        case ("GET", "/v1/models") =>
+        case ("GET", "/v1/models")            =>
           val data = held.keySet.asScala.toVector.sorted
             .map(t => s"""{"id":"$t","object":"model","owned_by":"library"}""")
           json(exchange, 200, s"""{"object":"list","data":[${data.mkString(",")}]}""")
@@ -122,7 +122,7 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
     s"""{"models":[${models.mkString(",")}]}"""
 
   private def ps: String =
-    val now = System.currentTimeMillis()
+    val now    = System.currentTimeMillis()
     val models = loaded.asScala.toVector.filter(_._2 > now).sortBy(_._1).map { (tag, until) =>
       val expires =
         if until == Long.MaxValue then "2318-02-23T00:00:00Z"
@@ -148,7 +148,7 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
     line(out, """{"status":"pulling manifest"}""")
     pullHold.foreach(_.await())
     (Option(failures.get(tag)), Option(registry.get(tag))) match
-      case (Some(failure), _) => line(out, s"""{"error":"${escape(failure)}"}""")
+      case (Some(failure), _)  => line(out, s"""{"error":"${escape(failure)}"}""")
       case (None, Some(model)) =>
         line(
           out,
@@ -300,7 +300,7 @@ object FakeOllama:
     val unit = """(-?[0-9.]+)(ms|s|m|h)?""".r
     text.trim match
       case unit(n, null) => n.toDoubleOption.map(s => Duration.ofMillis((s * 1000).toLong))
-      case unit(n, u) =>
+      case unit(n, u)    =>
         n.toDoubleOption.map { v =>
           val millis = u match
             case "ms" => v

@@ -166,7 +166,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     val runtimeOnly =
       PV.RuntimeOnlyNames.toVector ++ PV.RuntimeOnlyPrefixes.map(_ + "ANY_SETTING")
     val sharedNames = PV.SharedPrefixes.map(_ + "ANY_SETTING")
-    val spec =
+    val spec        =
       process.copy(env = (runtimeOnly ++ sharedNames).map(n => EnvEntry(n, Some("x"))).toList)
     val cs   = containers(spec)
     val node = envOf(cs(0))

@@ -103,7 +103,7 @@ class CrossProjectAcceptanceFeatures
     val (granting, _) = grant
     val projectSpec   = cp.cluster.project(s"ankka-$granting", granting).toVector
     val machineSpec   = cp.cluster.machine(s"$organization.$machine")
-    val user = MachineRendering.user(
+    val user          = MachineRendering.user(
       organization,
       machine,
       machineSpec,
@@ -315,8 +315,8 @@ class CrossProjectAcceptanceFeatures
   }
 
   Then("nobody of {string} acted") { (organization: String) =>
-    val g      = shown(grant._1)
-    val actors = (Vector(g.granted) ++ g.answered ++ g.ended).flatMap(_.by)
+    val g               = shown(grant._1)
+    val actors          = (Vector(g.granted) ++ g.answered ++ g.ended).flatMap(_.by)
     val (people, other) =
       if organization == "eitheror" then (Set("ada"), "bo") else (Set("bo"), "ada")
     // The grant was ended by the other side alone.

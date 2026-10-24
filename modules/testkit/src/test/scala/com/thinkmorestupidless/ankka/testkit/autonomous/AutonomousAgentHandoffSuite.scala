@@ -21,7 +21,7 @@ class AutonomousAgentHandoffSuite extends munit.FunSuite with LogCapturing:
 
   test("the node that remains finishes a task the leaving node was working") {
     val model = TestModelProvider()
-    val kit = AnkkaTestKit.start(
+    val kit   = AnkkaTestKit.start(
       Seq(Answerer.descriptor) ++ AgentRuntime.descriptors,
       Seq(AgentRuntime.withDefaultModel(model), ProjectionRuntime())
     )

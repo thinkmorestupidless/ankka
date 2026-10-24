@@ -61,7 +61,7 @@ object Caller:
     else
       uris.flatMap(RotatingTls.parseServiceUri).headOption match
         case Some(identity) => Right(Service(identity.project, identity.service))
-        case None =>
+        case None           =>
           uris.flatMap(RotatingTls.parseMountUri).headOption match
             case Some(mount) if self.exists(_.project == mount.project) => Right(Gateway)
             case Some(_) if self.nonEmpty => Left("a request under a mount of another project")
@@ -78,8 +78,8 @@ object Caller:
     case Local                  => "local"
 
   private[ankka] def decode(text: String): Option[Caller] = text match
-    case "gateway" => Some(Gateway)
-    case "local"   => Some(Local)
+    case "gateway"                     => Some(Gateway)
+    case "local"                       => Some(Local)
     case s if s.startsWith("service:") =>
       pair(s.stripPrefix("service:")).map(Service.apply)
     case s if s.startsWith("machine:") =>
@@ -151,8 +151,8 @@ enum CallerMatcher:
  * The spellings an endpoint uses: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`.
  */
 object Callers:
-  val internet: CallerMatcher              = CallerMatcher.Internet
-  def service(name: String): CallerMatcher = CallerMatcher.NamedService(None, name)
+  val internet: CallerMatcher                               = CallerMatcher.Internet
+  def service(name: String): CallerMatcher                  = CallerMatcher.NamedService(None, name)
   def service(project: String, name: String): CallerMatcher =
     CallerMatcher.NamedService(Some(project), name)
   val anyInProject: CallerMatcher = CallerMatcher.AnyInProject

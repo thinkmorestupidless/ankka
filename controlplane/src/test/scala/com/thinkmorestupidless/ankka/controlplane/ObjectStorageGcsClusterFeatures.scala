@@ -126,7 +126,7 @@ class ObjectStorageGcsClusterFeatures
       "GcsCompatibilitySuite, against a real bucket (the gcs workflow)",
     "deleting every version of an object leaves none listed" ->
       "GcsCompatibilitySuite, against a real bucket (the gcs workflow)",
-    "no bucket is made with a retention policy" -> "ankka-gcp's nightly run",
+    "no bucket is made with a retention policy"                 -> "ankka-gcp's nightly run",
     "a request without a signed URL is refused by every bucket" ->
       "GcsCompatibilitySuite, against a real bucket (the gcs workflow)"
   )
@@ -140,7 +140,7 @@ class ObjectStorageGcsClusterFeatures
   // The base domain a public bucket in Garage is addressed under, through the gateway.
   private val StoreBaseDomain = "store.example.test"
   private val Projects        = Vector("shop", "shop-a", "casino", "bank")
-  private val WrappingKey =
+  private val WrappingKey     =
     "projects/scripted-account/locations/europe-west2/keyRings/ankka/cryptoKeys/buckets"
   private val Grace = 20.seconds
 
@@ -148,7 +148,7 @@ class ObjectStorageGcsClusterFeatures
     CloudSettings("gcp", "scripted-account", "europe-west2", None, 30.seconds, Grace)
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
@@ -343,8 +343,8 @@ class ObjectStorageGcsClusterFeatures
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -456,9 +456,9 @@ class ObjectStorageGcsClusterFeatures
     val process = new ProcessBuilder(command*).redirectErrorStream(false).start()
     val output  = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
     process.waitFor()
-    val heads  = output.split("\r\n\r\n").toVector.filter(_.startsWith("HTTP/"))
-    val head   = heads.lastOption.getOrElse("").split("\r\n").toVector
-    val status = head.headOption.flatMap(_.split(" ").lift(1)).flatMap(_.toIntOption).getOrElse(0)
+    val heads   = output.split("\r\n\r\n").toVector.filter(_.startsWith("HTTP/"))
+    val head    = heads.lastOption.getOrElse("").split("\r\n").toVector
+    val status  = head.headOption.flatMap(_.split(" ").lift(1)).flatMap(_.toIntOption).getOrElse(0)
     val headers = head
       .drop(1)
       .flatMap(line =>
@@ -474,7 +474,7 @@ class ObjectStorageGcsClusterFeatures
    * store as a browser reaches it: here, through the forward from the host.
    */
   private def signForKeeping(logical: String, obj: String): String =
-    val env = environment(logical)
+    val env       = environment(logical)
     val presigner = S3Presigner
       .builder()
       .endpointOverride(URI.create(s"http://127.0.0.1:${s3Forward.getLocalPort}"))
@@ -503,7 +503,7 @@ class ObjectStorageGcsClusterFeatures
 
   /** A browser on `origin` asks first, as a browser must, and sends only when it is let. */
   private def browserSends(origin: String, logical: String, obj: String): Unit =
-    val url = signForKeeping(logical, obj)
+    val url               = signForKeeping(logical, obj)
     val (status, headers) = curl(
       "-X",
       "OPTIONS",
@@ -615,7 +615,7 @@ class ObjectStorageGcsClusterFeatures
   When(
     "{string} keeps the object {string} in its bucket with what its variables say, through the client it used against Garage"
   ) { (logical: String, obj: String) =>
-    val bucket = environment(logical)("ANKKA_S3_BUCKET")
+    val bucket       = environment(logical)("ANKKA_S3_BUCKET")
     val (code, body) = servicePods.s3(
       projectFor(logical),
       real(logical),
@@ -789,7 +789,7 @@ class ObjectStorageGcsClusterFeatures
     "{string} reads its bucket with a storage credential that is not the one it had before, once it is restarted"
   ) { (logical: String) =>
     assertNotEquals(keyInPod(logical)._1, keyBefore._1)
-    val bucket = environment(logical)("ANKKA_S3_BUCKET")
+    val bucket       = environment(logical)("ANKKA_S3_BUCKET")
     val (code, body) = servicePods.s3(
       projectFor(logical),
       real(logical),
@@ -1048,7 +1048,7 @@ class ObjectStorageGcsClusterFeatures
     finally startOperator(operatorSettings)
 
   private def keepIn(logical: String, obj: String): Unit =
-    val bucket = environment(logical)("ANKKA_S3_BUCKET")
+    val bucket       = environment(logical)("ANKKA_S3_BUCKET")
     val (code, body) =
       servicePods.s3("shop", real(logical), "PUT", s"/$bucket/$obj", Some(s"contents of $obj"))
     assertEquals(code, 200, body)
@@ -1170,7 +1170,7 @@ class ObjectStorageGcsClusterFeatures
     val name      = real(logical)
     val pod       = copyJob(logical).getSpec.getTemplate.getSpec
     val container = pod.getContainers.asScala.head
-    val secrets = container.getEnv.asScala.flatMap(e =>
+    val secrets   = container.getEnv.asScala.flatMap(e =>
       Option(e.getValueFrom).flatMap(v => Option(v.getSecretKeyRef)).map(_.getName)
     )
     assertEquals(secrets.toSet, Set(Buckets.secret(name), Buckets.cloudSecret(name)))
@@ -1262,7 +1262,7 @@ class ObjectStorageGcsClusterFeatures
   test("a service's buckets are moved together") {
     val logical = "listings"
     val name    = real(logical)
-    val json =
+    val json    =
       s"""{"name":"$name","service":{"image":"$SampleImage","provisionObjectStorage":true,""" +
         s""""buckets":[{"name":"photos","exposure":"public"}]}}"""
     def photos = statusOf(name).flatMap(_.buckets.find(_.name == "photos"))

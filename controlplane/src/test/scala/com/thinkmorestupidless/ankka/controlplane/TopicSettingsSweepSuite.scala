@@ -27,7 +27,7 @@ class TopicSettingsSweepSuite extends munit.FunSuite with LogCapturing:
   override val munitTimeout = 3.minutes
 
   private var testKit: AnkkaTestKit = null
-  private val policy = TopicPolicy.default.copy(
+  private val policy                = TopicPolicy.default.copy(
     defaults = TopicDefaults.Shipped.copy(retention = RetentionTime.Bounded(14L * 86400000L))
   )
 

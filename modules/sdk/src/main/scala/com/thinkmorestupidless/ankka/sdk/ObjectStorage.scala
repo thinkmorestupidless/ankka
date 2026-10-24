@@ -285,7 +285,7 @@ object ObjectRules:
     val bytes    = text.getBytes(UTF_8).length
     val body     = if trailingSlash && text.endsWith("/") then text.dropRight(1) else text
     val segments = body.split("/", -1)
-    val found =
+    val found    =
       if text.isEmpty then Some(s"$subject must not be empty")
       else if bytes > MaxNameBytes then
         Some(s"$subject is at most $MaxNameBytes bytes as UTF-8; this one is $bytes")

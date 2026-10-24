@@ -80,7 +80,7 @@ final class PodLogs(client: KubernetesClient, namespacePrefix: String) extends P
       // sinceSeconds-then-tailingLines type-checks. Reversed, `tailingLines` returns something
       // with no `sinceSeconds` on it.
       val loggable = if previous then pod.terminated() else pod
-      val log = (sinceSeconds, tail) match
+      val log      = (sinceSeconds, tail) match
         case (Some(seconds), Some(lines)) =>
           loggable.sinceSeconds(seconds).tailingLines(lines).getLog(true)
         case (Some(seconds), None) => loggable.sinceSeconds(seconds).getLog(true)

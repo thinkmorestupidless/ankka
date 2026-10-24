@@ -8,7 +8,7 @@ class RecoveryPointSuite extends munit.FunSuite:
 
   /** A source database: what each statement answers, and every statement it was sent. */
   private final class Source(var archived: String, switched: String = "000000010000000000000008"):
-    val sent = scala.collection.mutable.ArrayBuffer.empty[String]
+    val sent                             = scala.collection.mutable.ArrayBuffer.empty[String]
     def ask(sql: String): Option[String] =
       sent += sql
       sql match

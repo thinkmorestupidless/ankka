@@ -29,9 +29,9 @@ final class OtlpTelemetry(settings: TelemetrySettings) extends RuntimeExtension:
     val observability = Observability(system)
     val identity      = Identity.of(system.settings.config, system.name, settings)
     val resource      = identity.resource
-    val scope  = InstrumentationScopeInfo.builder("ankka").setVersion(BuildInfo.version).build()
-    val log    = LoggerFactory.getLogger(classOf[OtlpTelemetry])
-    val outage = Outage(settings.endpoint, log)
+    val scope    = InstrumentationScopeInfo.builder("ankka").setVersion(BuildInfo.version).build()
+    val log      = LoggerFactory.getLogger(classOf[OtlpTelemetry])
+    val outage   = Outage(settings.endpoint, log)
     val exporter = settings.headers
       .foldLeft(
         OtlpHttpSpanExporter
@@ -44,7 +44,7 @@ final class OtlpTelemetry(settings: TelemetrySettings) extends RuntimeExtension:
       .build()
     val recorder = observability.recorder
     val cursor   = recorder.cursor()
-    val loop = ExportLoop(
+    val loop     = ExportLoop(
       cursor,
       recorder.capacity,
       exporter,

@@ -87,7 +87,7 @@ class AutonomousApprovalSuite extends munit.FunSuite with LogCapturing:
     import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, EntityTypeKey}
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
     given org.apache.pekko.util.Timeout                       = 5.seconds
-    val key =
+    val key                                                   =
       EntityTypeKey[com.thinkmorestupidless.ankka.runtime.EntityProtocol.Command]("operator")
     val state = scala.concurrent.Await.result(
       ClusterSharding(system).shardState.ask[CurrentShardRegionState](GetShardRegionState(key, _)),

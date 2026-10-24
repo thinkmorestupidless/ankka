@@ -80,14 +80,14 @@ object BlueprintCheck:
         if unknown.nonEmpty then Left(unknown)
         else
           Blueprint.fromJson(text) match
-            case Left(error) => Left(Vector(Problem("$", "json", error)))
+            case Left(error)      => Left(Vector(Problem("$", "json", error)))
             case Right(blueprint) =>
               val (problems, notes) = check(blueprint, registry)
               if problems.nonEmpty then Left(problems) else Right(blueprint -> notes)
 
   /** Every problem, and every note, in one pass. */
   def check(bp: Blueprint, registry: BlueprintRegistry): (Vector[Problem], Vector[Note]) =
-    val problems = Vector.newBuilder[Problem]
+    val problems                                                   = Vector.newBuilder[Problem]
     def problem(path: String, rule: String, message: String): Unit =
       problems += Problem(path, rule, message)
 
@@ -145,13 +145,13 @@ object BlueprintCheck:
         if source == "input" then Right(bp.input)
         else
           stepNames.indexOf(source) match
-            case -1 => Left("read" -> s"reads '$read', which is neither input nor a step")
+            case -1          => Left("read" -> s"reads '$read', which is neither input nor a step")
             case j if j >= i =>
               Left("read-order" -> s"reads the result of '$source', which does not come before it")
             case j => Right(bp.steps(j).result)
       base.flatMap { shape =>
         field match
-          case None => Right(shape)
+          case None    => Right(shape)
           case Some(f) =>
             shape.field(f).toRight("read" -> s"reads '$read', and '$source' has no field '$f'")
       }
@@ -258,7 +258,7 @@ object BlueprintCheck:
       // A step that repeats gives a list; over workers or times, a list of what each gave and who
       // gave it, so the pattern can wrap each answer and a reader can tell them apart.
       step.over match
-        case Over.Once => ()
+        case Over.Once          => ()
         case Over.Each(_, _, _) =>
           if !step.result.isArray then
             problem(
@@ -267,8 +267,8 @@ object BlueprintCheck:
               s"for-each step '${step.name}' gives ${describe(step.result)}, and must give a list"
             )
         case over =>
-          val tag  = if over.isInstanceOf[Over.Times] then "n" else "worker"
-          val item = step.result.items
+          val tag   = if over.isInstanceOf[Over.Times] then "n" else "worker"
+          val item  = step.result.items
           val sound = step.result.isArray && item.exists(i =>
             i.kind == "object" && i.field("result").isDefined && i.field(tag).isDefined
           )
@@ -307,7 +307,7 @@ object BlueprintCheck:
           case Verdict.Judgment(q) =>
             registry.question(q).foreach {
               case _: YesNoQuestion => ()
-              case _ =>
+              case _                =>
                 problem(
                   s"$at.until.verdict",
                   "verdict",
@@ -361,7 +361,7 @@ object BlueprintCheck:
     )
 
     // ── notes ───────────────────────────────────────────────────────────────
-    val used = bp.steps.flatMap(_.namedWorkers).toSet
+    val used  = bp.steps.flatMap(_.namedWorkers).toSet
     val notes = bp.workers.zipWithIndex.collect {
       case (w, i) if !used.contains(w.name) =>
         Note(s"workers[$i]", s"no step uses the worker '${w.name}'")

@@ -31,7 +31,7 @@ class ProxyEngineSuite extends munit.FunSuite:
         case "internet" => Right(Sender.Internet(None))
         case "local"    => Right(Sender.Local)
         case "unknown"  => Left("unrecognised caller certificate")
-        case service =>
+        case service    =>
           val parts = service.stripPrefix("service ").split("/", 2)
           Right(Sender.Service(parts(0), parts(1)))
 
@@ -54,7 +54,7 @@ class ProxyEngineSuite extends munit.FunSuite:
     val engine: ProxyEngine = ProxyEngine(settings, TestTransport, probeAddress = loopback)
     engine.start()
     val ports: ProxyEngine.Ports = engine.ports
-    val client: HttpClient =
+    val client: HttpClient       =
       HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
 
     def request(target: String, headers: (String, String)*): HttpRequest.Builder =
@@ -170,7 +170,7 @@ class ProxyEngineSuite extends munit.FunSuite:
 
   test("a chunked body arrives whole") {
     withProxy() { proxy =>
-      val body = ("x" * 100_000).getBytes("UTF-8")
+      val body     = ("x" * 100_000).getBytes("UTF-8")
       val response = proxy.client.send(
         proxy
           .request("/body")
@@ -186,8 +186,8 @@ class ProxyEngineSuite extends munit.FunSuite:
 
   test("a request body reaches the process as it arrives, not once it has all arrived") {
     withProxy() { proxy =>
-      val out = new java.io.PipedOutputStream()
-      val in  = new java.io.PipedInputStream(out)
+      val out  = new java.io.PipedOutputStream()
+      val in   = new java.io.PipedInputStream(out)
       val sent = proxy.client.sendAsync(
         // Sent with the engine's own publisher: the JDK's ofInputStream holds back a part it has
         // read until the next read returns, which would stall this request before the proxy.
@@ -337,13 +337,13 @@ class ProxyEngineSuite extends munit.FunSuite:
     val reported = new java.util.concurrent.ConcurrentLinkedQueue[(String, Int)]()
     val process  = StandInProcess().start()
     val settings = ProxySettings("shop", "web", 0, process.port, probePort = 0, callingPort = 0)
-    val events = new ProxyEngine.Events:
+    val events   = new ProxyEngine.Events:
       def answered(sender: Option[Sender], method: String, target: String, answer: Answer): Unit =
         reported.add(target -> answer.status): Unit
     val engine = ProxyEngine(settings, TestTransport, loopback, events)
     engine.start()
     try
-      val client = HttpClient.newHttpClient()
+      val client                              = HttpClient.newHttpClient()
       def get(target: String, sender: String) = client.send(
         HttpRequest
           .newBuilder(URI.create(s"http://127.0.0.1:${engine.ports.public}$target"))
@@ -367,7 +367,7 @@ class ProxyEngineSuite extends munit.FunSuite:
   }
 
   test("stop() lets a request in flight finish, then refuses new connections") {
-    val proxy = Proxy()
+    val proxy    = Proxy()
     val response =
       proxy.client.send(proxy.request("/stream").GET().build(), BodyHandlers.ofInputStream())
     val reader = new BufferedReader(new InputStreamReader(response.body, "UTF-8"))

@@ -13,7 +13,7 @@ class ProjectProjectionSuite extends munit.FunSuite:
 
   private val at       = java.time.Instant.parse("2026-10-08T10:00:00Z")
   private val merchant = Grantee.Service("payments", "merchant")
-  private val route =
+  private val route    =
     GrantTarget.route("wallet", "POST", "/v1/wallets/{player}/{currency}/deposits")
 
   private def grant(id: String, state: GrantState, target: GrantTarget = route) =

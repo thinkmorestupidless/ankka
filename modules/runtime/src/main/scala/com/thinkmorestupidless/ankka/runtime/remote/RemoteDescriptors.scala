@@ -104,7 +104,7 @@ final case class RemoteViewDescriptor(
     version: Option[Int] = None,
     declaredQueries: Vector[DeclaredQuery] = Vector.empty
 ) extends RemoteDescriptor:
-  val kind: ComponentKind = ComponentKind.View
+  val kind: ComponentKind                      = ComponentKind.View
   val handlers: Map[MethodName, RemoteHandler] =
     queries.map(q => q -> RemoteHandler(q, readOnly = true, streaming = false)).toMap
 

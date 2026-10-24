@@ -89,7 +89,7 @@ class GrpcCallSpanSuite extends munit.FunSuite:
   /** The caller's spans a call made, the call made from inside a handler's span. */
   private def calledFromHandler(call: => Any): (RecordedSpan, Vector[RecordedSpan]) =
     val recorder = observability.recorder
-    val handler =
+    val handler  =
       recorder.beginRoot(observability.names.intern("checkout"), observability.names.intern("pay"))
     val before = recorder.snapshot().map(_.spanId).toSet
     try Trace.within(handler, CallOrigin("checkout", "pay"))(Try(call)): Unit

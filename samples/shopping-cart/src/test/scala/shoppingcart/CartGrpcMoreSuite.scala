@@ -64,7 +64,7 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("items sent as a stream are all added, and the count answered once") {
-    val done = Promise[ImportSummary]()
+    val done     = Promise[ImportSummary]()
     val requests = CartStreamsGrpc
       .stub(channel)
       .importItems(new StreamObserver[ImportSummary]:
@@ -80,8 +80,8 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a conversation answers each line") {
-    val heard = Promise[Vector[String]]()
-    var lines = Vector.empty[String]
+    val heard    = Promise[Vector[String]]()
+    var lines    = Vector.empty[String]
     val requests = CartStreamsGrpc
       .stub(channel)
       .converse(new StreamObserver[Line]:
@@ -94,7 +94,7 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("the cart answers reflection, listing its service definitions") {
-    val listed = Promise[Seq[String]]()
+    val listed   = Promise[Seq[String]]()
     val requests = ServerReflectionGrpc
       .newStub(channel)
       .serverReflectionInfo(new StreamObserver[ServerReflectionResponse]:
@@ -114,7 +114,7 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
   test("the cart calls a service's gRPC endpoint through GrpcClients, finding it as it runs") {
     // A service on this machine is found by the name it announced, its actor system's; here the
     // service finds itself, and reads the call as local.
-    val port = http.boundPort.getOrElse(fail("no HTTP port"))
+    val port     = http.boundPort.getOrElse(fail("no HTTP port"))
     val response = HttpClient
       .newHttpClient()
       .send(
@@ -131,7 +131,7 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
   test("the cart asks a service for reflection through GrpcClients, and is told what it serves") {
     // The same route the cluster suite drives from another service's pod; here the service asks
     // itself, and a local caller is admitted by every ACL.
-    val port = http.boundPort.getOrElse(fail("no HTTP port"))
+    val port     = http.boundPort.getOrElse(fail("no HTTP port"))
     val response = HttpClient
       .newHttpClient()
       .send(

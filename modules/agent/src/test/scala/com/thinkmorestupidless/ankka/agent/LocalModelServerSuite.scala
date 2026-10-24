@@ -62,7 +62,7 @@ class LocalModelServerSuite extends munit.FunSuite:
 
   test("a tool call round-trips and usage is recorded") {
     val question = ChatMessage.User.text("What is the weather in Berlin? Use the tool.")
-    val request = ModelRequest(
+    val request  = ModelRequest(
       ModelSettings(local.modelName, maxTokens = Some(512)),
       None,
       Vector(question),
@@ -73,7 +73,7 @@ class LocalModelServerSuite extends munit.FunSuite:
       first.toolCalls.nonEmpty,
       s"the model answered in text instead of calling the tool: ${first.text}"
     )
-    val call = first.toolCalls.head
+    val call   = first.toolCalls.head
     val result =
       weather.invoke(call.arguments).fold(e => fail(s"the arguments did not parse: $e"), identity)
     assertEquals(ran.toArray.toVector, Vector[AnyRef]("Berlin"))

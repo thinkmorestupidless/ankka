@@ -44,7 +44,7 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
   override def munitIgnore: Boolean   = sys.props.get("ankka.cluster.tests").contains("off")
   override val munitTimeout: Duration = 30.minutes
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private val Prefix     = "ankka"
@@ -394,7 +394,7 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("5. a request through the gateway reads as the internet") {
-    var last = (0, "")
+    var last   = (0, "")
     val served =
       try
         waitFor(180.seconds, "the route serves") {
@@ -405,11 +405,11 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
       catch case _: munit.FailException => false
     if !served then
       def get(args: String*) = k3s.execInContainer(("kubectl" +: args)*)
-      val route = get("get", "httproute", "-n", Checkout, "carts", "-o", "jsonpath={.status}")
+      val route  = get("get", "httproute", "-n", Checkout, "carts", "-o", "jsonpath={.status}")
       val policy =
         get("get", "backendtlspolicy", "-n", Checkout, "carts", "-o", "jsonpath={.status}")
       val bundle = get("get", "configmap", "-n", Checkout, "ankka-service-ca", "-o", "name")
-      val envoy = get(
+      val envoy  = get(
         "logs",
         "-n",
         "envoy-gateway-system",

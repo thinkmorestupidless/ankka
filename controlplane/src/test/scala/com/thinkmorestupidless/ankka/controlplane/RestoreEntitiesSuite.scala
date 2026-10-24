@@ -49,7 +49,7 @@ class RestoreEntitiesSuite extends munit.FunSuite with LogCapturing:
     val kit = project
     kit.call(ProjectEntity.requestRestore)(restore("ankka-db-r1")): Unit
     val reached = Instant.parse("2026-10-08T09:19:58Z")
-    val ended = kit.call(ProjectEntity.observeRestore)(
+    val ended   = kit.call(ProjectEntity.observeRestore)(
       ObserveRestore("ankka-db-r1", "Verified", Some(reached))
     )
     assertEquals(ended.events.size, 1)
@@ -127,7 +127,7 @@ class RestoreEntitiesSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("the resource names the cluster a switched service is on, and nothing for one that is not") {
-    val kit = service
+    val kit       = service
     def projected = com.thinkmorestupidless.ankka.controlplane.deploy.ServiceProjection
       .project(
         kit.currentState,

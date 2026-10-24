@@ -99,7 +99,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       case ServiceEvent.ServiceExposed(actor, at)   => assertEquals((actor, at), (None, None))
       case ServiceEvent.ServiceUnexposed(actor, at) => assertEquals((actor, at), (None, None))
       case ServiceEvent.ServiceDeleted(actor, at)   => assertEquals((actor, at), (None, None))
-      case observed: ServiceEvent.ServiceObserved =>
+      case observed: ServiceEvent.ServiceObserved   =>
         assertEquals(observed.readyInstances, 1); assert(observed.confirmed)
       case other => fail(s"not an event the fixture holds: $other")
     }
@@ -241,7 +241,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("an attributed event round-trips with its actor and time") {
-    val at = java.time.Instant.parse("2026-09-22T10:00:00Z")
+    val at    = java.time.Instant.parse("2026-09-22T10:00:00Z")
     val event = ServiceEvent.ServicePaused(
       Some(Actor("alice", Some("alice@example.test"), administrative = true)),
       Some(at)
@@ -256,7 +256,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     // cannot change its mind about: a renamed field is a project that silently loses its registry
     // on the next replay, and a *password* field appearing here at all would be the defect this
     // design exists to prevent.
-    val at = java.time.Instant.parse("2026-09-25T10:00:00Z")
+    val at         = java.time.Instant.parse("2026-09-25T10:00:00Z")
     val configured = ProjectEvent.RegistryConfigured(
       "ghcr.io",
       "octocat",
@@ -282,7 +282,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   test("the control plane records that a project secret was set and never a value") {
     // The field names are pinned exactly: a field that could carry a value must not exist at all.
-    val at = java.time.Instant.parse("2026-10-03T10:00:00Z")
+    val at  = java.time.Instant.parse("2026-10-03T10:00:00Z")
     val set = ProjectEvent.ProjectSecretEntriesSet(
       "checkout",
       Vector("STRIPE_KEY", "WEBHOOK_KEY"),
@@ -343,7 +343,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   test("a topic's settings, the defaulted ones and its changes pin their wire form (feature 043)") {
     import com.thinkmorestupidless.ankka.controlplane.api.*
-    val at = java.time.Instant.parse("2026-10-08T10:00:00Z")
+    val at       = java.time.Instant.parse("2026-10-08T10:00:00Z")
     val settings = TopicSettings(
       RetentionTime.Bounded(90L * 86400000L),
       RetentionSize.NoLimit,
@@ -412,7 +412,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a broker's declaration pins its wire form, and never a credential (feature 037)") {
-    val at = java.time.Instant.parse("2026-10-07T10:00:00Z")
+    val at       = java.time.Instant.parse("2026-10-07T10:00:00Z")
     val declared = ProjectEvent.ProjectBrokerDeclared(
       "legacy",
       "kafka.legacy:9094",
@@ -421,7 +421,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       None,
       Some(at)
     )
-    val removed = ProjectEvent.ProjectBrokerRemoved("legacy", None, None)
+    val removed                           = ProjectEvent.ProjectBrokerRemoved("legacy", None, None)
     def fields(json: String): Set[String] =
       com.fasterxml.jackson.databind.ObjectMapper().readTree(json).fieldNames().asScala.toSet
     for (event, expected) <- Vector(
@@ -548,7 +548,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a rollback's event has a pinned shape, and an apply's still has no such field") {
-    val descriptor = ServiceDescriptor("cart", ServiceSpec("cart:1.0"))
+    val descriptor             = ServiceDescriptor("cart", ServiceSpec("cart:1.0"))
     val rollback: ServiceEvent =
       ServiceEvent.ServiceApplied("acme", descriptor, 3L, rolledBackTo = Some(1L))
     val written = String(ServiceEntity.eventSerializer.toBytes(rollback), "UTF-8")
@@ -565,7 +565,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     // The shared codec skips a field it does not know, which is what lets a node still on the
     // previous version follow a rolling update.
     import PreRollback.OldEvent
-    val old = PreRollback.serializer
+    val old                    = PreRollback.serializer
     val rollback: ServiceEvent = ServiceEvent.ServiceApplied(
       "acme",
       ServiceDescriptor("cart", ServiceSpec("cart:1.0")),

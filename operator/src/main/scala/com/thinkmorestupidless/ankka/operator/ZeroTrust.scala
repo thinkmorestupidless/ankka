@@ -87,7 +87,7 @@ object ZeroTrust:
    * The control plane's namespace and pod label, as `kustomization/components/controlplane` has
    * them.
    */
-  val ControlPlaneNamespace: String = "ankka-controlplane"
+  val ControlPlaneNamespace: String              = "ankka-controlplane"
   val ControlPlanePodLabels: Map[String, String] =
     Map("app.kubernetes.io/name" -> "ankka-controlplane")
 

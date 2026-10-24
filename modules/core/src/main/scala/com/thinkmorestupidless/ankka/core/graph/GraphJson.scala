@@ -69,7 +69,7 @@ private[ankka] object GraphJson:
       case Num(number) => out.writeVal(number)
       case Bool(flag)  => out.writeVal(flag)
       case Null        => out.writeNull()
-      case Arr(items) =>
+      case Arr(items)  =>
         out.writeArrayStart()
         items.foreach(encodeValue(_, out))
         out.writeArrayEnd()

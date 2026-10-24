@@ -51,7 +51,7 @@ class GrpcClientsSuite extends munit.FunSuite:
     GrpcClients.locatedBy(locate).configure(config)
 
   test("a service that cannot be found fails the first call, naming it") {
-    val grpc = clients((_, n) => Left(ServiceUnresolvable(n, "no service at basket")))
+    val grpc    = clients((_, n) => Left(ServiceUnresolvable(n, "no service at basket")))
     val failure = intercept[ServiceUnresolvable](
       CartServiceGrpc.blockingStub(grpc("basket")).getCart(GetCartRequest("c"))
     )
@@ -59,7 +59,7 @@ class GrpcClientsSuite extends munit.FunSuite:
   }
 
   test("a service that serves no gRPC fails the first call, saying so") {
-    val grpc = clients((p, n) => Left(ServiceServesNoGrpc(s"$p/$n")))
+    val grpc    = clients((p, n) => Left(ServiceServesNoGrpc(s"$p/$n")))
     val failure = intercept[ServiceServesNoGrpc](
       CartServiceGrpc.blockingStub(grpc("orders")).getCart(GetCartRequest("c"))
     )
@@ -97,7 +97,7 @@ class GrpcClientsSuite extends munit.FunSuite:
   }
 
   test("a workload whose certificate names another service is never sent the call") {
-    val root = TestPki.root("grpc-clients-suite")
+    val root                                     = TestPki.root("grpc-clients-suite")
     def dir(uri: String, dns: Seq[String] = Nil) =
       root.issue(uris = Seq(uri), dnsNames = dns).writeTo(Files.createTempDirectory("grpc-clients"))
     val counter = AtomicInteger()

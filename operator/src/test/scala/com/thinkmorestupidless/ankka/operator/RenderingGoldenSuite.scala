@@ -157,7 +157,7 @@ class RenderingGoldenSuite extends munit.FunSuite:
     )
     val spec     = base.copy(provisionObjectStorage = true)
     val settings = Settings.default.copy(cloud = Some(cloud))
-    val plan = ObjectStoragePlan.Ready(
+    val plan     = ObjectStoragePlan.Ready(
       recovered = false,
       Some(
         CloudBucket("acct-checkout-cart", "https://storage.scripted.invalid", "europe-west2", 1L)

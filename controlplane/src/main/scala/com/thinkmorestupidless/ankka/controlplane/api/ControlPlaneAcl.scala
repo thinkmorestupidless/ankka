@@ -41,10 +41,10 @@ object ControlPlaneAcl:
       oidc: Acl,
       config: AuthConfig
   ): Acl =
-    val realm = s"""realm="${config.realmHint}""""
+    val realm      = s"""realm="${config.realmHint}""""
     val decideOidc = oidc match
       case Acl.Authenticate(decide) => decide
-      case _ =>
+      case _                        =>
         throw IllegalArgumentException(
           "the control plane's fallback acl must authenticate; got " + oidc
         )
@@ -71,7 +71,7 @@ object ControlPlaneAcl:
       AuthDecision.Unavailable("deploy tokens cannot be verified yet on this node")
     else
       DeployTokens.parse(bearer) match
-        case None => rejected("not a deploy token")
+        case None               => rejected("not a deploy token")
         case Some((id, secret)) =>
           index.lookup(id) match
             // Unknown, revoked and expired are one answer on purpose. Distinguishing them would
@@ -101,7 +101,7 @@ object ControlPlaneAcl:
 
   /** The same over a verifier already built, which is how a suite hands in a test issuer's keys. */
   def oidc(verifier: OidcVerifier, config: AuthConfig): Acl =
-    val realm = s"""realm="${config.realmHint}""""
+    val realm    = s"""realm="${config.realmHint}""""
     val verified = Oidc.authenticate(verifier, config.realmHint) match
       case Acl.Authenticate(decide) => decide
       case other => throw IllegalStateException(s"not an authenticating acl: $other")

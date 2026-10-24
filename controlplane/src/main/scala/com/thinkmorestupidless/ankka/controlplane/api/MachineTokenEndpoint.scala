@@ -75,7 +75,7 @@ final class MachineTokenEndpoint(
             Respond(TokenAnswer(error = Some("unsupported_grant_type")), 400)
           case Some(_) =>
             MachineSecrets.parseClientId(clientId).filter(_ => secret.nonEmpty) match
-              case None => MachineTokenEndpoint.invalidClient
+              case None                       => MachineTokenEndpoint.invalidClient
               case Some((organization, name)) =>
                 val found =
                   try
@@ -85,7 +85,7 @@ final class MachineTokenEndpoint(
                       .invoke(secret)
                   catch case _: CommandError => None
                 found match
-                  case None => MachineTokenEndpoint.invalidClient
+                  case None    => MachineTokenEndpoint.invalidClient
                   case Some(_) =>
                     Respond(
                       TokenAnswer(
@@ -149,7 +149,7 @@ object MachineTokenEndpoint:
         // `sasl.oauthbearer.header.urlencode` is set, `machine:<org>/<name>` has one: the pair is
         // split after the id, not at its first colon. A secret is hex, which decoding leaves alone.
         val colons = pair.indices.filter(pair(_) == ':')
-        val at = colons
+        val at     = colons
           .find(i =>
             com.thinkmorestupidless.ankka.controlplane.auth.MachineSecrets
               .parseClientId(pair.take(i))

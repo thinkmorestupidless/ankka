@@ -126,7 +126,7 @@ final class S3Bucket(
       private var page: Iterator[ObjectEntry] = Iterator.empty
       private var token: Option[String]       = None
       private var finished                    = false
-      def hasNext: Boolean =
+      def hasNext: Boolean                    =
         while !page.hasNext && !finished do
           val (entries, next) = fetch(prefix, token)
           page = entries.iterator
@@ -193,7 +193,7 @@ final class S3Bucket(
   private def send[T](request: HttpRequest, handler: HttpResponse.BodyHandler[T]): HttpResponse[T] =
     try client.send(request, handler)
     catch
-      case e: IOException => throw unreachable(e)
+      case e: IOException          => throw unreachable(e)
       case e: InterruptedException =>
         Thread.currentThread().interrupt()
         throw unreachable(new IOException("interrupted", e))
@@ -257,8 +257,8 @@ object S3Bucket:
           case XMLStreamConstants.START_ELEMENT =>
             reader.getLocalName match
               case "Contents" => inContents = true; key = ""; size = 0L; modified = Instant.EPOCH
-              case "Key" if inContents  => key = reader.getElementText
-              case "Size" if inContents => size = reader.getElementText.trim.toLong
+              case "Key" if inContents          => key = reader.getElementText
+              case "Size" if inContents         => size = reader.getElementText.trim.toLong
               case "LastModified" if inContents =>
                 modified = Instant.parse(reader.getElementText.trim)
               case "NextContinuationToken" => token = Some(reader.getElementText)

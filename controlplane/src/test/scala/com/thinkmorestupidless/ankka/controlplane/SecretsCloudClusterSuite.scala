@@ -55,7 +55,7 @@ class SecretsCloudClusterSuite extends munit.FunSuite with LogCapturing:
   private val K3sImage  = "rancher/k3s:v1.35.1-k3s1"
   private val Project   = "shop"
   private val Namespace = s"ankka-$Project"
-  private val cloud =
+  private val cloud     =
     CloudSettings("gcp", "scripted-account", "scripted-location", None, 30.seconds, 20.seconds)
 
   private var k3s: K3sContainer                       = null

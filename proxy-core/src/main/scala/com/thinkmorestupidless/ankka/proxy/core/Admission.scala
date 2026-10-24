@@ -38,7 +38,7 @@ object Admission:
    */
   def admits(settings: ProxySettings, sender: Sender): Boolean = sender match
     case Sender.Internet(_) | Sender.Local => true
-    case Sender.Service(project, name) =>
+    case Sender.Service(project, name)     =>
       (project == settings.project && name == settings.service) ||
       settings.callers.exists {
         case Admitted.Service(p, n) => p == project && n == name

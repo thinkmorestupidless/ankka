@@ -205,7 +205,7 @@ final class AgentRuntime private (
             )
           case other => other
         val mcpTools = connectMcp(typed.componentId, typed.mcpServers, service, timers)
-        val _ = sharding.init(
+        val _        = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](typed.componentId)) { ctx =>
             AgentHost.behavior(
               typed,
@@ -336,7 +336,7 @@ final class AgentRuntime private (
   )(using system: ActorSystem[?]): Vector[FunctionTool] =
     if servers.isEmpty then Vector.empty
     else
-      val config = system.settings.config
+      val config                 = system.settings.config
       def duration(path: String) =
         scala.concurrent.duration.FiniteDuration(config.getDuration(path).toMillis, "ms")
       val tools = mcp.McpTools.connect(
@@ -402,7 +402,7 @@ final class AgentRuntime private (
         )
         val mcpTools =
           connectMcp(descriptor.componentId, descriptor.definition.mcpServers, service, timers)
-        val limited = probe.tools.find(_.approval.exists(_.within.isDefined))
+        val limited  = probe.tools.find(_.approval.exists(_.within.isDefined))
         val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools) ++
           limited
             .filter(_ => timers.isEmpty)
@@ -718,7 +718,7 @@ private[agent] object AgentHost:
     }(using AnkkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {
-      case Success(reply) => Finished(invoke.replyTo, reply)
+      case Success(reply)   => Finished(invoke.replyTo, reply)
       case Failure(failure) =>
         Finished(
           invoke.replyTo,
@@ -877,7 +877,7 @@ private[agent] object AgentHost:
     }(using AnkkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {
-      case Success(reply) => Finished(invoke.replyTo, reply)
+      case Success(reply)   => Finished(invoke.replyTo, reply)
       case Failure(failure) =>
         Finished(
           invoke.replyTo,
@@ -1136,7 +1136,7 @@ final class AgentCalls private[agent] (
         NotUsed
       }
       .collect {
-        case EntityProtocol.Token(text) => AgentPart.Text(text)
+        case EntityProtocol.Token(text)             => AgentPart.Text(text)
         case EntityProtocol.StreamAwaiting(payload) =>
           AgentPart.AwaitingApproval(readFromArray[Approvals.Awaiting](payload).requests)
       }

@@ -23,7 +23,7 @@ import scala.util.Try
  */
 class TlsServerSuite extends munit.FunSuite:
 
-  private val authority = TestPki.root("tls-server-suite")
+  private val authority       = TestPki.root("tls-server-suite")
   private val serverDir: Path =
     authority
       .issue(uris = Seq("ankka://checkout/carts"), dnsNames = Seq("localhost"))

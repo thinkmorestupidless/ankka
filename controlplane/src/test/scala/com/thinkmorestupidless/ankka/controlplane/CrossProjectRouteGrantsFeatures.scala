@@ -77,7 +77,7 @@ class CrossProjectRouteGrantsFeatures
       "StatusIngestSuite and GrantEffectSuite"
   )
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private val GrpcurlImage = "fullstorydev/grpcurl:v1.9.1-alpine"
@@ -85,7 +85,7 @@ class CrossProjectRouteGrantsFeatures
   private val ReloadSlack  = 12.seconds
 
   private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  private lazy val Token    = identity.token(
     "owner",
     Some("owner@example.test"),
     roles = Set("platform-admin"),
@@ -226,8 +226,8 @@ class CrossProjectRouteGrantsFeatures
     def all: String = out + err
 
   private def ankka(args: String*): Run =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -378,7 +378,7 @@ class CrossProjectRouteGrantsFeatures
               .build()
           )
           .serverSideApply(): Unit
-      val image = if grpc then GrpcurlImage else "curlimages/curl:8.11.1"
+      val image  = if grpc then GrpcurlImage else "curlimages/curl:8.11.1"
       val protos =
         if grpc then """        - { name: protos, mountPath: /protos, readOnly: true }
             |""".stripMargin
@@ -426,7 +426,7 @@ class CrossProjectRouteGrantsFeatures
   /** A route's text, `METHOD /path/{template}`, as a path with this scenario's values. */
   private def split(route: String): (String, String) =
     val (method, template) = route.trim.span(_ != ' ')
-    val path = template.trim
+    val path               = template.trim
       .replace("{player}", player)
       .replace("{currency}", "eur")
     (method.toUpperCase, path)
@@ -452,7 +452,7 @@ class CrossProjectRouteGrantsFeatures
   private def grpcCall(caller: String, definition: String, method: String): String =
     val project = projectOf(caller)
     val dir     = "/var/run/secrets/ankka/service"
-    val data =
+    val data    =
       if method == "Deposit" then
         s"""{"player":"$player","currency":"eur","amount":5,"idempotencyKey":"${java.util.UUID
             .randomUUID()}"}"""
@@ -501,7 +501,7 @@ class CrossProjectRouteGrantsFeatures
         "merchant" -> restarts("merchant", projectOf("merchant"))
       )
     val made = Deadline.now
-    val run = ok(
+    val run  = ok(
       ankka(
         Seq("projects", "grants", "make", grantee) ++ target ++ Seq("-p", project, "-o", "json")*
       )
@@ -731,7 +731,7 @@ class CrossProjectRouteGrantsFeatures
     (seconds: String) =>
       val deadline = revokedAt.getOrElse(fail("nothing was revoked")) + seconds.toInt.seconds
       for (what, open) <- held do
-        val left = deadline.timeLeft
+        val left  = deadline.timeLeft
         val ended =
           try Some(Await.result(open, left.max(1.second)))
           catch case _: java.util.concurrent.TimeoutException => None
@@ -740,7 +740,7 @@ class CrossProjectRouteGrantsFeatures
 
   Then("{string} is refused when it opens the socket again") { (caller: String) =>
     val (_, path) = split("GET /v1/wallets/{player}/events")
-    val again = InPod.curl(
+    val again     = InPod.curl(
       k3s,
       ns(projectOf(caller)),
       holder(caller),

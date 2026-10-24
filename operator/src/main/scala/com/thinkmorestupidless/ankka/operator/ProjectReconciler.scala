@@ -37,10 +37,10 @@ final class ProjectReconciler(
     Option(
       client.resources(classOf[AnkkaProject]).inNamespace(ref.namespace).withName(ref.name).get()
     ) match
-      case None => log.debug("project {} no longer exists; nothing to do", ref)
+      case None          => log.debug("project {} no longer exists; nothing to do", ref)
       case Some(project) =>
-        val spec  = Option(project.getSpec).getOrElse(AnkkaProjectSpec())
-        val names = spec.topics.toVector.map(t => BrokerNames.topic(spec.projectId, t.name))
+        val spec     = Option(project.getSpec).getOrElse(AnkkaProjectSpec())
+        val names    = spec.topics.toVector.map(t => BrokerNames.topic(spec.projectId, t.name))
         val observed =
           settings.broker.fold(Map.empty)(b => executor.observeTopics(b.namespace, names))
         // Feature 043: how many broker nodes there are, which only the operator can read.
@@ -182,7 +182,7 @@ object ProjectReconciler:
       }
     val replicas    = spec.database.map(_.replicas).filter(_ > 0).getOrElse(0)
     val synchronous = spec.database.exists(_.synchronous) && replicas > 0
-    val database = observed.cluster.map { status =>
+    val database    = observed.cluster.map { status =>
       val streaming =
         if synchronous then
           ask(DatabaseQueries.Replication.sql).map(DatabaseQueries.Replication.parse)
@@ -268,8 +268,8 @@ object ProjectReconciler:
   ): Restores =
     val previous  = current.toList.flatMap(_.restores).map(r => r.name -> r).toMap
     val onCluster = services.groupMap(_._2.getOrElse(CnpgRendering.projectClusterName))(_._1)
-    val rendered = spec.restores.toVector.map { entry =>
-      val inUse = onCluster.contains(entry.name)
+    val rendered  = spec.restores.toVector.map { entry =>
+      val inUse  = onCluster.contains(entry.name)
       val exists = executor
         .observeBackups(namespace, entry.name, CnpgRendering.BackupObjectStoreName)
         .cluster
@@ -283,7 +283,7 @@ object ProjectReconciler:
         before.filter(b => b.phase == "Verified" || b.phase == "InUse" || b.phase == "Failed") match
           case Some(done) if done.phase == "Failed" => done
           case Some(done) => done.copy(phase = if inUse then "InUse" else "Verified")
-          case None =>
+          case None       =>
             val cluster = executor
               .observeBackups(namespace, entry.name, CnpgRendering.BackupObjectStoreName)
               .cluster
@@ -429,7 +429,7 @@ object ProjectReconciler:
       val rendered = entries.toVector.map { entry =>
         byName.get(entry.name) match
           case Some(finished) if done(finished) => Vector.empty -> finished
-          case before =>
+          case before                           =>
             val startedAt = before.flatMap(_.startedAt).getOrElse(now.toString)
             val running = RehearsalStatus(entry.name, entry.targetTime, "Running", Some(startedAt))
             val cluster = executor
@@ -438,7 +438,7 @@ object ProjectReconciler:
             val phase = cluster.flatMap(_.phase).getOrElse("")
             def finish(outcome: RehearsalStatus): RehearsalStatus =
               executor.deleteRehearsalCluster(ns, entry.name) match
-                case Right(_) => outcome
+                case Right(_)  => outcome
                 case Left(why) =>
                   outcome.copy(
                     outcome = "NotRemoved",
@@ -536,7 +536,7 @@ object ProjectReconciler:
           detail = Some("healthy, and waiting to be read")
         )
       case Some(databases) =>
-        val at = java.time.Instant.parse(entry.targetTime)
+        val at       = java.time.Instant.parse(entry.targetTime)
         val verified = services.map(_._1).sorted.map { service =>
           if !databases.contains(service) then ServiceVerification(name = service, present = false)
           else

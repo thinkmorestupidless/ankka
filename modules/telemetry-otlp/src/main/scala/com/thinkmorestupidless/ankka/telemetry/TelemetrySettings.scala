@@ -67,7 +67,7 @@ object TelemetrySettings:
   def parseHeaders(raw: String): Either[String, Vector[(String, String)]] =
     val entries = raw.split(',').toVector.map(_.trim).filter(_.nonEmpty)
     entries.zipWithIndex.foldLeft[Either[String, Vector[(String, String)]]](Right(Vector.empty)) {
-      case (Left(problem), _) => Left(problem)
+      case (Left(problem), _)         => Left(problem)
       case (Right(done), (entry, at)) =>
         entry.indexOf('=') match
           case i if i > 0 && entry.substring(0, i).trim.nonEmpty =>

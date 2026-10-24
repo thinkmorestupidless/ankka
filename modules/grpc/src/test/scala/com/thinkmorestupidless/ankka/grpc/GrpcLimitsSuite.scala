@@ -53,7 +53,7 @@ class GrpcLimitsSuite extends munit.FunSuite:
     // the case is about one that does.
     val connected = stub()
     val _         = connected.getCart(GetCartRequest("warm"))
-    val failure = intercept[StatusRuntimeException](
+    val failure   = intercept[StatusRuntimeException](
       connected.withDeadlineAfter(200, TimeUnit.MILLISECONDS).getCart(GetCartRequest("slow"))
     )
     assertEquals(failure.getStatus.getCode, Status.Code.DEADLINE_EXCEEDED)

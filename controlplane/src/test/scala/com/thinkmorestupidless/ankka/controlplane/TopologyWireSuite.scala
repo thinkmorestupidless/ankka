@@ -74,7 +74,7 @@ class TopologyWireSuite extends munit.FunSuite with LogCapturing:
     def id(name: String) = names.intern(name)
     val counts           = CallCounts(600_000L, 60, 0L)
     val now              = 1_000L
-    val key = CallCounts
+    val key              = CallCounts
       .key(id("endpoint:/carts"), id("POST /carts/{id}/items"), id("cart"), id("add"))
       .get
     counts.handled(key, SpanOutcome.Ok, 1_500_000L, false, now)

@@ -34,7 +34,7 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
 
   private lazy val alice = identity.token("alice", Some("alice@example.test"), expiresIn = 2.hours)
   private lazy val bob   = identity.token("bob", Some("bob@example.test"), expiresIn = 2.hours)
-  private lazy val dave =
+  private lazy val dave  =
     identity.token("dave", Some("dave@example.test"), emailVerified = false, expiresIn = 2.hours)
   private lazy val carol = identity.token(
     "carol",
@@ -714,8 +714,8 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
       """{"produceBytesPerSecond":1,"consumeBytesPerSecond":1,"requestPercentage":1}""",
     ("POST", "/organizations/{organizationId}/tokens") -> """{"label":"walker"}""",
     ("PUT", "/organizations/{organizationId}/quota")   -> """{"projects":9}""",
-    ("POST", "/projects/{projectId}")     -> """{"name":"X","organizationId":"acme"}""",
-    ("PUT", "/projects/{projectId}/name") -> """{"name":"Orders"}""",
+    ("POST", "/projects/{projectId}")         -> """{"name":"X","organizationId":"acme"}""",
+    ("PUT", "/projects/{projectId}/name")     -> """{"name":"Orders"}""",
     ("PUT", "/projects/{projectId}/registry") ->
       """{"server":"ghcr.io","username":"walker","password":"walker"}""",
     ("PUT", "/projects/{projectId}/secrets/{name}") -> """{"entries":{"k":"v"}}""",
@@ -724,7 +724,7 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
       """{"bootstrap":"broker:9092","shape":"plain","secret":"nothing"}""",
     ("PUT", "/projects/{projectId}/location")             -> """{"location":"nothing"}""",
     ("POST", "/services/{projectId}/{name}/storage/move") -> "{}",
-    ("POST", "/projects/{projectId}/grants") ->
+    ("POST", "/projects/{projectId}/grants")              ->
       """{"grantee":"service:payments/merchant","target":{"kind":"erasure"}}""",
     ("PUT", "/services/{projectId}/{name}")           -> descriptor("nothing"),
     ("POST", "/projects/{projectId}/restores")        -> """{"moment":"2026-01-01T00:00:00Z"}""",
@@ -767,9 +767,9 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
         (method == "POST" && template == "/projects/{projectId}")
 
     val asMember = walk(member, "orders").map(r => (r._1, r._2) -> r).toMap
-    val wrong = walk(projectToken, "orders").flatMap { (method, template, code, body) =>
+    val wrong    = walk(projectToken, "orders").flatMap { (method, template, code, body) =>
       val (_, _, memberCode, memberBody) = asMember((method, template))
-      val expected =
+      val expected                       =
         if grantRoutes((method, template)) then false
         else if aboveTheProject(method, template) then true
         else refused(memberCode, memberBody)
@@ -870,7 +870,7 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
       204
     )
     val granted = send("GET", "/projects/globex-shop/grants", bob)._2
-    val line =
+    val line    =
       granted.split("\\},\\{").find(_.contains(administrativeGrantId)).getOrElse(fail(granted))
     assert(line.contains("\"state\":\"accepted\""), line)
     // A grant that does not exist is not there to accept, and nothing changes.

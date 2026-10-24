@@ -171,10 +171,10 @@ final class HttpServiceClients(
   private def counted(project: String, name: String, method: String)(
       request: Option[String] => ServiceResponse
   ): ServiceResponse =
-    val target = s"$project/$name"
+    val target                = s"$project/$name"
     def call: ServiceResponse =
       observability match
-        case None => request(Trace.currentContext.map(Traceparent.render))
+        case None    => request(Trace.currentContext.map(Traceparent.render))
         case Some(o) =>
           o.calling(
             o.externalServices.nameFor(project, name),
@@ -183,7 +183,7 @@ final class HttpServiceClients(
     try call
     catch
       case e: (ServiceUnresolvable | ServiceIdentityMismatch) => throw e
-      case e: HttpTimeoutException =>
+      case e: HttpTimeoutException                            =>
         throw ServiceUnanswered(
           target,
           s"no answer within ${FiniteDuration(timeoutMillis, "ms").toCoarsest}",
@@ -304,7 +304,7 @@ object HttpServiceClients:
           )
         )
         val records = context.getAttributes(s"_$portName._tcp.$host", Array("SRV")).get("SRV")
-        val port =
+        val port    =
           Option(records).flatMap(r => Option(r.get(0))).map(_.toString.trim.split("\\s+")(2).toInt)
         port.foreach(p => ports.put(key, (p, now)))
         port

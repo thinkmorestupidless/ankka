@@ -576,14 +576,14 @@ abstract class TimerSteps(feature: String) extends GherkinSuite(feature) with Lo
   Then("the timer {string} fires once more, at the due time the handler gave it") {
     (timer: String) =>
       val expected = setDue(timer)
-      val _ = waitFor(s"'$timer' fires for $expected", 10.seconds)(
+      val _        = waitFor(s"'$timer' fires for $expected", 10.seconds)(
         probe.fired(timer).find(f => f.dueTime == expected && f.outcome == FiredTimer.Outcome.Done)
       )
   }
 
   Then("the timer {string} fires once for each period") { (timer: String) =>
     val after = probe.fired(timer).size
-    val _ = waitFor(s"'$timer' runs three times as a recurring timer", 20.seconds)(
+    val _     = waitFor(s"'$timer' runs three times as a recurring timer", 20.seconds)(
       Option(probe.fired(timer).drop(after).filter(_.period.isDefined)).filter(_.size >= 3)
     )
     val runs = probe.fired(timer).drop(after).filter(_.period.isDefined)
@@ -615,7 +615,7 @@ abstract class TimerSteps(feature: String) extends GherkinSuite(feature) with Lo
   Then("the timer {string} runs {string} once for each period of {string}") {
     (timer: String, handler: String, period: String) =>
       val (before, _) = setAt(timer)
-      val run = waitFor(s"'$handler' runs for '$timer'", 10.seconds)(
+      val run         = waitFor(s"'$handler' runs for '$timer'", 10.seconds)(
         runsOfHandler(handler).find(r => r.timerName == timer && !r.startedAt.isBefore(before))
       )
       val fired = waitFor(s"the runtime records the run of '$handler'", 5.seconds)(
@@ -652,7 +652,7 @@ abstract class TimerSteps(feature: String) extends GherkinSuite(feature) with Lo
 
   Then("the timer {string} fires for the due time it had before the restart") { (timer: String) =>
     val due = dueBeforeRestart.getOrElse(fail("nothing restarted"))
-    val _ = waitFor(s"'$timer' fires for $due", 20.seconds)(
+    val _   = waitFor(s"'$timer' fires for $due", 20.seconds)(
       probe.fired(timer).find(f => f.dueTime == due && f.outcome == FiredTimer.Outcome.Done)
     )
   }
@@ -669,7 +669,7 @@ abstract class TimerSteps(feature: String) extends GherkinSuite(feature) with Lo
   Then("the timer {string} fires once for the due time it had when {string} stopped") {
     (timer: String, _: String) =>
       val due = dueBeforeRestart.getOrElse(fail("nothing stopped"))
-      val _ = waitFor(s"'$timer' fires for $due", 20.seconds)(
+      val _   = waitFor(s"'$timer' fires for $due", 20.seconds)(
         probe.fired(timer).find(f => f.dueTime == due && f.outcome == FiredTimer.Outcome.Done)
       )
       assertEquals(probe.fired(timer).count(_.dueTime == due), 1, s"'$timer' fired twice for $due")
@@ -732,7 +732,7 @@ abstract class TimerSteps(feature: String) extends GherkinSuite(feature) with Lo
   Then("the next due time of {string} is {string} after the due time it failed for") {
     (timer: String, gap: String) =>
       val failedFor = runsOf(timer).head.dueTime
-      val done = probe
+      val done      = probe
         .fired(timer)
         .find(_.outcome == FiredTimer.Outcome.Done)
         .getOrElse(fail("it never succeeded"))

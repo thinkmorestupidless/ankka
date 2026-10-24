@@ -23,9 +23,9 @@ object SchemaType:
 
   private def scalar[A](typeName: String)(read: Json => Option[A]): SchemaType[A] =
     new SchemaType[A]:
-      val schema: Json = Json.obj("type" -> Json.str(typeName))
+      val schema: Json                                   = Json.obj("type" -> Json.str(typeName))
       def decode(value: Option[Json]): Either[String, A] = value match
-        case None => Left(s"missing required value")
+        case None       => Left(s"missing required value")
         case Some(json) =>
           read(json).toRight(s"expected $typeName but got ${json.render}")
 
@@ -43,9 +43,9 @@ object SchemaType:
    */
   given int: SchemaType[Int] =
     new SchemaType[Int]:
-      val schema: Json = Json.obj("type" -> Json.str("integer"))
+      val schema: Json                                     = Json.obj("type" -> Json.str("integer"))
       def decode(value: Option[Json]): Either[String, Int] = value match
-        case None => Left("missing required value")
+        case None       => Left("missing required value")
         case Some(json) =>
           json.asDouble match
             case Some(d) if d.isWhole => Right(d.toInt)
@@ -56,7 +56,7 @@ object SchemaType:
     new SchemaType[Long]:
       val schema: Json = Json.obj("type" -> Json.str("integer"))
       def decode(value: Option[Json]): Either[String, Long] = value match
-        case None => Left("missing required value")
+        case None       => Left("missing required value")
         case Some(json) =>
           json.asDouble match
             case Some(d) if d.isWhole => Right(d.toLong)
@@ -66,8 +66,8 @@ object SchemaType:
   /** An optional parameter: same schema, but absent from `required`. */
   given option[A](using inner: SchemaType[A]): SchemaType[Option[A]] =
     new SchemaType[Option[A]]:
-      val schema: Json               = inner.schema
-      override val required: Boolean = false
+      val schema: Json                                           = inner.schema
+      override val required: Boolean                             = false
       def decode(value: Option[Json]): Either[String, Option[A]] = value match
         case None                      => Right(None)
         case Some(json) if json.isNull => Right(None)
@@ -78,10 +78,10 @@ object SchemaType:
       val schema: Json =
         Json.obj("type" -> Json.str("array"), "items" -> inner.schema)
       def decode(value: Option[Json]): Either[String, List[A]] = value match
-        case None => Left("missing required value")
+        case None       => Left("missing required value")
         case Some(json) =>
           json.asArray match
-            case None => Left(s"expected an array but got ${json.render}")
+            case None        => Left(s"expected an array but got ${json.render}")
             case Some(items) =>
               items.foldLeft[Either[String, List[A]]](Right(Nil)) { (acc, item) =>
                 for

@@ -32,8 +32,8 @@ class QueryCheckSuite extends munit.FunSuite:
 
   private final class Found extends TablesNamesFinder[Void]:
     init(false)
-    val tables = Vector.newBuilder[String]
-    val named  = Vector.newBuilder[String]
+    val tables                                        = Vector.newBuilder[String]
+    val named                                         = Vector.newBuilder[String]
     override def visit[S](t: Table, context: S): Void =
       tables += t.getFullyQualifiedName
       super.visit(t, context)

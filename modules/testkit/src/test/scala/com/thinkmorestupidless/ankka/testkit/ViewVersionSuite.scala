@@ -235,7 +235,7 @@ class ViewVersionSuite extends munit.FunSuite with LogCapturing:
         ),
         10.seconds
       )
-      val guard = ViewGuard(db, "race", 1, _ => ())
+      val guard  = ViewGuard(db, "race", 1, _ => ())
       val writes = Future.traverse(1 to 3)(n =>
         guard.write(ViewStore.upsert(table, s"r$round-$n", "{}")).recover(_ => Done)
       )
@@ -271,9 +271,9 @@ object ViewVersionSuite:
 
   /** The versions the next start declares, and what the handlers saw. */
   object Versions:
-    @volatile var viewVersion: Int     = 1
-    @volatile var consumerVersion: Int = 1
-    val handled: AtomicInteger         = AtomicInteger()
+    @volatile var viewVersion: Int                     = 1
+    @volatile var consumerVersion: Int                 = 1
+    val handled: AtomicInteger                         = AtomicInteger()
     val consumed: ConcurrentLinkedQueue[(Int, String)] =
       ConcurrentLinkedQueue[(Int, String)]()
 

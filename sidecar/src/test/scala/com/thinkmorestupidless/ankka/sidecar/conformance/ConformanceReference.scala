@@ -97,7 +97,7 @@ object ConformanceReference:
       extends EventSourcedEntity[Vector[String], Recorded]:
     def emptyState: Vector[String]                  = Vector.empty
     def applyEvent(event: Recorded): Vector[String] = currentState :+ event.input
-    def record(input: String): Effect[String] =
+    def record(input: String): Effect[String]       =
       effects.persist(Recorded(input)).thenReply(_ => "done")
     def recordMany(n: Int): Effect[String] =
       effects.persistAll(Vector.tabulate(n)(i => Recorded(s"many-$i"))).thenReply(_ => "done")
@@ -132,7 +132,7 @@ object ConformanceReference:
   final case class ProfileState(name: String)
 
   final class Profile(context: KeyValueEntityContext) extends KeyValueEntity[ProfileState]:
-    def emptyState: ProfileState = ProfileState("")
+    def emptyState: ProfileState          = ProfileState("")
     def set(name: String): Effect[String] =
       if name.isEmpty then effects.error("a name is needed")
       else effects.updateState(ProfileState(name)).thenReply(_ => "done")
@@ -156,8 +156,8 @@ object ConformanceReference:
   final case class CheckoutState(id: String, mode: String, status: String)
 
   final class Checkout(context: WorkflowContext) extends Workflow[CheckoutState]:
-    private val client            = context.componentClient
-    def emptyState: CheckoutState = CheckoutState(context.workflowId, "", "new")
+    private val client                      = context.componentClient
+    def emptyState: CheckoutState           = CheckoutState(context.workflowId, "", "new")
     override def settings: WorkflowSettings =
       WorkflowSettings.builder
         .defaultStepTimeout(10.seconds)
@@ -282,7 +282,7 @@ object ConformanceReference:
         rowSerializer = Codecs.serializer[CheckoutRow]("checkout-row")
       ):
     def create(ctx: ViewComponentContext) = new CheckoutRowsView
-    val byStanding = query("by-standing")(
+    val byStanding                        = query("by-standing")(
       s"SELECT payload FROM $table WHERE payload::jsonb->>'standing' = :standing"
     )
   // docs:end workflow-view
@@ -339,7 +339,7 @@ object ConformanceReference:
   final case class StepAdded(step: String)
 
   final class ReplicatedVehicle extends EventSourcedEntity[VehicleRecord, StepAdded]:
-    def emptyState: VehicleRecord = VehicleRecord(Nil, Nil, Nil, Nil, Nil)
+    def emptyState: VehicleRecord                   = VehicleRecord(Nil, Nil, Nil, Nil, Nil)
     def applyEvent(event: StepAdded): VehicleRecord =
       val s = currentState
       VehicleRecord(
@@ -391,7 +391,7 @@ object ConformanceReference:
         componentId = ComponentId("vehicle-feed"),
         source = ChangeSource.eventsOf(ReplicatedVehicle)
       ):
-    def create(ctx: ConsumerContext) = new VehicleFeed
+    def create(ctx: ConsumerContext)                             = new VehicleFeed
     override val outputSerializer: Option[Serializer[StepAdded]] =
       Some(Codecs.serializer[StepAdded]("step-added"))
     override val produceTo: Option[String] = Some("conformance-vehicle-steps")
@@ -403,7 +403,7 @@ object ConformanceReference:
     case Placed(under: Option[String])
 
   final class TreeNode extends EventSourcedEntity[Option[String], TreeEvent]:
-    def emptyState: Option[String] = None
+    def emptyState: Option[String]                   = None
     def applyEvent(event: TreeEvent): Option[String] = event match
       case TreeEvent.Placed(under) => under
     def place(under: String): Effect[String] =
@@ -452,8 +452,8 @@ object ConformanceReference:
   final case class Noted(text: String)
 
   final class Joining extends EventSourcedEntity[Int, Noted]:
-    def emptyState: Int               = 0
-    def applyEvent(event: Noted): Int = currentState + 1
+    def emptyState: Int                      = 0
+    def applyEvent(event: Noted): Int        = currentState + 1
     def record(text: String): Effect[String] =
       effects.persist(Noted(text)).thenReply(_ => "recorded")
 
@@ -532,7 +532,7 @@ object ConformanceReference:
     def onMessage(event: ShoppingCartEvent): Effect = event match
       case _: ItemAdded   => effects.produceAll(Nil)
       case _: ItemRemoved => effects.produce(Fanned(0))
-      case CheckedOut =>
+      case CheckedOut     =>
         effects.produceAll(
           Seq(
             effects.message(Fanned(1)),
@@ -696,7 +696,7 @@ object ConformanceReference:
       val id = messageContext.subject
       event match
         case _: ItemAdded | _: ItemRemoved => effects.publish(cart(id, checkedOut = false))
-        case CheckedOut =>
+        case CheckedOut                    =>
           effects.publish(
             cart(id, checkedOut = true),
             graph.node(s"checkout:$id", Seq("Checkout"), Map("cartId" -> id)),
@@ -769,7 +769,7 @@ object ConformanceReference:
         val _      = entity.call(Conformance.record).invoke("looked-up")
         s"count for $id is ${entity.call(Conformance.count).invoke()}"
       }
-    private val noSecrets = Guardrail.forbidding("no-secrets", "sk-".r)
+    private val noSecrets                  = Guardrail.forbidding("no-secrets", "sk-".r)
     private def describe(question: String) =
       effects
         .systemMessage("You are helpful.")
@@ -848,7 +848,7 @@ object ConformanceReference:
 
   object Answerer extends autonomous.AutonomousAgent.Companion[Answerer](ComponentId("answerer")):
     def create(context: autonomous.AutonomousAgentContext) = new Answerer(context)
-    def definition =
+    def definition                                         =
       define
         .describedAs("Answers questions")
         .guardrails(Guardrail.forbidding("no-secrets", "sk-".r))
@@ -902,7 +902,7 @@ object ConformanceReference:
    * language.
    */
   def renderOutcome(outcome: AgentOutcome[String]): String = outcome match
-    case AgentOutcome.Answered(text) => Json.obj("answered" -> Json.Str(text)).render
+    case AgentOutcome.Answered(text)             => Json.obj("answered" -> Json.Str(text)).render
     case AgentOutcome.AwaitingApproval(requests) =>
       Json
         .obj(
@@ -979,7 +979,7 @@ object ConformanceReference:
 
   /** Drives the replicated vehicle: a step, a read, and the three replication changes. */
   final class VehiclesEndpoint(clients: EndpointClients) extends HttpEndpoint("/vehicles"):
-    val acl: Acl = Acl.AllowAll
+    val acl: Acl                    = Acl.AllowAll
     private def vehicle(id: String) =
       clients.componentClient.forEventSourcedEntity(EntityId(id))
     postBody("/{vehicleId}/steps") { (vehicleId: String, step: String) =>
@@ -1124,7 +1124,7 @@ object ConformanceReference:
             ""
           )
       catch
-        case e: ServiceCallFailed => ServiceCallRecord("failed", e.status, "", e.body, "", "")
+        case e: ServiceCallFailed   => ServiceCallRecord("failed", e.status, "", e.body, "", "")
         case e: ServiceUnresolvable =>
           ServiceCallRecord("unresolvable", 0, "", "", "", e.getMessage)
         case e: ServiceIdentityMismatch =>
@@ -1157,7 +1157,7 @@ object ConformanceReference:
         query.optional[String]("rules") match
           case Some("prefix") => bucket.list(body).hasNext: Unit
           case Some(_)        => bucket.stat(body): Unit
-          case None =>
+          case None           =>
             bucket.putBytes(
               query.required[String]("name"),
               body.getBytes(StandardCharsets.UTF_8),
@@ -1188,7 +1188,7 @@ object ConformanceReference:
           case "list" =>
             val prefix = query.optional[String]("prefix").getOrElse("")
             StorageRecord("ok", names = bucket.list(prefix).map(_.name).toVector)
-          case "url" => StorageRecord("ok", url = bucket.url(name).toString)
+          case "url"        => StorageRecord("ok", url = bucket.url(name).toString)
           case "signed-url" =>
             val access =
               if query.optional[String]("access").contains("keep") then SignedAccess.Keep
@@ -1368,8 +1368,8 @@ object ConformanceReference:
   /** Autonomous agents: tasks run, read and cancelled; instances driven and watched. */
   final class AutonomousEndpoint(clients: EndpointClients) extends HttpEndpoint("/autonomous"):
     import autonomous.*
-    val acl: Acl       = Acl.AllowAll
-    private def client = clients.componentClient
+    val acl: Acl                           = Acl.AllowAll
+    private def client                     = clients.componentClient
     private def record(id: String): String =
       String(TaskEntity.stateSerializer.toBytes(client.forTask(id).get()), "UTF-8")
 
@@ -1386,7 +1386,7 @@ object ConformanceReference:
       if taskType != AnswerType.name then throw HttpProblem.badRequest(s"no task type '$taskType'")
       val json = Json.parse(body).fold(p => throw HttpProblem.badRequest(p), identity)
       val deps = json("dependsOn").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
-      val id = client.tasks
+      val id   = client.tasks
         .create(AnswerType, json("instructions").flatMap(_.asString).getOrElse(""))
         .dependsOn(deps*)
         .create()
@@ -1588,8 +1588,8 @@ object ConformanceReference:
       scope: Set[String] = Set.empty,
       attributes: Map[String, String] = Map.empty
   )
-  given JsonValueCodec[McpKeyRequest]   = Codecs.make[McpKeyRequest]
-  given JsonValueCodec[IssuedClientKey] = Codecs.make[IssuedClientKey]
+  given JsonValueCodec[McpKeyRequest]                                = Codecs.make[McpKeyRequest]
+  given JsonValueCodec[IssuedClientKey]                              = Codecs.make[IssuedClientKey]
   given clientKeyListCodec: JsonValueCodec[Vector[ClientKeySummary]] =
     Codecs.make[Vector[ClientKeySummary]]
 

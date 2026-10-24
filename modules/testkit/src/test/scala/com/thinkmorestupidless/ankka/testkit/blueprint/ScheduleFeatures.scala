@@ -88,13 +88,13 @@ class ScheduleFeatures
       )
     catch case NonFatal(_) => ()
 
-  private def name = s"$scenarioId-digest"
-  private def runs = agents.runs
-  private def zone = ZoneId.of(schedule.zone)
+  private def name                                       = s"$scenarioId-digest"
+  private def runs                                       = agents.runs
+  private def zone                                       = ZoneId.of(schedule.zone)
   private def local(date: String, time: String): Instant =
     LocalDateTime.of(LocalDate.parse(date), LocalTime.parse(time)).atZone(zone).toInstant
   private def dayStart(date: String): Instant = LocalDate.parse(date).atStartOfDay(zone).toInstant
-  private def dueOn(date: String): Instant =
+  private def dueOn(date: String): Instant    =
     val due = schedule.next(dayStart(date))
     assertEquals(
       ZonedDateTime.ofInstant(due, zone).toLocalDate,

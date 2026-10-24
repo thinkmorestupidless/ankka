@@ -39,7 +39,7 @@ final class JevProvider private (
   private def run(request: JudgmentRequest): Judgment =
     val deadline        = System.nanoTime() + request.timeout.toNanos
     def remaining: Long = deadline - System.nanoTime()
-    def timedOut =
+    def timedOut        =
       JudgmentFailed(name, s"did not answer within ${request.timeout}", timedOut = true)
     val body             = JevProvider.encode(modelName, request).render
     var attempt          = 1
@@ -65,12 +65,12 @@ final class JevProvider private (
             Left(s"$status: ${JevProvider.clip(response.body)}" -> JevProvider.waitHint(response))
           else throw JudgmentFailed(name, s"$status: ${JevProvider.clip(response.body)}")
         catch
-          case _: HttpTimeoutException => throw timedOut
+          case _: HttpTimeoutException      => throw timedOut
           case failure: java.io.IOException =>
             Left(s"could not reach $endpoint: ${failure.getClass.getSimpleName}" -> None)
 
       outcome match
-        case Right(judgment) => result = judgment
+        case Right(judgment)       => result = judgment
         case Left((message, hint)) =>
           val waitMillis = hint.getOrElse(JevProvider.backoff(attempt))
           if waitMillis * 1_000_000L >= remaining then throw JudgmentFailed(name, message)
@@ -179,8 +179,8 @@ object JevProvider:
 
   private[judgment] def decode(provider: String, body: String): Judgment =
     def fail(message: String): Nothing = throw JudgmentFailed(provider, message)
-    val root  = Json.parse(body).fold(_ => fail("the response is not JSON"), identity)
-    val model = root("model").flatMap(_.asString).getOrElse(fail("the response has no 'model'"))
+    val root    = Json.parse(body).fold(_ => fail("the response is not JSON"), identity)
+    val model   = root("model").flatMap(_.asString).getOrElse(fail("the response has no 'model'"))
     val answers = root("answers") match
       case Some(Json.Obj(fields)) => fields
       case _                      => fail("the response has no 'answers'")
@@ -194,7 +194,7 @@ object JevProvider:
 
   private def stored(provider: String, id: String, answer: Json): Judgment.Stored =
     def fail(message: String): Nothing = throw JudgmentFailed(provider, s"question '$id': $message")
-    def number(field: String): Double =
+    def number(field: String): Double  =
       answer(field).flatMap(_.asDouble).getOrElse(fail(s"the answer has no '$field'"))
     def probabilities: Map[String, Double] = answer("probabilities") match
       case Some(Json.Obj(fields)) =>

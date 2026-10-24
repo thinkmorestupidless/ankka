@@ -58,7 +58,7 @@ final class MachineKeys private (
 
   /** A JWS of `claims` (a JSON object's text), signed RS256 with the newest key. */
   def sign(claims: String): String =
-    val key = newest
+    val key    = newest
     val header = b64(
       s"""{"alg":"RS256","kid":"${key.kid}","typ":"JWT"}""".getBytes(StandardCharsets.UTF_8)
     )
@@ -107,7 +107,7 @@ final class MachineKeys private (
 
   private def fromDirectory: Map[String, Key] =
     directory match
-      case None => Map.empty
+      case None      => Map.empty
       case Some(dir) =>
         val stamp = Try(
           Files
@@ -197,7 +197,7 @@ object MachineKeys:
     val factory = KeyFactory.getInstance("RSA")
     val priv    = factory.generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder.decode(body)))
     val crt     = priv.asInstanceOf[RSAPrivateCrtKey]
-    val pub = factory
+    val pub     = factory
       .generatePublic(RSAPublicKeySpec(crt.getModulus, crt.getPublicExponent))
       .asInstanceOf[RSAPublicKey]
     Key(kid, priv, pub)

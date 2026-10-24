@@ -99,7 +99,7 @@ private[mcp] final class SignInBroker(
         "registration_endpoint"    -> Json.str(s"$issuerAt/register"),
         "jwks_uri"                 -> Json.str(s"$issuerAt/jwks.json"),
         "response_types_supported" -> Json.arr(Json.str("code")),
-        "grant_types_supported" -> Json
+        "grant_types_supported"    -> Json
           .arr(Json.str("authorization_code"), Json.str("refresh_token")),
         "code_challenge_methods_supported"      -> Json.arr(Json.str("S256")),
         "token_endpoint_auth_methods_supported" -> Json.arr(Json.str("none")),
@@ -109,7 +109,7 @@ private[mcp] final class SignInBroker(
 
   def register(body: Array[Byte]): EncodedResponse =
     Json.parse(String(body, UTF_8)).toOption match
-      case None => oauthError(400, "invalid_client_metadata", "the body is not JSON")
+      case None        => oauthError(400, "invalid_client_metadata", "the body is not JSON")
       case Some(asked) =>
         val uris =
           asked("redirect_uris").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
@@ -144,7 +144,7 @@ private[mcp] final class SignInBroker(
                 "client_id_issued_at"        -> Json.num(now.getEpochSecond.toDouble),
                 "redirect_uris"              -> Json.Arr(uris.map(Json.str)),
                 "token_endpoint_auth_method" -> Json.str("none"),
-                "grant_types" -> Json
+                "grant_types"                -> Json
                   .arr(Json.str("authorization_code"), Json.str("refresh_token")),
                 "response_types" -> Json.arr(Json.str("code"))
               ) ++ name.map("client_name" -> Json.str(_))
@@ -154,7 +154,7 @@ private[mcp] final class SignInBroker(
   def authorize(context: RequestContext): EncodedResponse =
     val query               = context.query
     def param(name: String) = query.raw(name).map(_.trim).filter(_.nonEmpty)
-    val asked = for
+    val asked               = for
       clientId  <- param("client_id").toRight("client_id")
       found     <- registered(clientId).toRight("client_id")
       redirect  <- param("redirect_uri").toRight("redirect_uri")
@@ -173,9 +173,9 @@ private[mcp] final class SignInBroker(
         val nonce    = IssuerClient.randomValue()
         val verifier = IssuerClient.randomValue()
         issuer.authorizationUrl(s"${issuerUrl(context)}/callback", state, nonce, verifier) match
-          case Left(reason) => page(503, s"The service's issuer cannot be reached: $reason")
+          case Left(reason)  => page(503, s"The service's issuer cannot be reached: $reason")
           case Right(sendTo) =>
-            val now = clock.instant()
+            val now   = clock.instant()
             val grant = Grant(
               found.clientId,
               redirect,
@@ -219,9 +219,9 @@ private[mcp] final class SignInBroker(
           )
         query.raw("error") match
           case Some(_) => refused("the issuer did not sign the person in")
-          case None =>
+          case None    =>
             val signedIn = for
-              code <- query.raw("code").filter(_.nonEmpty).toRight("the issuer sent no code")
+              code    <- query.raw("code").filter(_.nonEmpty).toRight("the issuer sent no code")
               idToken <- issuer.exchange(
                 code,
                 s"${issuerUrl(context)}/callback",
@@ -230,7 +230,7 @@ private[mcp] final class SignInBroker(
               person <- issuer.verifyIdToken(idToken, grant.nonce)
             yield SignedIn.of(person, grant.issuer)
             signedIn match
-              case Left(reason) => refused(reason)
+              case Left(reason)  => refused(reason)
               case Right(person) =>
                 val secret = IssuerClient.randomValue()
                 try
@@ -267,12 +267,12 @@ private[mcp] final class SignInBroker(
         )
       case None =>
         registered(clientId) match
-          case None => oauthError(400, "invalid_client", "the client is not registered")
+          case None    => oauthError(400, "invalid_client", "the client is not registered")
           case Some(_) =>
             form.get("grant_type") match
               case Some("authorization_code") => byCode(clientId, form)
               case Some("refresh_token")      => byRefresh(clientId, form)
-              case _ =>
+              case _                          =>
                 oauthError(
                   400,
                   "unsupported_grant_type",
@@ -286,7 +286,7 @@ private[mcp] final class SignInBroker(
   private def byCode(clientId: String, form: Map[String, String]): EncodedResponse =
     val (state, secret) = form.getOrElse("code", "").span(_ != '.')
     val id              = SignInRecordEntity.grantId(state)
-    val taken = Try(
+    val taken           = Try(
       records(id)
         .call(SignInRecordEntity.takeCode)
         .invoke(TakeCode(IssuerClient.digest(secret.drop(1))))
@@ -402,7 +402,7 @@ object SignInBroker:
     Try(URI.create(uri)).toOption.exists { u =>
       Option(u.getFragment).isEmpty && (u.getScheme match
         case "https" => Option(u.getHost).exists(_.nonEmpty)
-        case "http" =>
+        case "http"  =>
           Option(u.getHost)
             .exists(h => h == "localhost" || h == "127.0.0.1" || h == "[::1]" || h == "::1")
         case _ => false)

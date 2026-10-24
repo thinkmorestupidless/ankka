@@ -60,11 +60,11 @@ private[ankka] object SecretStores:
   def build(inputs: Inputs): Built =
     val config  = inputs.config
     val backend = SecretBackend.from(config).fold(p => throw IllegalArgumentException(p), b => b)
-    val phase = MovePhase
+    val phase   = MovePhase
       .parse(config.getString(MovePhase.Key))
       .fold(p => throw IllegalArgumentException(p), p => p)
-    lazy val database = inputs.database()
-    lazy val ledger   = MoveLedger(database, timeout(config))
+    lazy val database                                    = inputs.database()
+    lazy val ledger                                      = MoveLedger(database, timeout(config))
     val (underlying, project, service, move, rolledBack) = backend match
       case SecretBackend.Postgres =>
         val (project, service) = recordedAs(inputs.identity)
@@ -79,7 +79,7 @@ private[ankka] object SecretStores:
         val (project, service) = whose(config, inputs.identity)
         val target             = secretManager(config, project, service)
         phase match
-          case None => (target, project, service, None, None)
+          case None    => (target, project, service, None, None)
           case Some(p) =>
             if inputs.noDatabase then
               throw IllegalArgumentException(
@@ -139,7 +139,7 @@ private[ankka] object SecretStores:
         s"${PlatformVariables.SecretBackend} is secret-manager and ${PlatformVariables.CloudAccount} " +
           "is not set, so there is no Google Cloud project to keep secrets in"
       )
-    val token = config.getString("ankka.secrets.secret-manager.token").trim
+    val token  = config.getString("ankka.secrets.secret-manager.token").trim
     val tokens =
       if token.nonEmpty then AccessTokens.fixed(token) else AccessTokens.metadata()
     val client = SecretManager(
@@ -178,7 +178,7 @@ private[ankka] object SecretStores:
       case "" =>
         identity match
           case Right(ServiceIdentity(Some(project), Some(service))) => (project, service)
-          case Right(local) =>
+          case Right(local)                                         =>
             throw IllegalArgumentException(
               s"a service on the Secret Manager backend must know its project and name, and this " +
                 s"one is $local; on a developer's machine use the Postgres backend"

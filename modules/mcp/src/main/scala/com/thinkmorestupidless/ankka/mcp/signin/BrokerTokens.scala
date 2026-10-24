@@ -34,8 +34,8 @@ final class BrokerTokens(
 
   /** A token for `signedIn` at `resource`, from the broker at `issuerUrl`. */
   def mint(issuerUrl: String, resource: String, signedIn: SignedIn): String =
-    val now        = clock.instant().getEpochSecond
-    val (kid, key) = signing()
+    val now                         = clock.instant().getEpochSecond
+    val (kid, key)                  = signing()
     val person: Seq[(String, Json)] =
       signedIn.name.map(n => "name" -> Json.str(n)).toSeq ++
         signedIn.email.map(e => "email" -> Json.str(e)).toSeq ++
@@ -63,7 +63,7 @@ final class BrokerTokens(
   def verify(token: String, path: String): Either[String, Principal] =
     for
       parts <- Jwt.parts(token)
-      _ <- Either.cond(
+      _     <- Either.cond(
         parts.alg.contains("RS256"),
         (),
         s"algorithm '${parts.alg.getOrElse("")}' is not RS256"
@@ -75,7 +75,7 @@ final class BrokerTokens(
       iss <- claims("iss").flatMap(_.asString).toRight("no issuer")
       aud <- claims("aud").flatMap(_.asString).toRight("no audience")
       _   <- Either.cond(sameOrigin(iss, aud), (), "issuer and audience are not one service's")
-      _ <- Either.cond(
+      _   <- Either.cond(
         pathOf(iss).contains(BrokerPrefix + McpEndpoint.normalised(path)),
         (),
         "not this endpoint's sign-in broker"
@@ -86,7 +86,7 @@ final class BrokerTokens(
         "audience is not this endpoint"
       )
       exp <- claims("exp").flatMap(_.asDouble).toRight("no expiry")
-      _ <- Either.cond(
+      _   <- Either.cond(
         Instant.ofEpochSecond(exp.toLong).plusSeconds(Skew).isAfter(clock.instant()),
         (),
         "expired"
@@ -190,14 +190,14 @@ private[mcp] final class BrokerAuthenticator(path: String)
   def apply(context: RequestContext): AuthDecision =
     val challenge = """realm="ankka""""
     bearer(context) match
-      case None => AuthDecision.Unauthenticated(challenge)
+      case None        => AuthDecision.Unauthenticated(challenge)
       case Some(token) =>
         Option(tokens.get()) match
-          case None => AuthDecision.Unavailable("the sign-in broker has not started")
+          case None         => AuthDecision.Unavailable("the sign-in broker has not started")
           case Some(broker) =>
             broker.verify(token, path) match
               case Right(principal) => AuthDecision.Allow(principal)
-              case Left(reason) =>
+              case Left(reason)     =>
                 AuthDecision.Unauthenticated(
                   s"""$challenge, error="invalid_token", error_description="${reason
                       .replace("\"", "'")}""""

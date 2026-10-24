@@ -144,8 +144,8 @@ final class CallCountsSuite extends FunSuite:
 
   private def descriptor(id: String, of: ComponentKind, handlers: String*): ComponentDescriptor =
     new ComponentDescriptor:
-      val componentId: ComponentId = ComponentId(id)
-      val kind: ComponentKind      = of
+      val componentId: ComponentId                           = ComponentId(id)
+      val kind: ComponentKind                                = of
       override def declaredHandlers: Vector[DeclaredHandler] =
         handlers.toVector.map(DeclaredHandler(_, HandlerKind.Command))
 
@@ -284,7 +284,7 @@ final class CallCountsSuite extends FunSuite:
   }
 
   test("an invocation is a span, the origin of what its body calls, and one handled call") {
-    val o = observability()
+    val o    = observability()
     val seen =
       o.invocation[String]("shopping-cart", "add-item", from("checkout", "reserve"))(_ =>
         SpanOutcome.Refused
@@ -320,7 +320,7 @@ final class CallCountsSuite extends FunSuite:
   }
 
   test("a service that declares more names than a key has room for is refused, by the number") {
-    val o = new Observability(Recorder(64), new Names)
+    val o      = new Observability(Recorder(64), new Names)
     val routes = (1 to Observability.MaxDeclaredNames + 1).toVector.map { i =>
       ServedRoute("GET", s"/things/$i", streaming = false, "endpoint:/things")
     }

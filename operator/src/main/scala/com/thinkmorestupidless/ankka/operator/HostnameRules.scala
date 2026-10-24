@@ -14,7 +14,7 @@ final case class ChallengeView(state: Option[String], reason: Option[String])
  */
 final case class ListenerView(conditions: Map[String, (Boolean, String)]):
   def is(kind: String): Option[Boolean] = conditions.get(kind).map(_._1)
-  def reason(kind: String): String =
+  def reason(kind: String): String      =
     conditions.get(kind).map(_._2).filter(_.nonEmpty).getOrElse(kind)
 
 /** Everything read about one custom hostname on one pass (feature 045). */

@@ -35,7 +35,7 @@ object Main:
     if mode != "copy" && mode != "verify" then refused(s"mode must be copy or verify, not '$mode'")
     else
       pairs(env) match
-        case Left(reason) => refused(reason)
+        case Left(reason)  => refused(reason)
         case Right(moving) =>
           val concurrency    = env.get("MOVER_CONCURRENCY").flatMap(_.toIntOption).getOrElse(8)
           val (report, code) = runAll(mode, moving, concurrency)
@@ -62,16 +62,16 @@ object Main:
     @annotation.tailrec
     def loop(rest: Vector[(Store, Store)], done: Report): (Report, Int) =
       rest.headOption match
-        case None => (done.copy(seconds = seconds), 0)
+        case None                   => (done.copy(seconds = seconds), 0)
         case Some((source, target)) =>
-          val mover = Mover(source, target, concurrency)
+          val mover  = Mover(source, target, concurrency)
           val result =
             try Right(if mode == "copy" then mover.copy() else mover.verify())
             catch case e: MoveRun => Left(e)
             finally mover.close()
           result match
             case Right(report) => loop(rest.tail, sum(done, report))
-            case Left(e) =>
+            case Left(e)       =>
               val pair   = s"${source.bucket} -> ${target.bucket}"
               val reason = e.report.reason.map(r => if moving.size > 1 then s"$pair: $r" else r)
               (

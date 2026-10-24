@@ -44,7 +44,7 @@ private[ankka] object ReadRecorder:
       ControlPlaneRecorder(url, tls(config, url), timeout)
 
   private def tls(config: Config, url: String): Option[RotatingTls] =
-    val key = "ankka.tls.service-directory"
+    val key       = "ankka.tls.service-directory"
     val directory =
       if config.hasPath(key) then config.getString(key).trim else ""
     if url.startsWith("https://") && directory.nonEmpty then
@@ -81,13 +81,13 @@ private[ankka] final class ControlPlaneRecorder(
 
   /** One client per certificate generation, as the service client keeps: a renewed one is used. */
   private def client: HttpClient = tls match
-    case None => plain
+    case None           => plain
     case Some(identity) =>
       val context = identity.contextRequiring(ControlPlaneRecorder.ControlPlaneUri)
       val stamp   = System.identityHashCode(context)
       secured match
         case Some((s, c)) if s == stamp => c
-        case _ =>
+        case _                          =>
           val params = new SSLParameters()
           params.setEndpointIdentificationAlgorithm("HTTPS")
           params.setProtocols(Array("TLSv1.3"))
@@ -112,7 +112,7 @@ private[ankka] final class ControlPlaneRecorder(
       try client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode
       catch
         case e: InterruptedException => throw e
-        case NonFatal(e) =>
+        case NonFatal(e)             =>
           log.warn(
             "the record of '{}' of the secret '{}' could not be written: {}",
             record.operation,

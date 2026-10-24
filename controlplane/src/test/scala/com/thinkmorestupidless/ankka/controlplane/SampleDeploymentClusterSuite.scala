@@ -54,13 +54,13 @@ class SampleDeploymentClusterSuite extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   // A real issuer is not needed to prove anything here: an in-process one mints tokens the
   // verifier accepts, and KeycloakRealmSuite is where real ones are read.
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
   private val Prefix    = "ankka"
   private val Project   = "checkout"
@@ -147,8 +147,8 @@ class SampleDeploymentClusterSuite extends munit.FunSuite with LogCapturing:
     if k3s != null then k3s.stop()
 
   private def ankka(args: String*): (Int, String) =
-    val out = ByteArrayOutputStream()
-    val err = ByteArrayOutputStream()
+    val out  = ByteArrayOutputStream()
+    val err  = ByteArrayOutputStream()
     val code = Main.run(
       args ++ Seq("--url", url, "--token", Token),
       PrintStream(out, true, StandardCharsets.UTF_8),
@@ -200,7 +200,7 @@ class SampleDeploymentClusterSuite extends munit.FunSuite with LogCapturing:
         Option(p.getStatus.getContainerStatuses).exists(_.asScala.headOption.exists(_.getReady))
       )
     ready match
-      case None => (1, "no ready pod to call from")
+      case None       => (1, "no ready pod to call from")
       case Some(from) =>
         val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
           k3s,

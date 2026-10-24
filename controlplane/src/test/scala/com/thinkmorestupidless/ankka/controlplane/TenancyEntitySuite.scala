@@ -348,7 +348,7 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     Owner("alice", Some("Alice@Example.test"), Some("Alice Example"))
 
   test("an administrator creates an organization whose only owner is the one named") {
-    val kit = organization
+    val kit    = organization
     val result = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
       CreateForOwner("Acme Corp", aliceAsOwner)
     )
@@ -369,7 +369,7 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("the owner named is who the fold seats, replayed from the events alone") {
     val kit = organization
-    val _ = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+    val _   = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
       CreateForOwner("Acme Corp", aliceAsOwner)
     )
     val replayed = kit.allEvents.foldLeft(Organization.empty("acme")) {
@@ -382,7 +382,7 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("an owner named by subject alone is enough, and the member is shown by subject") {
     val kit = organization
-    val _ = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+    val _   = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
       CreateForOwner("Acme Corp", Owner("alice"))
     )
     val only = kit.call(OrganizationEntity.members).replyValue.members.head
@@ -425,7 +425,7 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
 
   test("an administrator who names themselves is the sole owner, as if they named nobody") {
     val kit = organization
-    val _ = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+    val _   = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
       CreateForOwner("Ops", Owner("carol", Some("carol@example.test")))
     )
     assertEquals(kit.call(OrganizationEntity.roleOf)("carol").replyValue.role, Some(Role.Owner))
@@ -443,8 +443,8 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     kit.call(ProjectEntity.secrets).replyValue.map(s => s.name -> s.entries).toMap
 
   test("a member sets a project secret: the names are recorded, with who set them") {
-    val kit = withProject
-    val by  = Attribution(Actor("alice", Some("alice@example.test")), now)
+    val kit    = withProject
+    val by     = Attribution(Actor("alice", Some("alice@example.test")), now)
     val result = kit.call(ProjectEntity.setSecretEntries, by.metadata)(
       SetSecretEntries("checkout", Vector("STRIPE_KEY"))
     )
@@ -525,7 +525,7 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     val kit = project
     val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
     val _   = kit.call(ProjectEntity.configureRegistry)(credential)
-    val _ = kit.call(ProjectEntity.configureRegistry)(
+    val _   = kit.call(ProjectEntity.configureRegistry)(
       ConfigureRegistry("registry.example.test", "robot", "ankka-registry")
     )
     assertEquals(
@@ -942,8 +942,8 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     val _   = kit.call(OrganizationEntity.recordService, alice.metadata)(RecordService("a/y", None))
     val replayed = kit.allEvents.foldLeft(Organization.empty("acme")) { (state, event) =>
       event match
-        case QuotaSet(q, _, _) => state.onQuotaSet(q)
-        case _: QuotaCleared   => state.onQuotaCleared
+        case QuotaSet(q, _, _)                             => state.onQuotaSet(q)
+        case _: QuotaCleared                               => state.onQuotaCleared
         case OrganizationCreated(name, creator, at, owner) =>
           state.onCreated(name, creator, at, owner)
         case other => state.onUsage(other)

@@ -45,7 +45,7 @@ final class DatabaseTls(system: ActorSystem[?]) extends ConnectionFactoryOptions
     // The plugin hands over the whole configuration, not the connection factory's block: read the
     // block the plugin is using, and fall back to the argument for a caller that passes the block.
     val location = "pekko.persistence.r2dbc.use-connection-factory"
-    val block =
+    val block    =
       if config.hasPath(location) && config.hasPath(config.getString(location)) then
         config.getConfig(config.getString(location))
       else config
@@ -53,7 +53,7 @@ final class DatabaseTls(system: ActorSystem[?]) extends ConnectionFactoryOptions
     // operating system, not left to hang a caller until the pool's own timeout (research R18).
     builder.option(PostgresqlConnectionFactoryProvider.TCP_KEEPALIVE, java.lang.Boolean.TRUE): Unit
     DatabaseTls.settings(block) match
-      case None => builder
+      case None           => builder
       case Some(settings) =>
         system.log.info(
           "database connections use TLS ({}{})",

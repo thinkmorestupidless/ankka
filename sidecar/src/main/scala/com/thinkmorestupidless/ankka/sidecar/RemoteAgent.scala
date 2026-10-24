@@ -51,7 +51,7 @@ final class RemoteAgent(
     // The agent's span and its name, as the host set them on this thread: what the process
     // forwards when its handler calls another component.
     val metadata = Trace.outbound(Metadata.empty)
-    val request =
+    val request  =
       PlanRequest(spec.componentId, sessionId, name, Payload(Payload.Json, "", bytes), metadata)
     Await.result(conversation.plan(request), planTimeout) match
       case Left(ProcessFailure(_, error)) =>
@@ -60,7 +60,7 @@ final class RemoteAgent(
       case Right(plan) =>
         plan.failure match
           case Some(refusal) => effects.error(refusal.message, refusal.code)
-          case None =>
+          case None          =>
             val provider = plan.model match
               case Some(named) => models.named(named)
               case None        => models.default
@@ -70,7 +70,7 @@ final class RemoteAgent(
                   s"the plan names model '$named', which the sidecar has not configured",
                   ErrorCode.Unavailable
                 )
-              case (None, None) => effects.error(models.withoutDefault, ErrorCode.Unavailable)
+              case (None, None)     => effects.error(models.withoutDefault, ErrorCode.Unavailable)
               case (Some(model), _) =>
                 val unknownTools  = plan.tools.filterNot(spec.tools.contains)
                 val unknownGuards = plan.guardrails.filterNot(spec.guardrails.contains)

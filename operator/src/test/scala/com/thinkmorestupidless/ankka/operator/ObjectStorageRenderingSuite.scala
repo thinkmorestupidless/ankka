@@ -85,8 +85,8 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
 
   test("a service with a bucket ensures the bucket, then its credential, before the Deployment") {
     for plan <- Vector(ObjectStoragePlan.Waiting(None), ObjectStoragePlan.Ready(false)) do
-      val actions = render(asks, plan)
-      val bucket  = actions.indexWhere(_ == Action.EnsureBucket("shop.reports"))
+      val actions    = render(asks, plan)
+      val bucket     = actions.indexWhere(_ == Action.EnsureBucket("shop.reports"))
       val credential = actions.indexWhere {
         case Action.EnsureStorageCredential(
               "ankka-shop",
@@ -525,7 +525,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
 
   test("settings: a bucket's location is never rewritten, whatever its project says now") {
     val was = existing(0, "softDeleteDays" -> "7", "kmsKey" -> "", "location" -> "us-east1")
-    val r = bucketRequestOf(
+    val r   = bucketRequestOf(
       asks.copy(objectStorageSettingsGeneration = 1),
       projectLocation = Some("europe-west2"),
       existing = was
@@ -623,7 +623,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
   test(
     "keyless: no credential is asked for, and the bucket is ready on the identity and bucket alone"
   ) {
-    val keyless = asks.copy(objectStorageCredential = false)
+    val keyless  = asks.copy(objectStorageCredential = false)
     val requests = ObjectStorage.cloudRequests(
       resource(keyless),
       withCloud,
@@ -832,7 +832,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       SuppliedBucket
     }
 
-    val web = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902)
+    val web    = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3902)
     val served = settings.copy(
       objectStore = Some(store.copy(webService = Some(web))),
       baseDomain = Some("example.test"),
@@ -885,7 +885,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
         plan: ObjectStoragePlan = ObjectStoragePlan.Ready(recovered = false)
     ): Vector[Action] =
       val resource = resourceOf(spec, status)
-      val named = ObjectStorage.decideBuckets(
+      val named    = ObjectStorage.decideBuckets(
         spec,
         s,
         if seen.isEmpty then observed(spec) else seen,
@@ -1159,7 +1159,7 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
   }
 
   test("055: a credential issued again covers every bucket the platform made") {
-    val again = Named.four.copy(storageCredentialGeneration = 1)
+    val again   = Named.four.copy(storageCredentialGeneration = 1)
     val reissue =
       Named.render(again).collectFirst { case r: Action.ReissueStorageCredential => r }.get
     assertEquals(reissue.buckets.size, 4)

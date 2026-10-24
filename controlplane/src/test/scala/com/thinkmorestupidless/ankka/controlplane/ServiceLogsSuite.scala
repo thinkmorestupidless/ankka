@@ -40,7 +40,7 @@ class ServiceLogsSuite extends munit.FunSuite with LogCapturing:
       Right(s"output of $container")
 
   private lazy val identity = TestIdentity()
-  private lazy val Token =
+  private lazy val Token    =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
 
   private val reader                = new RecordingLogs

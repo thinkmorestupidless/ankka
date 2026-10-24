@@ -36,7 +36,7 @@ object StrimziRendering:
    */
   def kafkaConfig(entry: ProjectTopicEntry): Option[Map[String, Object]] =
     entry.retentionMs match
-      case None => Option.when(entry.compacted)(CompactedConfig)
+      case None            => Option.when(entry.compacted)(CompactedConfig)
       case Some(retention) =>
         val keys: Vector[(String, Option[Any])] = Vector(
           "retention.ms"          -> Some(retention),

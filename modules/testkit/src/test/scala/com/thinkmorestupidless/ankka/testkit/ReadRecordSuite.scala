@@ -92,7 +92,7 @@ abstract class ReadRecordBehaviours(backendName: String) extends munit.FunSuite 
     testKit.secrets.get("not-in-the-database"): Unit
     given org.apache.pekko.actor.typed.ActorSystem[?] = testKit.service.system
     val database = com.thinkmorestupidless.ankka.runtime.Database()
-    val tables = scala.concurrent.Await.result(
+    val tables   = scala.concurrent.Await.result(
       database.query(
         com.thinkmorestupidless.ankka.runtime.SqlFragment.raw(
           "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
@@ -104,7 +104,7 @@ abstract class ReadRecordBehaviours(backendName: String) extends munit.FunSuite 
   }
 
   test(s"a value is not returned when its record is not acknowledged ($backendName)") {
-    val keeper = ScriptedService.start()
+    val keeper  = ScriptedService.start()
     val reading = AnkkaTestKit.start(
       Seq.empty,
       settings = ConfigFactory.parseString(s"""ankka.secrets.records-url = "${keeper.address}"
@@ -152,7 +152,7 @@ final class PostgresReadRecordSuite extends ReadRecordBehaviours("postgres"):
   protected def service: String                = "unnamed"
 
 final class SecretManagerReadRecordSuite extends ReadRecordBehaviours("secret-manager"):
-  private lazy val fake = FakeSecretManager.start()
+  private lazy val fake                        = FakeSecretManager.start()
   protected def backend(): SecretBackendChoice =
     SecretBackendChoice.secretManager(fake, project, service)
   protected def project: String = "spinvibe"

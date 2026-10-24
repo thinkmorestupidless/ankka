@@ -120,7 +120,7 @@ class MachineKeysSuite extends munit.FunSuite:
   test("a sweep drops every key over 31 days old but the newest, and nothing younger") {
     val clock  = AtomicReference(Instant.parse("2026-08-01T00:00:00Z"))
     val writer = Recording()
-    val keys =
+    val keys   =
       MachineKeys.mounted(Files.createTempDirectory("machine-keys"), writer, ticking(clock))
     val first = keys.rotate()
     clock.set(Instant.parse("2026-08-31T00:00:00Z"))
@@ -139,7 +139,7 @@ class MachineKeysSuite extends munit.FunSuite:
 
   test("the rotation's look replaces a key thirty days old, and leaves a younger one alone") {
     val clock = AtomicReference(Instant.parse("2026-08-01T00:00:00Z"))
-    val keys =
+    val keys  =
       MachineKeys.mounted(Files.createTempDirectory("machine-keys"), Recording(), ticking(clock))
     val rotation = com.thinkmorestupidless.ankka.controlplane.auth.MachineKeyRotation(keys)
     rotation.check()

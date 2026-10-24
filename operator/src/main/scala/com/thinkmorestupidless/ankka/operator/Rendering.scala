@@ -243,7 +243,7 @@ object Rendering:
     // The installation's broker, when this service is known to it (`BrokerProvisioning.known`): its
     // user is rendered, its certificate names it, and its runtime is told where the broker is.
     // `false` renders exactly what was rendered before the broker existed.
-    val broker = settings.broker.filter(_ => knownToBroker)
+    val broker   = settings.broker.filter(_ => knownToBroker)
     val deployed = broker.fold(spec) { b =>
       spec.copy(env = spec.env ++ StrimziRendering.environment(spec, b))
     }
@@ -436,8 +436,8 @@ object Rendering:
     // Feature 055: the named buckets the platform makes this pass, each made and given the
     // service's one key (R8), served at the store's web endpoint only when public, and with the
     // descriptor's origins when signed. Before the credential, which is allowed on every one.
-    val made    = named.filter(_.provisioned)
-    val keyName = StorageCredential.keyName(bucket, math.max(asked, inPlace))
+    val made         = named.filter(_.provisioned)
+    val keyName      = StorageCredential.keyName(bucket, math.max(asked, inPlace))
     val namedActions = made.flatMap(b =>
       Vector(
         Action.EnsureBucket(b.named, Some(keyName)),
@@ -461,7 +461,7 @@ object Rendering:
             buckets
           )
         )
-    val sweep = Option.when(math.max(asked, inPlace) > 0)(Action.DeleteExpiredKeys(bucket))
+    val sweep     = Option.when(math.max(asked, inPlace) > 0)(Action.DeleteExpiredKeys(bucket))
     val provision = plan match
       case _ if ObjectStorage.takesCloudPath(spec, settings, ObjectStorage.reported(resource)) =>
         Vector.empty
@@ -502,7 +502,7 @@ object Rendering:
       settings: Settings,
       named: Vector[ObjectStorage.NamedBucket]
   ): Vector[Action] =
-    val uid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    val uid    = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
     val routes = for
       base  <- settings.baseDomain.toVector
       store <- settings.objectStore.toVector
@@ -537,7 +537,7 @@ object Rendering:
         case _ => Vector.empty
     yield route
     val routed = routes.map(_.getMetadata.getName).toSet
-    val grant = settings.objectStore
+    val grant  = settings.objectStore
       .filter(_ => routes.nonEmpty)
       .map(store => Action.EnsureReferenceGrant(referenceGrant(namespace, store)))
     val removed = ObjectStorage
@@ -633,10 +633,10 @@ object Rendering:
     acts.distinct.flatMap {
       case StorageMove.Act.AskForBucket => requests.map(Action.EnsureCloudResource(_))
       case StorageMove.Act.Copy(_)      => job(MovePhase.Copy, None).toVector
-      case StorageMove.Act.PauseWrites =>
+      case StorageMove.Act.PauseWrites  =>
         Vector(Action.PauseWrites(bucket, keyGeneration, named.toList))
       case StorageMove.Act.Verify(_, seconds) => job(MovePhase.Verify, Some(seconds)).toVector
-      case StorageMove.Act.ResumeWrites =>
+      case StorageMove.Act.ResumeWrites       =>
         Vector(Action.ResumeWrites(bucket, keyGeneration, named.toList))
       case StorageMove.Act.Switch(_) => Vector.empty
     }
@@ -701,9 +701,9 @@ object Rendering:
         StorageCredential.SecretKeyEntry
       )
     )
-    val labels   =
+    val labels =
       Labels.identity(spec.projectId, spec.serviceName) + (Labels.RoleKey -> "storage-mover")
-    val quantity = (q: String) => new io.fabric8.kubernetes.api.model.Quantity(q)
+    val quantity  = (q: String) => new io.fabric8.kubernetes.api.model.Quantity(q)
     val container = new ContainerBuilder()
       .withName("mover")
       .withImage(settings.storageMoverImage)
@@ -995,8 +995,8 @@ object Rendering:
       // A URL is signed for the host a browser reaches: the installation's gateway, or for a
       // bucket in the cloud, the cloud's own address.
       val public = (for
-        _ <- Option.when(made.exists(_.spec.exposure == "signed"))(())
-        _ <- Option.when(!base.literals.exists(_._1 == StorageEnv.PublicEndpoint))(())
+        _       <- Option.when(made.exists(_.spec.exposure == "signed"))(())
+        _       <- Option.when(!base.literals.exists(_._1 == StorageEnv.PublicEndpoint))(())
         address <- cloud match
           case Some(c) => Some(c.endpoint)
           case None    => settings.baseDomain.map(Buckets.publicEndpoint(_, settings.httpsPort))
@@ -1012,7 +1012,7 @@ object Rendering:
   ): Option[StorageEnv] =
     Option.when(spec.provisionObjectStorage) {
       val bucket = Buckets.name(spec.projectId, spec.serviceName)
-      val where = settings.objectStore.toVector.flatMap(store =>
+      val where  = settings.objectStore.toVector.flatMap(store =>
         Vector(StorageEnv.Endpoint -> store.endpoint, StorageEnv.Region -> store.region)
       )
       // Only for a bucket reachable from the internet: the address a URL for a browser is signed
@@ -1213,7 +1213,7 @@ object Rendering:
   ): Action =
     address(resource, spec, namespace) match
       case Some(service) => Action.EnsureService(service)
-      case None =>
+      case None          =>
         Action.RemoveService(
           namespace,
           Names.service(spec.serviceName),
@@ -1496,7 +1496,7 @@ object Rendering:
       plan: ProvisioningPlan,
       project: Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec]
   ): Vector[Action] =
-    val database = project.flatMap(_.database)
+    val database            = project.flatMap(_.database)
     def tls: Vector[Action] =
       CnpgRendering.projectAuthority(namespace).map {
         case issuer if issuer.getKind == "Issuer" => Action.EnsureIssuer(issuer)
@@ -1522,7 +1522,7 @@ object Rendering:
         CnpgRendering.credentialSecret(spec, namespace, CnpgRendering.projectClusterName)
       )
     plan match
-      case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => Vector.empty
+      case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied   => Vector.empty
       case ProvisioningPlan.Waiting(_, needsRole, needsDatabase, _) =>
         tls ++ Vector(
           Some(credentials),
@@ -1574,7 +1574,7 @@ object Rendering:
       case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => false
       case _                                                      => true
 
-    val web = spec.hosting == WebHosting
+    val web        = spec.hosting == WebHosting
     val containers = withStorage(
       spec,
       containersFor(
@@ -1877,7 +1877,7 @@ object Rendering:
       // may want to know there is one.
       val (forSidecar, forProcess) = spec.env.partition(e => PlatformVariables.runtimeOnly(e.name))
       val shared                   = forProcess.filter(e => PlatformVariables.shared(e.name))
-      val node = container(
+      val node                     = container(
         spec.copy(image = sidecarImage, env = forSidecar ++ shared),
         identity,
         withDatabaseEnv,
@@ -2277,7 +2277,7 @@ object Rendering:
   private def environment(entry: EnvEntry): EnvVar =
     val builder = new EnvVarBuilder().withName(entry.name)
     (entry.value, entry.secretName, entry.secretKey) match
-      case (Some(literal), _, _) => builder.withValue(literal).build()
+      case (Some(literal), _, _)           => builder.withValue(literal).build()
       case (None, Some(secret), Some(key)) =>
         val selector = new SecretKeySelectorBuilder().withName(secret).withKey(key).build()
         builder.withValueFrom(new EnvVarSourceBuilder().withSecretKeyRef(selector).build()).build()

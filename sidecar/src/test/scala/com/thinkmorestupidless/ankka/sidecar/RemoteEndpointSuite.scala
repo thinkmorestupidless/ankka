@@ -201,7 +201,7 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
     val settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 2.seconds, 2.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val discovered = Discovery
+    val discovered   = Discovery
       .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
       .toOption
       .get
@@ -251,7 +251,7 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
       "/_ankka/other",
       routes = Vector(ankka.protocol.v1.discovery.Route("r", "GET", "/"))
     )
-    val spec = double.toSpec.copy(endpoints = double.toSpec.endpoints :+ other)
+    val spec     = double.toSpec.copy(endpoints = double.toSpec.endpoints :+ other)
     val problems =
       Discovery.validate(spec, Discovery.ProtocolVersion, authConfigured = true).left.toOption
     assert(
@@ -462,7 +462,7 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
   test("a stopping sidecar closes a relayed socket 1001, and tells the process it is going away") {
     // A second server over the same service and process, so stopping it ends no other case's socket.
     val (conversation, settings, specs) = relayed
-    val server =
+    val server                          =
       HttpServer.at("127.0.0.1", 0)(
         specs.map(e =>
           (_: com.thinkmorestupidless.ankka.http.EndpointClients) =>
@@ -479,7 +479,7 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
     server.stop()
     assertEquals(socket.closed(10.seconds), TestSocket.Closed(1001, "going away"))
     val deadline = System.currentTimeMillis() + 5000
-    def told = double.received.asScala
+    def told     = double.received.asScala
       .drop(before)
       .map(_.message)
       .collect { case in: ankka.protocol.v1.endpoint.SocketIn =>

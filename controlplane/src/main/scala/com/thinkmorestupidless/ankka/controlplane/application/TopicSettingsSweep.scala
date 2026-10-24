@@ -39,7 +39,7 @@ final class TopicSettingsSweep(policy: TopicPolicy) extends RuntimeExtension:
   /** One sweep over every project, returning the topics it filled in each. */
   private[controlplane] def run(service: AnkkaService): Vector[(String, Vector[String])] =
     val projects = listing(service)
-    val filled = projects.flatMap { projectId =>
+    val filled   = projects.flatMap { projectId =>
       try
         val names = service.componentClient
           .forEventSourcedEntity(EntityId(projectId))

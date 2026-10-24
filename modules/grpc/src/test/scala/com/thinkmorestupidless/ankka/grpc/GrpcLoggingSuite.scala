@@ -18,7 +18,7 @@ import scala.jdk.CollectionConverters.*
  */
 class GrpcLoggingSuite extends munit.FunSuite:
 
-  private val logs = ListAppender[ILoggingEvent]()
+  private val logs   = ListAppender[ILoggingEvent]()
   private def logger =
     LoggerFactory.getLogger("com.thinkmorestupidless.ankka.grpc.GrpcServer").asInstanceOf[Logger]
 

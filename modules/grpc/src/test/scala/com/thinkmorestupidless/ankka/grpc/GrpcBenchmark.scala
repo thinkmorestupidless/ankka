@@ -156,7 +156,7 @@ class GrpcBenchmark extends munit.FunSuite with LogCapturing:
     assertEquals(received.get, Parts)
 
     // From the caller, to a handler that reads slowly.
-    val summary = scala.concurrent.Promise[ImportSummary]()
+    val summary  = scala.concurrent.Promise[ImportSummary]()
     val requests = CartStreamsGrpc
       .stub(channel)
       .importItems(new StreamObserver[ImportSummary]:

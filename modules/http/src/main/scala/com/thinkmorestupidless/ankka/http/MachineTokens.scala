@@ -81,7 +81,7 @@ final class MachineTokens private[http] (
     for
       (headerText, payloadText, signature) <- parts(token)
       claims                               <- claimsOf(payloadText)
-      _ <- Either.cond(
+      _                                    <- Either.cond(
         claims.iss == issuer,
         (),
         s"issuer '${claims.iss}' is not this installation's"
@@ -105,7 +105,7 @@ final class MachineTokens private[http] (
         (),
         "not yet valid"
       )
-      _ <- Either.cond(claims.typ.contains("Bearer"), (), "not a bearer token")
+      _       <- Either.cond(claims.typ.contains("Bearer"), (), "not a bearer token")
       machine <- Caller.decode(claims.sub) match
         case Some(m: Caller.Machine) => Right(m)
         case _                       => Left(s"subject '${claims.sub}' is not a machine")
@@ -114,7 +114,7 @@ final class MachineTokens private[http] (
   private def keyFor(kid: String): Either[String, PublicKey] =
     keys.get.get(kid) match
       case Some(key) => Right(key)
-      case None =>
+      case None      =>
         refresh(force = false)
         keys.get.get(kid).toRight(s"key '$kid' is not one of the installation's")
 
@@ -175,7 +175,7 @@ object MachineTokens:
 
   /** `aud` is a string or an array of them; either reads as the array. */
   private given audience: JsonValueCodec[Vector[String]] = new JsonValueCodec[Vector[String]]:
-    def nullValue: Vector[String] = Vector.empty
+    def nullValue: Vector[String]                             = Vector.empty
     def encodeValue(x: Vector[String], out: JsonWriter): Unit =
       out.writeArrayStart()
       x.foreach(out.writeVal)
@@ -247,7 +247,7 @@ object MachineTokens:
   ): MachineTokens =
     val builder = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5))
     ca.foreach(path => builder.sslContext(trusting(path)))
-    val client = builder.build()
+    val client                                  = builder.build()
     def fetch(): Option[Map[String, PublicKey]] =
       val response = client.send(
         HttpRequest.newBuilder(jwksUrl).timeout(java.time.Duration.ofSeconds(5)).GET().build(),
@@ -286,7 +286,7 @@ object MachineTokens:
       tlsDirectory: Option[Path]
   ): Option[MachineTokens] =
     def setting(path: String) = if config.hasPath(path) then config.getString(path) else ""
-    val stated = Option.when(setting("ankka.machines.issuer").nonEmpty)(
+    val stated                = Option.when(setting("ankka.machines.issuer").nonEmpty)(
       Settings(setting("ankka.machines.issuer"), setting("ankka.machines.jwks-url"))
     )
     val written = Option(setting("ankka.grants.declarations"))

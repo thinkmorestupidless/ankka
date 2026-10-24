@@ -387,7 +387,7 @@ object ProcessDouble:
               Some("done")
             )
         ),
-        "count" -> Handler(readOnly = true, (state, _) => Effect.Reply(state.size.toString)),
+        "count"  -> Handler(readOnly = true, (state, _) => Effect.Reply(state.size.toString)),
         "refuse" -> Handler(
           readOnly = false,
           (_, _) => Effect.Refuse("refused on purpose", pb.ErrorCode.CONFLICT)
@@ -418,7 +418,7 @@ object ProcessDouble:
               )
             )
         ),
-        "misbehave" -> Handler(readOnly = false, (_, _) => Effect.Throw("boom")),
+        "misbehave"      -> Handler(readOnly = false, (_, _) => Effect.Throw("boom")),
         "query-persists" -> Handler(
           readOnly = true,
           (_, _) => Effect.Persist(Vector("""{"type":"Illegal"}"""), Some("done"))
@@ -662,7 +662,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                         val input = cmd.payload.map(_.data.toStringUtf8).getOrElse("")
                         try
                           h.run(state, input) match
-                            case Effect.Throw(message) => throw RuntimeException(message)
+                            case Effect.Throw(message)        => throw RuntimeException(message)
                             case Effect.Refuse(message, code) =>
                               reply(
                                 cmd,
@@ -715,7 +715,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                 else out.onNext(answer)
             case EventSourcedIn.Message.Empty => ()
         def onError(t: Throwable): Unit = liveStreams -= 1
-        def onCompleted(): Unit =
+        def onCompleted(): Unit         =
           liveStreams -= 1
           out.onCompleted()
 
@@ -737,7 +737,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       outcome: pb.Outcome,
       retention: Option[pb.Retention]
   ): EventSourcedOut =
-    val id = if knobs.wrongCommandId then cmd.id + 1000 else cmd.id
+    val id       = if knobs.wrongCommandId then cmd.id + 1000 else cmd.id
     val snapshot =
       if cmd.snapshotRequested || knobs.unrequestedSnapshot then
         Some(
@@ -830,10 +830,10 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                     val input = cmd.payload.map(_.data.toStringUtf8).getOrElse("")
                     try
                       h.run(state, input) match
-                        case KvEffect.Throw(message) => throw RuntimeException(message)
+                        case KvEffect.Throw(message)        => throw RuntimeException(message)
                         case KvEffect.Refuse(message, code) =>
                           reply(cmd.id, None, None, refusal(message, code))
-                        case KvEffect.Reply(t) => reply(cmd.id, None, None, replyOutcome(t))
+                        case KvEffect.Reply(t)  => reply(cmd.id, None, None, replyOutcome(t))
                         case KvEffect.Set(s, r) =>
                           state = Some(s)
                           reply(cmd.id, Some(json(e.stateManifest, s)), None, outcomeOf(r))
@@ -869,7 +869,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                 out.onNext(answer)
             case KeyValueIn.Message.Empty => ()
         def onError(t: Throwable): Unit = liveStreams -= 1
-        def onCompleted(): Unit =
+        def onCompleted(): Unit         =
           liveStreams -= 1
           out.onCompleted()
 
@@ -882,7 +882,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       PbStepOutcome(
         PbStepOutcome.Outcome.Pause(PbStepOutcome.Pause(after, onTimeout.map(PbStepRef(_, None))))
       )
-    case Next.End => PbStepOutcome(PbStepOutcome.Outcome.End(PbStepOutcome.End()))
+    case Next.End           => PbStepOutcome(PbStepOutcome.Outcome.End(PbStepOutcome.End()))
     case Next.Fail(message) =>
       PbStepOutcome(PbStepOutcome.Outcome.Fail(pb.Error(message, pb.ErrorCode.INTERNAL)))
 
@@ -890,8 +890,8 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
     def handle(out: StreamObserver[WorkflowOut]): StreamObserver[WorkflowIn] =
       val streamId = streamIds.incrementAndGet()
       liveStreams += 1
-      var flow: Option[Flow]              = None
-      @volatile var state: Option[String] = None
+      var flow: Option[Flow]                                                    = None
+      @volatile var state: Option[String]                                       = None
       def wfFailure(id: Long, message: String, code: pb.ErrorCode): WorkflowOut =
         WorkflowOut(WorkflowOut.Message.Failure(failure(id, message, code)))
       new StreamObserver[WorkflowIn]:
@@ -926,7 +926,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                       )
                     try
                       h.run(state, input) match
-                        case WfEffect.Throw(message) => throw RuntimeException(message)
+                        case WfEffect.Throw(message)        => throw RuntimeException(message)
                         case WfEffect.Refuse(message, code) =>
                           reply(None, None, refusal(message, code))
                         case WfEffect.Reply(t) => reply(None, None, replyOutcome(t))
@@ -963,7 +963,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                 }
             case WorkflowIn.Message.Empty => ()
         def onError(t: Throwable): Unit = liveStreams -= 1
-        def onCompleted(): Unit =
+        def onCompleted(): Unit         =
           liveStreams -= 1
           out.onCompleted()
 
@@ -995,10 +995,10 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
               )
             )
           })
-        case None => Future.failed(notFound(s"unknown view ${request.componentId}"))
+        case None    => Future.failed(notFound(s"unknown view ${request.componentId}"))
         case Some(v) =>
           Future.fromTry(Try {
-            val row = request.row.map(_.data.toStringUtf8)
+            val row    = request.row.map(_.data.toStringUtf8)
             val answer =
               if request.deleted then v.onDelete(row)
               else
@@ -1018,11 +1018,11 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
     def handle(request: ConsumerRequest): Future[ConsumerEffect] =
       received.add(Received(0, request))
       spec.consumers.find(_.id == request.componentId) match
-        case None => Future.failed(notFound(s"unknown consumer ${request.componentId}"))
+        case None    => Future.failed(notFound(s"unknown consumer ${request.componentId}"))
         case Some(c) =>
           Future.fromTry(Try {
             val metadata = request.metadata.getOrElse(pb.Metadata())
-            val answer =
+            val answer   =
               if request.deleted then c.onDelete(metadata)
               else c.onMessage(request.message.map(_.data.toStringUtf8).getOrElse(""), metadata)
             answer match
@@ -1064,7 +1064,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
               request.payload.map(_.data.toStringUtf8).getOrElse(""),
               request.metadata.getOrElse(pb.Metadata())
             ) match
-              case Right(()) => TimedActionEffect(TimedActionEffect.Effect.Done(pb.Empty()))
+              case Right(())     => TimedActionEffect(TimedActionEffect.Effect.Done(pb.Empty()))
               case Left(message) =>
                 TimedActionEffect(
                   TimedActionEffect.Effect.Fail(pb.Error(message, pb.ErrorCode.INTERNAL))
@@ -1078,7 +1078,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       received.add(Received(0, request))
       val input = request.payload.map(_.data.toStringUtf8).getOrElse("")
       spec.agents.find(_.id == request.componentId) match
-        case None => Future.failed(notFound(s"unknown agent ${request.componentId}"))
+        case None    => Future.failed(notFound(s"unknown agent ${request.componentId}"))
         case Some(a) =>
           a.handlers.get(request.name).orElse(a.streams.get(request.name)) match
             case None =>
@@ -1104,7 +1104,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
         .orElse(
           spec.autonomous.find(_.id == request.componentId).flatMap(_.tools.get(request.tool))
         ) match
-        case None => Future.failed(notFound(s"unknown tool ${request.tool}"))
+        case None    => Future.failed(notFound(s"unknown tool ${request.tool}"))
         case Some(t) =>
           Future.successful(
             Try(t(request.sessionId, request.argumentsJson)).toEither.left
@@ -1124,7 +1124,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
             .find(_.id == request.componentId)
             .flatMap(_.guardrails.get(request.guardrail))
         ) match
-        case None => Future.failed(notFound(s"unknown guardrail ${request.guardrail}"))
+        case None    => Future.failed(notFound(s"unknown guardrail ${request.guardrail}"))
         case Some(g) =>
           Future.successful(
             g(request.stage, request.text) match
@@ -1146,7 +1146,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           case (Some(a), Some(t)) =>
             val verdict = a.malformed(request.resultJson) match
               case Some(problem) => TaskResultVerdict.Verdict.Malformed(problem)
-              case None =>
+              case None          =>
                 t.rules.iterator
                   .flatMap(name => a.rules.get(name).map(name -> _))
                   .map((name, rule) => name -> rule(request.resultJson))
@@ -1222,7 +1222,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
     @volatile var script: SocketScript   = SocketScript.Echo
     @volatile var done                   = false
     def send(m: SocketOut.Message): Unit = out.synchronized(out.onNext(SocketOut(m)))
-    def finish(): Unit = out.synchronized {
+    def finish(): Unit                   = out.synchronized {
       if !done then
         done = true
         out.onNext(SocketOut(SocketOut.Message.Completed(pb.Empty())))

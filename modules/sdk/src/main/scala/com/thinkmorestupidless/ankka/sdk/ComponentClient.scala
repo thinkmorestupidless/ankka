@@ -183,8 +183,8 @@ final class EventSourcedEntityCalls private[ankka] (
       installation: String,
       timeout: FiniteDuration
   ): Unit =
-    val deadline = timeout.fromNow
-    val payload  = installation.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    val deadline         = timeout.fromNow
+    val payload          = installation.getBytes(java.nio.charset.StandardCharsets.UTF_8)
     def status(): String =
       val left = deadline.timeLeft.max(1.milli)
       String(
@@ -315,7 +315,7 @@ private[ankka] object WorkflowCalls:
   def stateOf[S](handle: Any, declared: Option[Serializer[?]]): Serializer[S] =
     declared match
       case Some(serializer) => serializer.asInstanceOf[Serializer[S]]
-      case None =>
+      case None             =>
         throw IllegalArgumentException(
           s"$handle was not declared by a workflow's companion, which names the state a wait answers"
         )

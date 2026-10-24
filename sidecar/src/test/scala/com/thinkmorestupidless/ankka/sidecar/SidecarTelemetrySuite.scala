@@ -35,7 +35,7 @@ class SidecarTelemetrySuite extends munit.FunSuite with LogCapturing:
     val settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 2.seconds, 2.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val descriptors =
+    val descriptors  =
       Discovery
         .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
         .fold(p => fail(p.mkString("; ")), _.descriptors)

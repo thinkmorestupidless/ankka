@@ -18,7 +18,7 @@ class LongTurnSuite extends munit.FunSuite with LogCapturing:
 
   private val model    = TestModelProvider()
   private val slowRuns = AtomicInteger(0)
-  private val slow = FunctionTool.named("slow").describedAs("Takes its time.").handle { () =>
+  private val slow     = FunctionTool.named("slow").describedAs("Takes its time.").handle { () =>
     slowRuns.incrementAndGet()
     Thread.sleep(13.seconds.toMillis)
     "done at last"

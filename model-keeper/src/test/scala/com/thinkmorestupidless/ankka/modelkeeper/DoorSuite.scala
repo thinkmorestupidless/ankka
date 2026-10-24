@@ -44,7 +44,7 @@ class DoorSuite extends munit.FunSuite with LogCapturing:
   ollama.hold("qwen3:0.6b")
 
   @volatile private var ready: Either[String, Unit] = Left("the first pass has not run")
-  private val document = ModelServerDocument(
+  private val document                              = ModelServerDocument(
     server = "https://models.models-system.svc:8443",
     ready = true,
     models =
@@ -66,7 +66,7 @@ class DoorSuite extends munit.FunSuite with LogCapturing:
     )
     .fold(p => throw IllegalStateException(p.mkString), identity)
 
-  private val exported = RecordingExporter()
+  private val exported  = RecordingExporter()
   private val telemetry =
     KeeperTelemetry.exportingTo(
       exported.spanExporter,

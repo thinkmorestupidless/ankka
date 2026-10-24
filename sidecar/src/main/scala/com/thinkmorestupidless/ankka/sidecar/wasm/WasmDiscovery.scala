@@ -116,7 +116,7 @@ object WasmDiscovery:
     Discovery.validate(spec, protocolVersion, authConfigured) match
       case Left(shared)             => Left(own ++ shared)
       case Right(_) if own.nonEmpty => Left(own)
-      case Right(discovered) =>
+      case Right(discovered)        =>
         val shapes =
           wasm.stateful.flatMap(id => ComponentId.parse(id).toOption.map(_ -> Shape.Stateful))
         Right(discovered.copy(shapes = shapes.toMap))
@@ -130,7 +130,7 @@ object WasmDiscovery:
       case Kind.VIEW                 => Vector("view")
       case Kind.CONSUMER             => Vector("consumer")
       case Kind.TIMED_ACTION         => Vector("timed_action")
-      case Kind.AGENT =>
+      case Kind.AGENT                =>
         val agent = c.getAgent
         Vector("plan") ++
           Option.when(agent.tools.nonEmpty)("invoke_tool") ++

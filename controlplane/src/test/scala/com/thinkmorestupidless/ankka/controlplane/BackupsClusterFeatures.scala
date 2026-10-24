@@ -162,7 +162,7 @@ class BackupsClusterFeatures extends BackupClusterSteps("../features/databases/b
           )
         )
         .build()
-      val bucket = Buckets.backup(real(project))
+      val bucket                        = Buckets.backup(real(project))
       def status(attempt: => Unit): Int =
         try
           attempt

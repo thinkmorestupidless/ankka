@@ -50,8 +50,8 @@ object OrganizationPolicy:
    * be giving organizations away, so it must not come up at all.
    */
   def from(config: Config): OrganizationPolicy =
-    val section = config.getConfig("ankka.controlplane.organizations")
-    val text    = section.getString("creation")
+    val section  = config.getConfig("ankka.controlplane.organizations")
+    val text     = section.getString("creation")
     val creation = OrganizationCreation
       .byName(text)
       .getOrElse(

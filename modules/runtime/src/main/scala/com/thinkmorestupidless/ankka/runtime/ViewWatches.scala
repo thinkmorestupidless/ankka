@@ -144,7 +144,7 @@ private[ankka] final class ViewWatches(database: Database, askTimeout: FiniteDur
     val made       = Promise[Watch]()
     val subscribed = Promise[Unit]()
     def watch      = made.future.value.flatMap(_.toOption)
-    val live = Source
+    val live       = Source
       .queue[WatchEvent[String]](math.max(1024, unreadBound * 4))
       .mapMaterializedValue { queue =>
         val opening = Watch(table, target, queue)
@@ -193,12 +193,12 @@ private[ankka] final class ViewWatches(database: Database, askTimeout: FiniteDur
    * Registers `watch`, hearing its table, and completes once a write committed after it is heard.
    */
   private def register(watch: Watch): Future[Unit] =
-    val entry = views.computeIfAbsent(watch.table, Entry(_))
+    val entry      = views.computeIfAbsent(watch.table, Entry(_))
     val subscribed = entry.synchronized {
       entry.watches += watch
       entry.subscription match
         case Some(subscribing) => subscribing
-        case None =>
+        case None              =>
           val subscribing = listener.subscribe(watch.table)(heard(entry, _), lost(entry, _))
           entry.subscription = Some(subscribing)
           subscribing.failed.foreach(_ => entry.synchronized { entry.subscription = None })

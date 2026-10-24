@@ -374,7 +374,7 @@ class CloudRequestsSuite extends munit.FunSuite:
   test("a cloud provider for another cloud changes nothing a request asks but its provider") {
     val other = cloud.copy(provider = "other")
     val a     = everyRequest
-    val b = everyRequest.map { r =>
+    val b     = everyRequest.map { r =>
       val again = CloudResource(r.getMetadata.getNamespace, r.getMetadata.getName, r.getSpec)
       again.setSpec(r.getSpec.copy(provider = other.provider))
       again

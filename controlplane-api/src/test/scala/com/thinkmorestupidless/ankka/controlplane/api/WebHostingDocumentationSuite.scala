@@ -36,7 +36,7 @@ class WebHostingDocumentationSuite extends munit.FunSuite:
   }
 
   /** A web descriptor broken in one way: each gives one or more of the rules' messages. */
-  private val web = ServiceSpec("web:1", hosting = ServiceSpec.Web)
+  private val web                         = ServiceSpec("web:1", hosting = ServiceSpec.Web)
   private val broken: Vector[ServiceSpec] = Vector(
     ServiceSpec("web:1", hosting = "lambda"),
     web.copy(http = false),

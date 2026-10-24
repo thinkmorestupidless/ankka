@@ -166,7 +166,7 @@ class ModelProvidersSuite extends munit.FunSuite with LogCapturing:
     beganOnAnthropic("s-8")
     openai.expect(ModelResponse("Still sunny.", usage = TokenUsage(7, 3)))
     assertEquals(agent("s-8").call(ProvidersAgent.triage).invoke("and now?"), "Still sunny.")
-    val sent = openai.lastRequest.messages
+    val sent  = openai.lastRequest.messages
     val users = sent.collect { case ChatMessage.User(c) =>
       c.collect { case MessageContent.Text(t) => t }.mkString
     }

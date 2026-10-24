@@ -42,7 +42,7 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
     sys.props.remove("ankka.running.dir"): Unit
 
   private def get(path: String): (Int, String) =
-    val address = observabilityAddress
+    val address  = observabilityAddress
     val response = client.send(
       HttpRequest.newBuilder(URI.create(address + path)).GET().build(),
       HttpResponse.BodyHandlers.ofString()
@@ -156,7 +156,7 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
 
   test("a session's memory and its token cost come from the entity, not the ring") {
     val sessionId = "console-session"
-    val _ = testKit.componentClient
+    val _         = testKit.componentClient
       .forEventSourcedEntity(EntityId(sessionId))
       .call(SessionMemoryEntity.addUserMessage)
       .invoke(
@@ -171,7 +171,7 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
 
   test("a session's judgment tokens are shown as their own figure, and only when there are some") {
     val sessionId = "console-judged"
-    val _ = testKit.componentClient
+    val _         = testKit.componentClient
       .forEventSourcedEntity(EntityId(sessionId))
       .call(SessionMemoryEntity.append)
       .invoke(
@@ -190,7 +190,7 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
 
   test("a query handler can be run against an entity, and returns its state") {
     val id = EntityId("query-me")
-    val _ = testKit.componentClient
+    val _  = testKit.componentClient
       .forKeyValueEntity(id)
       .call(ProfileEntity.register)
       .invoke(Profile("Ada", "ada@example.com", 1))
@@ -225,7 +225,7 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
 
   test("the endpoint is loopback only, which is the whole of its access control") {
     val port = observabilityAddress.substring(observabilityAddress.lastIndexOf(':') + 1)
-    val lan = java.net.NetworkInterface
+    val lan  = java.net.NetworkInterface
       .getNetworkInterfaces()
       .asIterator()
       .asScala
@@ -233,7 +233,7 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
       .find(a => !a.isLoopbackAddress && a.isInstanceOf[java.net.Inet4Address])
 
     lan match
-      case None => // no routable interface on this machine; nothing to prove against
+      case None          => // no routable interface on this machine; nothing to prove against
       case Some(address) =>
         val refused =
           try

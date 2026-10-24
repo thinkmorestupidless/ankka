@@ -129,8 +129,8 @@ private[secrets] object RetentionSweeper:
           }
 
           def busy: Behavior[Command] = Behaviors.receiveMessage {
-            case Tick     => Behaviors.same
-            case Finished => idle
+            case Tick            => Behaviors.same
+            case Finished        => idle
             case Failed(failure) =>
               ctx.log.warn(
                 "the secret read record sweep failed; retrying on the next tick",

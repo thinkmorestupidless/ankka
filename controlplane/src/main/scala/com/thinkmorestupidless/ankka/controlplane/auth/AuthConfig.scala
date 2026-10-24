@@ -58,7 +58,7 @@ object AuthConfig:
   def from(config: Config): AuthConfig =
     val section  = config.getConfig("ankka.controlplane.auth")
     val explicit = section.getString("issuer").trim.stripSuffix("/")
-    val issuer =
+    val issuer   =
       if explicit.nonEmpty then explicit
       else
         val k8s        = config.getConfig("ankka.controlplane.kubernetes")

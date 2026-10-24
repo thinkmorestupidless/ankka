@@ -92,11 +92,11 @@ private[ankka] object BlueprintTasks:
         m <- model
         s <- shape
       yield
-        val ref = refOf(d)
+        val ref                        = refOf(d)
         val wrapped: Seq[FunctionTool] =
           d.tools.flatMap(registry.tool).map(t => ref.fold(t)(RunContext.wrap(t, _)))
         val guardrails = d.guardrails.flatMap(registry.guardrail)
-        val rule = TaskRule[Json](
+        val rule       = TaskRule[Json](
           "shape",
           json =>
             s.check(json) match

@@ -172,7 +172,7 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
           Some(member -> log(position))
       }
       next match
-        case None => Future.successful(Done)
+        case None                  => Future.successful(Done)
         case Some((member, entry)) =>
           Future
             .delegate(member.handle(entry.message))
@@ -299,7 +299,7 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
       handle: IncomingMessage => Future[Done]
   ): Subscribed =
     val byGroup = groups.computeIfAbsent(subscription.topic, _ => ConcurrentHashMap())
-    val group = byGroup.computeIfAbsent(
+    val group   = byGroup.computeIfAbsent(
       subscription.group,
       _ =>
         val created = Group(subscription.topic)

@@ -16,8 +16,8 @@ class JudgmentsSuite extends munit.FunSuite:
       val name: String,
       answer: JudgmentRequest => Future[Judgment] = null
   ) extends JudgmentProvider:
-    val calls     = AtomicInteger()
-    val modelName = s"$name-model"
+    val calls                                             = AtomicInteger()
+    val modelName                                         = s"$name-model"
     def judge(request: JudgmentRequest): Future[Judgment] =
       calls.incrementAndGet(): Unit
       if answer != null then answer(request)
@@ -107,7 +107,7 @@ class JudgmentsSuite extends munit.FunSuite:
   }
 
   test("any other exception from a provider becomes a failure naming it") {
-    val broken = Fixed("broken", _ => Future.failed(IllegalStateException("socket closed")))
+    val broken  = Fixed("broken", _ => Future.failed(IllegalStateException("socket closed")))
     val failure = intercept[JudgmentFailed](
       Judgments(Some(broken), 1.second).ask(None, state, Vector(refund))
     )

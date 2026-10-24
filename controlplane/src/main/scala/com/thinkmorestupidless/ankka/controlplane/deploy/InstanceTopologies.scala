@@ -100,7 +100,7 @@ object InstanceTopologies:
   def apply(namespacePrefix: String): InstanceTopologies =
     // Through the cluster overlay, as the runtime loads its own: the certificate's directory is the
     // Kubernetes overlay's to set, and the plain loader never sees an overlay.
-    val config = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
+    val config    = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
     val directory =
       Option
         .when(config.hasPath(ServiceDirectoryKey))(config.getString(ServiceDirectoryKey))

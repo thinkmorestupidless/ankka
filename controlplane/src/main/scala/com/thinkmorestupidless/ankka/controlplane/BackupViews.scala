@@ -35,7 +35,7 @@ object BackupViews:
       /** The installation's copy outside its failure domain, which a project may need. */
       copy: Option[com.thinkmorestupidless.ankka.controlplane.api.SecondaryStore] = None
   ): ProjectStatus =
-    val lines = reported.flatMap(_.backups).toVector.flatMap(_.lines).map(line)
+    val lines    = reported.flatMap(_.backups).toVector.flatMap(_.lines).map(line)
     val database = reported.flatMap(_.database).map { d =>
       ProjectDatabase(
         d.cluster,
@@ -55,7 +55,7 @@ object BackupViews:
     // FR-025: the latest rehearsal failing is a backup failure.
     val latest = rehearsalViews(rehearsals, reported).filter(_.outcome != "Running").lastOption
     val rehearsalFailed = latest.filter(_.outcome != "Completed")
-    val detail =
+    val detail          =
       if !config.enabled then Some(BackupPhrases.NoTarget)
       else if reported.flatMap(_.backups).isEmpty then
         Some("the operator has not reported on the project's backups")
@@ -112,7 +112,7 @@ object BackupViews:
       .sortBy((name, r) => (r.requestedAt.getOrElse(Instant.EPOCH), name))
       .map { (name, restore) =>
         val status = byName.get(name)
-        val phase = status
+        val phase  = status
           .map(_.phase)
           .orElse(restore.outcome.map(o => if o.succeeded then "Verified" else "Failed"))
           .getOrElse("Restoring")

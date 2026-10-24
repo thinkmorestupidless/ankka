@@ -195,7 +195,7 @@ private[ankka] final class HostReplication(
             )
           }
           .map {
-            case EntityProtocol.ReplicateAck.Persisted(_) => ()
+            case EntityProtocol.ReplicateAck.Persisted(_)    => ()
             case EntityProtocol.ReplicateAck.Refused(reason) =>
               throw IllegalStateException(s"a record from '$home' was refused: $reason")
           }
@@ -250,7 +250,7 @@ private[ankka] final class HostReplication(
       change: Option[ReplicationChange],
       creating: Boolean
   ): Either[CommandError, (Vector[Platform], Vector[Platform])] =
-    val known = rep.settings.installations + me
+    val known                       = rep.settings.installations + me
     def unknown(names: Set[String]) =
       (names -- known).toVector.sorted.headOption.map { name =>
         CommandError(
@@ -264,10 +264,10 @@ private[ankka] final class HostReplication(
       (set: Set[String]) =>
         if creating then Vector(Platform.Home(me), Platform.ReplicationSet(set)) else Vector.empty
     change match
-      case None => Right((created(current), Vector.empty))
+      case None                                           => Right((created(current), Vector.empty))
       case Some(ReplicationChange.SetChange(add, remove)) =>
         unknown(add ++ remove) match
-          case Some(error) => Left(error)
+          case Some(error)                 => Left(error)
           case None if remove.contains(me) =>
             Left(
               CommandError(
@@ -376,7 +376,7 @@ private[ankka] final class HostReplication(
     else if !rep.transport.reachable(home) then Left(notHome(home, outside = false))
     else
       val inbound = Trace.inbound(metadata)
-      val span = observability.recorder.reserve(
+      val span    = observability.recorder.reserve(
         inbound.traceIdHigh,
         inbound.traceId,
         componentRef,
@@ -423,7 +423,7 @@ private[ankka] final class HostReplication(
     forwarded.result match
       case Success(ForwardedReply.Succeeded(bytes, metadata)) =>
         EntityProtocol.Succeeded(bytes, MetaEntry.from(metadata))
-      case Success(ForwardedReply.Rejected(error)) => EntityProtocol.Rejected(error)
+      case Success(ForwardedReply.Rejected(error))           => EntityProtocol.Rejected(error)
       case Failure(_: java.util.concurrent.TimeoutException) =>
         EntityProtocol.Rejected(
           CommandError(
@@ -440,7 +440,7 @@ private[ankka] final class HostReplication(
   def locate(lastSeq: Long): Unit =
     locating = true
     given ExecutionContext = ExecutionContext.parasitic
-    val writer =
+    val writer             =
       if lastSeq == 0 then Future.successful(None)
       else firstRecord().map(_.flatMap(_.installation).filter(_ != me)).recover { case _ => None }
     val asked = rep.transport.locate(componentId, entityId)
@@ -459,7 +459,7 @@ private[ankka] final class HostReplication(
 
   /** This copy's first record, read from its own journal. */
   def firstRecord(): Future[Option[JournalRecord]] =
-    val pid = PersistenceId(componentId, entityId).id.replace("'", "''")
+    val pid           = PersistenceId(componentId, entityId).id.replace("'", "''")
     val serialization =
       org.apache.pekko.serialization.SerializationExtension(system.classicSystem)
     Database()(using system)
@@ -494,7 +494,7 @@ private[ankka] final class HostReplication(
     checked += other
     given Materializer     = Materializer(system)
     given ExecutionContext = system.executionContext
-    val theirs = rep.transport
+    val theirs             = rep.transport
       .records(other, componentId, entityId, 1L)
       .take(1)
       .completionTimeout(10.seconds)

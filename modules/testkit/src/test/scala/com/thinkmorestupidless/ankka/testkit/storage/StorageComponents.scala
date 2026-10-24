@@ -219,8 +219,8 @@ object KeepingWorkflow
 final case class KeepRequested(request: KeepObject)
 
 final class KeepRequests extends EventSourcedEntity[Int, KeepRequested]:
-  def emptyState: Int                       = 0
-  def applyEvent(event: KeepRequested): Int = currentState + 1
+  def emptyState: Int                            = 0
+  def applyEvent(event: KeepRequested): Int      = currentState + 1
   def request(request: KeepObject): Effect[Done] =
     effects.persist(KeepRequested(request)).thenReply(_ => Done)
 

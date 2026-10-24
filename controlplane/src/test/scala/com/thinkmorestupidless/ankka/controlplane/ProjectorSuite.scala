@@ -238,7 +238,7 @@ class ProjectorSuite extends munit.FunSuite with LogCapturing:
   ) {
     // Feature 006. An apply records intent and succeeds; the projector is what declines.
     val before = fake.current(Namespace, Service).map(_.spec.image)
-    val _ = client
+    val _      = client
       .forEventSourcedEntity(EntityId(Key.id))
       .call(ServiceEntity.applyDescriptor)
       .invoke(
@@ -276,7 +276,7 @@ class ProjectorSuite extends munit.FunSuite with LogCapturing:
     // Follows case 12: the service ran cart:5.0 declaring 9.0.0, refused, then cart:6.0. Rolling
     // back to the refused one records a generation, as an apply would, and the projector declines
     // it exactly as it declined the apply.
-    val entity = client.forEventSourcedEntity(EntityId(Key.id))
+    val entity  = client.forEventSourcedEntity(EntityId(Key.id))
     val refused = entity
       .call(ServiceEntity.history)
       .invoke()

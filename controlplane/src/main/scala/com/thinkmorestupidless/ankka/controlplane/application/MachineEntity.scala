@@ -96,7 +96,7 @@ object MachineEntity
       eventSerializer = Codecs.serializer[MachineEvent]("machine-event")
     ):
 
-  given Serializer[RegisterMachine] = Codecs.serializer[RegisterMachine]("register-machine")
+  given Serializer[RegisterMachine]     = Codecs.serializer[RegisterMachine]("register-machine")
   given Serializer[SetMachineByteRates] =
     Codecs.serializer[SetMachineByteRates]("set-machine-byte-rates")
   given Serializer[MachineSummary] = Codecs.serializer[MachineSummary]("machine-summary")

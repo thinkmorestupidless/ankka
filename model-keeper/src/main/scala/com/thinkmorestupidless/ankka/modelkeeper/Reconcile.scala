@@ -69,7 +69,7 @@ object Reconcile:
     val repeated     = declared.diff(distinct).distinct
     val declaredKeys = distinct.map(canonical).toSet
     var pulling      = false
-    val perTag = distinct.map { tag =>
+    val perTag       = distinct.map { tag =>
       val key      = canonical(tag)
       val previous = recorded.get(tag)
       val known    = previous.map(_.capabilities).getOrElse(Vector.empty)
@@ -88,7 +88,7 @@ object Reconcile:
             case Some(b) if now.isBefore(b.until) =>
               (Vector.empty, line(ModelState.Failed, detail = Some(b.reason)))
             case _ if pulling => (Vector.empty, line(ModelState.Fetching))
-            case _ =>
+            case _            =>
               pulling = true
               (
                 Vector(Action.Pull(tag), Action.Load(tag), Action.Record(tag)),
@@ -138,8 +138,8 @@ object Reconcile:
       backoff: Map[String, Backoff],
       now: Instant
   ): (Vector[ModelStatus], Map[String, Backoff]) =
-    val byTag = outcomes.groupBy(_.action.tag)
-    var kept  = backoff
+    val byTag  = outcomes.groupBy(_.action.tag)
+    var kept   = backoff
     val models = plan.models.flatMap { model =>
       byTag.get(model.name) match
         case None =>

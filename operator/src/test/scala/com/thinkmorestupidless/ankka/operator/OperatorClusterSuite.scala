@@ -895,10 +895,14 @@ class OperatorClusterSuite extends munit.FunSuite:
           )
           .isSuccess
       }
-      assertEquals(
-        restricted.resources(machines).list().getItems.asScala.map(_.getMetadata.getName).toVector,
-        Vector("rbac.probe")
-      )
+      // The listing is the grant under test, so a refusal must surface; what is waited for is the
+      // API server's cache of a type served a moment ago, which has answered a list of nothing
+      // right after the apply above succeeded (two nightly runs in nine).
+      def machineNames() =
+        restricted.resources(machines).list().getItems.asScala.map(_.getMetadata.getName).toVector
+      val listDeadline = System.nanoTime() + 30.seconds.toNanos
+      while machineNames().isEmpty && System.nanoTime() < listDeadline do Thread.sleep(250)
+      assertEquals(machineNames(), Vector("rbac.probe"))
       val unmade = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
         restricted.resources(machines).withName("rbac.probe").delete(): Unit
       }

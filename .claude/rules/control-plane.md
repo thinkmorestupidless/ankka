@@ -171,6 +171,12 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
   this, a field the platform did not know (`sidecarImage`, a misspelt `instanceType`) was dropped in
   silence and the service ran with the default, which specs 009 (FR-016) and 016 (US4) had said must be
   refused.
+- **The strict read refuses a fixture's misplaced field too** (2026-10-25). `ControlPlaneRestoreClusterFeatures`
+  applied `{"name":"cart","service":{"image":…},"http":false}`, `http` beside `service` instead of inside it;
+  the lenient codec had dropped it in silence since the suite was written, and the scenario stayed green because it
+  checks the image in the cluster, not readiness. The first nightly after #186 failed it on both
+  architectures with `the descriptor names a field the platform does not know: "http"`. A cluster suite's
+  descriptor is not read by any offline test, so a fixture edit there is proved only by the cluster workflow.
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.

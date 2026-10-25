@@ -100,6 +100,13 @@ able to push to it before the first tag that carries the SDK.
 - **`Declaration` has an unexported method**, so a kind the platform cannot host cannot be written in
   Go; `testdata/compilefail` holds that it does not compile, and `TestWhatMustNotCompileDoesNot` runs
   the compiler over each file there.
+- **The release checkout already holds the tag, so `git tag <tag> <split>` fails there** (2026-10-25).
+  The `sdk-go` job checks out `refs/tags/vX.Y.Z` at full depth, so the tag exists locally as ankka's
+  own commit; v0.14.0's job pushed the mirror's `main` and then died on "tag 'v0.14.0' already
+  exists", leaving the module on the mirror untagged. The split commit is pushed as the tag directly
+  (`git push "$mirror" ankka-go:refs/tags/<tag>`). For v0.14.0 the tag was pushed by hand onto the
+  `main` the job had left, after checking it was the split of `sdks/go` at the tag, and the job re-run
+  took its "already released" path through to the proxy check.
 
 ## What backs each Go row of the living features
 

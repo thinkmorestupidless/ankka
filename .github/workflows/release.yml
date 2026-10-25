@@ -918,9 +918,11 @@ jobs:
           mirror="https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka-go.git"
           git subtree split --prefix sdks/go -b ankka-go
           git push --force "$mirror" ankka-go:main
-          # Without -f and without --force: a tag that somehow exists is a failure, never replaced.
-          git tag "${GITHUB_REF_NAME}" ankka-go
-          git push "$mirror" "refs/tags/${GITHUB_REF_NAME}"
+          # The split commit is pushed as the tag directly. This checkout already holds the tag as
+          # ankka's own commit (it is the ref checked out), so `git tag` here says "already exists":
+          # v0.14.0's job pushed main and died on that line, leaving the mirror untagged. Without -f
+          # and without --force: a tag that somehow exists in the mirror is a failure, never replaced.
+          git push "$mirror" "ankka-go:refs/tags/${GITHUB_REF_NAME}"
       - name: A stranger's module gets this version from the proxy
         # The proxy fetches a version lazily, on the first request for it, so the first ask may come
         # before GitHub serves the tag: six attempts a minute apart. Then a program printing

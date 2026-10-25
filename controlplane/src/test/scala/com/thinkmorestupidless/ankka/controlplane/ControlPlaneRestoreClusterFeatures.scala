@@ -256,7 +256,7 @@ class ControlPlaneRestoreClusterFeatures
           "PUT",
           s"/services/$shop/cart",
           owner,
-          Some(s"""{"name":"cart","service":{"image":"$image"},"http":false}""")
+          Some(s"""{"name":"cart","service":{"image":"$image","http":false}}""")
         )
       assert(code == 200, body)
     apply("cart:1")

@@ -158,7 +158,7 @@ object Dependencies {
   val logback = "ch.qos.logback" % "logback-classic" % V.logback
   val munit   = "org.scalameta" %% "munit"           % V.munit
   // Nullness annotations on the Java SDK's surface (feature 058), so Kotlin sees non-null types.
-  val jspecify            = "org.jspecify" % "jspecify"             % "1.0.0"
+  val jspecify            = "org.jspecify" % "jspecify"             % "1.0.1"
   val gherkin             = "io.cucumber"  % "gherkin"              % V.gherkin
   val cucumberExpressions = "io.cucumber"  % "cucumber-expressions" % V.cucumberExpressions
   val testcontainersPg    = "org.testcontainers" % "testcontainers-postgresql" % V.testcontainers

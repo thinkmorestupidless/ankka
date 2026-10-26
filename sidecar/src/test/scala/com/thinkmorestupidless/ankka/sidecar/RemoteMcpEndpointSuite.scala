@@ -64,7 +64,7 @@ class RemoteMcpEndpointSuite extends munit.FunSuite:
         taskType: String,
         resultJson: String,
         metadata: Metadata
-    ): Future[TaskResultVerdict] = ???
+    ): Future[TaskResultVerdict]                                                     = ???
     def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] = ???
     def handleHttpStream(request: HttpForward): Source[String, NotUsed]              = ???
     def reachable(): Boolean                                                         = true

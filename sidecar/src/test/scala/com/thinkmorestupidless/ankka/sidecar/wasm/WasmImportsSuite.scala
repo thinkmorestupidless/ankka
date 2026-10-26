@@ -108,8 +108,8 @@ class WasmImportsSuite extends munit.FunSuite with LogCapturing:
 
   private final class RecordingCalls(answer: ServiceRequest => Future[ServiceReply])
       extends ServiceCalls:
-    private val received     = ConcurrentLinkedQueue[Asked]()
-    def asked: Vector[Asked] = received.asScala.toVector
+    private val received                                       = ConcurrentLinkedQueue[Asked]()
+    def asked: Vector[Asked]                                   = received.asScala.toVector
     def request(request: ServiceRequest): Future[ServiceReply] =
       // Called on the thread that called the import, so the call site is this thread's.
       received.add(Asked(request, CallSite.current)): Unit

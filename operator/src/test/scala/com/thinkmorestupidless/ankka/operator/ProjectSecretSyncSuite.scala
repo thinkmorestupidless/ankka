@@ -74,7 +74,7 @@ class ProjectSecretSyncSuite extends munit.FunSuite:
         namespace: String,
         selector: Map[String, String],
         timeout: scala.concurrent.duration.FiniteDuration
-    ) = true
+    )                                                                 = true
     override def projectSecrets(namespace: String, projectId: String) =
       project.getSpec.secrets.toVector
     override def observeCloudResource(namespace: String, name: String) =

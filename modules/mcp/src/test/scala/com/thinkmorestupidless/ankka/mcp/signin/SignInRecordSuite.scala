@@ -126,7 +126,7 @@ class SignInRecordSuite extends munit.FunSuite:
           delay: FiniteDuration,
           period: FiniteDuration,
           call: DeferredCall
-      ): Unit = ()
+      ): Unit                           = ()
       def delete(name: String): Unit    = scheduled.remove(name): Unit
       def exists(name: String): Boolean = scheduled.contains(name)
     val timers = Timers()

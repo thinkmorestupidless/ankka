@@ -763,7 +763,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
     )
 
   private def encodeState(state: Vector[String]): String = state.mkString("[", ",", "]")
-  private def decodeState(json: String): Vector[String] =
+  private def decodeState(json: String): Vector[String]  =
     // Events are JSON objects with no nested arrays, so a shallow split is enough for a double.
     val body = json.trim.stripPrefix("[").stripSuffix("]").trim
     if body.isEmpty then Vector.empty

@@ -56,7 +56,7 @@ class SecretAccessSuite extends munit.FunSuite:
         namespace: String,
         selector: Map[String, String],
         timeout: scala.concurrent.duration.FiniteDuration
-    ) = true
+    )                                                                  = true
     override def observeCloudResource(namespace: String, name: String) =
       asked += name
       answers.get(name)

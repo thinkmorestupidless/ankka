@@ -54,6 +54,6 @@ object NoDatabase:
         delay: FiniteDuration,
         period: FiniteDuration,
         call: DeferredCall
-    ): Unit = refuse(name)
+    ): Unit                           = refuse(name)
     def delete(name: String): Unit    = refuse(name)
     def exists(name: String): Boolean = refuse(name)

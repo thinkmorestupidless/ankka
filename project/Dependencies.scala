@@ -70,7 +70,7 @@ object Dependencies {
      * image, are the proof. Every grpc-java artifact the build uses is declared at this version, so
      * eviction never mixes two.
      */
-    val grpc = "1.84.3"
+    val grpc = "1.85.1"
 
     /**
      * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.

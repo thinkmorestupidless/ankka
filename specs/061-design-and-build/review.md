@@ -245,3 +245,178 @@ Ran `git symbolic-ref --short refs/remotes/origin/HEAD` in this worktree.
   over a minute. Research T041 records 17 of 17 green, `just features` with 0 findings, and
   `just docs` clean.
 - The default-branch finding was confirmed by running the command it names.
+
+## Second round
+
+# Review: Design and build (061), the fixes (431e9a44b...HEAD)
+
+**Verdict:** Approve with comments. The three should-fix items are expected before the pull request
+is marked ready; the nits are optional.
+
+**What it does:** The range fixes the first round's findings:
+- The default-branch guard takes `origin/` off.
+- One rule for flaky checks now holds in the spec, the contracts and the build: wait for every
+  check, then mark ready when each is green or is a shown default-branch flake.
+- A resumed build raises the pull request only when every finding has a resolution line.
+- The design records `## Design finished`, and the build refuses a task list without it.
+- The build gains the question rule.
+- The base is chosen by merge base.
+- Step 4 of the docs page becomes two additions to `extensions.yml`.
+- Four tests are renamed for what they check.
+
+**Should it exist:** yes. Each change answers a first-round finding, and nothing unrelated came in.
+
+**Read:**
+- In full: both command files and both skills; their bodies below the frontmatter are byte-equal,
+  checked with `diff`. Also `features/design-and-build/build.feature`, the spec's FR-015 to FR-023a,
+  and the diffs of contracts/skills.md, contracts/stages.md, quickstart.md, research.md,
+  GLOSSARY.md, ci.yml, the README, the docs page and both suites.
+- Opened outside the diff: `data-model.md`, `.specify/extensions.yml`,
+  `.claude/skills/speckit-review/SKILL.md` (where it commits and when it stops), and the two rendered
+  copies of the page. They differ from `docs/` only in the header the renderer writes.
+- Outside the repository: `ankka-brain/conventions.md:29`.
+
+**Size:** 18 files besides review.md, about +260 -130 hand-written lines. Small.
+
+## Should fix
+
+- `.specify/extensions/design-build/commands/speckit.build.md:66` and `:81` — issue (non-blocking):
+  the new path back to the review cannot be reached as written, so FR-023a's scenario "the review
+  runs again" does not happen.
+  - When `/speckit-review` stops on a blocking finding, `review.md` is still uncommitted, because
+    speckit-review commits it "with the last fix".
+  - The next `/speckit-build` reads the *reviewing* state. Precondition 4 then refuses the tree,
+    because it is not clean outside *implementing*. `/speckit-review`'s own step 2 refuses the same
+    tree.
+  - Once the person commits the file, `/speckit-review` spawns a fresh reviewer, which writes
+    `review.md` again. That loses the resolution lines and the person's answer that the stop was
+    waiting for.
+
+  Suggestion: in the *reviewing* state, allow an uncommitted `review.md` as the only change, and
+  have the build tell `/speckit-review` to resume acting on the existing report rather than spawn a
+  new reviewer when `review.md` exists with unresolved findings. Or say in the build that the person
+  commits or settles `review.md` first, and make the scenario say so.
+  Resolved: a review.md with an unsettled finding is settled from the report as it stands, never a fresh reviewer; precondition 4 lets reviewing run with review.md and its fixes uncommitted; scenario and FR-023a reworded, 1e26283c2 and 0dad3e7a6
+
+- `.specify/extensions/design-build/commands/speckit.build.md:81` — issue (non-blocking): "every
+  finding in it has a resolution line" does not say which entries are findings.
+  - The first round's three Praise entries carry no resolution line, and neither do the template's
+    Checks applied bullets. Read literally, this feature's own `review.md` is never "finished", and
+    a literal build sends it back to `/speckit-review` on every start.
+  - The rule does not cover several rounds either, and a `## Second round` with findings of its own
+    is the state this file is now in.
+
+  Suggestion: define a finding as an entry under Blocking, Should fix, Nits, Questions or Out of
+  scope, in every round of the file. Use the same words in contracts/stages.md and in the
+  conventions row.
+  Resolved: a finding is a bullet under Blocking, Should fix, Nits or Questions, in any round; praise, out-of-scope notes and checks applied are not, 0dad3e7a6
+
+- `specs/061-design-and-build/data-model.md:24` — todo: the build's state model was not updated with
+  the fixes.
+  - It still says "review.md absent → reviewing" and "review.md present → raising".
+  - Its ready state is "PR exists, all checks green", with no flake case and no OPEN requirement.
+  - The Build run row's refusals omit `## Design finished`.
+
+  contracts/stages.md, research.md and the build now say otherwise, and data-model is what a later
+  analyze reads. Suggestion: rewrite the state lines from the build's table and the rule for a
+  finished review, and add the missing refusal. `(if-minor)`
+  Resolved: the build run's refusals and the state model updated (stopped review, open pull request, ready on green or a shown flake, merged or closed), 1e26283c2
+
+## Nits
+
+- `.specify/extensions/design-build/commands/speckit.build.md:78` — nitpick (non-blocking): the
+  table's *raising* row says "no open pull request for this branch". That includes a merged or closed
+  one, which line 87 says is reported, and the run stops. Write "no pull request for this branch" so
+  the table and the paragraph agree.
+  Resolved: the raising row says no pull request; watching is for an open one, and a merged or closed one is reported, 0dad3e7a6
+- `.specify/extensions/design-build/commands/speckit.design.md:149` — nitpick (non-blocking): "commit
+  it with the last analyze commit" has nothing to join when analyze's last round changed nothing, for
+  instance when its first report had nothing above LOW. Write "with the last analyze commit, or
+  alone".
+  Resolved: the record goes in the analyze commit when the last round changed files, alone as `docs(NNN): design finished` otherwise, 0dad3e7a6
+- `specs/061-design-and-build/quickstart.md:84` — nitpick (non-blocking): §5's expected outcome still
+  reads "ready when every check is green, or stops", leaving out the shown-flake path. Its list of
+  what the build refuses nothing on leaves out `## Design finished`. Outside this repository,
+  `ankka-brain/conventions.md:29` also still says "`gh pr ready` when every check is green"; FR-027
+  owns that row.
+  Resolved: §5's expectations updated, 1e26283c2; ankka-brain conventions' build row updated and pushed, 6fe4525
+
+## Questions
+
+- `.specify/extensions/design-build/commands/speckit.build.md:141` — question: when no check is
+  listed within five minutes, the build "goes to marking it ready", and step 3 sends a fix push back
+  to step 1. In a repository that has pull request workflows, a slow queue or an Actions outage would
+  then mark the pull request ready with no check run, which FR-022a forbids. Should "no checks" lead
+  to ready only when the repository has no workflow with a `pull_request` trigger, and otherwise stop
+  and say no check appeared? An answer either way settles it.
+  Answered: ready with no check only when no workflow under .github/workflows/ runs on pull_request; otherwise the build stops with the pull request a draft, 0dad3e7a6
+
+## Praise
+
+- `.specify/extensions/design-build/commands/speckit.build.md:139` — praise: the watching section now
+  matches FR-022/FR-022a, the contracts and the two flake scenarios exactly. It also says why
+  `--fail-fast` is gone, so it does not come back.
+- `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/DesignAndBuildExtensionSuite.scala:117`
+  — praise: the merged test now holds the build to the question rule as well as the design. The class
+  comment and quickstart §4 name the scenarios only a recorded run can prove, which is the honest
+  split the testing rules ask for.
+
+## First-round resolutions
+
+- Default-branch guard (Resolved): holds. The procedure takes `origin/` off and falls back to
+  `main`, and contracts/skills.md agrees.
+- Flake path (Resolved): holds. Spec FR-022/FR-022a, contracts/skills.md and stages.md, research.md,
+  the build's watching steps 1 to 5 and line 166, and both flake scenarios in build.feature state one
+  rule.
+- Resume over a blocking finding (Resolved): holds in intent. Raising now needs a resolution under
+  every finding, and FR-023a has its scenario. The path back to the review is blocked, though, and
+  "finding" is undefined; see the first two should-fix findings.
+- Question rule in the build (Resolved): holds. It is at line 28, covers implement's checklist
+  question, says what a headless run does, and the suite checks it.
+- Base by merge base (Resolved): holds. The candidate test survives a base branch that gained
+  commits, the newest merge base wins, and the list is fetched with `--limit 200`.
+- Analysed task list (Resolved): holds. The design writes `## Design finished`, and the build
+  refuses without it and names `--from analyze`. FR-023 and its scenario agree, and this feature's
+  research.md carries the record. The commit wording is a nit above.
+- Docs step 4 (Resolved): holds. Both blocks are valid YAML to paste. The second is indented two
+  spaces, so it sits under `hooks:` beside bdd's entries as in `.specify/extensions.yml`. The
+  rendered copies were regenerated.
+- Test names (Resolved): holds. Each test is named for the file fact it checks.
+- T010 (Declined): the reason holds, provided the pull request body says SC-002 and FR-004 are
+  unproven until the interactive run. Quickstart §4 now lists those scenarios.
+- `--from specify` (Resolved): holds. Lines 23 and 80 agree.
+- Glossary "finding" and "stage" (Resolved): holds.
+- Docs sentence (Resolved): holds. The suite's string was updated, and the page reader normalises
+  whitespace across the line break.
+- ci.yml comment (Resolved): holds.
+- Checks before registration (Answered): the mechanism holds; see the question above about its
+  fallback.
+- Closed or merged pull request (Answered): holds. The table wording is a nit above.
+- `model: fable` alias (Answered): holds as left open, and the page names the remedy.
+- Headless build (Answered): holds, and it is consistent with the question rule.
+- eitheror brain edit (Left): holds; it is outside this pull request.
+
+## Checks applied
+
+**General checklist groups**
+- Applied: Correctness (resume paths; the state table against the preconditions; the spec against
+  the procedure), Design and scope, Error handling (the stop paths), Tests, Documentation, API and
+  compatibility (each command body against its skill), Commit and PR hygiene. All six commit headers
+  parse as Conventional Commits with scope `061`.
+- Skipped, because the fixes touch none of them: Concurrency, Data and migrations, Performance,
+  Observability, Dependencies. Security was skipped beyond the one-line comment in ci.yml.
+
+**Language skills**
+- `pr-review-scala` was not loaded. The Scala change is test renames and one merge of two tests,
+  read against the testing rules.
+
+**Project rules read**
+- CLAUDE.md
+- `.claude/rules/testing.md`
+- `.claude/rules/docs.md`, by headings
+
+**Tests run**
+- `just features`: 0 findings in 3147 scenarios and 62 specs.
+- `diff` of each command body against its skill's body: equal.
+- Not run: `sbt 'testkit/testOnly *DesignAndBuild*'`, because a testkit compile takes well over a
+  minute.

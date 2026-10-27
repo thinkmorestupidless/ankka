@@ -122,7 +122,7 @@ class WebHostingDocumentationSuite extends munit.FunSuite:
       "Web hosting keeps no image but the one its descriptor names",
       "A request may reach any instance of a web-hosted service",
       "No upgraded connections",
-      "No traces, metrics or topology for a web-hosted service",
+      "No traces or metrics for a web-hosted service",
       "A mounted service on an older runtime refuses"
     )
   }

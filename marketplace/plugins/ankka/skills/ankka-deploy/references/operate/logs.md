@@ -85,7 +85,7 @@ after `%msg`:
 %replace( trace_id=%X{trace_id} span_id=%X{span_id}){' trace_id= span_id=$', ''}
 ```
 
-A Python or TypeScript process's own lines are its own, and carry no ids.
+A Python, TypeScript or Go process's own lines are its own, and carry no ids.
 
 ## What it is not
 

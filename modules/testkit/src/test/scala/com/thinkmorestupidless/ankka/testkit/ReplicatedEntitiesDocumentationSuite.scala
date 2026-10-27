@@ -88,19 +88,6 @@ class ReplicatedEntitiesDocumentationSuite extends munit.FunSuite:
     )
   }
 
-  test("the documentation says which of Akka's replication modes ankka adopted") {
-    says(
-      "reference/akka-divergences.md",
-      "## Replication",
-      "ankka adopts Akka's replicated reads with a moving primary and replication filters",
-      "Akka's replicated writes with merged state is not offered"
-    )
-    assert(
-      !page("reference/akka-divergences.md").contains("Multi-region replication"),
-      "akka-divergences.md still lists replication as something ankka does not have"
-    )
-  }
-
   test("the reference pages state the protocol, the configuration and the error code") {
     says(
       "reference/error-codes.md",

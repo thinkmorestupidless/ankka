@@ -23,7 +23,7 @@ in a service with the projection runtime registered.
    reading the view's own rows (`change.rows.get`, `change.rows.ask`). The platform deletes no row the
    handler did not name: move a row by deleting its old key and writing its new one in one effect. Write a
    row whole, from the row as it stands. It handles one change at a time — one writer, whatever the
-   instances. A topic and an entity may not be sources of one view.
+   instances. A topic and an entity, or a topic and a workflow, may not be sources of one view.
 3. **Declare the queries a view answers.** `query("name")(statement)` on the companion
    (`ankka.view.query`, `declaredQuery`, `query(...)` in Rust), values as `:name`, the table as `table` /
    `table_of` / `tableOf`; ask with `ask`. The statement is checked at startup: one `SELECT` of the view's

@@ -1,6 +1,6 @@
 ---
 name: ankka-java
-description: Write, run, test or deploy an ankka service in Java, hosted by the ankka runtime in the service's own JVM — components as classes extending a kind's base class, handlers as annotated methods whose annotation string is the wire name (@Command, @Query, @Step, @Action, @Get, @Post, @Sse), calls named by method references (ShoppingCart::addItem), records and sealed interfaces in the shared encoding, Optional for absent values, the Java test kits, the Maven template, and the descriptor of a JVM-hosted service. Use when the task involves Java, Maven, the ankka-java artifact, JUnit in an ankka project, a record or sealed interface stored by ankka, or moving Akka SDK Java code to ankka.
+description: Write, run, test or deploy an ankka service in Java, hosted by the ankka runtime in the service's own JVM — components as classes extending a kind's base class, handlers as annotated methods whose annotation string is the wire name (@Command, @Query, @Step, @Action, @Get, @Post, @Sse), calls named by method references (ShoppingCart::addItem), records and sealed interfaces in the shared encoding, Optional for absent values, the Java test kits, the Maven template, and the descriptor of a JVM-hosted service. Use when the task involves Java, Maven, the ankka-java artifact, JUnit in an ankka project, a record or sealed interface stored by ankka, or porting Java code from another platform to ankka.
 ---
 
 # ankka in Java
@@ -97,7 +97,7 @@ for every base class, annotation, effect and kit.
 - A `float`, `short` or `char` field, a non-`String` map key, or a sealed case that is a class rather than
   a record: the codec refuses them at `register`.
 - A constructor with parameters on an endpoint, view or consumer: the host constructs it with none.
-- An Akka SDK habit: `@Component(id = ...)`, unannotated public methods as handlers, `.method(...)` on the
+- Another SDK's habits: `@Component(id = ...)`, unannotated public methods as handlers, `.method(...)` on the
   component client, `@Acl` on a class. ankka uses `@ComponentId`, annotated handlers, `.call(...)` and an
   `acl()` method; `references/reference/java-sdk.md` lists the rest.
 

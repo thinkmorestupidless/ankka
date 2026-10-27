@@ -135,8 +135,7 @@ Refuse a design that has any of these, and say which rule it breaks:
   address.
 - A stored type renamed, a field removed, or a wire name changed on a service that has been deployed.
 
-Before proposing anything ankka does not do, read `references/reference/limitations.md`; and when an
-Akka habit does not fit, `references/reference/akka-divergences.md` says what ankka does instead.
+Before proposing anything ankka does not do, read `references/reference/limitations.md`.
 
 ## Reference files
 
@@ -162,5 +161,4 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Reference
 
-- `references/reference/akka-divergences.md` — Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views and their streams and watches, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
 - `references/reference/limitations.md` — What ankka does not do yet, stated plainly and grouped — the platform, networking and security, observability, components, and SDKs and releases — so you can plan around a gap before you reach it.

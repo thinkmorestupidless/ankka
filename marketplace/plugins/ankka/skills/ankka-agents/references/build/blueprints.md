@@ -18,7 +18,7 @@ blueprint checkable before it is held. [Multi-agent orchestration](multi-agent-o
 same work done in a workflow, with code; when the steps are one of the patterns here, a blueprint says
 the same thing in less and the platform owns the durability.
 
-Blueprints are Scala only for now; see [Limitations](../reference/limitations.md).
+Blueprints are for Scala, Java and Kotlin services for now; see [Limitations](../reference/limitations.md).
 
 ## A blueprint, step by step
 
@@ -575,6 +575,6 @@ planner's blueprint suite are the worked examples.
 - **No blueprint starts, waits on or reads another's run.** Blueprints compose through a service's
   records: the research digest's watch keeps entries, and its digest reads the ones its period holds.
 - **No replaying or forking a run**, and no starting a run from another run's step.
-- **Scala only.** Python and TypeScript services, through the sidecar, are a later feature.
+- **Scala, Java and Kotlin only.** Python, TypeScript, Rust and Go services are a later feature.
 
 See [Limitations](../reference/limitations.md) for the rest.

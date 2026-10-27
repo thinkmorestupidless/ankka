@@ -1202,7 +1202,7 @@ process binds loopback, which the sidecar shares inside the pod. See [Images](..
 
 The Go SDK has the limitations of the Python and TypeScript SDKs: a route reads its body whole and a large
 object goes through a signed URL; a process's own log lines carry no trace; judgments and gRPC endpoints
-are Scala's; a handler names a configured model provider rather than a model. Beside those, a Go service
+are the JVM SDKs'; a handler names a configured model provider rather than a model. Beside those, a Go service
 cannot be built as a WebAssembly module; the component test kits have no secret store, no scripted
 services and no autonomous agent kit; calls to other services have no typed helpers; and there is no
 personal-data envelope. The whole list is in [Limitations](limitations.md).

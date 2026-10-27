@@ -23,6 +23,9 @@ feature also says what that feature does not do.
   create the same id before either has heard of the other put the entity in conflict at both, refusing
   writes, and ankka offers no command that resolves a conflict: choose replicated ids that one
   installation issues.
+- **A follower is behind the home.** A view or a query at a follower reads the copy the follower holds,
+  which is behind the home's journal by at least one poll. An installation removed from the replication
+  set keeps its copy and answers no query from it.
 - **No concurrent writers.** A replicated entity is written at its home alone. There is no mode in which
   several installations write one entity and their states are merged.
 - **Only event sourced entities replicate.** A key value entity or a workflow declared replicated is
@@ -54,16 +57,20 @@ feature also says what that feature does not do.
 - **The declared runtime version is trusted.** A descriptor's `runtime` is checked against the platform's
   version before deployment. The platform does not compare it with the version the running image reports at
   `/ankka/version`. There is one compatibility rule — the same major, and a minor equal to the platform's or
-  one below — and no finer matrix.
+  one below — and no finer matrix; the rule does not reach back across 0.8.0, before which a runtime
+  could not speak the mutual TLS every workload uses.
 - **One database per service, on one Postgres cluster per project.** Provisioned databases run on one
   Postgres cluster in the project's namespace, a primary and as many as four replicas the project asks for.
   A service that needs a different durability profile, or has existing data to migrate, supplies its own
-  database through `ANKKA_DB_*` variables, and its isolation and backups are then whatever its owner
-  configured.
+  database through `ANKKA_DB_*` variables; the platform backs it up not at all, and its isolation is
+  whatever its owner configured.
 - **A restore does not take back the broker.** Messages published from events a restore lost stay on their
   topics, and every view and consumer on the platform reads a message published again as a new one; its
   `ce-id` is the one it carried before, which protects only a reader that deduplicates by it. A restore
   reports the topics and groups newer than its moment, and changes nothing on the broker.
+- **A restore is of what was there at the moment.** A service that had no database at the moment is
+  listed as not present and cannot be switched to the restore, and only one restore of a project runs at a
+  time.
 - **Backups on Garage are not encrypted by the platform.** Garage holds no key the archiver can send, so a
   backup is protected by its bucket's credential and by the installation's volume encryption. Without a
   secondary store, an installation's backups share its cluster's failure domain, and its status says so.
@@ -93,6 +100,9 @@ feature also says what that feature does not do.
   was made until a member moves it. A bucket and its objects are never deleted by the platform.
 - **Garage keeps one version of an object.** An object overwritten or deleted in Garage is gone at once;
   only Google Cloud Storage keeps noncurrent versions and a soft-delete window.
+- **A bucket reached by workload identity signs no URLs.** A service given a Google Cloud Storage bucket
+  with no key is issued none, so it cannot sign a URL, and an installation whose store is Garage refuses
+  its descriptor: a bucket there is reached only with a credential.
 - **A move from Garage does not move an object larger than 5 GiB**, and moves one service's bucket at a
   time. Traffic to Garage inside the cluster stays plain HTTP while a bucket is there.
 - **One cloud provider and one cloud account per installation.** A project names no account of its own. The
@@ -119,7 +129,7 @@ feature also says what that feature does not do.
   No service can fetch, upload, remove or make a model, and the server serves nobody outside the
   installation. It serves chat completions only: no embeddings, and an agent's judgments are not made on
   it. Its models are fetched from Ollama's registry, so an installation that cannot reach it supplies its
-  models some other way. A remote cluster has no model server of its own.
+  models some other way.
 - **Listings can lag.** Organization, project and service listings are read from projections and may miss a
   change made a moment ago. Checks that depend on a count — "the project has no services" before it is
   deleted — use the same projections, so they guard against the obvious mistake rather than every race.
@@ -137,8 +147,13 @@ feature also says what that feature does not do.
   interface](../deploy/web-hosting.md#what-a-browser-sees-during-a-rollout).
 - **A request may reach any instance of a web-hosted service.** There is no affinity between a browser
   and an instance, so a session lives in a cookie or a service, never in the process's memory.
-- **No traces, metrics or topology for a web-hosted service.** The local console and `/ankka/metrics`
-  know only services built on ankka. Its logs are read with `ankka services logs`.
+- **No traces or metrics for a web-hosted service.** It records no spans and exports nothing; the local
+  console and `/ankka/metrics` know only services built on ankka. A request through it keeps its trace
+  context, so the ankka services it reaches continue the trace, and the installation's console draws
+  its shape with its mounts. Its logs are read with `ankka services logs`.
+- **The proxy gives a call sixty seconds.** A call the proxy makes, to the program or to a mounted
+  service, that is not answered within sixty seconds is answered `504`; a service that cannot be found
+  is `503` and a closed connection `502`.
 - **A mounted service on an older runtime refuses.** A runtime that predates web hosting refuses a
   request under a mount, so a mounted service must run a runtime that knows mounts.
 - **What a service no longer needs is kept until it is deleted.** A mount certificate stays after the last
@@ -163,7 +178,8 @@ feature also says what that feature does not do.
   unencrypted. A request from a browser is encrypted as far as the gateway.
 - **The control plane's `keys` port asks for no client certificate.** It serves only the public keys
   machine tokens are signed with, port 7629, to the broker and the services that verify those tokens; a
-  network policy admits ankka workloads and the broker.
+  network policy admits ankka workloads and the broker. An installation's own network policy that
+  names the control plane's ports needs this one too.
 - **A project is not a network boundary for HTTP.** Any ankka workload can open a connection to any
   service's HTTP port; whether the request is served is the callee's ACL's decision, from the caller's
   certificate, and a service of another project is admitted only on a route its project granted it.
@@ -172,6 +188,10 @@ feature also says what that feature does not do.
   installation is admitted by a grant as a service is, but it is a caller of its own kind, verified by a
   token rather than a certificate. A service of another installation is not a caller ankka can name:
   trust between installations is not built, and such a service is registered as a machine.
+- **A machine's token exchange is rate limited.** A client id is answered at most twelve times a minute
+  by each control plane instance; the next is `429` with `Retry-After`. A token lives fifteen minutes.
+- **A granted call is delivered at least once.** The platform does not deduplicate a call from another
+  project or from a registered machine: a command that may arrive twice must be safe to apply twice.
 - **The gateway is one caller.** Every request from outside the cluster reads as the gateway, whichever
   hostname it arrived at. Telling users apart is a bearer token the service verifies in
   `Acl.Authenticate`.
@@ -180,9 +200,9 @@ feature also says what that feature does not do.
   provisioned for a service's users, and the platform administers none: the identity provider is the
   installation's or the service's to run. Only signed JSON Web Tokens whose issuer publishes its keys are
   verified, every listed issuer must name an audience, and a route accepts any of the service's issuers.
-- **Only a Scala, Java or Kotlin service calls another service's gRPC endpoint.** A Python, TypeScript or Go service calls
-  another service's HTTP routes as itself, through the runtime beside it, and is called over gRPC as any
-  service is; it has no gRPC client of its own.
+- **Only a Scala, Java or Kotlin service calls another service's gRPC endpoint.** A Python, TypeScript,
+  Rust or Go service calls another service's HTTP routes as itself, through the runtime beside it, and
+  is called over gRPC as any service is; it has no gRPC client of its own.
 - **Protection depends on the cluster enforcing network policy.** On a network plugin that accepts
   policies and ignores them, every connection is still mutual TLS and every caller still named, but
   nothing is refused before the handshake. `deploy-local.sh` checks; a cloud cluster must be checked by
@@ -196,7 +216,9 @@ feature also says what that feature does not do.
   authenticates by certificate; the control plane's does not yet, though its connection is private to
   its namespace.
 - **Roles are per organization.** A member is an owner or a member of an organization. There are no
-  per-project roles and no read-only role.
+  per-project roles and no read-only role. A platform administrator is an identity of the installation,
+  not a role in an organization, and a deploy token made for one project is a credential whose reach is
+  that project, not a role either.
 - **Quotas count projects, services and instances, and nothing else.** An organization's quota does not
   cover memory, CPU or storage, there is no per-project quota, and a quota lowered below what an
   organization holds refuses new things but stops nothing that runs.
@@ -220,13 +242,15 @@ feature also says what that feature does not do.
   plane, the console, the identity provider and the object store keep their derived names. Two services
   cannot share one hostname by path. An apex name needs the installation to publish its gateway's
   address.
+- **A derived hostname is one label.** `<service>-<project>` must be at most 63 characters, and two
+  services whose names hyphenate to the same label cannot both be exposed. Every exposed service is
+  served over HTTPS with plain HTTP redirected: there is no HTTP-only mode, and no switch in the CLI
+  skips certificate verification.
 
 ## Observability
 
-- **A call between services starts a new trace.** A call to another service, over HTTP or gRPC, is the root
-  of a trace in the service called; the two traces are not joined.
 - **The installation's console shows a deployed service's topology, not its traces.** [The console](../operate/console.md)
-  at `console.<base domain>` manages organizations, projects, members, deploy tokens and services, and shows
+  at `console.<base domain>` manages organizations, projects, members, deploy tokens, machines and services, and shows
   a service's status, history, logs and topology. It does not show a deployed service's traces, sessions or
   entity state; [the local console](../operate/local-console.md) shows those for services on your own machine.
 - **Observed calls are a window.** A topology's observed calls are the calls made in a recent window, ten
@@ -236,8 +260,15 @@ feature also says what that feature does not do.
 - **An instance's traces are a window; a history is the collector's.** Each instance records every component
   invocation into a fixed ring of recent spans, 4096 by default, and overwrites the oldest; nothing is
   persisted in the instance and there is no sampling. Where the installation names a collector the spans are
-  exported too, but a span the window overwrites before it is read is lost, and only counted. The platform
-  installs no store outside a local platform.
+  exported too, but a span the window overwrites before it is read is lost, and only counted. A request
+  whose components ran on several instances or services has its spans in several windows, each holding
+  its own part; only a collector joins them by trace id. A socket's span is recorded when the socket
+  closes, so a long-lived socket is absent from the window until then. While a collector cannot be
+  reached the exporter waits up to thirty seconds between tries and what the window overwrites meanwhile
+  is lost; a stopping instance sends what it holds within three seconds whether or not the collector
+  answers. The platform installs no store outside a local platform, and the local platform's telemetry
+  store is for a developer's machine: what it holds is gone when it restarts, and its sign-in is the
+  image's own.
 - **`tracestate` and baggage are not carried.** A trace's `traceparent` crosses HTTP, gRPC and topics; a
   vendor's `tracestate` stops at the first ankka service, and no baggage is propagated.
 - **A collector with a private certificate authority is not supported.** An `https` collector is verified
@@ -251,25 +282,32 @@ feature also says what that feature does not do.
   unknown, never as zero.
 - **`ankka services logs` is not a log store, and logs are never exported.** It reads what Kubernetes holds
   for each instance at the moment of asking: no search, no aggregation, no retention. Logs are for the
-  installation's own agent to gather from standard output; a line a handler writes names its trace, so a log
-  store can join it. A process's own lines, in Python, TypeScript or Go, carry no trace.
+  installation's own agent to gather from standard output, as the local platform's does into its telemetry
+  store; a line a handler writes names its trace, so a log store can join it. A process's own lines, in
+  Python, TypeScript or Go, carry no trace.
 - **The metrics endpoint is a window.** `/ankka/metrics` reports counts over the current span window, not
-  totals since start; the exported metrics count since the instance started. The platform ships no
-  dashboards or alerts.
+  totals since start; the exported metrics count since the instance started. The counts are bounded:
+  1,024 pairs of component and handler, 32 other services and 256 of their gRPC methods are named, and
+  anything beyond is counted together as other. A service run on a developer's machine serves no
+  `/ankka/metrics` and no management server at all, only the loopback endpoint the local console reads.
+  The platform ships no dashboards or alerts.
 
 ## Components
 
 - **A view writes one table, and a query reads that table alone.** A keyed view reads several entities
-  into one table, but there is no query across two views' tables, and Akka's snapshot-handler
-  projection optimisation is not built.
-- **A topic and an entity may not be sources of one view.** Only the entity's half could be rebuilt, so
-  a view reading both is refused when the service starts. A keyed view reads entities only; a view of a
-  topic is a plain view.
+  into one table, but there is no query across two views' tables, and a view reading an event sourced
+  entity reads its events one by one: nothing lets it start from the entity's snapshot.
+- **A topic and an entity, or a topic and a workflow, may not be sources of one view.** Only the
+  entity's or the workflow's half could be rebuilt, so a view reading both is refused when the service
+  starts. A keyed view reads entities and workflows, never a topic; a view of a topic is a plain view. A
+  view over a workflow is handed the states the workflow records: a transition, pause, end or failure
+  that records no state is no change.
 - **A keyed view has one writer.** It handles one change at a time, across every source and every
   instance, so its throughput does not grow with the service's instances.
-- **Reads other than declared queries have no timeout in the database.** A declared query is ended by the
-  database when the service's ask timeout runs out; `get`, `all`, `count` and, in Scala, `where` and
-  `ordered` stop the caller waiting and leave the statement to finish.
+- **Reads asked whole, other than declared queries, have no timeout in the database.** A declared query,
+  and any query asked as a stream, is ended by the database when the service's ask timeout runs out, a
+  stream at each fetch of rows rather than as a whole; `get`, `all`, `count` and, in Scala, `where` and
+  `ordered` asked whole stop the caller waiting and leave the statement to finish.
 - **A view's version may be raised only once every instance knows versions of views that read
   entities.** An instance from before cannot be told to stop writing during the rebuild. See
   [Upgrading](../deploy/upgrading.md).
@@ -301,7 +339,8 @@ feature also says what that feature does not do.
   `unknown`. On that backend a project secret's value is also in the cluster's Secret store, and a pod's
   read of it at start is not recorded per read.
 - **Every read of a secret depends on the record of reads.** A read whose record the control plane does not
-  acknowledge within five seconds fails as unavailable. A keep or a removal is recorded after the backend
+  acknowledge within five seconds fails as unavailable. A read is never cached, so on Secret Manager every
+  one counts against Google's per-project quota. A keep or a removal is recorded after the backend
   answers, so one that succeeded while the record could not be written is done and reported as
   unavailable. The record is not shown in the console, and the platform's own copying during a move to
   Secret Manager is not recorded.
@@ -328,15 +367,18 @@ feature also says what that feature does not do.
   to align a timer, and give a period from there. A recurring timer whose due times passed while it could
   not run fires once and goes on, and never catches the missed ones up. The local console does not list
   timers.
-- **Agents stream their replies and views their rows; nothing else streams.** Entities and workflows
-  refuse a streaming request. A wait for a workflow's end can be served as a stream; the
-  workflow itself does not stream.
+- **A timer's payload is at most 1,024 bytes.** The scheduler refuses more: store the data and schedule
+  its id.
+- **Agents stream their replies, autonomous agents their notifications and views their rows; nothing
+  else streams.** Entities and workflows refuse a streaming request. A wait for a workflow's end can be
+  served as a stream; the workflow itself does not stream.
 - **A watch of a view guarantees no delivery.** It is live, not a record: it may give a watcher fewer
   versions of a row than were written, drops unread rows past its bound as the watcher chose, gives
   nothing written while it was not open, and ends — for a rebuild, a stopping instance or a lost
   connection — with the reason, to be watched again. A reader that must see every change reads the
   source with a consumer. A watched query is decided for each written row alone, so a match that depends
-  on the time or on another row changes on the row's next write.
+  on the time or on another row changes on the row's next write. An instance holds at most 1,000 watches
+  open at once, every view together; one more is refused, naming the bound.
 - **A module waits whole.** A WebAssembly module waits for a workflow's end with one call, and cannot
   serve the wait as a stream. The instance it runs on is held for as long as the wait, so a module waits
   from a step, a route or a tool rather than a command.
@@ -350,7 +392,9 @@ feature also says what that feature does not do.
   workflow that is not in memory can therefore resume only when it is next called. A workflow whose id is
   longer than about 1,000 bytes has no timer for its pause, since a timer's payload is at most 1,024
   bytes; it resumes on time only while it stays in memory, and the service logs a warning.
-- **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
+- **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text. A
+  frame over 64 KiB closes it `1009`, too large, unread; more than 64 frames waiting for a handler that
+  has not received them close it `1008`, unread.
 - **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket
   open: presence, fan-out and catching a reconnecting client up are a service's own entities and
   consumers.
@@ -358,7 +402,7 @@ feature also says what that feature does not do.
   answer, so a client whose network went away without closing is noticed only when its connection fails,
   which can take minutes; its handler is then told the socket is closed.
 - **A socket is checked once.** Its ACL is decided when it is opened, and a token that expires while it is
-  open leaves it open.
+  open leaves it open. Only a revoked grant closes a socket it admitted.
 - **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
   timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is
   discarded, but the thread running it is not reclaimed until the module returns. A module's call to
@@ -370,10 +414,13 @@ feature also says what that feature does not do.
   routes cannot stream; read a task's record, or await it, instead.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
   cannot stream, and it cannot declare a socket route; a module declaring either is refused at start.
+  What it consumes is whole too: an agent's streamed reply reaches a module as its tokens collected.
 - **A module reads a view whole.** It cannot ask a query as a stream or watch one, and a module whose view
   declares a watchable query is refused at start.
 - **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime
-  has loaded; its `log` calls go to the runtime's log, and its unit tests run natively.
+  has loaded; its `log` calls go to the runtime's log, and its unit tests run natively. A panic's message
+  does not cross the trap: a handler that panics fails as an unreachable instruction unless it logged
+  first.
 - **The module image must copy.** A wasm service's image is run once to copy `service.wasm` into
   `/ankka/module`; an image that does anything else fails the pod's start. The platform does not yet mount
   the image as a volume, which would need a container runtime newer than every cluster it targets.
@@ -384,8 +431,9 @@ feature also says what that feature does not do.
   worker agent carries out; outside blueprints there are still no per-instance overrides of a definition.
 - **An autonomous agent's tools run at least once.** A tool whose result had not been recorded when a task's
   process stopped runs again when the task resumes. Write tools with side effects to tolerate a repeat.
-- **Blueprints are Scala only, and say nothing a step cannot.** Only a Scala service registers blueprints;
-  Python, TypeScript and Go services, through the sidecar, are a later feature. A blueprint has no conditions,
+- **Blueprints are for Scala, Java and Kotlin services, and say nothing a step cannot.** Only a service
+  in the runtime's own JVM registers blueprints; Python, TypeScript, Rust and Go services are a later
+  feature. A blueprint has no conditions,
   branches or loops of its own, and no branching search (several drafts scored and the weaker pruned):
   every repetition is inside a step and bounded by it, and a choice is a step's shape or a gather chosen
   by an earlier step's result. No step waits for a person as a pattern of its own; a person is reached
@@ -397,8 +445,10 @@ feature also says what that feature does not do.
 - **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
 - **The local console does not show autonomous agents.** Read a task's record, or watch an instance's
   notifications.
-- **Judgments are for Scala services' agents only.** Java, Kotlin, Python, TypeScript, Rust and Go services cannot declare a
-  question, ask for a judgment or use a judged guardrail. A workflow step, an endpoint or a consumer reaches
+- **Judgments are for the agents of Scala, Java and Kotlin services.** Python, TypeScript, Rust and Go
+  services cannot declare a question, ask for a judgment or use a judged guardrail. A judgment reads no
+  session history, only the state its handler gives it, and waits its turn in its session's order. A
+  workflow step, an endpoint or a consumer reaches
   one by calling an agent's judgment handler, or a blueprint's judge or critique step asks one; a handler
   cannot judge and then call the text model in one reply; make two calls. Guardrails, judged or not, see a message and a reply, never the tool calls a model
   asks for. No console shows a judgment's answers or probabilities, and a task's and an instance's own usage
@@ -427,7 +477,9 @@ feature also says what that feature does not do.
   of the same provider for one interaction.
 - **MCP servers are reached over Streamable HTTP only.** There is no stdio or other transport, so a server
   that runs as a local program is reached through a small HTTP bridge. Only a server's tools are used —
-  not its resources or prompts — and a server is listed in code, not discovered.
+  not its resources or prompts — and a server is listed in code, not discovered. The servers are
+  connected when the service starts, and a service whose agent cannot reach one of its servers within
+  the connect timeout does not start.
 - **An MCP server's credential is a header from a variable, read at start.** There is no OAuth flow, and a
   credential cannot be given or changed while the service runs; a new one takes a restart.
 - **An approval is decided whole.** A person approves or refuses a tool call as the model made it; there
@@ -453,10 +505,10 @@ feature also says what that feature does not do.
   and a descriptor that declares gRPC with process or wasm hosting is refused.
 - **The local console does not call gRPC methods.** It lists them beside a service's routes; call them with
   `grpcurl` or a client generated from the service definition.
-
-- **The TypeScript and Go SDKs declare and call autonomous agents but cannot script one in their unit
-  test kits.** Test one through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's integration
-  testkit does.
+- **No sidecar SDK's unit test kit scripts an autonomous agent's model.** The Python and Rust kits run
+  its tools, guardrails and task type rules with no loop; the TypeScript and Go kits have no autonomous
+  agent kit at all. Test the loop through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's
+  integration test kit does. The Java SDK's `TestModelProvider` scripts one for Java and Kotlin.
 - **The Java SDK cannot script a judgment.** Its test kits script a model (`TestModelProvider`) but not a
   judgment provider, and a `JudgmentProvider` is only one `JudgmentProviders` builds, so a Java test of a
   judgment or a judged guardrail needs Jev itself; nor do they hold an MCP server of their own, so a test of
@@ -481,8 +533,6 @@ feature also says what that feature does not do.
 - **`ankka mcp` serves no plugin's commands.** A program run as an `ankka` plugin is a command at the
   shell only; a coding agent reaches it by running the shell. The CLI asks a plugin nothing about
   itself, so `ankka --help` lists a plugin by its word, with no description.
-- **The template waits on a release.** `sbt new thinkmorestupidless/ankka.g8` works once a release has
-  published the template; until then use `sbt new file:///path/to/ankka/ankka.g8` from a checkout.
 - **No local image registry.** A local platform loads images straight into its cluster with
   `kind load docker-image`; it runs no registry of its own. A cluster that pulls images needs one
   elsewhere. A private one works: `ankka projects registry set` puts its credential in the cluster
@@ -495,9 +545,6 @@ feature also says what that feature does not do.
 - **A kind cluster reaches an exposed broker only if it was created with the `30094 → 9094` mapping** in
   `kustomization/kind.yaml`. kind decides port mappings when it creates a cluster, so one made before
   must be recreated to reach the broker from the host.
-- **The control plane has a second port, `keys` (7629),** which asks for no client certificate and serves
-  only the public keys machine tokens are signed with. A network policy of the installation's own that
-  names the control plane's ports needs it too.
 - **Services read their project's grants from the project's ConfigMap they already mount**, so upgrading
   the operator restarts nothing; a service built before the release admits no granted caller until it is
   rebuilt, and a grant naming one of its routes is listed as `rollout needed`.

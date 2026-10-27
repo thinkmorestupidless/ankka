@@ -402,7 +402,7 @@ deployed service's report.
 - added `features/documentation/mcp-endpoints.feature`: a coding agent is told a local service's tools
 - added `features/documentation/mcp-endpoints.feature`: the documentation describes declaring an MCP endpoint, its ACL and its client keys in every language
 - added `features/documentation/mcp-endpoints.feature`: the documentation says what an MCP endpoint does not do
-- added `features/documentation/mcp-endpoints.feature`: the documentation says how ankka's MCP endpoint differs from Akka's
+*Superseded:* the documentation comparing this with Akka, by the documentation no longer naming Akka at all; what is and is not offered is on the limitations page
 
 ---
 

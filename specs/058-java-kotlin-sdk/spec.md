@@ -324,7 +324,7 @@ coding agent holding the Java skill to write an entity and check what it writes 
 - changed `features/polyglot/documentation.feature`: the documentation of a language states every kind of component with a tested sample
 - changed `features/polyglot/documentation.feature`: a coding agent writing a component in a language is told how the language differs
 - added `features/java-kotlin/embedded.feature`: every place that names the languages a service may be written in names Java and Kotlin
-- added `features/java-kotlin/embedded.feature`: the documentation says where ankka's Java differs from Akka's
+*Superseded:* the documentation comparing this with Akka, by the documentation no longer naming Akka at all; what is and is not offered is on the limitations page
 - added `features/java-kotlin/embedded.feature`: the limitations name what the Java and Kotlin SDKs do not offer
 
 ---

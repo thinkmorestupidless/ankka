@@ -24,8 +24,7 @@ Kotlin, Python, TypeScript, Go or Rust.
 
 ![The ankka console showing the shopping cart sample deployed: the cart service is Ready, exposed on the installation's gateway at its own hostname, running one instance with its database provisioned, beside its web interface cart-web in the same project.](assets/console-service.png)
 
-It is a reimplementation of [Akka's](https://doc.akka.io/) component model on
-[Apache Pekko](https://pekko.apache.org/), Apache 2.0 from top to bottom.
+It is built in Scala 3 on [Apache Pekko](https://pekko.apache.org/), Apache 2.0 from top to bottom.
 
 ## Why ankka
 
@@ -33,7 +32,7 @@ It is a reimplementation of [Akka's](https://doc.akka.io/) component model on
 
 Most backends are stateless processes in front of a database, with a cache, a queue, a workflow engine
 and a cron server bolted on as each need arrives. ankka puts state, messaging, orchestration and time
-into one model, built on the actor runtime that has carried Akka systems for more than a decade.
+into one model, built on an actor runtime that has carried production systems for more than a decade.
 
 - **State lives in memory, beside the code that changes it.** An entity is loaded once, kept in memory
   and changed by one command at a time, so a read needs no database round trip and concurrent writes
@@ -128,8 +127,7 @@ the same deployment in each. A user interface in any language deploys beside the
 ### Open, and honest about it
 
 Apache 2.0, with no licence condition on who runs the platform or what they run on it. What it does not
-do yet is listed plainly in [Limitations](docs/reference/limitations.md), and where it differs from Akka
-on purpose, [Divergences from Akka](docs/reference/akka-divergences.md) says why.
+do yet is listed plainly in [Limitations](docs/reference/limitations.md).
 
 ## Get started
 

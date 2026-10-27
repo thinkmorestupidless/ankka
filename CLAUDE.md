@@ -37,9 +37,8 @@ bites anywhere in the tree belongs in this file.
 
 ## What this is
 
-`ankka` reimplements [Akka's](https://doc.akka.io/) component model — a serverless
-platform for agentic AI — in Scala 3 on Apache Pekko. Pekko is the Apache 2.0 fork of
-Akka 2.6, chosen so the programming model carries no BSL constraint.
+`ankka` is a serverless platform for agentic AI on the actor model, in Scala 3 on Apache Pekko,
+which is Apache 2.0 so that nothing on the path carries a BSL constraint.
 
 It was called `nakka` until September 2026; git history before the rename reads `nakka`, and a
 `~/.nakka/` or a kind cluster named `nakka` on a machine is a leftover the code never reads.

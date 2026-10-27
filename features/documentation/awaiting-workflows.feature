@@ -16,8 +16,3 @@ Feature: The documentation of waiting for a workflow
     Then the documentation says what a completed, a failed, a deleted and a paused workflow answer
     And the documentation says the caller gives the time and that there is no default
     And the documentation says when to serve the wait as a stream
-
-  Scenario: the documentation says Akka offers no wait for a workflow's end
-    Given the published documentation
-    When a reader reads where ankka differs from Akka about calling a workflow
-    Then the documentation says a caller can wait for a workflow's end, which Akka does not offer

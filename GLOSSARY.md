@@ -948,8 +948,7 @@ Avoid: emulator, mock
 
 ### ankka
 The platform, by its name. A feature says *the platform* for what runs a service and *ankka* only
-where the name itself is meant: a release of ankka, where ankka differs from Akka, fixtures that are
-ankka's own.
+where the name itself is meant: a release of ankka, fixtures that are ankka's own.
 
 ### deployed service
 A service the platform runs, from a descriptor a member applied: its instances form a service
@@ -1337,9 +1336,6 @@ building a kind of thing on the platform, and how each language differs.
 ### coding agent
 A program that writes code for a developer, reading the platform's skills to do so. It is
 not an agent.
-
-### Akka
-The platform whose component model ankka reimplements, and whose behaviour ankka's documentation says where it differs from.
 
 ## Agents
 
@@ -3085,7 +3081,7 @@ recovers, recover, failing, passing, behaviour, mid-command, exercised, byte, by
 imported, package, lacks, function, broken, fixed, error, handed, steps, moving, moves, see, seen,
 retried, memory, samples, tested, contents, differs, rules, languages, whichever, loads, load,
 replace, schema, spent, work, approve, begins, warned, happens, happened, cites, cite, nearing,
-words, text, team, teams, ticket, shape, included, include, chosen, characters, Akka's, above,
+words, text, team, teams, ticket, shape, included, include, chosen, characters, above,
 whatever, total, therefore, talking, stood, stay, replies, remains, remain, rejected, rate,
 overrides, override, overloaded, navigation, moderate, lie, lead, invented, highest, guides, guide,
 forwards, figure, explains, differences, difference, deliberate, delegate, defeat, deactivated,

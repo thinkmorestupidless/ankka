@@ -15,7 +15,6 @@ pages:
   - build/serialization.md
   - build/component-client.md
   - reference/limitations.md
-  - reference/akka-divergences.md
 ---
 
 # Designing an ankka application
@@ -150,5 +149,4 @@ Refuse a design that has any of these, and say which rule it breaks:
   address.
 - A stored type renamed, a field removed, or a wire name changed on a service that has been deployed.
 
-Before proposing anything ankka does not do, read `references/reference/limitations.md`; and when an
-Akka habit does not fit, `references/reference/akka-divergences.md` says what ankka does instead.
+Before proposing anything ankka does not do, read `references/reference/limitations.md`.

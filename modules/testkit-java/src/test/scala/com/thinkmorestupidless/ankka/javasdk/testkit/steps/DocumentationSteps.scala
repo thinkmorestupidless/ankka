@@ -8,8 +8,8 @@ import scala.util.Using
 
 /**
  * The documentation rows of `features/java-kotlin/embedded.feature`, read from the pages and the
- * rendered skills in this checkout: the divergences section, every paragraph that lists the
- * languages a service may be written in, and the limitations' bullets for the two SDKs.
+ * rendered skills in this checkout: every paragraph that lists the languages a service may be
+ * written in, and the limitations' bullets for the two SDKs.
  */
 trait DocumentationSteps extends GherkinSuite:
 
@@ -27,7 +27,6 @@ trait DocumentationSteps extends GherkinSuite:
     """Scala, Python(?:, TypeScript)? or (?:TypeScript|Rust)|Scala, Python, TypeScript,? (?:or|and) Rust""".r
 
   private var places: Vector[(Path, String)] = Vector.empty
-  private var section: String                = ""
   private var bullet: Option[String]         = None
 
   Given("the published documentation") { () =>
@@ -40,21 +39,6 @@ trait DocumentationSteps extends GherkinSuite:
       Files.isDirectory(root.resolve("marketplace/plugins/ankka/skills")),
       "no rendered skills"
     )
-  }
-
-  When("a reader reads where ankka differs from Akka about writing a service in Java") { () =>
-    val divergences = page("docs/reference/akka-divergences.md")
-    val heading     = "## The Java SDK adopts Akka's annotated handlers"
-    val start       = divergences.indexOf(heading)
-    assert(start >= 0, s"akka-divergences.md has no section '$heading'")
-    val end = divergences.indexOf("\n## ", start + heading.length)
-    section = divergences.substring(start, if end < 0 then divergences.length else end)
-  }
-
-  Then("the documentation says each difference and why") { () =>
-    val differences = section.linesIterator.count(_.startsWith("- **"))
-    assert(differences >= 3, s"the section names $differences differences:\n$section")
-    assert(section.toLowerCase.contains("because"), s"the section gives no reason:\n$section")
   }
 
   When("a reader reads any place that names the languages a service may be written in") { () =>

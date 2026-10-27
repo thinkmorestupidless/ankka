@@ -20,12 +20,12 @@ object Dependencies {
      */
     val pekkoMgmt = "1.2.1"
 
-    val jsoniter  = "2.41.7"
+    val jsoniter  = "2.42.0"
     val anthropic = "3.3.0"
     // OpenAI's official Java SDK (feature 052), transport only, as Anthropic's is. Apache-2.0.
     val openai = "4.91.0"
 
-    val logback = "1.6.5"
+    val logback = "1.6.6"
     val munit   = "1.3.6"
     // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
     val gherkin             = "42.0.1"
@@ -50,7 +50,7 @@ object Dependencies {
      * Test scope only: an S3 client nobody here wrote, to sign and send requests to the object
      * store the way a service's own client would (feature 034, R20). Never on a main classpath.
      */
-    val awsSdk = "2.55.16"
+    val awsSdk = "2.57.3"
 
     /**
      * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native
@@ -158,7 +158,7 @@ object Dependencies {
   val logback = "ch.qos.logback" % "logback-classic" % V.logback
   val munit   = "org.scalameta" %% "munit"           % V.munit
   // Nullness annotations on the Java SDK's surface (feature 058), so Kotlin sees non-null types.
-  val jspecify            = "org.jspecify" % "jspecify"             % "1.0.0"
+  val jspecify            = "org.jspecify" % "jspecify"             % "1.0.1"
   val gherkin             = "io.cucumber"  % "gherkin"              % V.gherkin
   val cucumberExpressions = "io.cucumber"  % "cucumber-expressions" % V.cucumberExpressions
   val testcontainersPg    = "org.testcontainers" % "testcontainers-postgresql" % V.testcontainers

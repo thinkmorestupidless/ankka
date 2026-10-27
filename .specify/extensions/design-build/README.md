@@ -11,8 +11,9 @@ A spec-kit extension of two commands that run the whole feature workflow:
 - **`/speckit-build`** takes the task list to a pull request ready for review. It runs
   `/speckit-implement`, task by task, committed as it goes; the review before the pull request
   (`/speckit-review`, a reviewer with a fresh context); the draft pull request on the right base;
-  the wait for its checks; and marks it ready when they are green. It never merges, tags, publishes
-  or deploys.
+  the wait for every check to finish; and marks it ready when each is green, or red only as the
+  same job fails on the default branch, said in the pull request. It never merges, tags, publishes
+  or deploys. It refuses a task list whose design did not record that analyze finished.
 
 ## Where you are asked
 

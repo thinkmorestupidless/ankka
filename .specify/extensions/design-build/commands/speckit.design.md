@@ -20,8 +20,8 @@ whole run is one turn.
 $ARGUMENTS
 ```
 
-- `--from <stage>`: resume at a stage of an existing feature (below). Everything else in the input
-  is ignored when it is given.
+- `--from <stage>`: resume at a stage of an existing feature (below). The rest of the input is
+  ignored, except after `--from specify`, where it is the description.
 - Anything else: the feature description, passed whole to `/speckit-specify`.
 - Nothing: ask for a description through AskUserQuestion (one option, "I'll describe it", whose
   "Other" text is the description). An answer with no description stops the run, having written
@@ -47,10 +47,11 @@ Never print a question and stop. A run that ends with a question in its last mes
 
 Stop, having written nothing, and say why, when:
 
-1. **The branch is the default branch.** Read it from `git symbolic-ref --short
-   refs/remotes/origin/HEAD` (falling back to `main`); if `git branch --show-current` is the same,
-   say: make a branch for the feature first, `git switch -c NNN-short-name`, with the next spec
-   number.
+1. **The branch is the default branch.** Its name is `git symbolic-ref --short
+   refs/remotes/origin/HEAD` with the remote's `origin/` taken off (that command prints
+   `origin/main`, never `main`), or `main` when there is no `origin/HEAD`. When `git branch
+   --show-current` prints the same name, say: make a branch for the feature first,
+   `git switch -c NNN-short-name`, with the next spec number.
 2. **`bdd` or `review` is not installed.** Both must be listed under `installed:` in
    `.specify/extensions.yml`. Name the one missing; the design writes scenarios through `bdd`, and
    the build it hands over to cannot review without `review`.
@@ -76,7 +77,8 @@ inside it as they do when it is run alone.
 | `analyze` | `tasks.md` | `/speckit-analyze`, then the remediation loop | edits to the spec, plan and tasks; a last report with nothing above low |
 
 `--from` never rewrites what an earlier stage left. `--from specify` on a feature directory that
-already holds a spec is refused: edit the spec by hand, or resume at `clarify`.
+already holds a spec is refused: edit the spec by hand, or resume at `clarify`. Without a
+description after it, it is asked for as when nothing is typed.
 
 ### specify
 
@@ -135,7 +137,20 @@ repository's commit hooks; a hook that refuses a commit is fixed, never skipped.
 
 ## The end
 
-Print, in this order: the feature directory; the task count (`0 of N`); the checker's result; the
+Record that the design finished: append to the feature's `research.md` a section
+
+```markdown
+## Design finished
+
+<date>: analyze reported nothing above LOW.
+```
+
+(or, when the person chose "proceed to build with these" after the third round, `<date>: the
+person proceeded with <n> findings above LOW`, listing them), and commit it with the last analyze
+commit. The build refuses a task list without this section: it is how it knows the analysis ran to
+its end. A run stopped by "stop here" records nothing.
+
+Then print, in this order: the feature directory; the task count (`0 of N`); the checker's result; the
 last analyze report's findings by severity; the decisions the person made in this run, one line
 each; then exactly:
 

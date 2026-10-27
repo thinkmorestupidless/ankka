@@ -31,6 +31,16 @@ $ARGUMENTS
   one.
 - Nothing else is read from the input.
 
+## The question rule
+
+Hold this for every stage, including the stages' own instructions and their hooks: **every question
+to the person goes through the AskUserQuestion tool; never end the turn to ask.** Where
+`/speckit-implement` or `/speckit-review` says to stop and ask, or to let the person decide, ask
+through AskUserQuestion with the options and their implications, and continue with the answer.
+Implement's question about an incomplete checklist is asked this way too, with "proceed" first when
+the design finished (below). In a session without AskUserQuestion (a headless run), a stop condition
+ends the run instead, saying what it would have asked: nothing is decided in the person's place.
+
 ## What it reads
 
 `.specify/feature.json` names the feature directory. From it: `spec.md`, `plan.md`, `tasks.md`,
@@ -44,7 +54,9 @@ Stop, having changed nothing, and say why, when:
 
 1. **There is no `tasks.md`** in the feature directory, or no feature directory. Say the design is
    not finished and name the command that finishes it: `/speckit-design --from <stage>`, with the
-   earliest stage whose output is missing (`specify`, `plan` or `tasks`).
+   earliest stage whose output is missing (`specify`, `plan` or `tasks`). Likewise when `research.md`
+   has no `## Design finished` section: the analysis did not run to its end, and the command that
+   finishes it is `/speckit-design --from analyze`.
 2. **`review` is not installed**: it is not listed under `installed:` in `.specify/extensions.yml`.
    The build never raises a pull request that carries no review.
 3. **The reviewer's skill is not available**: neither `pr-review:pr-review` nor `pr-review` is among
@@ -68,12 +80,19 @@ makes a run that was cut short resumable by typing the command again:
 | What the tree and GitHub say | State | What runs |
 |---|---|---|
 | `tasks.md` has a task not marked `[X]` | implementing | `/speckit-implement`, whose `after_implement` hook reviews |
-| every task `[X]`, no `review.md` in the feature directory | reviewing | `/speckit-review` |
-| every task `[X]`, `review.md` present, no pull request for this branch | raising | the pull request |
-| a pull request for this branch exists | watching | the checks |
+| every task `[X]`, the review not finished | reviewing | `/speckit-review` |
+| every task `[X]`, the review finished, no open pull request for this branch | raising | the pull request |
+| an open pull request for this branch | watching | the checks |
 
-Whether a pull request exists: `gh pr view --json number,isDraft,url,baseRefName` on the branch,
-which fails when there is none.
+The review is finished when the feature directory's `review.md` exists and every finding in it has
+a resolution line under it (`Resolved:`, `Declined:`, `Answered:` or `Left:`). A `review.md` with a
+finding still unanswered is a review that stopped, for instance on a blocking finding the person was
+asked about, and the build goes back to `/speckit-review`, never on to the pull request.
+
+Whether a pull request exists: `gh pr view --json number,state,isDraft,url,baseRefName` on the
+branch, which fails when there is none. Only one whose `state` is `OPEN` is watched. A merged or
+closed one is reported, with its URL, and the run stops: whether to raise another is the person's
+call.
 
 ## Implementing
 
@@ -105,9 +124,12 @@ Invoke `/speckit-review`. It spawns the reviewer with a fresh context, acts on e
 ## Raising the pull request
 
 1. **The base.** `--base` when given. Otherwise the nearest unmerged feature branch this branch was
-   cut from: for each open pull request's head branch (`gh pr list --state open --json headRefName`),
-   one whose head commit is an ancestor of this branch (`git merge-base --is-ancestor`) and is not on
-   the default branch; the one with the most recent merge base wins. Otherwise the default branch.
+   cut from: for each open pull request's head branch (`gh pr list --state open --limit 200 --json
+   headRefName`), take the merge base of this branch and that one (`git fetch origin <head>`, then
+   `git merge-base HEAD origin/<head>`). The branch is a candidate when that merge base is not on the
+   default branch (`git merge-base --is-ancestor <base> origin/<default>` fails), which holds even
+   after the other branch gained commits since this one was cut. The candidate whose merge base is
+   newest wins. Otherwise the default branch.
 2. **Push** the branch: `git push -u origin HEAD`.
 3. **The title**: a Conventional Commits header under 72 characters, lower case, no trailing
    period: `feat(NNN): <what the feature adds>` (`fix` or `docs` when that is what it is), `NNN` the
@@ -122,17 +144,22 @@ Invoke `/speckit-review`. It spawns the reviewer with a fresh context, acts on e
 
 ## Watching the checks
 
-`gh pr checks --watch --fail-fast` waits until the checks finish, with no bound of its own. Then:
-
-- **Every check green**: `gh pr ready`, and the run ends.
-- **A check red**: read it (`gh run view <run id> --log-failed`). Then either
-  - **fix it on the branch**: commit, push, and watch again; or
-  - **show it is a flake of the default branch**: the same job failing the same way on a recent run
-    of the same workflow there (`gh run list --branch <default> --workflow <workflow>`, then
-    `gh run view`). Say so in the pull request body, citing that run, and count the check as passed.
-    A red check without that evidence is the branch's.
-- **A check that cannot be made green**: stop. The pull request stays a draft; say which check, what
-  it reported, and what was tried.
+1. **Wait for the checks to appear.** A pull request just raised may have none registered yet. Poll
+   `gh pr checks` every 15 seconds until it lists at least one, for at most five minutes. When none
+   ever appears, the repository runs no checks on pull requests: say so in the body and go to
+   marking it ready.
+2. **Wait for every check to finish**: `gh pr checks --watch`, without `--fail-fast`, so a red
+   check does not end the wait while others are still running. It has no bound of its own.
+3. **Then, for each red check**, read it (`gh run view <run id> --log-failed`) and either
+   - **fix it on the branch**: commit, push, and go back to step 1; or
+   - **show it is a flake of the default branch**: the same job failing the same way on a recent run
+     of the same workflow there (`gh run list --branch <default> --workflow <workflow>`, then
+     `gh run view`). Say so in the pull request body, citing that run. A red check without that
+     evidence is the branch's.
+4. **Mark it ready** (`gh pr ready`) when every check has finished and each one is green or is a red
+   check shown in the body to be a flake of the default branch. The run ends.
+5. **A check that can be neither fixed nor shown to be a flake**: stop. The pull request stays a
+   draft; say which check, what it reported, and what was tried.
 
 A run cut short while watching is resumed by typing the command again: it finds the pull request
 and watches its checks.
@@ -142,8 +169,8 @@ and watches its checks.
 Print: the pull request's URL; whether it is ready, or a draft and why; the task count (`N of N`);
 the three review lines; and that the person's next step is to review, approve and merge.
 
-Never merge, tag, publish or deploy, and never mark the pull request ready while a check is red or
-still running.
+Never merge, tag, publish or deploy, and never mark the pull request ready while a check is still
+running, or red without the evidence that it is a flake of the default branch.
 
 ## Repairing one stage
 

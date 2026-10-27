@@ -80,7 +80,7 @@ class DesignAndBuildDocumentationSuite extends munit.FunSuite:
       "## Install",
       "made from the ankka template",
       "does not yet carry",
-      "In any other project",
+      "as in any other project",
       "uv tool install specify-cli",
       "specify init --here --ai claude --ai-skills",
       "speckit-bdd",

@@ -43,6 +43,14 @@ Expected: `0 findings in N scenarios and 62 specs` (the five new feature files i
 
 ## 4. The design, end to end
 
+This run and §5's are the proof of the scenarios no file can show: "the bdd hooks fire inside the
+design's specify and clarify stages", "the review hook fires inside the build after the last work
+item", "design and build changes nothing it runs", "the whole design runs on the design model,
+clarifications included", "the whole build runs on the build model", and "a model line edited in
+one definition changes that one's model and not the other's". Record each as met or not in
+`research.md` with what the run showed. A headless run (`claude -p`) shows the model and the
+refusals only: it has no AskUserQuestion, so the design stops before its first stage.
+
 In a throwaway spec-kit repository (or a scratch branch of ankka), from a session started on a model
 other than fable (`claude --model opus`):
 

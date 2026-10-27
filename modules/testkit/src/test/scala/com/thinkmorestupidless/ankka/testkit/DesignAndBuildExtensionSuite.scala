@@ -9,7 +9,10 @@ import scala.jdk.CollectionConverters.*
  * test per scenario a file read can prove, named after it, and one for the rule that keeps the
  * command files and the skills from drifting: their bodies are the same text.
  *
- * What a coding agent does when it runs the skills is not a file; it is proven by a recorded run.
+ * What a coding agent does when it runs the skills is not a file: the scenarios about it (the bdd
+ * hooks firing inside the design, the review inside the build, each command's whole run on its
+ * model, an edited line changing one model) are proven by the recorded runs of quickstart §4 and
+ * §5. The tests here name the file facts those runs rely on, not the scenarios.
  */
 class DesignAndBuildExtensionSuite extends munit.FunSuite:
 
@@ -70,7 +73,7 @@ class DesignAndBuildExtensionSuite extends munit.FunSuite:
       assert(installed.contains(prerequisite), s"$prerequisite is not installed beside it")
   }
 
-  test("the bdd hooks fire inside the design's specify and clarify stages") {
+  test("the design runs specify and clarify, whose bdd hooks are registered") {
     val (_, body) = split(read(designSkill))
     for stage <- Seq("/speckit-specify", "/speckit-clarify") do
       assert(body.contains(stage), s"the design does not run $stage")
@@ -78,13 +81,13 @@ class DesignAndBuildExtensionSuite extends munit.FunSuite:
     assert(hooks.contains("before_clarify:") && hooks.contains("command: speckit.bdd.check"))
   }
 
-  test("the review hook fires inside the build after the last work item") {
+  test("the build runs implement, whose review hook is registered") {
     val (_, body) = split(read(buildSkill))
     assert(body.contains("/speckit-implement"), "the build does not run /speckit-implement")
     assert(hooks.contains("after_implement:") && hooks.contains("command: speckit.review"))
   }
 
-  test("design and build changes nothing it runs") {
+  test("design and build registers no hook and requires bdd and review") {
     val manifest = read(s"$extensionDir/extension.yml")
     assert(!manifest.linesIterator.exists(_.startsWith("hooks:")), "the extension registers hooks")
     assert(!hooks.contains("extension: design-build"), "extensions.yml carries a design-build hook")
@@ -111,15 +114,12 @@ class DesignAndBuildExtensionSuite extends munit.FunSuite:
     assert(read(s"$extensionDir/extension.yml").contains("Requires the bdd and review extensions"))
   }
 
-  test("the whole design runs on the design model, clarifications included") {
-    modelOf(designSkill)
-    val (_, body) = split(read(designSkill))
-    assert(body.contains("AskUserQuestion"), "the design does not ask through AskUserQuestion")
-    assert(body.contains("Never end the turn to ask"), "the design does not forbid ending the turn")
-  }
-
-  test("the whole build runs on the build model") {
-    modelOf(buildSkill)
+  test("each command names its model and asks only through AskUserQuestion") {
+    for skill <- Seq(designSkill, buildSkill) do
+      modelOf(skill)
+      val body = split(read(skill))._2.toLowerCase
+      assert(body.contains("askuserquestion"), s"$skill does not ask through AskUserQuestion")
+      assert(body.contains("never end the turn to ask"), s"$skill does not forbid ending the turn")
   }
 
   test("as shipped, the design model thinks deeper than the build model") {
@@ -132,7 +132,7 @@ class DesignAndBuildExtensionSuite extends munit.FunSuite:
     )
   }
 
-  test("a model line edited in one definition changes that one's model and not the other's") {
+  test("each definition holds exactly one model line of its own") {
     for skill <- Seq(designSkill, buildSkill) do
       val lines = split(read(skill))._1.filter(_.startsWith("model:"))
       assertEquals(lines.size, 1, s"$skill has ${lines.size} model lines")

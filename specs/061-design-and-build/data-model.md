@@ -18,16 +18,18 @@ write.
 |---|---|---|
 | Stage | `name` (one of `specify`, `clarify`, `check`, `plan`, `tasks`, `analyze`, `implement`, `pull-request`), `needs` (files or state that must exist), `runs` (the command or procedure), `produces` | listed in `contracts/stages.md`; a stage's hooks fire inside it as when run alone |
 | Design run | `description` (text after the command, or asked for), `from` (a stage name, default `specify`), `rounds` (analyze rounds so far, at most 3), `declined` (remediations the person declined, written to `research.md`) | refuses on the default branch; refuses without `bdd` or `review` registered; every question via AskUserQuestion |
-| Build run | `feature_directory` (from `.specify/feature.json`), `base` (computed or `--base`), `state` (derived: `implementing`, `reviewing`, `raising`, `watching`, `ready`, `stopped`) | refuses without `tasks.md`, `review`, or the `pr-review` skill; stops on the four conditions of FR-020 and on a check it cannot make green |
+| Build run | `feature_directory` (from `.specify/feature.json`), `base` (computed or `--base`), `state` (derived: `implementing`, `reviewing`, `raising`, `watching`, `ready`, `stopped`) | refuses without `tasks.md`, without `## Design finished` in `research.md`, without `review`, or without the `pr-review` skill; stops on the four conditions of FR-020 and on a red check it can neither fix nor show to be a flake of the default branch |
 
 ### The build run's state, derived from the tree
 
 ```text
-tasks.md has an unticked task             → implementing   (runs /speckit-implement; its hook reviews)
-all ticked, review.md absent              → reviewing      (runs /speckit-review: implement was done without the hook)
-all ticked, review.md present, no PR      → raising        (gh pr create --draft)
-PR exists, a check pending or running     → watching       (gh pr checks --watch)
-PR exists, all checks green, PR is draft  → ready          (gh pr ready, report)
+tasks.md has an unticked task                      → implementing   (runs /speckit-implement; its hook reviews)
+all ticked, review.md absent                       → reviewing      (runs /speckit-review: implement was done without the hook)
+all ticked, review.md with a finding not settled   → reviewing      (acts on the findings already reported; no fresh reviewer)
+all ticked, every finding settled, no PR           → raising        (gh pr create --draft)
+PR open, a check not yet registered or running     → watching       (gh pr checks --watch, without --fail-fast)
+PR open, every check green or a shown flake        → ready          (gh pr ready, report)
+PR merged or closed                                → stopped        (reported with its URL)
 PR exists, a check red                    → fix on branch, or flake evidence, or stopped
 ```
 

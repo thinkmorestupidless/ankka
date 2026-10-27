@@ -85,8 +85,10 @@ Procedure:
    `research.md` under "Found during implementation", go on), a change that would alter a contract
    in `contracts/` (ask), a task whose check cannot be made to pass (stop with the failure), a
    blocking review finding the implementer disagrees with (stop, show it).
-5. **Reviewing** (when implement ran without its hook, or `review.md` has a finding with no
-   resolution line under it): invoke `/speckit-review`.
+5. **Reviewing**: when implement ran without its hook (no `review.md`), invoke `/speckit-review`;
+   when `review.md` has a finding (a bullet under Blocking, Should fix, Nits or Questions, any
+   round) with no resolution line, act on the findings as `/speckit-review` says, on the report as it
+   stands, without a fresh reviewer.
 6. **Raising**: base = `--base`, else the nearest unmerged feature branch by `git merge-base`, else
    `main`. Title `<type>(<NNN>): <description>` from the spec's name; body written from
    `.github/pull_request_template.md`'s five sections, the three review lines under "How it is

@@ -78,11 +78,12 @@ worktree, in a fresh session:
 /speckit-build
 ```
 
-Expected, in order: the build refuses nothing (tasks ticked, `review` registered, `pr-review`
-listed); the review runs through implement's hook or `/speckit-review`; `review.md` exists with a
-resolution under every finding; a draft pull request on `main` titled `feat(061): design and build`;
-the build polls the checks; it marks the pull request ready when every check is green, or stops and
-says which check it could not make green. The pull request body records the stages the build ran,
+Expected, in order: the build refuses nothing (tasks ticked, `## Design finished` in `research.md`,
+`review` registered, `pr-review` listed); `review.md` already has a resolution under every finding,
+so the build goes straight to raising; a draft pull request on `main` titled `feat(061): design and
+build`; the build waits for every check to finish; it marks the pull request ready when each is
+green or shown to be a flake of `main`, or stops and says which check it could neither fix nor show
+to be one. The pull request body records the stages the build ran,
 which is the proof `features/design-and-build/build.feature` asks for.
 
 ## 6. The siblings

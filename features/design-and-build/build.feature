@@ -103,10 +103,10 @@ Feature: The build
     Then the build stops and says the design is not finished
     And the build says how the "analyze" stage is resumed
 
-  Scenario: a build started again after the review stopped on a finding returns to the review
+  Scenario: a build started again after the review stopped on a finding settles it before the pull request
     Given a change's directory whose work list is done and whose review stopped on a finding
     When the developer starts the build
-    Then the review runs again
+    Then the finding is settled from the review as it stands
     And no pull request is raised until every finding is settled
 
   Scenario: the build stops before any stage when review is not installed

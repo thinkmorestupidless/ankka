@@ -163,7 +163,7 @@ asked nothing the design had settled.
 - added `features/design-and-build/build.feature`: a build started on a change whose work is done and reviewed resumes at the pull request
 - added `features/design-and-build/build.feature`: a build started without a work list says the design is not finished
 - added `features/design-and-build/build.feature`: a build started on a work list whose analysis did not finish says the design is not finished
-- added `features/design-and-build/build.feature`: a build started again after the review stopped on a finding returns to the review
+- added `features/design-and-build/build.feature`: a build started again after the review stopped on a finding settles it before the pull request
 - added `features/design-and-build/build.feature`: the build stops before any stage when review is not installed
 - added `features/design-and-build/build.feature`: the build neither merges, tags, publishes nor deploys
 
@@ -382,7 +382,8 @@ page passes.
 - **FR-023**: When no task list exists, or the design did not record that its analysis ran to its
   end, the build command MUST stop and name the command that finishes the design.
 - **FR-023a**: A build started again MUST raise the pull request only once every review finding has
-  a resolution recorded; a review that stopped on a finding goes back to the review.
+  a resolution recorded; a review that stopped on a finding is settled from its report as it stands,
+  never replaced by a fresh one.
 
 **The models**
 

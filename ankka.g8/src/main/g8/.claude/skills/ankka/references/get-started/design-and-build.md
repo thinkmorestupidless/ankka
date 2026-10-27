@@ -72,8 +72,9 @@ work list item by item, committing each and going on without stopping to report.
 with a fresh context, which knows the specification and the plan but nothing of how the code was
 written, reviews the branch, and every finding is fixed or answered in the change's `review.md`.
 The build raises a draft pull request on the right base (the default branch, or the unmerged branch
-this one was cut from), waits for its checks, and leaves a pull request marked ready for review
-when every check is green.
+this one was cut from), waits for every check to finish, and leaves a pull request marked ready for
+review when each check is green, or red only in the way the same job also fails on the default
+branch, which the pull request then says with that run as evidence.
 
 It stops for you only on a decision the design left open, a change to a contract, a check it cannot
 make pass, or a blocking review finding it disagrees with. It never merges, tags, publishes or
@@ -94,10 +95,8 @@ change either line; nothing else names the models.
 
 ## Install
 
-A service made from the ankka template does not yet carry design and build: install it with the
-steps below, which hold for any project.
-
-In any other project, from its root:
+A service made from the ankka template does not yet carry design and build. In it, as in any other
+project, install it with these steps, from the project's root:
 
 1. Install spec-kit and initialise it for Claude Code:
 
@@ -130,14 +129,17 @@ In any other project, from its root:
    They are copied rather than added with `specify extension add`, which would write the skills
    without their `model:` lines.
 
-4. Register both in `.specify/extensions.yml`, beside `bdd`, with the review after implementing:
+4. Register both in `.specify/extensions.yml`, keeping everything `bdd` wrote there. Add two lines
+   under `installed:`, after `- bdd`:
 
    ```yaml
-   installed:
-   - bdd
    - review
    - design-build
-   hooks:
+   ```
+
+   and, under `hooks:`, beside the two hooks `bdd` registered, the review after implementing:
+
+   ```yaml
      after_implement:
      - extension: review
        command: speckit.review

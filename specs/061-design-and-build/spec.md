@@ -77,7 +77,7 @@ answer the questions, approve the pull request.
 
 A person in a family repository types `/speckit-design` followed by a feature description. The
 command runs specify, which writes the spec and, through the `bdd` hook, the living features and
-the glossary. Each `NEEDS CLARIFICATION` the spec raises is put to the person as options with their
+the glossary. Each clarification marker the spec raises is put to the person as options with their
 implications, and the answer goes into the spec. The command runs clarify, whose hook runs the
 checker first; each of clarify's questions is put to the person one at a time and the answer is
 encoded into the spec. The command confirms the checker is green, runs plan and tasks, then runs

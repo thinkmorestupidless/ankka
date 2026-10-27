@@ -114,6 +114,7 @@ form the command prescribes.
 - added `features/design-and-build/design.feature`: a design resumed from a stage whose inputs do not exist says which stage must run first
 - added `features/design-and-build/design.feature`: the design refuses to write a spec on the default branch
 - added `features/design-and-build/design.feature`: the design stops before any stage when bdd is not installed
+- added `features/design-and-build/design.feature`: the design stops before any stage when the developer cannot be asked anything
 - added `features/design-and-build/design.feature`: a clarification is put to the developer without the design ending
 
 ---
@@ -258,6 +259,8 @@ page passes.
   write a spec there and says which branch to make.
 - The person types the design command in a repository without the `bdd` extension. The command says
   the extension is required and stops before specify.
+- The person types the design command in a session that cannot ask questions, such as a headless
+  run. The command stops before specify and says it needs an interactive session.
 - The person types the build command in a repository without the `review` extension. The command
   says the extension is required and stops before implement, so it never raises a pull request
   that carries no review.
@@ -344,7 +347,9 @@ page passes.
 - **FR-015**: The design command MUST refuse to write a spec on the repository's default branch.
 - **FR-016**: Every question the design command asks MUST be asked in the form that keeps the
   command running and its model in force; it MUST NOT ask by ending with a message that waits for
-  the person's next prompt.
+  the person's next prompt. In a session where that form is not available, such as a headless
+  run, it MUST stop before any stage and say it needs one where it is, rather than decide in the
+  person's place.
 
 **The build command**
 

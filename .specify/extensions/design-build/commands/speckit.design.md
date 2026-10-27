@@ -56,6 +56,9 @@ Stop, having written nothing, and say why, when:
    the build it hands over to cannot review without `review`.
 3. **`--from` names a stage whose inputs are missing** (the table below). Name the earliest stage
    that produces them, and the command that resumes there.
+4. **AskUserQuestion is not among this session's tools** (a headless `claude -p` run, a subagent).
+   Say the design needs an interactive Claude Code session and stop. Offer no way round it: a design
+   whose decisions were defaulted is not a design.
 
 ## The stages
 

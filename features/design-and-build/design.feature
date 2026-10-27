@@ -94,6 +94,14 @@ Feature: The design
     Then the design says "bdd" is required
     And no stage runs
 
+  Scenario: the design stops before any stage when the developer cannot be asked anything
+    Given a repository with design and build installed
+    And a developer on the change's branch
+    And a session in which the developer cannot be asked anything
+    When the developer starts the design with a description
+    Then the design says it needs a session in which the developer can be asked
+    And no stage runs
+
   Scenario: a clarification is put to the developer without the design ending
     Given the design is running
     When the developer is asked anything

@@ -225,6 +225,19 @@ pushed to `origin main` in the same step (the brains are the sync channel).
 - **T005, the structural suite before the skills.** `DesignAndBuildExtensionSuite`: 13 tests, 11 red
   (every one that reads a skill, the README or a command file), 2 green on what already existed: the
   manifest registers no hook and requires `bdd` and `review`, and the individual stage skills exist.
+- **T010, the design in a scratch repository, headless.** A spec-kit repository with `bdd`, `review`
+  and `design-build` copied in, each run `claude -p "/speckit-design …" --model sonnet --output-format
+  json`. In every run `modelUsage` named `claude-fable-5-1` alone: the skill's `model:` line replaced
+  the session's model for the whole turn, through several tool calls. On `main` the design refused
+  and named the branch to make; with no description, and with `--from plan` and no spec, it stopped
+  having written nothing and named the stage to run. A headless run has no AskUserQuestion. The
+  first version of the command found that for itself, then offered to carry on with defaults as a
+  plain-text question. So the command and the skill now refuse up front: precondition 4, the
+  scenario "the design stops before any stage when the developer cannot be asked anything", and a
+  sentence on FR-016. Rerun after the change: four turns, a clean refusal, nothing written. **Not
+  provable headlessly, so not yet proven:** questions arriving through AskUserQuestion in an
+  interactive session, and specify's and clarify's hooks firing from inside the design skill. Both
+  are left to the first interactive run (quickstart §4).
 
 ## Declined remediations
 
@@ -232,4 +245,7 @@ pushed to `origin main` in the same step (the brains are the sync channel).
 
 ## Measurements
 
-(empty)
+- **T017, the models test broken once.** With the build skill's line changed to `model: fable`, `as
+  shipped, the design model thinks deeper than the build model` failed (12 of 13 passed) with "the
+  design model (fable) does not think deeper than the build model (fable)"; restored, 13 of 13.
+- **T006 to T016.** With both skills, both command files and the README written, 13 of 13 green.

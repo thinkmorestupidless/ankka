@@ -3029,6 +3029,112 @@ Of a plugin: named like a built-in command, so it is listed and never run.
 What the command line keeps for a control plane URL after `ankka login`: an access
 token, and the means to refresh it when it has run out.
 
+## Design and build
+
+### design and build
+*Proposed.* The two halves of making a change on the platform with a coding agent, the design and
+the build, kept with the platform and copied into a repository as one directory beside "bdd" and
+"review". Avoid: workflow, pipeline.
+
+### design
+*Proposed.* The first half of a change: from a developer's description to a spec, its scenarios in
+the living features, a plan and a work list, run by a coding agent on the design model, asking the
+developer only what they must decide.
+
+### build
+*Proposed.* The second half of a change: from the work list to every work item done and committed,
+the branch reviewed and a pull request ready for review, run by a coding agent on the build model,
+asking the developer only what the design left open.
+
+### stage
+*Proposed.* One step of the design or the build, which can be run alone to repair it or resumed
+from: "specify", "clarify", "plan", "tasks", "analyze", "implement", "review" and the pull request.
+
+### spec
+*Proposed.* What a change says of itself before it is built: who it is for, what it must do, how it
+is known to be done. It names its scenarios in the living features rather than holding them.
+
+### plan
+*Proposed.* What the "plan" stage writes for a change: how it will be built, the research behind
+each decision, the data it holds and the contracts it touches.
+
+### living feature
+*Proposed.* A description of what the platform does now, one per capability, as scenarios; a spec
+names the scenarios it adds, changes or removes. Avoid: feature file.
+
+### scenario
+*Proposed.* One rule of a living feature in one sentence, with the state it starts from, one action
+and the outcome a person could observe.
+
+### glossary
+*Proposed.* The words the living features use, each in exactly one sense, with the synonyms refused
+for each.
+
+### checker
+*Proposed.* The program that holds the living features, the glossary and the specs to each other:
+an undefined word, a refused synonym, a contradiction, a spec naming a scenario no living feature
+has.
+
+### change's directory
+*Proposed.* Where a change's spec, plan, work list and review are kept, named by the repository's
+pointer to the change at hand. Avoid: feature directory, spec directory.
+
+### work list
+*Proposed.* The ordered list of work items the build does for a change, each ticked when done.
+Avoid: task list.
+
+### work item
+*Proposed.* One piece of a change's work, with the files it touches and the check that shows it
+done. Avoid: task.
+
+### clarification
+*Proposed.* A decision only the developer can make, put to them as options with the implication of
+each, whose answer is written into the spec. Avoid: question.
+
+### remediation
+*Proposed.* A change the "analyze" stage proposes to the spec, the plan or the work list to remove
+a finding.
+
+### finding
+*Proposed.* Something the "analyze" stage, the checker or the review reports as wrong or unclear,
+with how much it matters: blocking, should fix, low, or a nit.
+
+### review
+*Proposed.* The reading of a change's branch by a coding agent with a fresh context, against the
+repository's rules, before the pull request; every finding is fixed, declined with a reason or put
+to the developer, and the outcome is recorded in the change's directory.
+
+### model line
+*Proposed.* The one line in the design's or the build's definition that names the model it runs
+on, applied for the whole of a run.
+
+### design model
+*Proposed.* The model the coding agent runs the design on; as shipped, the deeper-thinking model.
+
+### build model
+*Proposed.* The model the coding agent runs the build on; as shipped, a cheaper model than the
+design model.
+
+### branch
+*Proposed.* A line of commits in a repository; a change has one of its own, cut from the default
+branch or from another change's.
+
+### default branch
+*Proposed.* The branch of a repository that releases are cut from and that pull requests are merged
+into unless said otherwise. Avoid: main, master, trunk.
+
+### pull request
+*Proposed.* A change offered on GitHub to be merged into its base, with checks that run on it; it
+is marked ready when it may be reviewed. Avoid: PR, merge request.
+
+### base
+*Proposed.* The branch a pull request asks to be merged into: the default branch, unless the
+change's branch was cut from a branch whose own pull request is not merged.
+
+### hook
+*Proposed.* Something that runs before or after a stage because the repository registered it: the
+"bdd" hooks around "specify" and "clarify", the "review" hook after "implement".
+
 ## Everyday words
 
 exits, help, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
@@ -3106,7 +3212,8 @@ future, gone, granted, grants, largest, lose, losing, maximum, minimum, minute, 
 newest, off, often, ordinary, overwrite, overwrites, overwritten, parallel, passed, past,
 permission, promotion, publishing, raise, raised, raising, reach, real, rebuilt, redacted,
 rehearse, rehearses, restored, returns, right, SASL, share, shares, union,
-withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years, Java, Kotlin, JDK, null, nullable, data, classes, record, merging, rename, renames, scenario, suspending, median, tenth, measures, like
+withdraw, withdraws, withdrew, word, year, breaks, fetches, fetched, built, after, another, beside, shape, lacks, username, password, resolves, resolve, resolving, serving, stands, points, took, free, holder, wildcard, DNS, whenever, match, matches, matching, matched, waited, versions, yields, early, shorter, slowly, elsewhere, outlasts, alive, whole, bad, immediately, reasons, reasoning, rewritten, rewrites, constrains, constrain, constrained, withheld, withholds, temperature, thinking, cache, accounting, template, url, interrupted, tokens, accelerator, accelerators, CPU, GPU, GKE, embedding, uploaded, unaffected, fetching, hour's, supplies, flight, prompts, blank, yesterday, expiry, description, spoke, wrong, mints, minted, seventeen, expiring, years, Java, Kotlin, JDK, null, nullable, data, classes, record, merging, rename, renames, scenario, suspending, median, tenth, measures, like,
+resume, resumes, resumed, resuming, ticked, undone, options, implications, evidence, green, red, low, applied, proposes, proposed, round, rounds, blocking, disagrees, fixes, fix, merges, tagging, publishing, deploying, registers, compares, repair, pointer, lands, committed, commits, inputs, definition, definitions, deeper, deeper-thinking, cheaper, thinks, habit, fact, chose, shipped, opening, getting, presents, skills, MCP, server, approving, settled, choose, raises, raised, watches, returns, prints, printing, analysing, decided, accepts, declined, told, codes, item, items, work, left, open, produce, produces, said, saying, different, put, puts, partly
 
 ### project token
 A deploy token scoped to one project of its organization: a member of that project

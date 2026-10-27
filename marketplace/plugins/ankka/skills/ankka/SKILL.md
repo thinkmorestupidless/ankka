@@ -80,6 +80,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Get started
 
+- `references/get-started/design-and-build.md` — Build a feature on ankka by describing it, answering the design's questions, and approving the pull request the build raises; what each half produces and where you are asked.
 - `references/get-started/install.md` — Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Java, Kotlin, Python, TypeScript, Go and Rust SDKs available to your projects.
 - `references/get-started/first-service-scala.md` — Create a Scala service from the ankka template, test it, run it against a local Postgres, watch it in the local console, and change its domain.
 - `references/get-started/first-service-java.md` — Create a Java service from ankka's template, read its event sourced entity and HTTP endpoint, run it against a local Postgres, test it with and without a database, and watch it in the local console.

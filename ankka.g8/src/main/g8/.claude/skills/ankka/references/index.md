@@ -288,6 +288,8 @@ running. [Effects are data](concepts/effects.md) explains the idea in full.
 
 ## Where to start
 
+- **Building a feature.** [Design, then build](get-started/design-and-build.md): describe it, answer
+  the design's questions, and approve the pull request the build raises.
 - **New to ankka.** [Install the tools](get-started/install.md), then build
   [your first service in Scala](get-started/first-service-scala.md),
   [in Java](get-started/first-service-java.md),

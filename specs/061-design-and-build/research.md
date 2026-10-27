@@ -292,3 +292,9 @@ pushed to `origin main` in the same step (the brains are the sync channel).
   shipped, the design model thinks deeper than the build model` failed (12 of 13 passed) with "the
   design model (fable) does not think deeper than the build model (fable)"; restored, 13 of 13.
 - **T006 to T016.** With both skills, both command files and the README written, 13 of 13 green.
+- **T035 to T039, the page.** `DesignAndBuildDocumentationSuite`: 4 of 4 red before the page, 4 of
+  4 green after; `just docs` 108 pages, no problems, after `just docs-sync` rendered the page into
+  both skill copies. With `/speckit-build` renamed `/speckit-ship` on the page, the names test
+  failed (3 of 4 passed); restored, 4 of 4. Two findings on the way: spec-kit writes a skill's
+  `name:` in quotes, and the speckit-bdd release's address contains `/speckit-bdd`, so the suite
+  strips the quotes and counts a command only where its slash is not inside a path.

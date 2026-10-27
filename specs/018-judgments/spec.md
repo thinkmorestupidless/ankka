@@ -265,7 +265,7 @@ test.
 - added `features/judgments/documentation.feature`: the documentation says what a judged guardrail can and cannot be trusted with
 - added `features/judgments/documentation.feature`: the documentation says why the model version is fixed
 - added `features/judgments/documentation.feature`: the documentation lists every setting of the judgment provider
-- added `features/judgments/documentation.feature`: the documentation says where judgments are not available and how they differ from Akka's
+- added `features/judgments/documentation.feature`: the documentation says where judgments are not available
 - added `features/judgments/documentation.feature`: every page about judgments can be found
 
 ---

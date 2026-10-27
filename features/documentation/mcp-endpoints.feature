@@ -27,8 +27,3 @@ Feature: The documentation of MCP endpoints
     And the documentation says a change to a service's tools is seen by an MCP client at its next listing
     And the documentation says there is no one MCP endpoint for every service of a project
     And the documentation says the platform holds no account and no password for the people a service serves, and mints a token for them only through a sign-in broker the service opted into
-
-  Scenario: the documentation says how ankka's MCP endpoint differs from Akka's
-    Given the published documentation
-    When a reader reads where ankka differs from Akka about MCP endpoints
-    Then the documentation says what Akka's MCP endpoint offers that ankka's does not, and why

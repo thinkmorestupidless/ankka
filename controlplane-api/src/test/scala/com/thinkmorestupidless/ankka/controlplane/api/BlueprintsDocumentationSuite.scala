@@ -61,7 +61,7 @@ class BlueprintsDocumentationSuite extends munit.FunSuite:
     says(Page, "## What a blueprint does not do")
     says(
       "reference/limitations.md",
-      "**Blueprints are Scala only, and say nothing a step cannot.**"
+      "**Blueprints are for Scala, Java and Kotlin services, and say nothing a step cannot.**"
     )
 
     // Listed, and carried by a skill.

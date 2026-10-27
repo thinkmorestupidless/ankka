@@ -134,11 +134,6 @@ Feature: A service in Java or Kotlin is embedded
       | Java     |
       | Kotlin   |
 
-  Scenario: the documentation says where ankka's Java differs from Akka's
-    Given the published documentation
-    When a reader reads where ankka differs from Akka about writing a service in Java
-    Then the documentation says each difference and why
-
   Scenario: every place that names the languages a service may be written in names Java and Kotlin
     Given the published documentation and the platform's skills
     When a reader reads any place that names the languages a service may be written in

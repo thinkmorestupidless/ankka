@@ -26,8 +26,3 @@ Feature: The documentation of autonomous agents
     Then the documentation says that an autonomous agent does not delegate, hand a task on, lead a team or moderate a conversation
     And the documentation says that an autonomous agent has only the tools declared with it, and that one agent instance cannot override its definition
     And the documentation says that the "TypeScript" test kit cannot script an autonomous agent's model
-
-  Scenario: the documentation lists every difference from Akka's autonomous agents with its reason
-    Given the published documentation
-    When a developer reads how the platform differs from Akka
-    Then every deliberate difference of autonomous agents is listed with its reason

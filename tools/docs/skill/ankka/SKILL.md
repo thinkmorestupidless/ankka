@@ -1,6 +1,6 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python, TypeScript and Go via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript, Go and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-go, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python, TypeScript and Go via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript, Go and Rust SDK maps, and what ankka does not do. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-go, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
 pages:
   - index.md
   - get-started/install.md
@@ -23,7 +23,6 @@ pages:
   - reference/typescript-sdk.md
   - reference/go-sdk.md
   - reference/rust-sdk.md
-  - reference/akka-divergences.md
   - reference/limitations.md
   - reference/glossary.md
 ---
@@ -93,5 +92,4 @@ empty build. For the shape of every component's base class, companion and effect
 `references/reference/scala-sdk.md`, `references/reference/java-sdk.md`,
 `references/reference/kotlin-sdk.md`, `references/reference/python-sdk.md`,
 `references/reference/typescript-sdk.md`, `references/reference/go-sdk.md` or `references/reference/rust-sdk.md`. When a capability seems
-missing, check `references/reference/limitations.md` before building around it, and when a habit from
-Akka does not fit, `references/reference/akka-divergences.md` says what ankka does instead.
+missing, check `references/reference/limitations.md` before building around it.

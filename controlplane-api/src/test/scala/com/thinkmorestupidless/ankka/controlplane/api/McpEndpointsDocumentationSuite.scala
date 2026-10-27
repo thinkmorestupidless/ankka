@@ -81,10 +81,3 @@ class McpEndpointsDocumentationSuite extends munit.FunSuite:
     says(limits, "**The sign-in broker holds no account and no password.**")
     says(limits, "mints a token only for that endpoint")
   }
-
-  test("the documentation says how ankka's MCP endpoint differs from Akka's") {
-    val divergences = "reference/akka-divergences.md"
-    says(divergences, "## An MCP endpoint offers tools, built or referenced")
-    says(divergences, "`@McpResource`")
-    says(divergences, "Resources and prompts are left out because")
-  }

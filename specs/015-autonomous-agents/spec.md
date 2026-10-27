@@ -284,7 +284,7 @@ out; the protocol reference table is regenerated and its prose mentions every ne
 - added `features/autonomous-agents/documentation.feature`: the documentation explains autonomous agents on a page that stands alone
 - added `features/autonomous-agents/documentation.feature`: the documentation shows how to build an autonomous agent in each language from tested code
 - added `features/autonomous-agents/documentation.feature`: the documentation says what autonomous agents do not do
-- added `features/autonomous-agents/documentation.feature`: the documentation lists every difference from Akka's autonomous agents with its reason
+*Superseded:* the documentation comparing this with Akka, by the documentation no longer naming Akka at all; what is and is not offered is on the limitations page
 
 ---
 

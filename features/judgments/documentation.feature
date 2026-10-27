@@ -26,11 +26,10 @@ Feature: The documentation of judgments
     When a developer reads the settings of the "Jev" judgment provider
     Then every variable and setting it reads is listed and described
 
-  Scenario: the documentation says where judgments are not available and how they differ from Akka's
+  Scenario: the documentation says where judgments are not available
     Given the published documentation
     When a developer reads the limitations of judgments
-    Then the documentation says that judgments are for the agents of services written in "Scala" alone, and names what is not yet there
-    And the documentation of differences from Akka says where judgments differ from Akka's
+    Then the documentation says that judgments are for the agents of services written in "Scala", "Java" or "Kotlin", and names what is not yet there
 
   Scenario: every page about judgments can be found
     Given the published documentation

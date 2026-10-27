@@ -128,7 +128,7 @@ class DescriptorSuite extends munit.FunSuite:
     assertEquals(InstanceType.names, Vector("small", "medium", "large"))
   }
 
-  test("minInstances defaults to 1, diverging from Akka's 3") {
+  test("minInstances defaults to 1") {
     // Akka targets a managed production cluster; ankka's primary target is a dev cluster
     // where three replicas of everything is a surprise.
     assertEquals(Autoscaling().minInstances, 1)

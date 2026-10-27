@@ -244,7 +244,7 @@ client guide lists it.
 
 - added `features/documentation/awaiting-workflows.feature`: the documentation describes starting a workflow and waiting for its end
 - added `features/documentation/awaiting-workflows.feature`: the documentation says what each ending answers and when to serve a wait as a stream
-- added `features/documentation/awaiting-workflows.feature`: the documentation says Akka offers no wait for a workflow's end
+*Superseded:* the documentation comparing this with Akka, by the documentation no longer naming Akka at all; what is and is not offered is on the limitations page
 
 ---
 

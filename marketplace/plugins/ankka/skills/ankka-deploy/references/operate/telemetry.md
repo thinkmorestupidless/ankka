@@ -179,5 +179,5 @@ programs end the line with them:
 
 A line written outside any handler carries neither and ends as it always did. A Scala service's own
 `logback.xml` decides its pattern; a project made by `ankka init` already ends a line with the ids, and
-[Logs](logs.md) shows what to add to one that does not. A Python or TypeScript process's own lines are
+[Logs](logs.md) shows what to add to one that does not. A Python, TypeScript or Go process's own lines are
 its own and carry no ids.

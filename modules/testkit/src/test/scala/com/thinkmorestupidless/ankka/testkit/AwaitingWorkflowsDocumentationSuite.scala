@@ -63,14 +63,6 @@ class AwaitingWorkflowsDocumentationSuite extends munit.FunSuite:
     says("reference/error-codes.md", "`WorkflowFailed`", "424", "`ABORTED`", "WORKFLOW_FAILED = 8")
   }
 
-  test("the documentation says Akka offers no wait for a workflow's end") {
-    says(
-      "reference/akka-divergences.md",
-      "## A caller can wait for a workflow's end",
-      "Akka offers no wait for a workflow's end"
-    )
-  }
-
   test("the documentation states a wait's limits where limits are listed") {
     says(
       "reference/limitations.md",

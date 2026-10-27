@@ -342,7 +342,7 @@ takeover; the divergences page says which of Akka's modes was adopted and which 
 
 - added `features/documentation/replicated-entities.feature`: the documentation describes the home, followers, the replication set and the handover
 - added `features/documentation/replicated-entities.feature`: the documentation says what replication across installations needs and what is not offered
-- added `features/documentation/replicated-entities.feature`: the documentation says which of Akka's replication modes ankka adopted
+*Superseded:* the documentation comparing this with Akka, by the documentation no longer naming Akka at all; what is and is not offered is on the limitations page
 
 ---
 

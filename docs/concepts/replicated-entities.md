@@ -4,7 +4,7 @@ description: An event sourced entity held at several installations and written a
 kind: concept
 languages: [scala, python, typescript, rust]
 components: [event-sourced-entity, consumer, view]
-related: [build/event-sourced-entities.md, concepts/consistency.md, build/consumers.md, build/views.md, reference/limitations.md, reference/akka-divergences.md]
+related: [build/event-sourced-entities.md, concepts/consistency.md, build/consumers.md, build/views.md, reference/limitations.md]
 ---
 
 # Replicated entities

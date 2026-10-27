@@ -243,7 +243,7 @@ workflows guide links to them, and the divergences page has the row.
 
 - added `features/documentation/workflow-sources.feature`: the documentation names a workflow among the sources of a view and a consumer
 - added `features/documentation/workflow-sources.feature`: the documentation of workflows says a standing can be read as it changes
-- added `features/documentation/workflow-sources.feature`: the documentation says a workflow source delivers the standing beside the state
+*Superseded:* the documentation comparing this with Akka, by the documentation no longer naming Akka at all; what is and is not offered is on the limitations page
 
 ---
 

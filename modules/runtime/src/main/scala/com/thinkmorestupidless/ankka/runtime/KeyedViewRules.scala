@@ -9,9 +9,9 @@ import com.thinkmorestupidless.ankka.sdk.{ChangeSource, KeyedViewDescriptor}
  * however it arrived: written in Scala, or discovered from a process or a module. A service that
  * breaks a rule does not start, and the problem names the view.
  *
- * A keyed view reads entities only. A topic is refused beside an entity because only the entity's
- * half could be rebuilt — a broker retains a window, not a record — and refused alone because a
- * topic source is already a plain view's.
+ * A keyed view reads entities and workflows, never a topic. A topic is refused beside either
+ * because only the entity's or the workflow's half could be rebuilt — a broker retains a window,
+ * not a record — and refused alone because a topic source is already a plain view's.
  */
 private[ankka] object KeyedViewRules:
 

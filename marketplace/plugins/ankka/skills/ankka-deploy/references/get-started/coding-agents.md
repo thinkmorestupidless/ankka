@@ -17,7 +17,7 @@ deployment guide:
 
 | Skill | For |
 |---|---|
-| `ankka` | orientation: what ankka is, installing it, the first service, the SDK maps, limitations, differences from Akka |
+| `ankka` | orientation: what ankka is, installing it, the first service, the SDK maps, limitations |
 | `ankka-design` | decomposing a domain into components, where each rule lives, what may lag, service boundaries, and the component table that records each choice and the alternative it beat |
 | `ankka-inspect` | checking a service running on this machine against its specification's acceptance scenarios, through its endpoints, its declared queries and its traces |
 | `ankka-port` | porting an existing system: recording what the running original does, a specification that says how each requirement was established, and parity tests that hold the rebuild to the recordings |

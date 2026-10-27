@@ -7,9 +7,9 @@ related: [get-started/install.md, concepts/architecture.md, concepts/components.
 
 # ankka
 
-ankka is a serverless application platform for agentic AI, built on the actor model. It reimplements
-[Akka's](https://doc.akka.io/) component model in Scala 3 on [Apache Pekko](https://pekko.apache.org/),
-the Apache 2.0 fork of Akka 2.6, so the programming model carries no licence constraint on who runs it.
+ankka is a serverless application platform for agentic AI, built on the actor model: Scala 3 on
+[Apache Pekko](https://pekko.apache.org/), Apache 2.0 throughout, so the programming model carries no
+licence constraint on who runs it.
 You write components; ankka supplies the runtime. Sharding, persistence, replay, projections, durable
 orchestration, timers, HTTP and the agent loop are the platform's problem, not yours.
 

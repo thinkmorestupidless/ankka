@@ -1451,8 +1451,8 @@ The rules a keyed view keeps:
   how far the source has been read are written in one transaction, so the change is applied exactly once.
   Over a key value entity the record is made afterwards, and a change may be handled again, as it may for
   any view of a key value entity: a key value entity keeps no history to make it otherwise.
-- **A keyed view reads entities only.** A topic and an entity may not be sources of one view, and a service
-  that declares one does not start.
+- **A keyed view reads entities and workflows, never a topic.** A topic and an entity, or a topic and a
+  workflow, may not be sources of one view, and a service that declares one does not start.
 
 Handling one change at a time is the price of these rules: a keyed view has one writer, whatever the number
 of instances, and its throughput is its handlers'. A handler that waits on its own view's read longer than

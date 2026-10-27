@@ -238,6 +238,13 @@ pushed to `origin main` in the same step (the brains are the sync channel).
   provable headlessly, so not yet proven:** questions arriving through AskUserQuestion in an
   interactive session, and specify's and clarify's hooks firing from inside the design skill. Both
   are left to the first interactive run (quickstart §4).
+- **T015, `gh` 2.103.2.** `gh pr checks --watch --fail-fast` on #195, every check green or skipped,
+  exited 0. On #194, with `template-scala` red and `build (testkit)` still pending, it exited 1 at
+  once, without waiting for the pending check. Exit 8 means checks pending and is returned only
+  without `--watch`. A required check that never starts keeps `--watch` waiting, which is the
+  unbounded poll the spec chose. `gh pr ready` with no argument marks the current branch's pull
+  request ready, and is proven on this branch's own draft once its checks are green. The build
+  command's wording needed no change.
 
 ## Declined remediations
 

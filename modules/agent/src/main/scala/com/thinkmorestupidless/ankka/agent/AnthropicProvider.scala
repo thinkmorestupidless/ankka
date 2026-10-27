@@ -177,11 +177,7 @@ final class AnthropicProvider private (
           ContentBlockParam.ofText(text)
         }
         builder.addMessage(
-          MessageParam
-            .builder()
-            .role(MessageParam.Role.USER)
-            .contentOfBlockParams(blocks.toList.asJava)
-            .build()
+          MessageParam.ofUserOfContentBlockParams(blocks.toList.asJava)
         ): Unit
 
       case ChatMessage.Assistant(text, calls, _) =>
@@ -211,11 +207,7 @@ final class AnthropicProvider private (
         // send something the API will refuse.
         if blocks.nonEmpty then
           builder.addMessage(
-            MessageParam
-              .builder()
-              .role(MessageParam.Role.ASSISTANT)
-              .contentOfBlockParams(blocks.toList.asJava)
-              .build()
+            MessageParam.ofAssistantOfContentBlockParams(blocks.toList.asJava)
           ): Unit
 
       case ChatMessage.ToolResults(results) =>
@@ -232,11 +224,7 @@ final class AnthropicProvider private (
           )
         }
         builder.addMessage(
-          MessageParam
-            .builder()
-            .role(MessageParam.Role.USER)
-            .contentOfBlockParams(blocks.toList.asJava)
-            .build()
+          MessageParam.ofUserOfContentBlockParams(blocks.toList.asJava)
         ): Unit
 
   // ── Response ──────────────────────────────────────────────────────────────
@@ -390,7 +378,13 @@ object AnthropicProvider:
   ): AnthropicProvider =
     if sys.env.get(KeyVariable).exists(_.nonEmpty) then
       new AnthropicProvider(
-        Right(AnthropicOkHttpClient.fromEnv()),
+        Right(
+          AnthropicOkHttpClient
+            .builder()
+            .fromEnv()
+            .putHeader(KeyHeader, sys.env(KeyVariable))
+            .build()
+        ),
         modelName,
         defaults,
         Name,
@@ -406,9 +400,18 @@ object AnthropicProvider:
     env.get(KeyVariable).filter(_.nonEmpty) match
       case None      => withoutKey(modelName, defaults)
       case Some(key) =>
-        val builder = AnthropicOkHttpClient.builder().apiKey(key)
+        val builder = keyed(key)
         env.get("ANTHROPIC_BASE_URL").filter(_.nonEmpty).foreach(url => builder.baseUrl(url): Unit)
         new AnthropicProvider(Right(builder.build()), modelName, defaults, Name, Quirks.anthropic)
+
+  /**
+   * The SDK sends a key it was given as `Authorization: Bearer` unless the request already carries
+   * `X-Api-Key`; the Messages API and the servers that speak it read the key from `x-api-key`.
+   */
+  private val KeyHeader = "X-Api-Key"
+
+  private def keyed(key: String): AnthropicOkHttpClient.Builder =
+    AnthropicOkHttpClient.builder().apiKey(key).putHeader(KeyHeader, key)
 
   private def withoutKey(modelName: String, defaults: Defaults): AnthropicProvider =
     log.warn(
@@ -430,7 +433,7 @@ object AnthropicProvider:
       defaults: Defaults = Defaults()
   ): AnthropicProvider =
     new AnthropicProvider(
-      Right(AnthropicOkHttpClient.builder().apiKey(apiKey).build()),
+      Right(keyed(apiKey).build()),
       modelName,
       defaults,
       Name,
@@ -463,10 +466,8 @@ object AnthropicProvider:
       quirks: Quirks = Quirks.compatibleAnthropic
   ): AnthropicProvider =
     val root   = address.stripSuffix("/").stripSuffix("/v1")
-    val client = AnthropicOkHttpClient
-      .builder()
+    val client = keyed(key.filter(_.nonEmpty).getOrElse(ModelProviders.NoKey))
       .baseUrl(root)
-      .apiKey(key.filter(_.nonEmpty).getOrElse(ModelProviders.NoKey))
       .maxRetries(0)
       .build()
     new AnthropicProvider(Right(client), modelName, defaults, name, quirks)

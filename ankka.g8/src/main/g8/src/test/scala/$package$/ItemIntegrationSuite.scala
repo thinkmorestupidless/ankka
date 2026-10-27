@@ -7,8 +7,8 @@ import scala.concurrent.duration.DurationInt
 
 /**
  * The whole service against a throwaway Postgres. `restartService()` drops every entity from
- * memory, so the second read proves durability — the state came back from the journal, not from
- * a cache.
+ * memory, so the second read proves durability — the state came back from the journal, not from a
+ * cache.
  */
 class ItemIntegrationSuite extends munit.FunSuite:
 

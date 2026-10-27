@@ -37,7 +37,7 @@ object RotatingServerTls:
         km: Array[KeyManager],
         tm: Array[TrustManager],
         random: SecureRandom
-    ): Unit = ()
+    ): Unit                                                           = ()
     override protected def engineGetSocketFactory(): SSLSocketFactory =
       tls.sslContext.getSocketFactory
     override protected def engineGetServerSocketFactory(): SSLServerSocketFactory =

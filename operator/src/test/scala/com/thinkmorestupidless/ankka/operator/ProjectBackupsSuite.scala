@@ -37,7 +37,7 @@ class ProjectBackupsSuite extends munit.FunSuite:
         namespace: String,
         selector: Map[String, String],
         timeout: scala.concurrent.duration.FiniteDuration
-    ) = true
+    )                                                                                    = true
     override def observeBackups(namespace: String, cluster: String, objectStore: String) =
       BackupObservation(this.cluster, window, None)
     override def query(namespace: String, pod: String, database: String, sql: String) =

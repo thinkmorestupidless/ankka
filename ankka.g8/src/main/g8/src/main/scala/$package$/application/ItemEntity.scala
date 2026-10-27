@@ -11,7 +11,8 @@ import com.thinkmorestupidless.ankka.sdk.*
  * events. A handler returns an *effect* — a description of what should happen — and never performs
  * I/O itself; that is what lets `ItemEntitySuite` drive it with no database.
  */
-final class ItemEntity(context: EventSourcedEntityContext) extends EventSourcedEntity[Item, ItemEvent]:
+final class ItemEntity(context: EventSourcedEntityContext)
+    extends EventSourcedEntity[Item, ItemEvent]:
 
   private val itemId: String = context.entityId
 

@@ -148,7 +148,7 @@ private[ankka] object JavaTimers:
         delay: Duration,
         period: Duration,
         action: NoArgActionRef[A]
-    ): Unit = refuse
+    ): Unit                           = refuse
     def cancel(name: String): Unit    = refuse
     def exists(name: String): Boolean = refuse
 

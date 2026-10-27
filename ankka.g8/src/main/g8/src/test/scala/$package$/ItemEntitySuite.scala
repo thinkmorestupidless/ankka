@@ -24,9 +24,9 @@ class ItemEntitySuite extends munit.FunSuite:
   }
 
   test("state is the fold of the events, and nothing else") {
-    val kit = newKit
-    val _   = kit.call(ItemEntity.addItem)(AddItem("Widget", 2))
-    val _   = kit.call(ItemEntity.addItem)(AddItem("Widget", 3))
+    val kit    = newKit
+    val _      = kit.call(ItemEntity.addItem)(AddItem("Widget", 2))
+    val _      = kit.call(ItemEntity.addItem)(AddItem("Widget", 3))
     val folded = kit.allEvents.foldLeft(Item.empty("item-1")) {
       case (item, ItemAdded(name, count)) => item.onAdded(name, count)
     }

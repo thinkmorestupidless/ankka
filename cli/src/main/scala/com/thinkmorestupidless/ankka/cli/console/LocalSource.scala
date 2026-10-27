@@ -68,28 +68,29 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
     for
       entry   <- forName(name)
       address <- httpAddressOf(entry)
-    yield try
-      val builder = HttpRequest
-        .newBuilder(URI.create(address + request.path))
-        .timeout(Duration.ofSeconds(30))
-      request.headers.foreach((k, v) => builder.header(k, v): Unit)
-      val publisher = request.body match
-        case Some(body) => HttpRequest.BodyPublishers.ofString(body)
-        case None       => HttpRequest.BodyPublishers.noBody()
-      builder.method(request.method, publisher): Unit
+    yield
+      try
+        val builder = HttpRequest
+          .newBuilder(URI.create(address + request.path))
+          .timeout(Duration.ofSeconds(30))
+        request.headers.foreach((k, v) => builder.header(k, v): Unit)
+        val publisher = request.body match
+          case Some(body) => HttpRequest.BodyPublishers.ofString(body)
+          case None       => HttpRequest.BodyPublishers.noBody()
+        builder.method(request.method, publisher): Unit
 
-      val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
-      val headers  = response
-        .headers()
-        .map()
-        .asScala
-        .toVector
-        .flatMap((k, vs) => vs.asScala.map(v => (k, v)))
-      InvokeResponse(response.statusCode(), headers, response.body)
-    catch
-      // A service that refuses the connection is a fact worth showing, not an error page.
-      case failure: Throwable =>
-        InvokeResponse(0, Vector.empty, s"could not reach the service: ${failure.getMessage}")
+        val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
+        val headers  = response
+          .headers()
+          .map()
+          .asScala
+          .toVector
+          .flatMap((k, vs) => vs.asScala.map(v => (k, v)))
+        InvokeResponse(response.statusCode(), headers, response.body)
+      catch
+        // A service that refuses the connection is a fact worth showing, not an error page.
+        case failure: Throwable =>
+          InvokeResponse(0, Vector.empty, s"could not reach the service: ${failure.getMessage}")
 
   /**
    * The streaming counterpart, read a line at a time and handed on immediately.

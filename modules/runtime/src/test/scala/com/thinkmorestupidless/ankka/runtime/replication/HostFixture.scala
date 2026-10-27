@@ -120,8 +120,8 @@ private object NoCalls extends CallTransport:
       method: MethodName,
       payload: Array[Byte],
       metadata: Metadata
-  ): Future[Array[Byte]] = Future.failed(UnsupportedOperationException("no calls here"))
-  def askTimeout: FiniteDuration                                             = 5.seconds
+  ): Future[Array[Byte]]         = Future.failed(UnsupportedOperationException("no calls here"))
+  def askTimeout: FiniteDuration = 5.seconds
   def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit = ()
 
 /** One copy of `track|<id>` at installation `self`, in an actor system of its own. */

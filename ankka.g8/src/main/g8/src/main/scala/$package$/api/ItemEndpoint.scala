@@ -17,11 +17,13 @@ import com.thinkmorestupidless.ankka.sdk.ComponentClient
  * `AllowAll` endpoint is reachable from the internet. Exposure changes who can reach an endpoint,
  * not who is allowed to; this line does.
  */
-final class ItemEndpoint(client: ComponentClient, views: com.thinkmorestupidless.ankka.runtime.ViewClient)
-    extends HttpEndpoint("/items"):
+final class ItemEndpoint(
+    client: ComponentClient,
+    views: com.thinkmorestupidless.ankka.runtime.ViewClient
+) extends HttpEndpoint("/items"):
 
-  private given JsonValueCodec[Item]    = Codecs.make[Item]
-  private given JsonValueCodec[AddItem] = Codecs.make[AddItem]
+  private given JsonValueCodec[Item]            = Codecs.make[Item]
+  private given JsonValueCodec[AddItem]         = Codecs.make[AddItem]
   private given JsonValueCodec[ItemRow]         = Codecs.make[ItemRow]
   private given JsonValueCodec[Vector[ItemRow]] = Codecs.make[Vector[ItemRow]]
 

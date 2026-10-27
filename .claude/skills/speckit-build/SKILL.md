@@ -69,8 +69,9 @@ Stop, having changed nothing, and say why, when:
 
    This is checked here, before implement, so a missing plugin costs nothing; the review's own check
    stays as a second guard.
-4. **The tree is not clean** and the state below is anything but implementing: say what is
-   uncommitted. During implementing, uncommitted changes are the task in hand.
+4. **The tree is not clean** and the state below is neither implementing nor reviewing: say what is
+   uncommitted. During implementing, uncommitted changes are the task in hand; during reviewing,
+   they are `review.md` and the fixes for its findings.
 
 ## Where to start
 
@@ -80,14 +81,24 @@ makes a run that was cut short resumable by typing the command again:
 | What the tree and GitHub say | State | What runs |
 |---|---|---|
 | `tasks.md` has a task not marked `[X]` | implementing | `/speckit-implement`, whose `after_implement` hook reviews |
-| every task `[X]`, the review not finished | reviewing | `/speckit-review` |
-| every task `[X]`, the review finished, no open pull request for this branch | raising | the pull request |
-| an open pull request for this branch | watching | the checks |
+| every task `[X]`, no `review.md` | reviewing | `/speckit-review` |
+| every task `[X]`, `review.md` with a finding not yet settled | reviewing | acting on the findings already reported |
+| every task `[X]`, the review finished, no pull request for this branch | raising | the pull request |
+| a pull request for this branch | watching | the checks, when it is open |
 
-The review is finished when the feature directory's `review.md` exists and every finding in it has
-a resolution line under it (`Resolved:`, `Declined:`, `Answered:` or `Left:`). A `review.md` with a
-finding still unanswered is a review that stopped, for instance on a blocking finding the person was
-asked about, and the build goes back to `/speckit-review`, never on to the pull request.
+A finding is a bullet under a `Blocking`, `Should fix`, `Nits` or `Questions` heading of
+`review.md`, in any round (a second round's report is appended under `## Second round` with the
+same headings). Praise, out-of-scope notes and the list of checks applied are not findings. The
+review is finished when `review.md` exists and every finding has a resolution line under it
+(`Resolved:`, `Declined:`, `Answered:` or `Left:`).
+
+A `review.md` with a finding not yet settled is a review that stopped, for instance on a blocking
+finding the person was asked about. The build does not run `/speckit-review` again, which would
+start a fresh reviewer and write over the report. It goes on from its "Acting on the findings"
+section with the report as it stands: each finding without a resolution is fixed, declined or
+answered (a blocking one it disagrees with is asked through AskUserQuestion), the resolution line is
+written under it, the fixes and `review.md` are committed, and the one further round that section
+allows runs when a blocking finding was fixed. Never on to the pull request before.
 
 Whether a pull request exists: `gh pr view --json number,state,isDraft,url,baseRefName` on the
 branch, which fails when there is none. Only one whose `state` is `OPEN` is watched. A merged or
@@ -146,8 +157,9 @@ Invoke `/speckit-review`. It spawns the reviewer with a fresh context, acts on e
 
 1. **Wait for the checks to appear.** A pull request just raised may have none registered yet. Poll
    `gh pr checks` every 15 seconds until it lists at least one, for at most five minutes. When none
-   ever appears, the repository runs no checks on pull requests: say so in the body and go to
-   marking it ready.
+   appears and no file under `.github/workflows/` runs on `pull_request`, the repository runs no
+   checks on pull requests: say so in the body and go to marking it ready. When one does, a queue or
+   an outage is holding the checks: stop with the pull request a draft and say so.
 2. **Wait for every check to finish**: `gh pr checks --watch`, without `--fail-fast`, so a red
    check does not end the wait while others are still running. It has no bound of its own.
 3. **Then, for each red check**, read it (`gh run view <run id> --log-failed`) and either
@@ -162,7 +174,8 @@ Invoke `/speckit-review`. It spawns the reviewer with a fresh context, acts on e
    draft; say which check, what it reported, and what was tried.
 
 A run cut short while watching is resumed by typing the command again: it finds the pull request
-and watches its checks.
+and watches its checks. A pull request that is merged or closed is reported, with its URL, and the
+run stops: whether to raise another is the person's call.
 
 ## The end
 

@@ -146,8 +146,9 @@ Record that the design finished: append to the feature's `research.md` a section
 ```
 
 (or, when the person chose "proceed to build with these" after the third round, `<date>: the
-person proceeded with <n> findings above LOW`, listing them), and commit it with the last analyze
-commit. The build refuses a task list without this section: it is how it knows the analysis ran to
+person proceeded with <n> findings above LOW`, listing them), and commit it: in the analyze commit
+when the last round changed files, alone (`docs(NNN): design finished`) when it changed nothing.
+The build refuses a task list without this section: it is how it knows the analysis ran to
 its end. A run stopped by "stop here" records nothing.
 
 Then print, in this order: the feature directory; the task count (`0 of N`); the checker's result; the

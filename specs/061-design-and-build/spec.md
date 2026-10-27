@@ -50,6 +50,26 @@ answer the questions, approve the pull request.
 - Q: Where does the documentation page sit? → A: A new page that opens the get-started section and
   is the first link on the opening page's "Where to start"; the opening page keeps its shape and
   gains a paragraph pointing there.
+- Q: Do the glossary's proposed terms stand? → A: Yes, all as written: design and build, design,
+  build, stage, spec, plan, living feature, scenario, glossary, checker, change's directory, work
+  list, work item, clarification, remediation, finding, review, model line, design model, build
+  model, branch, default branch, pull request, base, hook. The spec itself keeps saying "extension"
+  for the packaging, spec-kit's own word.
+- Q: Is installing design and build in the sibling repositories part of this feature? → A: Yes,
+  everywhere: every family repository whose checkout has spec-kit gets design and build, and
+  whatever of `bdd` and `review` it lacks, in this feature. Today only ankka has both; voice,
+  ankka-flow, ankka-reasoning, ankka-predictions, ankka-projects, ankka-for-trades,
+  ankka-for-plumbers, ankka-for-plumbers-android, ankka-for-plumbers-ios, programme and
+  ankka-modules have `bdd` alone and get `review` and design and build; satisfactory, ankka-vendor
+  and ankka-replication have no extension and get all three. A repository without spec-kit is
+  outside this feature.
+- Q: How does the page say a project outside the template gets design and build? → A: The steps
+  by hand: install spec-kit, initialise it with the Claude integration, copy the `bdd`, `review`
+  and `design-build` extension directories from the ankka repository, register them, install the
+  `pr-review` plugin. No install script.
+- Q: How long does the build wait for the pull request's checks? → A: Until they finish, polling,
+  with no fixed bound; a run cut short is resumed by typing the build again, which finds the pull
+  request and resumes at its checks.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -259,9 +279,18 @@ page passes.
 - A check is red for a reason not on the branch: a flake the default branch also shows. The
   command shows the evidence (the same failure on a run of the default branch) in the pull request
   and does not count it against marking ready; a red check without such evidence is the branch's.
-- The checks take longer than the command can wait. The command says where the pull request is and
-  that it is still a draft, and marking it ready is done by typing the build command again, which
-  finds the tasks ticked and the review done and resumes at the checks.
+- The build's run is cut short while it is polling the checks. The pull request is still a draft;
+  typing the build command again finds the tasks ticked, the review done and the pull request
+  raised, and resumes at the checks.
+- The reviewer's skill (`pr-review`) is not installed when the build starts. The build stops before
+  implement and says how to install it, rather than implementing for hours and failing at the
+  review.
+- A sibling repository has spec-kit but not `bdd` or `review`. It is given what it lacks before
+  design and build: `review` as a copy of ankka's; `bdd` as the extension, an empty glossary, an
+  empty features directory and a configuration whose first checked spec is the next one written,
+  so the specs it already has are not read and stay as they are.
+- A sibling repository has no spec-kit. It is outside this feature and named as such in the pull
+  request.
 - The person types the design command with the resume option naming a stage whose inputs do not
   exist yet. The command says which earlier stage must run first.
 - The tool is started on a model other than the one a command names. The command's model line
@@ -280,7 +309,8 @@ page passes.
   it provides, installed in a repository the way `review` is installed.
 - **FR-002**: The extension MUST require the `bdd` and `review` extensions and MUST say so where a
   person installs it; a command that finds one missing MUST stop before any stage runs and say
-  which is missing.
+  which is missing. The build command MUST also check, before implement, that the reviewer's skill
+  the `review` extension needs is installed, and stop with the install instructions when it is not.
 - **FR-003**: The extension MUST NOT change any existing spec-kit command, the `bdd` extension, the
   `review` extension or the checker. The two commands MUST invoke the existing commands for each
   stage.
@@ -322,8 +352,9 @@ page passes.
   NOT depend on anything from the session that designed the feature.
 - **FR-018**: The build command MUST run, in order: implement, the review the `review` extension
   provides, and the pull request.
-- **FR-019**: Implement MUST commit each task and go on to the next without stopping to report;
-  a partly ticked task list MUST resume from its first unticked task.
+- **FR-019**: Implement MUST commit each task and go on to the next without stopping to report,
+  printing one line of progress per task; a partly ticked task list MUST resume from its first
+  unticked task.
 - **FR-020**: The build command MUST stop for the person only on a decision the spec and plan left
   open, a change that would alter a contract, a task whose check it cannot make pass, or a blocking
   review finding it disagrees with. Each MUST be put as options with their implications where
@@ -332,7 +363,8 @@ page passes.
   branch was cut from an unmerged feature branch, in which case on that branch with the dependency
   said in the first line; its title MUST follow the repository's commit convention and its body the
   repository's pull request template, carrying the review's outcome lines.
-- **FR-022**: After raising the pull request, the build command MUST watch its checks; a red check
+- **FR-022**: After raising the pull request, the build command MUST watch its checks by polling
+  until every one has finished, with no fixed bound on the wait; a red check
   MUST be fixed on the branch or shown, with evidence, to be a known flake of the default branch
   and said in the pull request; when every check is green the command MUST mark the pull request
   ready and tell the person a review is waiting. A check it cannot make green MUST stop the command
@@ -357,6 +389,14 @@ page passes.
 - **FR-027**: The family's conventions document MUST describe the feature workflow as the two
   commands: the stages each runs, where each asks the person, and the individual commands kept for
   repairing one stage.
+- **FR-027a**: The extension MUST be copied and registered in every family repository whose
+  checkout has spec-kit, each on a branch of that repository with its own commits and pull request,
+  together with whatever of `bdd` and `review` the repository lacks: `review` as a copy of ankka's
+  current extension and skill; `bdd` as the extension, an empty glossary, an empty features
+  directory, the checker wired into that repository's checks, and its first checked spec set to the
+  next spec written there, so existing specs are not read. Nothing already in a sibling repository
+  MUST change but its extension registration, its skills directory and, for `bdd`, its checks.
+  Repositories without spec-kit MUST be named as outside this feature in its pull request.
 
 **The documentation page**
 
@@ -365,7 +405,10 @@ page passes.
 - **FR-029**: The page MUST say what each command produces, where the person is asked and where
   they are not, that the two commands run on different models and why, how the extension is
   installed in a project made from the template and in any other project, and what the spec
-  directory, the living features and the glossary are.
+  directory, the living features and the glossary are. For a project outside the template the page
+  MUST give the steps by hand: install spec-kit, initialise it with the Claude integration, copy the
+  `bdd`, `review` and `design-build` extension directories from the ankka repository, register
+  them, install the `pr-review` plugin.
 - **FR-030**: The page MUST open the get-started section and be the first link on the opening
   page's "Where to start"; the opening page MUST keep its shape and gain a paragraph pointing to
   it; the page on skills and the MCP server MUST stay as the detail of what the agent is given.
@@ -416,6 +459,9 @@ page passes.
   check.
 - **SC-008**: The family's conventions describe the workflow in two rows rather than eight, and
   nothing in the two commands contradicts a rule that stays.
+- **SC-009**: Every family repository with spec-kit (fourteen besides ankka today) has `bdd`,
+  `review` and design and build registered, the design command starts in each, and the checker
+  reports a clean project in each; the repositories without spec-kit are listed as outside.
 
 ## Assumptions
 
@@ -439,6 +485,10 @@ page passes.
   recorded resumes at the pull request, and one whose pull request exists resumes at its checks.
 - The conventions document is in the family brain, a sibling checkout, and is changed in the same
   piece of work; the private brain carries nothing about the workflow that needs changing.
+- The sibling repositories are the checkouts beside ankka (and ankka-modules in its own place);
+  each sibling's change is a branch and a pull request of its own, raised as a draft and left for
+  the person, since this feature's own build command does not exist until this pull request merges.
+  ankka-modules belongs to another company's brain; its copy is made the same way and said there.
 - The page names the commands; a check in the documentation tool or the features check holds the
   names to the extension's.
 
@@ -450,4 +500,9 @@ page passes.
 - Making the feature branch, the checkout or the worktree.
 - The service template and `ankka init` carrying the extension into new projects; a follow-up.
 - Publishing the extension anywhere other than the ankka repository, from which it is copied.
+- Moving a sibling repository's existing specs' scenarios into living features when it gains
+  `bdd`; its first checked spec is the next one, and the earlier ones stay as written.
+- Repositories without spec-kit (ankka-contrib, ankka-deployments, cloudflow, ankka-forge,
+  forge-application, voice-website).
+- Any install script; the documentation gives the steps by hand.
 - Any change to the review's reviewer, its brief or its report.

@@ -3032,107 +3032,107 @@ token, and the means to refresh it when it has run out.
 ## Design and build
 
 ### design and build
-*Proposed.* The two halves of making a change on the platform with a coding agent, the design and
+The two halves of making a change on the platform with a coding agent, the design and
 the build, kept with the platform and copied into a repository as one directory beside "bdd" and
 "review". Avoid: workflow, pipeline.
 
 ### design
-*Proposed.* The first half of a change: from a developer's description to a spec, its scenarios in
+The first half of a change: from a developer's description to a spec, its scenarios in
 the living features, a plan and a work list, run by a coding agent on the design model, asking the
 developer only what they must decide.
 
 ### build
-*Proposed.* The second half of a change: from the work list to every work item done and committed,
+The second half of a change: from the work list to every work item done and committed,
 the branch reviewed and a pull request ready for review, run by a coding agent on the build model,
 asking the developer only what the design left open.
 
 ### stage
-*Proposed.* One step of the design or the build, which can be run alone to repair it or resumed
+One step of the design or the build, which can be run alone to repair it or resumed
 from: "specify", "clarify", "plan", "tasks", "analyze", "implement", "review" and the pull request.
 
 ### spec
-*Proposed.* What a change says of itself before it is built: who it is for, what it must do, how it
+What a change says of itself before it is built: who it is for, what it must do, how it
 is known to be done. It names its scenarios in the living features rather than holding them.
 
 ### plan
-*Proposed.* What the "plan" stage writes for a change: how it will be built, the research behind
+What the "plan" stage writes for a change: how it will be built, the research behind
 each decision, the data it holds and the contracts it touches.
 
 ### living feature
-*Proposed.* A description of what the platform does now, one per capability, as scenarios; a spec
+A description of what the platform does now, one per capability, as scenarios; a spec
 names the scenarios it adds, changes or removes. Avoid: feature file.
 
 ### scenario
-*Proposed.* One rule of a living feature in one sentence, with the state it starts from, one action
+One rule of a living feature in one sentence, with the state it starts from, one action
 and the outcome a person could observe.
 
 ### glossary
-*Proposed.* The words the living features use, each in exactly one sense, with the synonyms refused
+The words the living features use, each in exactly one sense, with the synonyms refused
 for each.
 
 ### checker
-*Proposed.* The program that holds the living features, the glossary and the specs to each other:
+The program that holds the living features, the glossary and the specs to each other:
 an undefined word, a refused synonym, a contradiction, a spec naming a scenario no living feature
 has.
 
 ### change's directory
-*Proposed.* Where a change's spec, plan, work list and review are kept, named by the repository's
+Where a change's spec, plan, work list and review are kept, named by the repository's
 pointer to the change at hand. Avoid: feature directory, spec directory.
 
 ### work list
-*Proposed.* The ordered list of work items the build does for a change, each ticked when done.
+The ordered list of work items the build does for a change, each ticked when done.
 Avoid: task list.
 
 ### work item
-*Proposed.* One piece of a change's work, with the files it touches and the check that shows it
+One piece of a change's work, with the files it touches and the check that shows it
 done. Avoid: task.
 
 ### clarification
-*Proposed.* A decision only the developer can make, put to them as options with the implication of
+A decision only the developer can make, put to them as options with the implication of
 each, whose answer is written into the spec. Avoid: question.
 
 ### remediation
-*Proposed.* A change the "analyze" stage proposes to the spec, the plan or the work list to remove
+A change the "analyze" stage proposes to the spec, the plan or the work list to remove
 a finding.
 
 ### finding
-*Proposed.* Something the "analyze" stage, the checker or the review reports as wrong or unclear,
+Something the "analyze" stage, the checker or the review reports as wrong or unclear,
 with how much it matters: blocking, should fix, low, or a nit.
 
 ### review
-*Proposed.* The reading of a change's branch by a coding agent with a fresh context, against the
+The reading of a change's branch by a coding agent with a fresh context, against the
 repository's rules, before the pull request; every finding is fixed, declined with a reason or put
 to the developer, and the outcome is recorded in the change's directory.
 
 ### model line
-*Proposed.* The one line in the design's or the build's definition that names the model it runs
+The one line in the design's or the build's definition that names the model it runs
 on, applied for the whole of a run.
 
 ### design model
-*Proposed.* The model the coding agent runs the design on; as shipped, the deeper-thinking model.
+The model the coding agent runs the design on; as shipped, the deeper-thinking model.
 
 ### build model
-*Proposed.* The model the coding agent runs the build on; as shipped, a cheaper model than the
+The model the coding agent runs the build on; as shipped, a cheaper model than the
 design model.
 
 ### branch
-*Proposed.* A line of commits in a repository; a change has one of its own, cut from the default
+A line of commits in a repository; a change has one of its own, cut from the default
 branch or from another change's.
 
 ### default branch
-*Proposed.* The branch of a repository that releases are cut from and that pull requests are merged
+The branch of a repository that releases are cut from and that pull requests are merged
 into unless said otherwise. Avoid: main, master, trunk.
 
 ### pull request
-*Proposed.* A change offered on GitHub to be merged into its base, with checks that run on it; it
+A change offered on GitHub to be merged into its base, with checks that run on it; it
 is marked ready when it may be reviewed. Avoid: PR, merge request.
 
 ### base
-*Proposed.* The branch a pull request asks to be merged into: the default branch, unless the
+The branch a pull request asks to be merged into: the default branch, unless the
 change's branch was cut from a branch whose own pull request is not merged.
 
 ### hook
-*Proposed.* Something that runs before or after a stage because the repository registered it: the
+Something that runs before or after a stage because the repository registered it: the
 "bdd" hooks around "specify" and "clarify", the "review" hook after "implement".
 
 ## Everyday words

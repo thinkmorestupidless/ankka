@@ -125,10 +125,10 @@ first link leads to the page.
 
 ## Phase 8: Polish
 
-- [ ] T040 Run `python3 .github/ci-coverage.py` and `python3 .github/cluster-suites.py`; if a new file is unclaimed, extend the right filter in `.github/workflows/ci.yml` (the extension and skills under `.specify/` and `.claude/` are read by no job and may belong under `unchecked` with the reason; the two suites run in `build (testkit)`)
-- [ ] T041 Run `just features`, `sbt 'testkit/testOnly *DesignAndBuild*'`, `just docs` and `sbt scalafmtCheckAll`; record the results in `research.md` under "Measurements"
-- [ ] T042 Add the trap learned about spec-kit's renderer dropping `model:` (research R2) to the "Living features" section of `.claude/rules/testing.md`, which holds the spec-kit rules, dated
-- [ ] T043 Fill `research.md`'s "Found during implementation" with everything the "Verify at implementation" list settled, and update the tick count and the PR body lines ready for `/speckit-build` (quickstart §5)
+- [X] T040 Run `python3 .github/ci-coverage.py` and `python3 .github/cluster-suites.py`; if a new file is unclaimed, extend the right filter in `.github/workflows/ci.yml` (the extension and skills under `.specify/` and `.claude/` are read by no job and may belong under `unchecked` with the reason; the two suites run in `build (testkit)`)
+- [X] T041 Run `just features`, `sbt 'testkit/testOnly *DesignAndBuild*'`, `just docs` and `sbt scalafmtCheckAll`; record the results in `research.md` under "Measurements"
+- [X] T042 Add the trap learned about spec-kit's renderer dropping `model:` (research R2) to the "Living features" section of `.claude/rules/testing.md`, which holds the spec-kit rules, dated
+- [X] T043 Fill `research.md`'s "Found during implementation" with everything the "Verify at implementation" list settled, and update the tick count and the PR body lines ready for `/speckit-build` (quickstart §5)
 
 ---
 

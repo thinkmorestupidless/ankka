@@ -36,6 +36,18 @@ shopping cart sample has features and a glossary of its own, under
 `samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the
 root ones the platform.
 
+**spec-kit's renderer drops a skill's `model:` line** (2026-10-27, feature 061). `specify extension
+add` writes each command as a skill with name, description, compatibility, metadata and
+argument-hint only, so an extension installed that way runs on the session's model whatever its
+command says. `design-build` is therefore installed by copying its directory and its two hand-written
+skills (`.claude/skills/speckit-design`, `speckit-build`), as `review` is, and
+`DesignAndBuildExtensionSuite` holds each command file's body equal to its skill's and the design's
+model deeper than the build's. A copied extension is not in `.specify/extensions/.registry`, so
+`specify extension list` omits it; `installed:` in `extensions.yml` is what the commands read. A
+skill's `model:` lasts the turn: the design asks only through AskUserQuestion, which keeps the turn,
+and refuses a session without it (a headless `claude -p`), where it would otherwise decide for the
+person.
+
 ## Log capture
 
 **Every suite that can see `testkit` mixes in `LogCapturing`** (testkit's own tests, the control

@@ -281,6 +281,23 @@ pushed to `origin main` in the same step (the brains are the sync channel).
   Without spec-kit, and so untouched: ankka-contrib, ankka-deployments, cloudflow, ankka-forge,
   forge-application, voice-website. The eitheror brain's line for ankka-modules is edited but not
   committed, because that checkout has someone's uncommitted work on another branch.
+- **T040.** `.claude/**` and `.specify/**` were only `unchecked`, so a pull request changing a
+  design-build skill alone ran neither suite that holds it. The `scala` filter now names
+  `.specify/extensions/design-build/**`, `.specify/extensions.yml` and `.claude/skills/**`;
+  `ci-coverage.py`: every tracked file claimed, 93 patterns each matching a file. `cluster-suites.py`
+  unchanged (no cluster suite added).
+- **T041.** `just features`: 0 findings in 3145 scenarios and 62 specs. `just docs`: 108 pages, no
+  problems. `sbt 'testkit/testOnly *DesignAndBuild*'`: 17 of 17. `scalafmtCheckAll`,
+  `scalafmtSbtCheck`: clean.
+- **The "Verify at implementation" list, settled.** `model:` is honoured for a skill invoked by name
+  and lasts the turn (T010, headless). AskUserQuestion keeping it through several questions, and
+  specify's and clarify's hooks firing from inside the design skill, cannot be shown headlessly and
+  are left to the first interactive run. `gh` exit codes and `gh pr ready` (T015). The siblings
+  re-surveyed (T020 to T034). ankka-replication needed no `specify init` (T033).
+  `voice-brain/conventions.md` holds no workflow table (T019).
+- **For the pull request body.** Tasks 43 of 43. Commands run: the four of T041, the break-once
+  proofs of T017 and T039, the headless design runs of T010. The siblings' draft pull requests are
+  listed above and wait on this one.
 
 ## Declined remediations
 

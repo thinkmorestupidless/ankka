@@ -101,6 +101,11 @@ jobs:
               # held to its words.
               - 'features/**'
               - 'GLOSSARY.md'
+              # The design and build extension and the skills, which `DesignAndBuildExtensionSuite` and
+              # `DesignAndBuildDocumentationSuite` hold to each other and to the page.
+              - '.specify/extensions/design-build/**'
+              - '.specify/extensions.yml'
+              - '.claude/skills/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow

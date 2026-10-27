@@ -88,23 +88,23 @@ conventions describe the workflow as two commands.
 **Independent Test**: in each sibling, `specify extension list` shows the three and the checker is
 green; `ankka-brain/conventions.md` has two rows.
 
-- [ ] T018 [US4] Rewrite the "The feature workflow" section of `../ankka-brain/conventions.md`: two rows (design, build) with the stages each runs, where each asks, the models and what each produces; keep the rules that still hold (the base branch, the PR shape, CI before a human, nothing merged by an agent, speckit-bdd required) and fold into the rows the ones the commands now enforce; name the individual commands for repairing one stage; commit on `main` and push to `origin main` in the same step
-- [ ] T019 [P] [US4] Check `../voice-brain/conventions.md` for a copy of the workflow table; change it the same way if it has one, commit and push; otherwise record "none" in `research.md`
-- [ ] T020 [P] [US4] Install in `../voice`: branch `design-and-build`; copy `.specify/extensions/review/`, `.specify/extensions/design-build/`, `.claude/skills/speckit-review/`, `.claude/skills/speckit-design/`, `.claude/skills/speckit-build/`; add `review` and `design-build` to `installed` and the `after_implement` hook entry to `.specify/extensions.yml`; `just check` green; commit `chore(speckit): install review and design and build`; `gh pr create --draft`
-- [ ] T021 [P] [US4] Install in `../ankka-flow` as T020
-- [ ] T022 [P] [US4] Install in `../ankka-reasoning` as T020
-- [ ] T023 [P] [US4] Install in `../ankka-predictions` as T020
-- [ ] T024 [P] [US4] Install in `../ankka-projects` as T020 (no Justfile: run the checker through the `uvx` line from its `bdd-config.yml`)
-- [ ] T025 [P] [US4] Install in `../ankka-for-trades` as T024
-- [ ] T026 [P] [US4] Install in `../programme` as T024
-- [ ] T027 [P] [US4] Install in `../ankka-for-plumbers` as T020, and add voice's one-line `check` recipe to its `Justfile`
-- [ ] T028 [P] [US4] Install in `../ankka-for-plumbers-android` as T024
-- [ ] T029 [P] [US4] Install in `../ankka-for-plumbers-ios` as T024
-- [ ] T030 [P] [US4] Install in `~/Documents/projects/eitheror/ankka-modules` as T020, and note the change in that company's brain (`~/Documents/projects/eitheror/brain/projects/ankka-modules.md`) in one line
-- [ ] T031 [P] [US4] Install in `../satisfactory`: branch `design-and-build`; `specify extension add bdd --from https://github.com/thinkmorestupidless/speckit-bdd/releases/download/v0.2.0/speckit-bdd-extension-0.2.0.zip` and `specify preset add bdd --from .../speckit-bdd-preset-0.2.0.zip`; `GLOSSARY.md` with the heading and an empty `## Everyday words`; `features/.gitkeep`; `.specify/extensions/bdd/bdd-config.yml` from the template with `specs-from` at the next spec number; voice's `check` recipe in its `Justfile`, and a CI step running the same line where the repository has a CI workflow; then `review` and `design-build` as T020; checker green; commit `chore(speckit): install bdd, review and design and build`; draft PR
-- [ ] T032 [P] [US4] Install in `../ankka-vendor` as T031
-- [ ] T033 [P] [US4] Install in `../ankka-replication`: first `specify init --here --ai claude --ai-skills` (verify this is the right repair: it has `.specify` but no skills, no specs, no Justfile; record what was found in `research.md`), a `Justfile` with voice's `check` recipe, then as T031
-- [ ] T034 [US4] Record every sibling's branch and draft pull request URL, and the repositories without spec-kit (ankka-contrib, ankka-deployments, cloudflow, ankka-forge, forge-application, voice-website), in `specs/061-design-and-build/research.md` under "Found during implementation", for this feature's pull request body
+- [X] T018 [US4] Rewrite the "The feature workflow" section of `../ankka-brain/conventions.md`: two rows (design, build) with the stages each runs, where each asks, the models and what each produces; keep the rules that still hold (the base branch, the PR shape, CI before a human, nothing merged by an agent, speckit-bdd required) and fold into the rows the ones the commands now enforce; name the individual commands for repairing one stage; commit on `main` and push to `origin main` in the same step
+- [X] T019 [P] [US4] Check `../voice-brain/conventions.md` for a copy of the workflow table; change it the same way if it has one, commit and push; otherwise record "none" in `research.md`
+- [X] T020 [P] [US4] Install in `../voice`: branch `design-and-build`; copy `.specify/extensions/review/`, `.specify/extensions/design-build/`, `.claude/skills/speckit-review/`, `.claude/skills/speckit-design/`, `.claude/skills/speckit-build/`; add `review` and `design-build` to `installed` and the `after_implement` hook entry to `.specify/extensions.yml`; `just check` green; commit `chore(speckit): install review and design and build`; `gh pr create --draft`
+- [X] T021 [P] [US4] Install in `../ankka-flow` as T020
+- [X] T022 [P] [US4] Install in `../ankka-reasoning` as T020
+- [X] T023 [P] [US4] Install in `../ankka-predictions` as T020
+- [X] T024 [P] [US4] Install in `../ankka-projects` as T020 (no Justfile: run the checker through the `uvx` line from its `bdd-config.yml`)
+- [X] T025 [P] [US4] Install in `../ankka-for-trades` as T024
+- [X] T026 [P] [US4] Install in `../programme` as T024
+- [X] T027 [P] [US4] Install in `../ankka-for-plumbers` as T020, and add voice's one-line `check` recipe to its `Justfile`
+- [X] T028 [P] [US4] Install in `../ankka-for-plumbers-android` as T024
+- [X] T029 [P] [US4] Install in `../ankka-for-plumbers-ios` as T024
+- [X] T030 [P] [US4] Install in `~/Documents/projects/eitheror/ankka-modules` as T020, and note the change in that company's brain (`~/Documents/projects/eitheror/brain/projects/ankka-modules.md`) in one line
+- [X] T031 [P] [US4] Install in `../satisfactory`: branch `design-and-build`; `specify extension add bdd --from https://github.com/thinkmorestupidless/speckit-bdd/releases/download/v0.2.0/speckit-bdd-extension-0.2.0.zip` and `specify preset add bdd --from .../speckit-bdd-preset-0.2.0.zip`; `GLOSSARY.md` with the heading and an empty `## Everyday words`; `features/.gitkeep`; `.specify/extensions/bdd/bdd-config.yml` from the template with `specs-from` at the next spec number; voice's `check` recipe in its `Justfile`, and a CI step running the same line where the repository has a CI workflow; then `review` and `design-build` as T020; checker green; commit `chore(speckit): install bdd, review and design and build`; draft PR
+- [X] T032 [P] [US4] Install in `../ankka-vendor` as T031
+- [X] T033 [P] [US4] Install in `../ankka-replication`: first `specify init --here --ai claude --ai-skills` (verify this is the right repair: it has `.specify` but no skills, no specs, no Justfile; record what was found in `research.md`), a `Justfile` with voice's `check` recipe, then as T031
+- [X] T034 [US4] Record every sibling's branch and draft pull request URL, and the repositories without spec-kit (ankka-contrib, ankka-deployments, cloudflow, ankka-forge, forge-application, voice-website), in `specs/061-design-and-build/research.md` under "Found during implementation", for this feature's pull request body
 
 ---
 

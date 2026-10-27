@@ -245,6 +245,42 @@ pushed to `origin main` in the same step (the brains are the sync channel).
   unbounded poll the spec chose. `gh pr ready` with no argument marks the current branch's pull
   request ready, and is proven on this branch's own draft once its checks are green. The build
   command's wording needed no change.
+- **T019.** `voice-brain/conventions.md` holds no copy of the workflow table: none to change. T018
+  is ankka-brain `af0216e`, pushed to `origin main`.
+- **T020 to T034, the siblings.** Each install was made in a git worktree cut from the repository's
+  `origin` default branch, so no checkout was touched. Re-surveyed against `origin`, R11 was stale
+  in three places. ankka-vendor and ankka-replication already carry `bdd` on `main`, so both took
+  the plain install and ankka-replication needed no `specify init`. programme's `main` has no
+  spec-kit at all: it all lives on `001-programme-planning-system`, unmerged and with no pull
+  request, so its install is cut from and targets that branch. ankka-for-plumbers' Justfile exists
+  only on its unmerged branch `justfile-local-service`, so it gets no `check` recipe; the design
+  falls back to its config's checker line. satisfactory took `bdd` from the v0.2.0 release (`specify
+  extension add` asks to confirm, and writes no `bdd-config.yml`: it is copied from
+  `config-template.yml`), `specs-from: "002"` and a `check` recipe; it has no pull request CI, so no
+  CI step. `specify extension list` reads `.specify/extensions/.registry`, which a copied extension
+  does not enter, as in ankka for `review`; the commands read `installed:` in `extensions.yml`,
+  which is what each install registers. Every checker run was green. Draft pull requests:
+
+  | Repository | Base | Pull request |
+  |---|---|---|
+  | voice | main | thinkmorestupidless/voice#3 |
+  | ankka-flow | main | thinkmorestupidless/ankka-flow#19 |
+  | ankka-reasoning | main | thinkmorestupidless/ankka-reasoning#16 |
+  | ankka-predictions | main | thinkmorestupidless/ankka-predictions#1 |
+  | ankka-projects | main | thinkmorestupidless/ankka-projects#2 |
+  | ankka-for-trades | main | thinkmorestupidless/ankka-for-trades#2 |
+  | programme | 001-programme-planning-system | thinkmorestupidless/programme#1 |
+  | ankka-for-plumbers | main | thinkmorestupidless/ankka-for-plumbers#3 |
+  | ankka-for-plumbers-android | main | thinkmorestupidless/ankka-for-plumbers-android#3 |
+  | ankka-for-plumbers-ios | main | thinkmorestupidless/ankka-for-plumbers-ios#1 |
+  | ankka-modules | main | thinkmorestupidless/ankka-modules#8 |
+  | satisfactory | main | thinkmorestupidless/ankka-satisfaction#6 |
+  | ankka-vendor | main | thinkmorestupidless/ankka-vendor#19 |
+  | ankka-replication | main | thinkmorestupidless/ankka-replication#3 |
+
+  Without spec-kit, and so untouched: ankka-contrib, ankka-deployments, cloudflow, ankka-forge,
+  forge-application, voice-website. The eitheror brain's line for ankka-modules is edited but not
+  committed, because that checkout has someone's uncommitted work on another branch.
 
 ## Declined remediations
 

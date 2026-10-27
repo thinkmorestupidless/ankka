@@ -82,7 +82,7 @@ which is the proof `features/design-and-build/build.feature` asks for.
 For each repository in research R11, on its `design-and-build` branch:
 
 ```bash
-specify extension list          # bdd, review, design-build
+sed -n '/^installed:/,/^settings:/p' .specify/extensions.yml   # bdd, review, design-build
 just check                      # or the repository's checker line: 0 findings
 ```
 

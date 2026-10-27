@@ -1,0 +1,35 @@
+schema_version: "1.0"
+
+extension:
+  id: design-build
+  name: "Design, then build"
+  version: "0.1.0"
+  description: "Two commands that run the feature workflow: /speckit-design takes a description to an analysed task list on the design model, asking only what the person must decide; /speckit-build takes the task list to a reviewed branch and a pull request marked ready on the build model. Requires the bdd and review extensions. Each skill's model: line is the only record of its model; they differ because the deeper-thinking model decides and a cheaper one codes once everything is decided."
+  author: thinkmorestupidless
+  repository: https://github.com/thinkmorestupidless/ankka
+  license: Apache-2.0
+
+requires:
+  speckit_version: ">=0.14.0"
+  extensions:
+    - bdd
+    - review
+  tools:
+    - name: claude
+      required: true
+    - name: gh
+      required: true
+
+provides:
+  commands:
+    - name: speckit.design
+      file: commands/speckit.design.md
+      description: "Design a feature: specify, clarify, plan, tasks and analyze in one run on the design model"
+    - name: speckit.build
+      file: commands/speckit.build.md
+      description: "Build a designed feature: implement, review and the pull request in one run on the build model"
+
+tags:
+  - "workflow"
+  - "design"
+  - "build"

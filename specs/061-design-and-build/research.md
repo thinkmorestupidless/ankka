@@ -222,7 +222,9 @@ pushed to `origin main` in the same step (the brains are the sync channel).
 
 ## Found during implementation
 
-(empty)
+- **T005, the structural suite before the skills.** `DesignAndBuildExtensionSuite`: 13 tests, 11 red
+  (every one that reads a skill, the README or a command file), 2 green on what already existed: the
+  manifest registers no hook and requires `bdd` and `review`, and the individual stage skills exist.
 
 ## Declined remediations
 

@@ -20,9 +20,9 @@ unless it starts with `../`, which is a sibling checkout.
 
 **Purpose**: the extension's skeleton, so every later task has a place to write to
 
-- [ ] T001 Create `.specify/extensions/design-build/extension.yml` exactly as `contracts/extension.md` gives it (id `design-build`, requires `bdd` and `review`, provides `speckit.design` and `speckit.build`, no hooks, no config)
-- [ ] T002 Register the extension: add `design-build` under `installed` in `.specify/extensions.yml`, nothing under `hooks`
-- [ ] T003 [P] Create the directories `.specify/extensions/design-build/commands/`, `.claude/skills/speckit-design/`, `.claude/skills/speckit-build/`
+- [X] T001 Create `.specify/extensions/design-build/extension.yml` exactly as `contracts/extension.md` gives it (id `design-build`, requires `bdd` and `review`, provides `speckit.design` and `speckit.build`, no hooks, no config)
+- [X] T002 Register the extension: add `design-build` under `installed` in `.specify/extensions.yml`, nothing under `hooks`
+- [X] T003 [P] Create the directories `.specify/extensions/design-build/commands/`, `.claude/skills/speckit-design/`, `.claude/skills/speckit-build/`
 
 ---
 
@@ -30,8 +30,8 @@ unless it starts with `../`, which is a sibling checkout.
 
 **Purpose**: the structural suite, written first so every later task has a check to go green
 
-- [ ] T004 Write `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/DesignAndBuildExtensionSuite.scala` in the shape of `TimersDocumentationSuite` (find the repository root by walking up, read files, no actor system): one test per scenario of `features/design-and-build/installing.feature` and `features/design-and-build/models.feature` that a file read can prove, named after the scenario: the manifest requires `bdd` and `review`; `design-build` is in `extensions.yml`'s `installed` and absent from its `hooks`; each of the two SKILL.md files exists with a `model:` line; the two models differ; no other file under `.specify/extensions/design-build/` or the two skill directories contains a `model:` key; each command file's body (after the frontmatter) equals its skill's body; the README says why the halves differ and names both SKILL.md paths; the manifest description names `bdd` and `review`. Every test is red at this point.
-- [ ] T005 Run `sbt 'testkit/testOnly *DesignAndBuildExtensionSuite'` and record which tests are red (all but the registration ones) in `specs/061-design-and-build/research.md` under "Found during implementation"
+- [X] T004 Write `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/DesignAndBuildExtensionSuite.scala` in the shape of `TimersDocumentationSuite` (find the repository root by walking up, read files, no actor system): one test per scenario of `features/design-and-build/installing.feature` and `features/design-and-build/models.feature` that a file read can prove, named after the scenario: the manifest requires `bdd` and `review`; `design-build` is in `extensions.yml`'s `installed` and absent from its `hooks`; each of the two SKILL.md files exists with a `model:` line; the two models differ; no other file under `.specify/extensions/design-build/` or the two skill directories contains a `model:` key; each command file's body (after the frontmatter) equals its skill's body; the README says why the halves differ and names both SKILL.md paths; the manifest description names `bdd` and `review`. Every test is red at this point.
+- [X] T005 Run `sbt 'testkit/testOnly *DesignAndBuildExtensionSuite'` and record which tests are red (all but the registration ones) in `specs/061-design-and-build/research.md` under "Found during implementation"
 
 ---
 

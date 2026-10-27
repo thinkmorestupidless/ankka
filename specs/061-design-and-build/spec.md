@@ -196,8 +196,8 @@ into a second repository and confirm its lines can differ from the first's.
 ### User Story 4 - The extension installed as `review` is (Priority: P2)
 
 The two commands are a spec-kit extension kept in ankka, beside `bdd` and `review`. A family
-repository gets them by copying the extension's directory and registering it, exactly as it gets
-`review`. The extension's hooks and the commands it invokes are the existing ones: specify's,
+repository gets them by copying the extension's directory and its two skill directories and
+registering it, exactly as it gets `review`. The extension's hooks and the commands it invokes are the existing ones: specify's,
 clarify's and implement's hooks still fire inside the stages the two commands run, and no existing
 command changes. The family's conventions document replaces its eight-row table with the two
 commands and keeps the individual commands for repairing one stage.
@@ -255,7 +255,7 @@ page passes.
 ### Edge Cases
 
 - The person types the design command on the repository's default branch. The command refuses to
-  write a spec there and says which branch to make, or makes the feature branch and says so.
+  write a spec there and says which branch to make.
 - The person types the design command in a repository without the `bdd` extension. The command says
   the extension is required and stops before specify.
 - The person types the build command in a repository without the `review` extension. The command
@@ -331,7 +331,7 @@ page passes.
   resolves one: by a question to the person or a change to the spec, the features or the glossary.
 - **FR-010**: After analyze, the design command MUST apply every remediation analyze proposes that
   changes neither a decision the person made nor a scenario in the living features, and run analyze
-  again, until no finding above low severity remains or a bounded number of rounds has run.
+  again, until no finding above low severity remains or three rounds have run.
 - **FR-011**: A remediation that would change a decision the person made or a scenario MUST be put
   to the person before it is applied, and one the person declined MUST NOT be proposed again.
 - **FR-012**: When a remediation changes a scenario, the change MUST go through the living features
@@ -450,8 +450,9 @@ page passes.
 - **SC-004**: After build, every task is ticked with a commit, the review report has a resolution
   under every finding, and the pull request is on the right base with its body complete and marked
   ready only after every check passed, with nothing pushed before the review.
-- **SC-005**: The extension is installed in a second family repository by copying one directory and
-  adding its registration, and its first design run there fires the `bdd` hooks.
+- **SC-005**: The extension is installed in a second family repository by copying its directory
+  and its two skill directories and adding its registration, and its first design run there fires
+  the `bdd` hooks.
 - **SC-006**: The models are changed in one repository by editing one line per command, and the
   other repositories are unaffected.
 - **SC-007**: A developer who has read only the page knows the two commands, what each produces,

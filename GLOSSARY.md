@@ -3033,8 +3033,8 @@ token, and the means to refresh it when it has run out.
 
 ### design and build
 The two halves of making a change on the platform with a coding agent, the design and
-the build, kept with the platform and copied into a repository as one directory beside "bdd" and
-"review". Avoid: workflow, pipeline.
+the build, kept with the platform and copied into a repository with its two skills, beside "bdd"
+and "review". Avoid: workflow, pipeline.
 
 ### design
 The first half of a change: from a developer's description to a spec, its scenarios in

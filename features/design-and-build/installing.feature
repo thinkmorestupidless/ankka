@@ -1,6 +1,6 @@
 Feature: Installing design and build
-  Design and build is kept with the platform and copied into a repository as one directory, as the
-  review is; the stages it runs are the ones already there, and their hooks fire inside it.
+  Design and build is kept with the platform and copied into a repository with its two skills, as
+  the review is; the stages it runs are the ones already there, and their hooks fire inside it.
 
   Scenario: design and build copied into a repository and registered can be started there
     Given a repository with "bdd" and "review" installed

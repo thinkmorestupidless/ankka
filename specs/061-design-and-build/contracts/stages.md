@@ -12,7 +12,7 @@ and what it leaves. The build has no `--from`; its state is derived (data-model.
 | `tasks` | `plan.md` | `/speckit-tasks` | `tasks.md` | `before_tasks`, `after_tasks` if any |
 | `analyze` | `tasks.md` | `/speckit-analyze`; remediations applied; repeated; at most three rounds | edits to `spec.md`, `plan.md`, `tasks.md`; `## Declined remediations` in `research.md`; a last report with nothing above low | none |
 | `implement` | `tasks.md`; `review` installed; the `pr-review` skill listed | `/speckit-implement` | commits, ticks in `tasks.md`, `review.md` | `after_implement` → `speckit.review` |
-| `pull-request` | every task ticked; `review.md`; a clean tree | `gh pr create --draft`; `gh pr checks --watch --fail-fast`; `gh pr ready` | the pull request, ready when green | none |
+| `pull-request` | every task ticked; `review.md` with a resolution under every finding; a clean tree | `gh pr create --draft`; `gh pr checks --watch` until every check finishes; `gh pr ready` | the pull request, ready when every check is green or a shown flake of the default branch | none |
 
 Rules:
 

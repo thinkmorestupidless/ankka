@@ -162,6 +162,8 @@ asked nothing the design had settled.
 - added `features/design-and-build/build.feature`: a build started on a partly done work list resumes at the first undone item
 - added `features/design-and-build/build.feature`: a build started on a change whose work is done and reviewed resumes at the pull request
 - added `features/design-and-build/build.feature`: a build started without a work list says the design is not finished
+- added `features/design-and-build/build.feature`: a build started on a work list whose analysis did not finish says the design is not finished
+- added `features/design-and-build/build.feature`: a build started again after the review stopped on a finding returns to the review
 - added `features/design-and-build/build.feature`: the build stops before any stage when review is not installed
 - added `features/design-and-build/build.feature`: the build neither merges, tags, publishes nor deploys
 
@@ -371,13 +373,16 @@ page passes.
 - **FR-022**: After raising the pull request, the build command MUST watch its checks by polling
   until every one has finished, with no fixed bound on the wait; a red check
   MUST be fixed on the branch or shown, with evidence, to be a known flake of the default branch
-  and said in the pull request; when every check is green the command MUST mark the pull request
-  ready and tell the person a review is waiting. A check it cannot make green MUST stop the command
-  with the pull request still a draft.
+  and said in the pull request; when every check has finished and each is green or so shown, the
+  command MUST mark the pull request ready and tell the person a review is waiting. A red check it
+  can neither fix nor show to be such a flake MUST stop the command with the pull request still a
+  draft.
 - **FR-022a**: The build command MUST NOT merge, tag, publish or deploy, and MUST NOT mark the pull
-  request ready while any check is red or pending.
-- **FR-023**: When no task list exists, the build command MUST stop and name the command that makes
-  one.
+  request ready while any check is pending, or red without that evidence.
+- **FR-023**: When no task list exists, or the design did not record that its analysis ran to its
+  end, the build command MUST stop and name the command that finishes the design.
+- **FR-023a**: A build started again MUST raise the pull request only once every review finding has
+  a resolution recorded; a review that stopped on a finding goes back to the review.
 
 **The models**
 

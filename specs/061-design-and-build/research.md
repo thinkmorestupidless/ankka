@@ -94,8 +94,9 @@ commands, out of scope); accepting the turn end and asking the person to run the
 
 `/speckit-design --from <stage>` checks the stage's "needs" column exists and runs from there;
 `/speckit-build` has no flag because its resume is read from the tree: unticked tasks → implement;
-all ticked and `review.md` present and no pull request for the branch → pull request; a pull request
-exists → polling.
+all ticked and `review.md` with a resolution under every finding and no open pull request for the
+branch → pull request; an open pull request → polling. The build also refuses a task list whose
+`research.md` has no `## Design finished` section, which the design writes when analyze is done.
 
 **Rationale**: The stage names are spec-kit's own, so the person can map them onto the individual
 commands they already know. The build's state is fully visible in the tree and `gh pr view`, so a
@@ -133,12 +134,14 @@ loses the plugin mid-run still refuses to report a review it did not run.
 (`git merge-base` against each candidate, the nearest wins; `--base` as an override). The title is
 the Conventional Commits header with the spec number as scope; the body is written from
 `.github/pull_request_template.md` (never `--body-file` of the template itself), with the three
-review lines under "How it is tested". `gh pr create --draft`, then `gh pr checks --watch
---fail-fast` (polling until every check finishes), then on all green `gh pr ready` and the report.
-A red check is read with `gh run view <id> --log-failed`; it is fixed on the branch and the watch
-restarts, or it is shown to be a flake of `main` by a run of the same workflow on `main` failing
-the same job (`gh run list --branch main --workflow <name>`), which is cited in the PR body and does
-not hold the PR. A check the build cannot make green stops the build with the PR still a draft.
+review lines under "How it is tested". `gh pr create --draft`, then `gh pr checks --watch`
+without `--fail-fast` (polling until every check finishes; `--fail-fast` would end the wait at the
+first red check while others still run), then `gh pr ready` and the report once every check is
+green or a shown flake. A red check is read with `gh run view <id> --log-failed`; it is fixed on
+the branch and the watch restarts, or it is shown to be a flake of `main` by a run of the same
+workflow on `main` failing the same job (`gh run list --branch main --workflow <name>`), which is
+cited in the PR body and does not hold the PR. A check the build can neither fix nor show to be a
+flake stops the build with the PR still a draft. (Changed by the review before the pull request.)
 
 **Rationale**: All of this is already the convention ("CI before a human", 2026-10-22) and the
 commit-and-PR conventions; the build writes them into one procedure. `gh pr checks --watch` is the
@@ -219,6 +222,10 @@ pushed to `origin main` in the same step (the brains are the sync channel).
 - ankka-replication's spec-kit state: whether `specify init --here` with the Claude integration is
   the right repair or the skills are elsewhere.
 - Whether `voice-brain/conventions.md` holds a copy of the workflow table.
+
+## Design finished
+
+2026-10-27: analyze reported nothing above LOW (commit 3fc27502c).
 
 ## Found during implementation
 

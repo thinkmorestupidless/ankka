@@ -97,6 +97,18 @@ Feature: The build
     Then the build stops and says the design is not finished
     And the build says how the design is started
 
+  Scenario: a build started on a work list whose analysis did not finish says the design is not finished
+    Given a change's directory with a work list and no record that the design finished
+    When the developer starts the build
+    Then the build stops and says the design is not finished
+    And the build says how the "analyze" stage is resumed
+
+  Scenario: a build started again after the review stopped on a finding returns to the review
+    Given a change's directory whose work list is done and whose review stopped on a finding
+    When the developer starts the build
+    Then the review runs again
+    And no pull request is raised until every finding is settled
+
   Scenario: the build stops before any stage when review is not installed
     Given a repository with design and build installed and without "review"
     When the developer starts the build

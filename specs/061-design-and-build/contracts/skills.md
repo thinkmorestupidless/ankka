@@ -23,7 +23,8 @@ Procedure (the body; the command file carries the same):
    is the feature description. No description and no `--from`: ask for the description through
    AskUserQuestion (one option, "Describe the feature", with "Other" for the text) and stop if none
    is given.
-2. **Refuse early**: on the default branch (`git symbolic-ref refs/remotes/origin/HEAD` or `main`),
+2. **Refuse early**: on the default branch (`git symbolic-ref --short refs/remotes/origin/HEAD`
+   without its `origin/`, or `main`),
    say which branch to make and stop; `bdd` or `review` missing from `installed` in
    `.specify/extensions.yml`, say which and stop; `--from` naming a stage whose `needs` do not
    exist, say which earlier stage must run and stop.
@@ -84,16 +85,19 @@ Procedure:
    `research.md` under "Found during implementation", go on), a change that would alter a contract
    in `contracts/` (ask), a task whose check cannot be made to pass (stop with the failure), a
    blocking review finding the implementer disagrees with (stop, show it).
-5. **Reviewing** (only when implement ran without its hook): invoke `/speckit-review`.
+5. **Reviewing** (when implement ran without its hook, or `review.md` has a finding with no
+   resolution line under it): invoke `/speckit-review`.
 6. **Raising**: base = `--base`, else the nearest unmerged feature branch by `git merge-base`, else
    `main`. Title `<type>(<NNN>): <description>` from the spec's name; body written from
    `.github/pull_request_template.md`'s five sections, the three review lines under "How it is
    tested", the dependency on an unmerged base in the first line; `gh pr create --draft`.
-7. **Watching**: `gh pr checks --watch --fail-fast`. All green → `gh pr ready` and the report. A red
-   check → `gh run view --log-failed`; fix on the branch, commit, push, watch again; or show it is a
-   flake of the default branch (the same job failing on a `main` run, cited by run id in the PR
-   body) and do not count it; a check that cannot be made green → stop, PR still a draft, say which
-   and what was tried.
+7. **Watching**: wait up to five minutes for a check to be registered (none → the repository runs
+   none; say so and mark ready), then `gh pr checks --watch` without `--fail-fast` until every check
+   has finished. Each red check → `gh run view --log-failed`; fix on the branch, commit, push, watch
+   again; or show it is a flake of the default branch (the same job failing on a `main` run, cited
+   by run id in the PR body). Every check green or a shown flake → `gh pr ready` and the report; a
+   red check neither fixed nor shown → stop, PR still a draft, say which and what was tried. Only
+   an `OPEN` pull request is watched; a merged or closed one is reported and the run stops.
 8. **End**: print the pull request URL, its state (ready or draft and why), the tick count, the
    three review lines, and what the person does next (approve and merge). Never merge, tag,
    publish or deploy.

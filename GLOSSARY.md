@@ -3048,7 +3048,8 @@ asking the developer only what the design left open.
 
 ### stage
 One step of the design or the build, which can be run alone to repair it or resumed
-from: "specify", "clarify", "plan", "tasks", "analyze", "implement", "review" and the pull request.
+from: "specify", "clarify", "check", "plan", "tasks", "analyze", "implement", "review" and the pull
+request.
 
 ### spec
 What a change says of itself before it is built: who it is for, what it must do, how it
@@ -3097,7 +3098,8 @@ a finding.
 
 ### finding
 Something the "analyze" stage, the checker or the review reports as wrong or unclear,
-with how much it matters: blocking, should fix, low, or a nit.
+with how much it matters on its reporter's scale: critical, high, medium or low from the "analyze"
+stage; blocking, should fix, a question or a nit from the review.
 
 ### review
 The reading of a change's branch by a coding agent with a fresh context, against the

@@ -101,6 +101,11 @@ jobs:
               # held to its words.
               - 'features/**'
               - 'GLOSSARY.md'
+              # The design and build extension and the skills, which `DesignAndBuildExtensionSuite` and
+              # `DesignAndBuildDocumentationSuite` hold to each other and to the page.
+              - '.specify/extensions/design-build/**'
+              - '.specify/extensions.yml'
+              - '.claude/skills/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow
@@ -254,7 +259,7 @@ jobs:
               - 'LICENSE.md'
               - 'CLAUDE.md'
               - 'assets/**'                       # images for the repository's own pages, not the site's
-              - '.claude/**'                      # spec-kit's commands for developing ankka
+              - '.claude/**'                      # the rules and settings for developing ankka; its skills are `scala`'s too
               - '.specify/**'
 
   # The Scala build, split across runners because the suites are serialized within one sbt (each

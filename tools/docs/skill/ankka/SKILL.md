@@ -13,6 +13,7 @@ pages:
   - get-started/first-service-rust.md
   - get-started/deploy-locally.md
   - get-started/coding-agents.md
+  - get-started/design-and-build.md
   - concepts/architecture.md
   - concepts/components.md
   - concepts/effects.md

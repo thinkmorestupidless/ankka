@@ -151,6 +151,7 @@ extra:
 nav:
   - Home: index.md
   - Get started:
+      - Design, then build: get-started/design-and-build.md
       - Install the tools: get-started/install.md
       - Your first service in Scala: get-started/first-service-scala.md
       - Your first service in Java: get-started/first-service-java.md

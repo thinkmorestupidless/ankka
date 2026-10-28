@@ -1,6 +1,7 @@
 installed:
 - bdd
 - review
+- design-build
 settings:
   auto_execute_hooks: true
 hooks:

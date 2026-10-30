@@ -590,7 +590,7 @@ jobs:
       id-token: write   # the OIDC token PyPI verifies
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.1
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
       - name: Write the version, generate the stubs, build the wheel
@@ -1016,7 +1016,7 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.1
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
       - run: uv run --project tools/docs docs build

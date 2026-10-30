@@ -69,7 +69,7 @@ jobs:
           targets: wasm32-unknown-unknown
       # The Python sample's image is built from the SDK as it is on disk, and its generated stubs
       # are gitignored, so they are generated first, as the `ci` workflow's `sdk-python` job does.
-      - uses: astral-sh/setup-uv@v10.3.1
+      - uses: astral-sh/setup-uv@v10.3.2
         if: matrix.project == 'sidecar'
         with:
           python-version: "3.12"

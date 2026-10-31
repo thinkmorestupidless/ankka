@@ -457,3 +457,40 @@ the *Scala* build are not built; the first three go to the limitations page.
 
 2026-10-31: analyze reported nothing above LOW after one round of remediations (two decided by
 the person: Scala initial services; a sidecar service keeps a trimmed compose file of its own).
+
+## Found during implementation
+
+2026-10-31, from rendering the project by hand (T025) and running it:
+
+- **R6 holds under sbt 1.12.** `project/Services.scala`'s `extraProjects` makes a project per
+  `services/<name>/` holding `src/main/scala`, `dependsOn(LocalProject("shared"))` resolves, and
+  `sbt orders/test` and `sbt orders/Docker/publishLocal` address it; the latter built `orders:1.4.2`
+  at the tag `orders/v1.4.2` and no billing image. `build.properties` pins sbt 1.12.9, so an sbt 2
+  launcher runs the same sbt and the plugin compiles once, under Scala 2.12. Native-packager's keys
+  are `com.typesafe.sbt.packager.Keys`, except `dockerBuildxPlatforms` and `Docker`, which are only
+  in `DockerPlugin.autoImport`; importing both wholesale is ambiguous.
+- **R7 holds, with the wiring as a function of the extensions.** Two kits in one JVM on one
+  `InMemoryBroker`, each under `ServiceIdentity.local(<service>)`, with `localServices` naming the
+  other's port: the crossing suite went green, and red when billing recorded a wrong count. There is
+  no `Broker` type, so the service object exposes `descriptors`, `endpoint(clients)` and
+  `extensions(projections: ProjectionRuntime, http: HttpServer)`; the test passes
+  `ProjectionRuntime.withBroker(broker, broker)` and a server on port 0, `start()` the environment's.
+- **The tests module's map check needs no running service.** `ContextMapCheck.problems` gained an
+  overload over a service's descriptors, read through the same `DeclaredTopics`; the template's
+  `ContextMapSuite` finds each Scala service of the map by the naming `ankka init` uses
+  (`<pkg>.<name without ->.<Name>Service`), so a service added later is checked with nothing edited.
+- **The sample's names are generic.** Services are named by the person, so the sample crossing is
+  the topic `<first>-events` carrying the contract `<first>.v1`, and the route `GET /<second>/{id}`
+  called by the first; the cross-service suite is `ItemAddedIsRecordedSuite`. The skeleton carries
+  the role differences as three variant directories (`first/`, `second/`, `plain/`) beside
+  `common/`, which `Scaffold` renders by prefix (T020's choice).
+- **The contract's schema is not mirrored by hand.** `shared`'s build copies `contracts/*.json`
+  onto its classpath under `contracts/`, so the fingerprint is of the file the map names.
+- **A sidecar in a container reaches the project's Kafka on a second listener.** The project's Kafka
+  advertises `localhost:9092` for services run on the machine and `host.docker.internal:9094` for
+  containers; a trimmed compose file points its sidecar at the latter and at the host's Postgres.
+  It carries no `schema` service: `scripts/databases.sh` applies `target/ddl` to every service's
+  database, writing it with `sbt schema` when it is missing, so a schema copy beside the sidecar
+  would be read by nothing.
+- **An add answers 204.** `POST /<service>/{id}` replies `Done`, which the HTTP module answers with
+  no content.

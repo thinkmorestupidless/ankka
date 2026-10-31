@@ -87,6 +87,16 @@ class ContextMapCheckSuite extends munit.FunSuite with LogCapturing:
     assertEquals(ContextMapCheck.problems(map(topic), "billing", billing), Vector.empty)
   }
 
+  test("the descriptors alone, with no service started, give the same answers") {
+    val components = Seq(LedgerEntity.descriptor, OrdersRelay.descriptor)
+    assertEquals(ContextMapCheck.problems(map(topic), "orders", components), Vector.empty)
+    assertEquals(
+      ContextMapCheck.problems(map(), "orders", components),
+      ContextMapCheck.problems(map(), "orders", orders)
+    )
+    assert(ContextMapCheck.problems(map(), "orders", components).nonEmpty)
+  }
+
   test("a publication the map does not record") {
     assertEquals(
       ContextMapCheck.problems(map(), "orders", orders),

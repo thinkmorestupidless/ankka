@@ -1,0 +1,10 @@
+target/
+.bsp/
+.metals/
+.idea/
+.ankka/
+# Services in other languages
+__pycache__/
+.venv/
+node_modules/
+dist/

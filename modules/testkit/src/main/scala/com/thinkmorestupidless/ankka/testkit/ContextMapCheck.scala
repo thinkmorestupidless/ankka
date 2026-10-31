@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
-import com.thinkmorestupidless.ankka.core.ContextMap
+import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ContextMap}
 import com.thinkmorestupidless.ankka.runtime.{AnkkaService, DeclaredTopics}
 
 /**
@@ -18,6 +18,17 @@ object ContextMapCheck:
 
   def problems(map: ContextMap, service: String, running: AnkkaService): Vector[String] =
     problems(map, service, DeclaredTopics.of(running))
+
+  /**
+   * The same, over a service's component descriptors, with no service started: what the project
+   * template's tests module runs, since the sides are read from the descriptors either way.
+   */
+  def problems(
+      map: ContextMap,
+      service: String,
+      components: Seq[ComponentDescriptor]
+  ): Vector[String] =
+    problems(map, service, DeclaredTopics.of(components.toVector))
 
   /** The comparison itself, over the sides a service's components declare. */
   def problems(

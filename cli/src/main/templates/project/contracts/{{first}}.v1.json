@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "{{first}}.v1",
+  "title": "An item of {{first}}, as it now is",
+  "type": "object",
+  "properties": {
+    "id": {"type": "string"},
+    "name": {"type": "string"},
+    "count": {"type": "integer"}
+  },
+  "required": ["id", "name", "count"]
+}

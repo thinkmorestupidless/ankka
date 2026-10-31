@@ -1,0 +1,29 @@
+{
+  "project": "{{project}}",
+  "services": [
+    {
+      "name": "{{first}}",
+      "owns": "items as people add to them",
+      "boundary": {"criterion": "ownership", "why": "replace with who owns {{first}} and releases it"}
+    },
+    {
+      "name": "{{second}}",
+      "owns": "what it records of the items {{first}} keeps",
+      "boundary": {"criterion": "ownership", "why": "replace with who owns {{second}} and releases it"}
+    }
+  ],
+  "crossings": [
+    {
+      "from": "{{first}}",
+      "to": "{{second}}",
+      "topic": "{{first}}-events",
+      "contract": "{{first}}.v1",
+      "schema": "contracts/{{first}}.v1.json"
+    },
+    {
+      "from": "{{first}}",
+      "to": "{{second}}",
+      "route": "GET /{{second}}/{id}"
+    }
+  ]
+}

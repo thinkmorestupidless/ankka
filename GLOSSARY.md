@@ -1163,7 +1163,7 @@ One run of a repository's automation on GitHub, on one machine, whose commands r
 What a job uses to install the command line at a version it names, point it at a control plane and authenticate it with a deploy token for every later command in the job.
 
 ### repository
-*Proposed.* Where a project's code, or a service's, is kept on GitHub, with the deploy settings its
+Where a project's code, or a service's, is kept on GitHub, with the deploy settings its
 jobs read. A project's repository holds every service of the project unless one has been moved to a
 repository of its own.
 
@@ -3144,34 +3144,36 @@ Something that runs before or after a stage because the repository registered it
 ## Projects of several services
 
 ### project template
-*Proposed.* What the platform gives a developer to start a project of several services from: one
-repository holding the services, a shared module, a place for the context map, and the jobs that
-check and release each service on its own. It is not the template, which starts one service.
+What the platform gives a developer to start a project of several services from: one
+repository holding the services, a shared module, the context map of its services, and the jobs
+that check and release each service on its own. It is not the template, which starts one service.
 
 ### context map
-*Proposed.* The record of a project's services: what each owns, why each boundary is where it is,
-and every crossing. A design of several services starts with it.
+The record of a project's services: what each owns, why each boundary is where it is,
+and every crossing. It is one file in the project's repository, which the project's checks hold
+true against each service's descriptor and render for people to read. A design of several services
+starts with it.
 
 ### boundary
-*Proposed.* Where one service of a project ends and another begins, put there because the two
+Where one service of a project ends and another begins, put there because the two
 differ in ownership, scaling or consistency. Only a crossing passes it.
 
 ### crossing
-*Proposed.* What passes a boundary: a declared topic with its contract, or a route of an endpoint
+What passes a boundary: a declared topic with its contract, or a route of an endpoint
 with the service that calls it. Reading another service's database or its entities' events is not
 a crossing but a defect.
 
 ### shared module
-*Proposed.* The code every service of a project that needs it builds against, holding the types of
+The code every service of a project that needs it builds against, holding the types of
 the contracts that cross its boundaries. It is not a component and is never deployed.
 
 ### service tag
-*Proposed.* A tag in a project's repository that names one of its services and a version, and
+A tag in a project's repository that names one of its services and a version, and
 releases that service alone. Avoid: release tag.
 
 ## Everyday words
 
-exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
+exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

@@ -62,6 +62,27 @@ between them is in the wrong place.
 - Q: The glossary refuses "map" as a synonym of topology; what is the record of a project's
   services, boundaries and crossings called? → A: A context map. Topology's refused synonyms become
   "graph, diagram, service map", so "map" alone is no longer refused; no living feature used it.
+- Q: How does each service of a project get its own database on one machine with nothing
+  configured, when a service defaults to the database `ankka`? → A: The project template's run
+  recipe sets each service's database name to the service's name, and its compose file creates one
+  database per service. The runtime's default stays `ankka`; nothing in the platform or in a single
+  service changes.
+- Q: Where do the kept cross-service tests live, and when do they run? → A: In a tests module of
+  the project, beside the services, which starts the services a test needs. It runs when a service
+  it starts changes or the shared module changes. A change to one service still runs no other
+  service's own tests.
+- Q: Which languages may a service added inside a project be? → A: Any the single-service template
+  offers. A JVM service joins the project's build; a service in another language is in a directory
+  of its own with its own toolchain. Either way `ankka init` wires its checks and its release on its
+  service tag into the project with nothing edited by hand.
+- Q: Is the context map prose, or does something mechanical hold it true against the services? →
+  A: A structured file in the project's repository, which the project's checks, the design skill
+  and the inspect skill all read, rendered for people to read. The checks fail when the file and the
+  services' descriptors disagree about the services or the declared topics and contracts that cross
+  between them.
+- Glossary: the six proposed terms (project template, context map, boundary, crossing, shared
+  module, service tag) and the changed repository stand as written; the context map's definition
+  says it is a file the checks hold true.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -73,7 +94,10 @@ is several, it writes a context map before any component table: each service, wh
 of the three criteria put its boundary there, and everything that crosses each boundary: the
 declared topics and their contracts, the HTTP routes another service calls, and who calls whom.
 Then it designs each service as the skill already does. When two proposed services would have to
-be released together, the skill tells the agent to merge them and say why.
+be released together, the skill tells the agent to merge them and say why. The context map is a
+file in the project's repository: the project's checks compare it with each service's descriptor,
+so a service, a declared topic or a contract that one has and the other lacks fails the checks,
+and a rendering for people to read is kept in step with it.
 
 **Why this priority**: Every other story depends on the boundaries being decided and recorded. It
 needs only the skill and the documentation to change, and it removes the most expensive mistake:
@@ -92,6 +116,10 @@ and a reason for each boundary from the three criteria.
 - added `features/projects/designing.feature`: two services that must be released together are designed as one service
 - added `features/projects/designing.feature`: a cycle of calls between services is named and one direction becomes a declared topic
 - added `features/projects/designing.feature`: a design that needs no boundary stays one service and has no context map
+- added `features/projects/context-map.feature`: a context map that names a service the project does not hold, or does not name one it holds, fails the project's checks
+- added `features/projects/context-map.feature`: a crossing whose declared topic or contract no service of the project declares fails the project's checks
+- added `features/projects/context-map.feature`: a declared topic a service reads or publishes that the context map records no crossing for fails the project's checks
+- added `features/projects/context-map.feature`: a context map that agrees with every descriptor passes the project's checks and is rendered for people to read
 - added `features/documentation/projects.feature`: the documentation says that services which must be deployed together are one service, and that the platform deploys each service on its own
 
 ---
@@ -99,10 +127,11 @@ and a reason for each boundary from the three criteria.
 ### User Story 2 - A project in one repository, each service released on its own (Priority: P1)
 
 A developer starts a project from the project template and gets one repository holding a build of
-two services and a module of shared contract types, a place for the context map, and the spec-kit
+two services and a module of shared contract types, the context map of the two, and the spec-kit
 setup. Each service has its own directory, descriptor, image, database and tests. Later they add a
-third service with `ankka init` inside the project, and it is wired into the build, the continuous
-integration and the release pipeline with nothing edited by hand.
+third service with `ankka init` inside the project, in any language the single-service template
+offers, and it is wired into the build, the continuous integration and the release pipeline with
+nothing edited by hand.
 
 A change to one service's code runs that service's tests and nothing else's. A change to the shared
 module runs the tests of every service that uses it. A tag naming one service and a version builds
@@ -119,9 +148,10 @@ deployed, at the tag's version, while the other two stay at theirs.
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-- added `features/projects/template.feature`: a project started from the project template holds two services and a shared module, each service with its own descriptor, image and database, all named for it
+- added `features/projects/template.feature`: a project started from the project template holds two services, a shared module and their context map, each service with its own descriptor, image and database, all named for it
 - added `features/projects/template.feature`: the tests of every service of a project started from the project template pass unchanged
 - added `features/projects/template.feature`: a service added inside a project is wired into its build, its checks and its releases with nothing edited by hand
+- added `features/projects/template.feature`: a service in another language added inside a project is wired into its checks and its releases with nothing edited by hand
 - added `features/projects/template.feature`: adding a service in a directory that holds no project is refused and says why
 - added `features/projects/releases.feature`: a service tag naming one service builds and deploys that service alone, at the service tag's version
 - added `features/projects/releases.feature`: each service's version comes from its own service tags, whatever the other services were last released at
@@ -166,13 +196,15 @@ when one service lives in a repository of its own.
 
 ### User Story 4 - A project run and checked on one machine (Priority: P3)
 
-A developer runs every service of the project on their own machine, with one database and one
-broker shared by all of them, each service its own database within it. The local console lists
-them all and each finds the others with nothing configured. The inspect skill, given a spec whose
-scenarios cross services, checks each by driving the first service's endpoint and asserting on the
-second's state through its declared queries, and reports the scenario as met or not with the
-evidence: the requests, the messages on the topic and the trace that joins them. Each met scenario
-is kept as an integration test that starts the services it needs.
+A developer runs every service of the project on their own machine, with one database server and
+one broker shared by all of them, each service its own database within it, which the project's run
+recipe and compose file provide so the developer configures nothing. The local console lists them
+all and each finds the others. The inspect skill, given a spec whose scenarios cross services,
+reads the context map for the services and crossings each one passes, checks each by driving the
+first service's endpoint and asserting on the second's state through its declared queries, and
+reports the scenario as met or not with the evidence: the requests, the messages on the topic and
+the trace that joins them. Each met scenario is kept as an integration test in the project's tests
+module, which starts the services it needs.
 
 **Why this priority**: Most of the running already works; what is missing is that nobody is told
 how, and that a cross-service scenario cannot be checked. It is the last story because it checks
@@ -201,9 +233,11 @@ answer.
   without the others answering.
 - One service reads another's database or an entity's own events: already a review smell; the
   context map gives it no crossing to name, so it cannot be recorded as designed.
-- A service written in a language other than the build's: it lives in the project's repository in
-  a directory of its own with its own toolchain, has its own checks and its own tags, and the
-  context map treats it as any other service.
+- A service written in a language other than the build's: `ankka init` adds it to the project's
+  repository in a directory of its own with its own toolchain, wires its checks and its release on
+  its service tag in as for any other service, and the context map treats it as any other service.
+  It does not build against the shared module; it reads the contract's schema, which the project
+  holds.
 - A change to the shared module that only one service needs yet: the other services' checks run,
   and they are not released until their owners tag them; nothing deploys because a shared module
   changed.
@@ -223,7 +257,8 @@ answer.
 
 - **FR-001**: The design skill MUST decide one service or several before any component table, and
   for several MUST produce a context map: each service, what it owns, the criterion from ownership
-  and release cadence, scaling or consistency that puts its boundary there, and every crossing.
+  and release cadence, scaling or consistency that puts its boundary there, and every crossing. The
+  context map is one file at a fixed place in the project's repository.
 - **FR-002**: Every crossing in a context map MUST be a declared topic with its contract, or an
   endpoint route with the service that calls it. A crossing of any other kind (a shared database, a
   read of another service's events) MUST be named as a defect, not recorded.
@@ -240,16 +275,19 @@ answer.
 **The project template and its releases**
 
 - **FR-006**: There MUST be a project template, separate from the single-service template, that
-  makes one repository holding a build of two named services, a shared module of contract types, a
-  place for the context map, the spec-kit setup and the skills.
+  makes one repository holding a build of two named services in a language the single-service
+  template offers, a shared module of contract types, the context map of the two services, a tests
+  module for scenarios that cross services, the spec-kit setup and the skills.
 - **FR-007**: Each service in a project MUST have its own directory, descriptor, image, database and
   tests, named for the service.
-- **FR-008**: `ankka init` run inside a project MUST add a service to it, wired into the build, the
-  checks and the releases with nothing edited by hand; run in a directory that is not a project it
-  MUST keep its current behaviour, and asked to add a service where there is no project it MUST
-  refuse and say why.
+- **FR-008**: `ankka init` run inside a project MUST add a service to it in any language the
+  single-service template offers, wired into the checks and the releases with nothing edited by
+  hand: a JVM service into the project's build, a service in another language in a directory of its
+  own with its own toolchain. Run in a directory that is not a project it MUST keep its current
+  behaviour, and asked to add a service where there is no project it MUST refuse and say why.
 - **FR-009**: A project's checks MUST run, for a change, the tests of each service whose directory
-  changed and of each service that uses a shared module that changed, and no others.
+  changed, the tests of each service that uses a shared module that changed, and the project's
+  cross-service tests that start one of those services, and no others.
 - **FR-010**: A tag naming one service and a version MUST build that service's image alone and
   deploy that service alone at that version. A tag naming no service of the project MUST release
   nothing and say why.
@@ -275,14 +313,27 @@ answer.
 
 - **FR-017**: The documentation MUST say how to run every service of a project on one machine and
   how they find each other: their own cluster ports, the local console, and a configured address
-  where the console is not running.
+  where the console is not running. The project template's run recipe MUST give each service a
+  database of its own, named for the service, in the one database server its compose file runs, and
+  the runtime's default database name MUST NOT change.
 - **FR-018**: The inspect skill MUST check each scenario that crosses services through the services'
   real endpoints and declared queries, reporting each as met or not with the requests, the messages
   on any topic and the trace that joins the services.
 - **FR-019**: A scenario that crosses services MUST be reported not met, naming the service, when
   a service it needs is not running or states a different contract.
-- **FR-020**: Each met scenario that crosses services MUST be kept as an integration test that
-  starts the services it needs.
+- **FR-020**: Each met scenario that crosses services MUST be kept as an integration test in the
+  project's tests module, which starts the services it needs.
+
+**The context map as a file**
+
+- **FR-022**: The project's checks MUST compare the context map with every service's descriptor and
+  fail when a service is in one and not the other, when a crossing names a declared topic or a
+  contract that no service of the project declares, or when a service reads or publishes a declared
+  topic the context map records no crossing for.
+- **FR-023**: The context map MUST be rendered for people to read, in the project's repository, and
+  the checks MUST fail when the rendering is out of step with the file.
+- **FR-024**: The inspect skill MUST read the context map for the services and the crossing each
+  scenario that crosses services passes, and its report MUST name that crossing.
 
 **Out of scope**
 
@@ -294,13 +345,15 @@ answer.
 - **Project**: A group of services that deliver the functionality required of them when they run
   together, each deployed on its own (a changed definition).
 - **Context map**: The record of a project's services, what each owns, why each boundary is where
-  it is, and every crossing.
+  it is, and every crossing: one file in the project's repository, held true against the services'
+  descriptors by the project's checks and rendered for people to read.
 - **Crossing**: What passes a boundary between two services: a declared topic with its contract, or
   an endpoint route with its caller.
 - **Project template**: What the platform gives a developer to start a project of several services
   from, beside the template for one service.
-- **Shared module**: The code a project's services build against together, holding the types of
-  the contracts that cross their boundaries; never a component.
+- **Shared module**: The code a project's JVM services build against together, holding the types
+  of the contracts that cross their boundaries; never a component. A service in another language
+  reads the contract's schema instead.
 - **Service tag**: A tag that names one service of a project and a version, and releases that
   service alone.
 
@@ -317,7 +370,8 @@ answer.
   or pipeline file.
 - **SC-003**: Releasing one service of a three-service project builds one image and changes one
   deployed service; the other two keep their running version and image, every time.
-- **SC-004**: A change to one service's code runs that service's checks only; a change to the shared
+- **SC-004**: A change to one service's code runs that service's checks and the project's
+  cross-service tests that start it, and no other service's own checks; a change to the shared
   module runs the checks of exactly the services that use it.
 - **SC-005**: A reader with only the documentation answers where a cross-service feature's spec,
   the context map and the contracts live, and in what order a contract change is released, with no
@@ -325,6 +379,8 @@ answer.
 - **SC-006**: Breaking the consuming side of a cross-service scenario (stopping the service or
   changing its contract) turns the inspect report and the kept test for that scenario red, every
   time.
+- **SC-007**: Adding a declared topic to a service without recording its crossing in the context
+  map, or the reverse, fails the project's checks, every time.
 
 ## Assumptions
 
@@ -337,7 +393,14 @@ answer.
   module carries their types for the JVM services. HTTP routes that cross services are described in
   the context map and their caller's spec; no new contract format for them.
 - The project build covers the JVM languages, which share one build tool; a service in another
-  language lives in the project's repository with its own toolchain, checks and tags.
+  language lives in the project's repository in a directory of its own with its own toolchain, and
+  `ankka init` wires its checks and its release in as it does a JVM service's.
+- Locally the project's compose file runs one database server and one broker; the run recipe names
+  each service's database for the service, as the platform does when deployed.
+- The context map's format, its fixed place and what renders it are the plan's. It is one file,
+  written by the design skill and by hand, read by the checks and the inspect skill; routes between
+  services are recorded in it but are not compared with the code, since a descriptor does not
+  declare the routes a service calls.
 - The release pipeline is the template's, on the same CI the single-service template uses today; the
   deploy action needs no change beyond documentation, since it already acts on one service.
 - The inspect skill checks services the developer has running; it does not start them. The kept

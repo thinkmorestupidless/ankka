@@ -9,6 +9,7 @@ Feature: Running every service of a project on one machine
     When the developer runs "orders" and "billing" on their machine with nothing configured
     Then a request to "orders" that calls "billing" is answered
     And the trace of that request holds the call to "billing"
+    And "orders" and "billing" use different databases
 
   Scenario: the local console lists every service of a running project
     Given "orders" and "billing" running on the developer's machine

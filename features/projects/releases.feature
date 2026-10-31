@@ -38,11 +38,13 @@ Feature: Releasing each service of a project on its own
   Scenario: a change to one service runs that service's checks and no other's
     When the developer pushes a change to the code of "orders" alone
     Then the tests of "orders" run
+    And the tests of "shop" that start "orders" run
     And the tests of "billing" and "stock" do not run
 
   Scenario: a change to the shared module runs the checks of every service that uses it
     Given "orders" and "billing" use the shared module and "stock" does not
     When the developer pushes a change to the shared module
     Then the tests of "orders" and "billing" run
+    And the tests of "shop" that start "orders" or "billing" run
     And the tests of "stock" do not run
     And no service is deployed

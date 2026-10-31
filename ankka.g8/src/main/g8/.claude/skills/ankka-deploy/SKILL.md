@@ -98,6 +98,10 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/concepts/control-plane.md` — How the control plane records what you asked for, how the operator makes the cluster match it, and how the status you read is kept honest with generations and confirmation.
 - `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, a service's topology of declared connections and observed calls, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.
 
+### Build
+
+- `references/build/projects.md` — Start a project of several services with ankka init, add a service in any language, keep the context map true, run every service on one machine, test across services, and release one service at a time with a service tag.
+
 ### Run and deploy
 
 - `references/deploy/run-locally.md` — Run an ankka service on your own machine against a local Postgres, configure its database and HTTP port, form a two-node cluster in two terminals, and run a Python service beside the sidecar.

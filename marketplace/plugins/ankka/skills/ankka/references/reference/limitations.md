@@ -8,6 +8,13 @@ feature also says what that feature does not do.
 
 ## Platform
 
+- **Each service is deployed on its own, and never several as one.** A project of several services is
+  released one service tag at a time, and the platform offers no way to roll several services out
+  together, deliberately: services that must be deployed together are one service. A change that
+  crosses services is released in an order that keeps every deployed pair working, contract first.
+- **The project template's tests module starts Scala services only.** A test that crosses services
+  starts each service in the test JVM, which a service in another language cannot be; such a service
+  is checked against the running project by the inspect skill instead.
 - **Replication between installations needs `ankka-replication`.** An event sourced entity can be
   [replicated](../concepts/replicated-entities.md): held at several installations of a service and
   written at one, its home. What one installation offers on its own is the whole model over the

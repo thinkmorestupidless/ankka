@@ -40,6 +40,11 @@ The domain an installation serves under. The control plane answers at `api.<base
 provider at `auth.<base domain>`, and an exposed service at `<service>-<project>.<base domain>`. A local
 platform uses `127.0.0.1.sslip.io`.
 
+### Boundary
+
+Where one service of a project ends and another begins, put there because the two differ in ownership,
+scaling or consistency. Only a crossing passes it. See [A project of several services](../concepts/projects.md).
+
 ### Broker
 
 What holds topics and carries what is published to one to whatever reads it: Kafka. An installation has
@@ -113,11 +118,24 @@ what was last known, because the cluster could not be reached or nothing has rep
 A component that reacts to changes from a source — an entity's events, a key value entity's state, or a topic
 — by calling other components or publishing onward. Delivery is at least once.
 
+### Context map
+
+The record of a project's services: what each owns, why each boundary is where it is, and every crossing.
+It is one file in the project's repository, `context-map.json`, which `ankka context-map check` and the
+project's tests hold true, and which is rendered as `CONTEXT-MAP.md`. See
+[A project of several services](../concepts/projects.md#the-context-map).
+
 ### Control plane
 
 The service that operates the platform: it records organizations, projects and service descriptors, checks
 who may change them, and projects each service's desired state into an AnkkaService resource. It is itself an
 ankka service. The CLI is its client.
+
+### Crossing
+
+What passes a boundary between two services of a project: a declared topic with its contract, or a route of
+an endpoint with the service that calls it. Reading another service's database or its entities' events is not
+a crossing but a defect.
 
 ### Declared topic
 
@@ -347,8 +365,15 @@ the same pod. Declared with `"hosting": "process"` and a `protocol` version.
 
 ### Project
 
-A group of services within an organization, deployed to one namespace. Services are named per project, and
-each project has its own database cluster.
+A group of services within an organization that deliver what is required of them when they run together,
+each deployed on its own, in one namespace. Services that must be deployed together are one service, not a
+project. Services are named per project, and each project has its own database cluster.
+
+### Project template
+
+What `ankka init <name> --project` starts a project of several services from: one repository holding the
+services, a shared module, the context map, a tests module and the jobs that check and release each service
+on its own. See [Build a project of several services](../build/projects.md).
 
 ### Project secret
 
@@ -462,11 +487,21 @@ A named text value a service keeps in its secret store while it runs and reads b
 a credential a person gave it. See [Secrets a service keeps](../build/secrets.md).
 
 
+### Service tag
+
+A tag in a project's repository that names one of its services and a version, such as `orders/v1.4.2`, and
+releases that service alone.
+
 ### Session
 
 The conversation an agent works in, identified by a session id. Its memory is an event sourced entity, so it
 survives restarts, and several agents can share one session to collaborate. Requests to one session are handled
 one at a time.
+
+### Shared module
+
+The code a project's Scala services build against, holding the types of the contracts that cross their
+boundaries. It is not a component and is never deployed.
 
 ### Sharding
 

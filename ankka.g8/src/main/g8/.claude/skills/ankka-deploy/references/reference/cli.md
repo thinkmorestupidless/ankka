@@ -99,6 +99,23 @@ A descriptor passed to `ankka services apply -f` is validated before it is sent,
 the control plane applies, and every problem is reported at once. `-f -` reads the descriptor from
 standard input.
 
+## The context map
+
+`ankka context-map check` and `ankka context-map render` read a project's `context-map.json`, in
+the directory `--dir` names or the current one, and ask no control plane anything.
+
+`check` prints nothing and exits `0` when the map is true of the project. Otherwise it prints one
+line per problem on standard error, with no `error: ` prefix, and exits `1`. It holds the map to:
+
+- each service it names having `services/<name>/service.json`, whose `name` is the directory's;
+- each directory under `services/` with a descriptor being named in the map;
+- each crossing being a declared topic with a contract and a schema, or a route, and not both;
+- each schema a crossing names existing under the project and being JSON;
+- the names of topics and contracts, and routes written as `<METHOD> <path>`;
+- no crossing recorded twice, and `CONTEXT-MAP.md` being what `render` writes from the file.
+
+`render` writes `CONTEXT-MAP.md` from the file and prints its path.
+
 ## Plugins
 
 A first word that names no built-in command names a plugin: `ankka vendor modules list` runs the
@@ -190,6 +207,7 @@ Usage:
     ankka config
     ankka version
     ankka init
+    ankka context-map
     ankka local
     ankka mcp
     ankka plugin
@@ -222,7 +240,9 @@ Subcommands:
     version
         Print the ankka version of this CLI.
     init
-        Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go.
+        Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go; a project of several services (--project); or a service inside the project in --dir.
+    context-map
+        Check a project's context map against its services and contracts, or render it.
     local
         Tools for services running on this machine.
     mcp
@@ -2791,9 +2811,9 @@ Options and flags:
 ### `ankka init`
 
 ```text
-Usage: ankka init [--language <string>] [--template <string>] [--package <string>] [--dir <string>] <name>
+Usage: ankka init [--language <string>] [--template <string>] [--package <string>] [--dir <string>] [--project] [--services <string>] [--add] <name>
 
-Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go.
+Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go; a project of several services (--project); or a service inside the project in --dir.
 
 Options and flags:
     --help
@@ -2806,6 +2826,60 @@ Options and flags:
         The Scala, Java or Kotlin package (default com.example.<name>) or Python package (default the name, '-' as '_').
     --dir <string>
         Where to create the project; defaults to the current directory.
+    --project
+        Start a project of several Scala services in one repository, named by --services.
+    --services <string>
+        With --project: the project's first services, at least two, separated by commas.
+    --add
+        Add the service to the project in --dir, and refuse when --dir holds no project.
+```
+
+### `ankka context-map`
+
+```text
+Usage:
+    ankka context-map check
+    ankka context-map render
+
+Check a project's context map against its services and contracts, or render it.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    check
+        Check context-map.json against services/, contracts/ and CONTEXT-MAP.md; one line per problem, exit 1 when there is any.
+    render
+        Write CONTEXT-MAP.md from context-map.json.
+```
+
+### `ankka context-map check`
+
+```text
+Usage: ankka context-map check [--dir <string>]
+
+Check context-map.json against services/, contracts/ and CONTEXT-MAP.md; one line per problem, exit 1 when there is any.
+
+Options and flags:
+    --help
+        Display this help text.
+    --dir <string>
+        The project's directory; defaults to the current directory.
+```
+
+### `ankka context-map render`
+
+```text
+Usage: ankka context-map render [--dir <string>]
+
+Write CONTEXT-MAP.md from context-map.json.
+
+Options and flags:
+    --help
+        Display this help text.
+    --dir <string>
+        The project's directory; defaults to the current directory.
 ```
 
 ### `ankka local`

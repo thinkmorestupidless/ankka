@@ -114,6 +114,72 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
     assert(pages.exists(_.contains("concepts/projects.md")), pages.mkString("\n"))
   }
 
+  // ── features/projects/specifying.feature ─────────────────────────────────────────────────────
+
+  private def concept = page("concepts/projects.md")
+
+  test(
+    "a change that changes several services of a project is one spec whose plan names each service's part and the contracts it changes"
+  ) {
+    says(
+      "concepts/projects.md",
+      concept,
+      "A feature that changes several services is one spec, in the project's repository.",
+      "Its plan names each service's part and every contract the feature adds or changes."
+    )
+    says(
+      skillPath,
+      skill,
+      "A feature that changes several services of a project is one spec in the project's repository",
+      "Its plan names each service's part and every contract it adds or changes."
+    )
+  }
+
+  test(
+    "the work list of a change that changes a contract changes the contract before either service depends on it"
+  ) {
+    says(
+      "concepts/projects.md",
+      concept,
+      "Its work list changes each contract before either side depends on it"
+    )
+    says(skillPath, skill, "Its work list changes each contract before either side depends on it.")
+  }
+
+  test(
+    "an incompatible change to a contract is a new contract, and each side reads both until neither publishes the old one"
+  ) {
+    says(
+      "concepts/projects.md",
+      concept,
+      "An incompatible change is a new contract with a new name, `order.v2` beside `order.v1`.",
+      "The reading side reads both until no service publishes the old one"
+    )
+    says(
+      skillPath,
+      skill,
+      "An incompatible change is a new contract name (`order.v2` beside `order.v1`)",
+      "the reading side reads both until no service publishes the old one"
+    )
+  }
+
+  test(
+    "a service moved to a repository of its own keeps a spec there that names the project's spec it implements"
+  ) {
+    says(
+      "concepts/projects.md",
+      concept,
+      "What stays in the project's repository is the context map, the contracts and the specs that cross services.",
+      "a spec of its own for its part of each feature, which names the project's spec it implements"
+    )
+    says(
+      skillPath,
+      skill,
+      "the spec, the context map and the contracts stay in the project's repository",
+      "holds a spec for its part that names the project's spec it implements"
+    )
+  }
+
   // ── features/documentation/projects.feature ──────────────────────────────────────────────────
 
   test(

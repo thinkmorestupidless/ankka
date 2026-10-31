@@ -68,6 +68,10 @@ depends on it. An incompatible change is a new contract name (`order.v2` beside 
 reading side reads both until no service publishes the old one. Each service is released on its own
 service tag when its part is done.
 
+When a service of the change lives in a repository of its own, the spec, the context map and the
+contracts stay in the project's repository; the moved service's repository holds a spec for its part
+that names the project's spec it implements.
+
 ## The component table
 
 One row per requirement, rule, process or question, with four columns, as in the worked checkout example

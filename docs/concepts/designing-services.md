@@ -4,7 +4,7 @@ description: The concepts that shape an ankka system — consistency boundaries,
 kind: concept
 languages: [scala, python]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
-related: [concepts/components.md, concepts/consistency.md, concepts/designing-agents.md, concepts/effects.md, concepts/wire-names.md, build/serialization.md]
+related: [concepts/projects.md, concepts/components.md, concepts/consistency.md, concepts/designing-agents.md, concepts/effects.md, concepts/wire-names.md, build/serialization.md]
 ---
 
 # Designing a service
@@ -189,6 +189,14 @@ Draw boundaries where these differ:
 
 Start with fewer, larger services. Splitting one later means publishing events that were internal;
 merging two means migrating a database.
+
+**Services that must be deployed together are one service.** The platform deploys each service on its
+own and never several as one, deliberately: a rollout that has to change two running services at the same
+moment cannot be made safe, so the platform does not offer one. Two parts that cannot be released apart
+have no boundary between them, and belong in one service.
+
+A design of several services starts with a context map: each service, what it owns, why each boundary is
+where it is, and every crossing between them. [A project of several services](projects.md) describes it.
 
 **Publish events deliberately.** An entity's events are its internal record and change as the domain does.
 What another service sees should be a separate, stable message type that a consumer produces from those

@@ -1425,6 +1425,36 @@ object Main:
     Opts.unit.map(_ => () => com.thinkmorestupidless.ankka.core.BuildInfo.version)
   }
 
+  /**
+   * `ankka context-map check|render` (feature 062): a project's context map, held true against the
+   * project's own files and rendered for people to read. Local: no control plane is asked anything.
+   */
+  private val contextMapCommand = Opts.subcommand(
+    "context-map",
+    "Check a project's context map against its services and contracts, or render it."
+  ) {
+    val dir = Opts
+      .option[String]("dir", "The project's directory; defaults to the current directory.")
+      .orNone
+      .map(d => java.nio.file.Path.of(d.getOrElse(".")))
+    Opts
+      .subcommand(
+        "check",
+        "Check context-map.json against services/, contracts/ and CONTEXT-MAP.md; one line per " +
+          "problem, exit 1 when there is any."
+      )(dir.map { root => () =>
+        val problems = ContextMapCommand.check(root)
+        if problems.nonEmpty then ContextMapCommand.refuse(problems)
+        ""
+      })
+      .orElse(
+        Opts.subcommand("render", "Write CONTEXT-MAP.md from context-map.json.")(dir.map {
+          root => () =>
+            ContextMapCommand.render(root).fold(ContextMapCommand.refuse, _.toString)
+        })
+      )
+  }
+
   private val initCommand = Opts.subcommand(
     "init",
     "Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, " +
@@ -1703,6 +1733,7 @@ object Main:
     "config",
     "version",
     "init",
+    "context-map",
     "local",
     "mcp",
     "plugin"
@@ -1723,6 +1754,7 @@ object Main:
       .orElse(configCommand)
       .orElse(versionCommand)
       .orElse(initCommand)
+      .orElse(contextMapCommand)
       .orElse(localCommand)
       .orElse(mcpCommand)
       .orElse(pluginCommand)

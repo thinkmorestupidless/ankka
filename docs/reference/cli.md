@@ -245,7 +245,7 @@ Subcommands:
     version
         Print the ankka version of this CLI.
     init
-        Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go.
+        Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go; a project of several services (--project); or a service inside the project in --dir.
     context-map
         Check a project's context map against its services and contracts, or render it.
     local
@@ -2816,9 +2816,9 @@ Options and flags:
 ### `ankka init`
 
 ```text
-Usage: ankka init [--language <string>] [--template <string>] [--package <string>] [--dir <string>] <name>
+Usage: ankka init [--language <string>] [--template <string>] [--package <string>] [--dir <string>] [--project] [--services <string>] [--add] <name>
 
-Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go.
+Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, Python, TypeScript, Rust or Go; a project of several services (--project); or a service inside the project in --dir.
 
 Options and flags:
     --help
@@ -2831,6 +2831,12 @@ Options and flags:
         The Scala, Java or Kotlin package (default com.example.<name>) or Python package (default the name, '-' as '_').
     --dir <string>
         Where to create the project; defaults to the current directory.
+    --project
+        Start a project of several Scala services in one repository, named by --services.
+    --services <string>
+        With --project: the project's first services, at least two, separated by commas.
+    --add
+        Add the service to the project in --dir, and refuse when --dir holds no project.
 ```
 
 ### `ankka context-map`

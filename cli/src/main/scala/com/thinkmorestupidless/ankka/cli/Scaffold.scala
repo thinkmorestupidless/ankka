@@ -110,8 +110,11 @@ object Scaffold:
   /** One file of a template, as its `index.txt` lists it: `path`, or `path  binary|exec`. */
   final case class Entry(path: String, mode: Mode)
 
-  def entries(language: Language): Vector[Entry] =
-    resource(s"${language.id}/index.txt") match
+  def entries(language: Language): Vector[Entry] = entriesOf(language.id)
+
+  /** The entries of the template `id`: a language's, `project` or `project-service-scala`. */
+  def entriesOf(id: String): Vector[Entry] =
+    resource(s"$id/index.txt") match
       case Some(bytes) =>
         new String(bytes, UTF_8).linesIterator.filter(_.nonEmpty).toVector.map { line =>
           line.split("\\s+") match
@@ -119,9 +122,9 @@ object Scaffold:
             case Array(path, "binary") => Entry(path, Mode.Binary)
             case Array(path, "exec")   => Entry(path, Mode.Exec)
             case _                     =>
-              throw IllegalStateException(s"the ${language.id} template's index has '$line'")
+              throw IllegalStateException(s"the $id template's index has '$line'")
         }
-      case None => throw IllegalStateException(s"no ${language.id} template in this CLI")
+      case None => throw IllegalStateException(s"no $id template in this CLI")
 
   /** The template's files, as paths relative to its root, before rendering. */
   def files(language: Language): Vector[String] = entries(language).map(_.path)
@@ -149,14 +152,14 @@ object Scaffold:
     target
 
   // The owner may run it; a filesystem without POSIX permissions has nothing to set.
-  private def executable(file: Path): Unit =
+  private[cli] def executable(file: Path): Unit =
     try
       val permissions = Files.getPosixFilePermissions(file)
       permissions.add(PosixFilePermission.OWNER_EXECUTE)
       Files.setPosixFilePermissions(file, permissions): Unit
     catch case _: UnsupportedOperationException => ()
 
-  private def resource(path: String): Option[Array[Byte]] =
+  private[cli] def resource(path: String): Option[Array[Byte]] =
     Option(getClass.getClassLoader.getResourceAsStream(Root + path)).map { stream =>
       try stream.readAllBytes()
       finally stream.close()

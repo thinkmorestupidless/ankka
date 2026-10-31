@@ -1458,7 +1458,8 @@ object Main:
   private val initCommand = Opts.subcommand(
     "init",
     "Create a new service from the ankka template, in Scala (runs `sbt new`), Java, Kotlin, " +
-      "Python, TypeScript, Rust or Go."
+      "Python, TypeScript, Rust or Go; a project of several services (--project); or a service " +
+      "inside the project in --dir."
   ) {
     (
       Opts.argument[String]("name"),
@@ -1482,8 +1483,26 @@ object Main:
         .orNone,
       Opts
         .option[String]("dir", "Where to create the project; defaults to the current directory.")
-        .orNone
-    ).mapN { (name, language, template, pkg, dir) => () =>
+        .orNone,
+      Opts
+        .flag(
+          "project",
+          "Start a project of several Scala services in one repository, named by --services."
+        )
+        .orFalse,
+      Opts
+        .option[String](
+          "services",
+          "With --project: the project's first services, at least two, separated by commas."
+        )
+        .orNone,
+      Opts
+        .flag(
+          "add",
+          "Add the service to the project in --dir, and refuse when --dir holds no project."
+        )
+        .orFalse
+    ).mapN { (name, language, template, pkg, dir, project, services, add) => () =>
       val request = Init.Request(
         name,
         template,
@@ -1491,43 +1510,64 @@ object Main:
         dir.map(java.nio.file.Path.of(_)).getOrElse(java.nio.file.Path.of(".")),
         language
       )
-      val problems = Init.problems(request)
-      if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
-      val where = request.directory.resolve(name).toAbsolutePath.normalize
-      language match
-        case Language.Scala =>
-          if !Init.sbtOnPath() then
-            throw ApiError(
-              0,
-              "ankka init needs sbt on PATH for a Scala service; install it from https://www.scala-sbt.org/"
-            )
-          val code = Init.run(request)
-          if code != 0 then throw ApiError(0, s"sbt new exited with $code")
-          s"created $where\n\n  cd $name\n  sbt test\n  sbt schema && docker compose up -d && sbt run\n\nsee README.md for the rest"
-        case Language.Python =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          val module = Scaffold.module(request)
-          s"created $where\n\n  cd $name\n  uv sync\n  uv run pytest -q -rs\n  docker compose up -d && uv run python -m $module.main\n\nsee README.md for the rest"
-        case Language.Java =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          s"created $where (Java, Maven)\n\n  cd $name\n  docker compose up -d\n  ./mvnw test\n  ./mvnw exec:java\n\nsee README.md for the rest"
-        case Language.Kotlin =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          s"created $where (Kotlin, Gradle)\n\n  cd $name\n  docker compose up -d\n  ./gradlew test\n  ./gradlew run\n\nsee README.md for the rest"
-        case Language.TypeScript =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          s"created $where\n\n  cd $name\n  npm install\n  npm test\n  docker compose up -d && npm start\n\nsee README.md for the rest"
-        case Language.Rust =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          s"created $where\n\n  cd $name\n  cargo test\n  cargo module && docker compose up -d runtime\n\nsee README.md for the rest"
-        case Language.Go =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          s"created $where\n\n  cd $name\n  go mod tidy\n  go vet ./...\n  go test ./...\n  ANKKA_SLOW=1 go test ./...\n  docker compose up -d && go run .\n\nsee README.md for the rest"
-        case Language.Web =>
-          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
-          s"created $where\n\n  cd $name\n  npm install\n  npm test\n  ankka local web -- npm run dev\n\nsee README.md for the rest"
+      val version = com.thinkmorestupidless.ankka.core.BuildInfo.version
+      if project then
+        val problems = Projects.startProblems(request, services, add)
+        if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+        val names  = services.toVector.flatMap(_.split(',').map(_.trim).filter(_.nonEmpty))
+        val target = Projects.renderProject(request, names, version)
+        Projects.startSteps(
+          target.toAbsolutePath.normalize,
+          name,
+          names.head,
+          Projects.specify(target)
+        )
+      else if Projects.isProject(request.directory) then
+        val problems = Projects.addProblems(request)
+        if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+        val service = Projects.addService(request, version)
+        Projects.addSteps(service.toAbsolutePath.normalize, name, language)
+      else if add then throw ApiError(0, Projects.outside(request.directory))
+      else initSingle(request, name, language)
     }
   }
+
+  private def initSingle(request: Init.Request, name: String, language: Language): String =
+    val problems = Init.problems(request)
+    if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+    val where = request.directory.resolve(name).toAbsolutePath.normalize
+    language match
+      case Language.Scala =>
+        if !Init.sbtOnPath() then
+          throw ApiError(
+            0,
+            "ankka init needs sbt on PATH for a Scala service; install it from https://www.scala-sbt.org/"
+          )
+        val code = Init.run(request)
+        if code != 0 then throw ApiError(0, s"sbt new exited with $code")
+        s"created $where\n\n  cd $name\n  sbt test\n  sbt schema && docker compose up -d && sbt run\n\nsee README.md for the rest"
+      case Language.Python =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        val module = Scaffold.module(request)
+        s"created $where\n\n  cd $name\n  uv sync\n  uv run pytest -q -rs\n  docker compose up -d && uv run python -m $module.main\n\nsee README.md for the rest"
+      case Language.Java =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        s"created $where (Java, Maven)\n\n  cd $name\n  docker compose up -d\n  ./mvnw test\n  ./mvnw exec:java\n\nsee README.md for the rest"
+      case Language.Kotlin =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        s"created $where (Kotlin, Gradle)\n\n  cd $name\n  docker compose up -d\n  ./gradlew test\n  ./gradlew run\n\nsee README.md for the rest"
+      case Language.TypeScript =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        s"created $where\n\n  cd $name\n  npm install\n  npm test\n  docker compose up -d && npm start\n\nsee README.md for the rest"
+      case Language.Rust =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        s"created $where\n\n  cd $name\n  cargo test\n  cargo module && docker compose up -d runtime\n\nsee README.md for the rest"
+      case Language.Go =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        s"created $where\n\n  cd $name\n  go mod tidy\n  go vet ./...\n  go test ./...\n  ANKKA_SLOW=1 go test ./...\n  docker compose up -d && go run .\n\nsee README.md for the rest"
+      case Language.Web =>
+        Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+        s"created $where\n\n  cd $name\n  npm install\n  npm test\n  ankka local web -- npm run dev\n\nsee README.md for the rest"
 
   /**
    * `ankka local console` — a web UI over the services running on this machine.

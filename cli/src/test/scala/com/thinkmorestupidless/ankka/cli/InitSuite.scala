@@ -6,6 +6,9 @@ import java.nio.file.Files
 /** What `ankka init` decides before it starts a process. */
 class InitSuite extends munit.FunSuite:
 
+  // A project started here must never run a developer's own `specify` in a temporary directory.
+  override def beforeAll(): Unit = System.setProperty("ankka.init.specify", "off"): Unit
+
   test("the sbt invocation carries the template, the name and this CLI's version") {
     val cmd = Init.command(Init.Request("orders", Some("file:///t/ankka.g8")), version = "0.2.0")
     assertEquals(
@@ -258,4 +261,225 @@ class InitSuite extends munit.FunSuite:
       assert(descriptor.contains("\"name\": \"probe\""), descriptor)
       val hosting = if language == Language.Web then "web" else "process"
       assert(descriptor.contains(s"\"hosting\": \"$hosting\""), descriptor)
+  }
+
+  // ── Projects of several services (feature 062) ────────────────────────────────────────────────
+
+  private def cli(args: String*): (Int, String, String) =
+    val out  = java.io.ByteArrayOutputStream()
+    val err  = java.io.ByteArrayOutputStream()
+    val utf8 = java.nio.charset.StandardCharsets.UTF_8
+    val code =
+      Main.run(args, java.io.PrintStream(out, true, utf8), java.io.PrintStream(err, true, utf8))
+    (code, out.toString(utf8), err.toString(utf8))
+
+  private def started(services: String = "orders,billing"): java.nio.file.Path =
+    val dir            = Files.createTempDirectory("project-init")
+    val (code, _, err) =
+      cli("init", "shop", "--project", "--services", services, "--dir", dir.toString)
+    assertEquals(code, 0, err)
+    dir.resolve("shop")
+
+  private def project(language: Language = Language.Scala, template: Option[String] = None) =
+    Init.Request(
+      "shop",
+      template,
+      directory = Files.createTempDirectory("project-init"),
+      language = language
+    )
+
+  test("--project refuses each shape of --services the contract names, with its words") {
+    def problems(services: Option[String], add: Boolean = false) =
+      Projects.startProblems(project(), services, add)
+    assertEquals(
+      problems(None),
+      Vector("--project needs --services with at least two service names")
+    )
+    assertEquals(
+      problems(Some("orders")),
+      Vector("--project needs --services with at least two service names")
+    )
+    assertEquals(problems(Some("orders,orders")), Vector("the services must be distinct"))
+    assertEquals(
+      problems(Some("orders,shared")),
+      Vector("\"shared\" and \"tests\" are the project's own directories")
+    )
+    assert(problems(Some("orders,Billing")).exists(_.contains("service name 'Billing' is invalid")))
+    assertEquals(
+      problems(Some("orders,billing"), add = true),
+      Vector("--add adds a service to a project; --project starts one")
+    )
+    assertEquals(problems(Some("orders,billing")), Vector.empty)
+  }
+
+  test("--project refuses another language, a template and an invalid project id") {
+    assertEquals(
+      Projects.startProblems(project(Language.Python), Some("orders,billing"), add = false),
+      Vector(
+        "--project starts Scala services; add a service in another language inside the project " +
+          "with ankka init <service> --language <lang>"
+      )
+    )
+    assertEquals(
+      Projects.startProblems(
+        project(template = Some("file:///t.g8")),
+        Some("orders,billing"),
+        add = false
+      ),
+      Vector("--template applies to a single Scala service")
+    )
+    val local = Init.Request("local", directory = Files.createTempDirectory("project-init"))
+    assert(
+      Projects
+        .startProblems(local, Some("orders,billing"), add = false)
+        .exists(_.contains("reserved"))
+    )
+  }
+
+  test(
+    "a project holds its services, each with its own descriptor and port, and its rendered map"
+  ) {
+    val root = started("orders,billing,stock")
+    for (service, port) <- Vector("orders" -> 9000, "billing" -> 9001, "stock" -> 9002) do
+      val descriptor = Files.readString(root.resolve(s"services/$service/service.json"))
+      assert(descriptor.contains(s"\"name\": \"$service\""), descriptor)
+      assert(descriptor.contains(s"\"port\": $port"), descriptor)
+    val map = com.thinkmorestupidless.ankka.core.ContextMap.read(root).toOption.get
+    assertEquals(map.services.map(_.name), Vector("orders", "billing", "stock"))
+    assertEquals(com.thinkmorestupidless.ankka.core.ContextMap.check(root, map), Vector.empty)
+    assert(Files.isExecutable(root.resolve("scripts/run.sh")))
+    assert(
+      Files.isRegularFile(
+        root.resolve("shared/src/main/scala/com/example/shop/contracts/OrdersV1.scala")
+      )
+    )
+  }
+
+  test("a project's files carry no token left unfilled") {
+    val root = started()
+    val left = Files
+      .walk(root)
+      .iterator()
+      .asScala
+      .filter(Files.isRegularFile(_))
+      .filterNot(_.toString.contains("/.claude/"))
+      .filterNot(_.toString.contains("/.specify/extensions/"))
+      .flatMap(f => "\\{\\{[a-zA-Z_]+\\}\\}".r.findAllIn(Files.readString(f)).map(t => s"$f: $t"))
+      .filterNot(_.contains("${{"))
+      .toVector
+    assertEquals(left, Vector.empty)
+  }
+
+  test("a directory with a context map is a project, and the next port fills the first gap") {
+    val root = started()
+    assert(Projects.isProject(root))
+    assert(!Projects.isProject(Files.createTempDirectory("not-a-project")))
+    assertEquals(Projects.nextPort(root), 9002)
+    Files.delete(root.resolve("services/orders/service.json"))
+    assertEquals(Projects.nextPort(root), 9000)
+  }
+
+  test(
+    "a service added inside a project gets the next port and an entry in the map, and nothing else"
+  ) {
+    val root   = started()
+    val before = Files.walk(root).iterator().asScala.map(root.relativize(_).toString).toSet
+    val (code, out, err) = cli("init", "stock", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    assert(out.contains("complete the context map's entry for \"stock\""), out)
+    val after   = Files.walk(root).iterator().asScala.map(root.relativize(_).toString).toSet
+    val outside = (after -- before).filterNot(_.startsWith("services/stock"))
+    assertEquals(outside, Set.empty[String])
+    assert(Files.readString(root.resolve("services/stock/service.json")).contains("\"port\": 9002"))
+    assert(Files.readString(root.resolve("context-map.json")).contains("\"stock\""))
+    assert(Files.readString(root.resolve("CONTEXT-MAP.md")).contains("| stock |"))
+  }
+
+  test(
+    "a python service inside a project keeps a compose file of its own, on the project's database and broker"
+  ) {
+    val root           = started()
+    val (code, _, err) = cli("init", "stock", "--language", "python", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    val service = root.resolve("services/stock")
+    val compose = Files.readString(service.resolve("docker-compose.yml"))
+    assert(!compose.contains("postgres:"), compose)
+    assert(compose.contains("ANKKA_DB_HOST: host.docker.internal"), compose)
+    assert(compose.contains("ANKKA_DB_NAME: stock"), compose)
+    assert(compose.contains("ANKKA_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9094"), compose)
+    assert(compose.contains("\"9002:9002\""), compose)
+    for owned <- Vector(".github", ".githooks", ".claude", ".mcp.json") do
+      assert(!Files.exists(service.resolve(owned)), owned)
+    assert(!Files.readString(service.resolve("README.md")).contains("## Deploy"))
+  }
+
+  test(
+    "adding a service the project already has, or one named for its own directories, is refused"
+  ) {
+    val root = started()
+    for name <- Vector("orders", "shared", "tests") do
+      val (code, _, err) = cli("init", name, "--dir", root.toString)
+      assertEquals(code, 1, name)
+      assert(err.contains(s"shop already has a service \"$name\""), err)
+  }
+
+  test("--add in a directory that holds no project refuses and writes nothing") {
+    val dir            = Files.createTempDirectory("no-project")
+    val (code, _, err) = cli("init", "stock", "--add", "--dir", dir.toString)
+    assertEquals(code, 1)
+    assert(
+      err.contains(
+        s"$dir holds no project started from the project template (no context-map.json); nothing was written"
+      ),
+      err
+    )
+    assertEquals(Files.list(dir).count(), 0L)
+  }
+
+  test("specify runs when it is on PATH and is not switched off, and its failure is reported") {
+    val target = Files.createTempDirectory("specify")
+    val bin    = Files.createTempDirectory("bin")
+    val fake   = bin.resolve("specify")
+    Files.writeString(fake, "#!/bin/sh\n")
+    fake.toFile.setExecutable(true): Unit
+    val path              = Map("PATH" -> bin.toString)
+    var ran               = Vector.empty[Vector[String]]
+    def runner(code: Int) = (command: Vector[String], _: java.nio.file.Path) =>
+      ran = ran :+ command
+      code
+    assertEquals(Projects.specify(target, path, Map.empty, runner(0)), Projects.Specify.Ran)
+    assertEquals(ran, Vector(Projects.SpecifyCommand))
+    assertEquals(Projects.specify(target, path, Map.empty, runner(3)), Projects.Specify.Failed(3))
+    assertEquals(
+      Projects.specify(target, path, Map("ankka.init.specify" -> "off"), runner(0)),
+      Projects.Specify.Skipped
+    )
+    assertEquals(
+      Projects.specify(target, path + ("ANKKA_INIT_SPECIFY" -> "off"), Map.empty, runner(0)),
+      Projects.Specify.Skipped
+    )
+    assertEquals(
+      Projects.specify(target, Map("PATH" -> ""), Map.empty, runner(0)),
+      Projects.Specify.Skipped
+    )
+    assertEquals(ran.size, 2)
+  }
+
+  test("when specify did not run, the next steps name it first") {
+    val steps = Projects.startSteps(
+      java.nio.file.Path.of("/x/shop"),
+      "shop",
+      "orders",
+      Projects.Specify.Skipped
+    )
+    assert(
+      steps.contains(
+        "  cd shop\n  specify init --here --ai claude --ai-skills\n  docker compose up -d"
+      ),
+      steps
+    )
+    val ran =
+      Projects.startSteps(java.nio.file.Path.of("/x/shop"), "shop", "orders", Projects.Specify.Ran)
+    assert(!ran.contains("specify"), ran)
+    assert(ran.contains("ankka context-map check"), ran)
   }

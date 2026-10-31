@@ -65,9 +65,12 @@ it under a kit with the shared in-memory broker (R7); `start()` uses `Projection
 ## A service in another language inside a project
 
 The language's template rendered into `services/<service>/` minus: `.github/`, `.githooks/`,
-`.claude/`, `.mcp.json`, `docker-compose.yml`, `README.md`'s deploy section. Its `service.json`
-gets `port` set. Its own build and tests are untouched; it reads the contract's schema from
-`../../contracts/<contract>.json` when it needs it (documented, not wired).
+`.claude/`, `.mcp.json`, `README.md`'s deploy section. Its `docker-compose.yml` is kept, trimmed of
+its `postgres` service, with its `sidecar` (or `runtime`) and `schema` services pointed at the
+project's Postgres and Kafka on the host and given the service's name and port; Java and Kotlin,
+which need no sidecar, get no compose file. Its `service.json` gets `port` set. Its own build and
+tests are untouched; it reads the contract's schema from `../../contracts/<contract>.json` when it
+needs it (documented, not wired).
 
 ## What `ankka init <service>` inside a project touches
 

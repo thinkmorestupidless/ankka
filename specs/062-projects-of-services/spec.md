@@ -102,6 +102,15 @@ between them is in the wrong place.
   `ankka init <name> --project --services <a>,<b>` starts one; `ankka init <service>` run inside a
   project, which the context map file at its root says it is, adds a service and records it in
   the map; outside a project the command is unchanged.
+- Q (at analyze): Which languages may a project's initial services be? → A: Scala only; `--project`
+  with another language is refused and says to add such a service inside the project. The
+  template keeps its worked example of two Scala services, the shared module and a test that
+  crosses them.
+- Q (at analyze): How does a service that runs behind the sidecar, or as a module in the runtime
+  container, run on one machine inside a project? → A: From a compose file of its own in its
+  directory, kept from its language's template and trimmed to the sidecar or runtime and the
+  schema, pointed at the project's one database server and broker; the project's run script
+  starts it before the process. The project's own compose file is never edited.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -217,7 +226,7 @@ when one service lives in a repository of its own.
 
 A developer runs every service of the project on their own machine, with one database server and
 one broker shared by all of them, each service its own database within it, which the project's run
-recipe and compose file provide so the developer configures nothing. The local console lists them
+script and compose file provide so the developer configures nothing. The local console lists them
 all and each finds the others. The inspect skill, given a spec whose scenarios cross services,
 reads the context map for the services and crossings each one passes, checks each by driving the
 first service's endpoint and asserting on the second's state through its declared queries, and
@@ -294,8 +303,8 @@ answer.
 **The project template and its releases**
 
 - **FR-006**: There MUST be a project template, separate from the single-service template, that
-  makes one repository holding a build of two named services in a language the single-service
-  template offers, a shared module of contract types, the context map of the two services, a tests
+  makes one repository holding a build of two named Scala services, a shared module of contract
+  types, the context map of the two services, a tests
   module for scenarios that cross services, the skills, and the spec-kit extensions the family
   uses, with spec-kit itself installed by `ankka init` when its installer is on PATH and named as
   the first next step otherwise.
@@ -335,12 +344,15 @@ answer.
 
 - **FR-017**: The documentation MUST say how to run every service of a project on one machine and
   how they find each other: their own cluster ports, the local console, and a configured address
-  where the console is not running. The project template's run recipe MUST give each service a
+  where the console is not running. The project template's run script MUST give each service a
   database of its own, named for the service, in the one database server its compose file runs, and
-  the runtime's default database name MUST NOT change.
+  the runtime's default database name MUST NOT change. A service that runs behind the sidecar or as
+  a module in the runtime container MUST run through the same script, from a compose file of its own
+  in its directory pointed at the project's database server and broker.
 - **FR-018**: The inspect skill MUST check each scenario that crosses services through the services'
-  real endpoints and declared queries, reporting each as met or not with the requests, the messages
-  on any topic and the trace that joins the services.
+  real endpoints and declared queries, reporting each as met or not with the requests, what was
+  published to any topic as the trace's producer and consumer spans record it, and the trace that
+  joins the services.
 - **FR-019**: A scenario that crosses services MUST be reported not met, naming the service, when
   a service it needs is not running or states a different contract.
 - **FR-020**: Each met scenario that crosses services MUST be kept as an integration test in the
@@ -422,7 +434,7 @@ answer.
   module; a service in any other language, Java and Kotlin included since each has a build tool
   of its own, lives in the project's repository in a directory of its own with its own toolchain,
   and `ankka init` wires its checks and its release in as it does a Scala service's.
-- Locally the project's compose file runs one database server and one broker; the run recipe names
+- Locally the project's compose file runs one database server and one broker; the run script names
   each service's database for the service, as the platform does when deployed.
 - The context map's format, its fixed place and what renders it are the plan's. It is one file,
   written by the design skill and by hand, read by the checks and the inspect skill; routes between

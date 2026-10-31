@@ -13,7 +13,7 @@ Renders a project at `<dir>/<name>` (contracts/project-layout.md).
 | at least two names, each a valid service name, all distinct, none equal to `shared` or `tests` | the descriptor's name rule; `the services must be distinct`; `"shared" and "tests" are the project's own directories` |
 | `<name>` is a valid project id | the project rule |
 | the target directory is empty or absent | `<target> already exists and is not empty` (as today) |
-| `--language` is one of the eight (Scala default) and applies to every initial service | as today |
+| `--language` with `--project` is `scala` (the default) | `--project starts Scala services; add a service in another language inside the project with ankka init <service> --language <lang>` |
 | `--template` is refused with `--project` | `--template applies to a single Scala service` |
 | `--add` with `--project` | `--add adds a service to a project; --project starts one` |
 
@@ -21,7 +21,8 @@ On success, prints the project's next steps: `cd <name>`, `docker compose up -d`
 `scripts/run.sh <a>`, `sbt test`, `ankka context-map check`, and, when `specify` was not on PATH,
 first `specify init --here --ai claude --ai-skills`. When `specify` is on PATH, runs it in the
 project before printing (its output inherited), and a non-zero exit is reported as `specify init
-exited with <code>` after the project has been written.
+exited with <code>` after the project has been written. The system property `ankka.init.specify=off`
+never runs it (the suites set it; `Test / javaOptions` forwards it).
 
 ## `ankka init <service> [--add] [--language <lang>] [--package <pkg>] [--dir <path>]`
 

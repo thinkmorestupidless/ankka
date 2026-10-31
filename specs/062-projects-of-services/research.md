@@ -405,6 +405,29 @@ and are installed by its own tool; the family's extensions are this repository's
 - The release scenarios (what a tag builds and deploys) are proven by the workflow-shape
   assertions and the scripts' tests, as every template's deploy is today; no real GitHub run.
 
+### R15a. Decided at analyze
+
+- **Initial services are Scala** (finding I1): `--project` with `--language` other than `scala`
+  is refused: "`--project` starts Scala services; add a service in another language inside the
+  project with `ankka init <service> --language <lang>`". The template's worked example (two
+  Scala services, the shared module, the cross-service test) is what every project starts with.
+- **A sidecar or runtime service keeps a compose file of its own** (finding U1): `ankka init
+  <service> --language <python|typescript|go|rust|web>` inside a project keeps that template's
+  `docker-compose.yml` in `services/<service>/`, trimmed of its `postgres` service and pointed at
+  the project's Postgres and Kafka on the host (`host.docker.internal`, the compose network's
+  gateway on Linux), its `schema` service copying the DDL as today; `scripts/run.sh <service>`
+  runs `docker compose -f services/<service>/docker-compose.yml up -d` before the process. The
+  root compose file is never edited by the CLI.
+- **`specify init` is switchable** (finding U2): the system property `ankka.init.specify`
+  (`off` never runs it, `on` the default runs it when on PATH) is forwarded to forked tests, and
+  `ProjectTemplateSuite` sets `off`, so no suite downloads spec-kit.
+- **The releases are proven live once** (finding C1): with Trevor's go-ahead, the rendered
+  project is pushed to a scratch repository under his account, a pull request changing one service
+  shows `changes` and `checks` run for that service alone, and a tag `orders/v0.1.0` shows
+  `resolve` and `checks` run and `deploy` decline for want of a token; the run links are recorded
+  and the repository deleted. SC-003's deploy itself is proven at the first real release of a
+  project, as every template's deploy is today.
+
 ### R15. What stays out
 
 Nothing deploys several services as one, no descriptor names a set of services, no command
@@ -429,3 +452,8 @@ the *Scala* build are not built; the first three go to the limitations page.
 ## Declined remediations
 
 (none yet)
+
+## Design finished
+
+2026-10-31: analyze reported nothing above LOW after one round of remediations (two decided by
+the person: Scala initial services; a sidecar service keeps a trimmed compose file of its own).

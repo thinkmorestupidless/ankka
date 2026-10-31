@@ -94,7 +94,9 @@ single templates' compose `schema` service copies it) with `psql -v ON_ERROR_STO
 idempotent (`CREATE TABLE IF NOT EXISTS` throughout the DDL). Exit 1 naming the service on a
 failure.
 
-`run.sh <service>`: refuses a name not under `services/`; runs `databases.sh`; exports
+`run.sh <service>`: refuses a name not under `services/`; runs `databases.sh`; when
+`services/<service>/docker-compose.yml` exists, runs `docker compose -f` on it `up -d` (the
+service's sidecar or runtime and its schema copy); exports
 `ANKKA_DB_NAME=<service>`, `ANKKA_HTTP_PORT=<port from service.json>` (`jq` or `sed`),
 `ANKKA_SERVICE_NAME=<service>`, `ANKKA_KAFKA_BOOTSTRAP_SERVERS=localhost:9092`; execs the
 language's run command in the right directory (`sbt "<service>/run"`; `uv run <module>`;

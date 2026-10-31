@@ -174,6 +174,9 @@ lazy val commonSettings = Seq(
   Test / javaOptions ++= Seq(
     "ankka.cluster.tests",
     "ankka.template.tests",
+    // `ankka init --project` runs spec-kit's installer when it is on PATH; `off` keeps a suite from
+    // downloading spec-kit (feature 062).
+    "ankka.init.specify",
     "ankka.benchmarks",
     // MultiNodeClusterSuite's cold-start rounds: five by default, twenty in the nightly run. It was
     // read by the suite and never forwarded, so `-Dankka.coldstarts=3` ran twenty all the same.
@@ -968,7 +971,38 @@ lazy val cli = project
       // Java and Kotlin are hosted in the runtime's own process, so they carry a compose file of
       // their own (Postgres only) in place of common-service's, which starts the sidecar.
       val embedded = Set("java", "kotlin")
-      Seq("python", "typescript", "rust", "go", "web", "java", "kotlin").flatMap { language =>
+      // A project of several services (feature 062) carries common/, its own files, the rendered
+      // skills, and the family's spec-kit extensions with the skills their commands and hooks run;
+      // spec-kit's own files are its installer's. A Scala service inside a project carries only
+      // its skeleton: the project owns the build, the workflows and everything else.
+      val specKit: Seq[(String, File)] =
+        Seq("bdd", "review", "design-build").flatMap { ext =>
+          filesUnder(root / ".specify" / "extensions" / ext).map { case (relative, f) =>
+            s".specify/extensions/$ext/$relative" -> f
+          }
+        } ++ Seq(
+          "speckit-bdd-check",
+          "speckit-bdd-features",
+          "speckit-review",
+          "speckit-design",
+          "speckit-build"
+        )
+          .flatMap { skill =>
+            filesUnder(root / ".claude" / "skills" / skill).map { case (relative, f) =>
+              s".claude/skills/$skill/$relative" -> f
+            }
+          }
+      Seq(
+        "python",
+        "typescript",
+        "rust",
+        "go",
+        "web",
+        "java",
+        "kotlin",
+        "project",
+        "project-service-scala"
+      ).flatMap { language =>
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
         // only a process service's, which a web-hosted interface and an embedded one are not.
         // `.scaffold-modes` beside a template's root names its binary and executable files; the one
@@ -987,14 +1021,22 @@ lazy val cli = project
               }
               .toMap
         val modesFile = templates / language / ".scaffold-modes"
-        val modes     = modesIn(templates / "common" / ".scaffold-modes") ++ modesIn(modesFile)
-        val files     = (
-          filesUnder(templates / "common").filterNot(_._1 == ".scaffold-modes") ++
-            (if (language == "web" || embedded(language)) Nil
-             else filesUnder(templates / "common-service")) ++
-            filesUnder(templates / language).filterNot(_._1 == ".scaffold-modes") ++
-            filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f }
-        ).sortBy(_._1)
+        val modes     =
+          (if (language == "project-service-scala") Map.empty[String, String]
+           else modesIn(templates / "common" / ".scaffold-modes")) ++ modesIn(modesFile)
+        val own   = filesUnder(templates / language).filterNot(_._1 == ".scaffold-modes")
+        val files = (language match {
+          case "project-service-scala" => own
+          case "project"               =>
+            filesUnder(templates / "common").filterNot(_._1 == ".scaffold-modes") ++ own ++
+              filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f } ++
+              specKit
+          case _ =>
+            filesUnder(templates / "common").filterNot(_._1 == ".scaffold-modes") ++
+              (if (language == "web" || embedded(language)) Nil
+               else filesUnder(templates / "common-service")) ++ own ++
+              filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f }
+        }).sortBy(_._1)
         val duplicated =
           files.groupBy(_._1).collect { case (path, copies) if copies.size > 1 => path }
         if (duplicated.nonEmpty)
@@ -1062,7 +1104,9 @@ lazy val cli = project
           }
           ()
         }
-      else if (selected.exists(s => s == "off" || !named.contains("scala")))
+      else if (
+        selected.exists(s => s == "off" || !(named.contains("scala") || named.contains("project")))
+      )
         Def.task(())
       else
         // Eight of the ten by name: a task dependency on the root's publishLocal runs only the

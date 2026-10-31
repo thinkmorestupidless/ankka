@@ -16,14 +16,7 @@ final case class ServiceDescriptor(name: String, service: ServiceSpec):
 
   /** Problems that make this descriptor unusable, reported all at once. */
   def problems: Vector[String] =
-    val nameProblems =
-      if name.isEmpty then Vector("service name must not be empty")
-      else if !ServiceDescriptor.ValidName.matches(name) then
-        Vector(
-          s"service name '$name' is invalid: lowercase letters, digits and '-', " +
-            "starting with a letter"
-        )
-      else Vector.empty
+    val nameProblems = com.thinkmorestupidless.ankka.core.Names.serviceNameProblems(name)
     // A service that serves gRPC has a second, headless address, `<name>-grpc-peers`, and an
     // address is a DNS label of at most 63 characters.
     val grpcNameProblems =
@@ -81,7 +74,7 @@ object ServiceDescriptor:
    * Kubernetes should be refused when it is applied rather than when the reconciler tries to render
    * it.
    */
-  private val ValidName = "[a-z]([-a-z0-9]{0,61}[a-z0-9])?".r
+  private val ValidName = com.thinkmorestupidless.ankka.core.Names.ServiceNamePattern
 
   /** Whether `text` could be a service's name, or a project's: a DNS label. */
   private[api] def isName(text: String): Boolean = ValidName.matches(text)
@@ -98,78 +91,35 @@ object ServiceDescriptor:
  */
 object ProjectId:
 
-  private val Valid = "[a-z]([-a-z0-9]{0,61}[a-z0-9])?".r
+  private val Rules = com.thinkmorestupidless.ankka.core.Names.Project
 
   /**
-   * Conservative, because this side cannot see the server's namespace prefix.
-   *
-   * 63 is the DNS label ceiling; the default prefix `ankka` plus a separator takes six. A longer
-   * prefix narrows it further, which the server checks when it projects — this bound catches the
-   * obvious case early rather than being the only check.
-   *
-   * Since feature 041 the tighter bound is the project's backup bucket, `platform.backups.<id>`,
-   * which must fit in a bucket's 63 characters: 46. `crd`'s `Buckets.BackedUpProjectMaxLength` is
-   * the derivation; this module cannot see `crd`, so `BackupNamesAgreeSuite` in the control plane
-   * holds the two to each other.
+   * Conservative, because this side cannot see the server's namespace prefix: the project's backup
+   * bucket, `platform.backups.<id>`, must fit in a bucket's 63 characters. `crd`'s
+   * `Buckets.BackedUpProjectMaxLength` is the derivation; this module cannot see `crd`, so
+   * `BackupNamesAgreeSuite` in the control plane holds the two to each other. The rule itself is
+   * `core`'s `Names.Project`, which a project's context map is checked by too (feature 062).
    */
-  val MaxLength: Int = 63 - "platform.backups.".length
+  val MaxLength: Int = Rules.MaxLength
 
   /**
    * A project id may not end so (feature 041): `ankka-<id>-rehearsal` is the namespace a project's
-   * rehearsals run in, where the operator may delete a cluster, and `shop-rehearsal` would name
-   * `shop`'s. `crd`'s `Recovery.RehearsalSuffix` is the same string.
+   * rehearsals run in. `crd`'s `Recovery.RehearsalSuffix` is the same string.
    */
-  val RehearsalSuffix: String = "-rehearsal"
+  val RehearsalSuffix: String = Rules.RehearsalSuffix
 
   /**
-   * Ids no project may take, because the platform's own workloads use them.
-   *
-   * A workload's identity is `ankka://<project>/<service>`, read from its certificate, and it is
-   * the whole of what another service's ACL or a platform listener trusts. The control plane is
-   * `ankka://platform/controlplane` and the console `ankka://platform/console`, so a tenant project
-   * called `platform` with a service called `controlplane` would be issued the control plane's
-   * identity. The operator refuses the same ids (`Names.ReservedProjectIds`), since a resource can
-   * be written by something other than the control plane, and `ReservedProjectIdsSuite` holds the
-   * two lists to each other and to the identities the platform's manifests ask for.
-   *
-   * `local` is reserved for the other reason a project's id is part of a name: a service run on a
-   * developer's machine that states its name reads a topic under the group
-   * `ankka.local.<service>.…`, which is exactly what a deployed service in a project called `local`
-   * would be given. Two different services must never share a group.
-   *
-   * `cloud-provider` is reserved because a project's namespace is `ankka-<project>`, and the
-   * installation's cloud provider runs in `ankka-cloud-provider` (feature 044). `machine` is
-   * reserved for the same reason: a registered machine reads a topic under the group prefix
-   * `ankka.machine.<organization>.<name>.`, so a project called `machine` with a service named
-   * after an organization would hold read on that organization's machines' groups.
+   * Ids no project may take, because the platform's own workloads, local runs, the cloud provider
+   * and registered machines use them in names a project's id is part of. The operator refuses the
+   * same ids (`Names.ReservedProjectIds`), and `ReservedProjectIdsSuite` holds the two lists to
+   * each other and to the identities the platform's manifests ask for.
    */
-  val Reserved: Set[String] = Set("platform", "local", "cloud-provider", "machine")
+  val Reserved: Set[String] = Rules.Reserved
 
   /** Why `id` is reserved, in a sentence that is true of it. */
-  def reservedBecause(id: String): String =
-    if id == "local" then
-      s"project id '$id' is reserved for services run locally, whose consumer groups it names"
-    else if id == "cloud-provider" then
-      s"project id '$id' is reserved for the namespace the installation's cloud provider runs in"
-    else if id == "machine" then
-      s"project id '$id' is reserved for registered machines, whose consumer groups it names"
-    else s"project id '$id' is reserved for the platform's own workloads"
+  def reservedBecause(id: String): String = Rules.reservedBecause(id)
 
-  def problems(id: String): Vector[String] =
-    if id.isEmpty then Vector("project id must not be empty")
-    else if id.length > MaxLength then
-      Vector(s"project id '$id' is ${id.length} characters, over the $MaxLength character limit")
-    else if !Valid.matches(id) then
-      Vector(
-        s"project id '$id' is invalid: lowercase letters, digits and '-', starting with a letter"
-      )
-    else if Reserved.contains(id) then Vector(reservedBecause(id))
-    else if id.endsWith(RehearsalSuffix) then
-      Vector(
-        s"project id '$id' ends in '$RehearsalSuffix', which names another project's rehearsal " +
-          "namespace"
-      )
-    else Vector.empty
+  def problems(id: String): Vector[String] = Rules.problems(id)
 
   def isValid(id: String): Boolean = problems(id).isEmpty
 
@@ -2056,13 +2006,10 @@ object ProjectTopics:
    * A name the broker can hold under a project's prefix, and one the topic's resource can be named
    * for: a Kubernetes name, which is what keeps `<project>.<name>` within Kafka's limit too.
    */
-  val NameRule: String =
-    "a name is lower-case letters, digits, \"-\" and \".\", starting and ending with a letter " +
-      "or digit, at most 100 characters"
+  val NameRule: String = com.thinkmorestupidless.ankka.core.Names.TopicNameRule
 
-  private val Name = "[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?".r
-
-  def validName(name: String): Boolean = Name.matches(name)
+  def validName(name: String): Boolean =
+    com.thinkmorestupidless.ankka.core.Names.validTopicName(name)
 
   /** The largest schema document a contract may be declared with. */
   val MaxSchemaBytes: Int = 65536

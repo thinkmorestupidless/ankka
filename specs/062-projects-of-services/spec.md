@@ -83,6 +83,25 @@ between them is in the wrong place.
 - Glossary: the six proposed terms (project template, context map, boundary, crossing, shared
   module, service tag) and the changed repository stand as written; the context map's definition
   says it is a file the checks hold true.
+- Q (at planning): A descriptor declares no topic or contract; topics are declared on the project
+  and a component states its contract in code, visible when the service runs or under its test
+  kit. How do the checks hold the context map true? → A: Statically by the command line (every
+  service in the map has a directory and the reverse, every topic crossing's contract names a
+  schema file the repository holds, the rendering is in step), and at run time by the project's
+  tests module, which starts each Scala service under its kit and compares what it states with
+  the map, and by the inspect skill, which compares a running service's topology with the map.
+- Q (at planning): Which JVM services share the project's build? → A: Scala only. Java is Maven
+  and Kotlin is Gradle, so they are services in a directory of their own with their own build
+  tool, like Python, and read the contracts' schema files. The shared module is the Scala
+  services'.
+- Q (at planning): What of spec-kit does the project template carry? → A: The three extensions
+  (bdd, review, design-build), their skills and the hooks file. `ankka init` runs spec-kit's own
+  installer when it is on PATH and otherwise names it as the first next step; spec-kit's files
+  are never copied into the command line.
+- Q (at planning): How does a project start and gain a service on the command line? → A:
+  `ankka init <name> --project --services <a>,<b>` starts one; `ankka init <service>` run inside a
+  project, which the context map file at its root says it is, adds a service and records it in
+  the map; outside a project the command is unchanged.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -277,14 +296,17 @@ answer.
 - **FR-006**: There MUST be a project template, separate from the single-service template, that
   makes one repository holding a build of two named services in a language the single-service
   template offers, a shared module of contract types, the context map of the two services, a tests
-  module for scenarios that cross services, the spec-kit setup and the skills.
+  module for scenarios that cross services, the skills, and the spec-kit extensions the family
+  uses, with spec-kit itself installed by `ankka init` when its installer is on PATH and named as
+  the first next step otherwise.
 - **FR-007**: Each service in a project MUST have its own directory, descriptor, image, database and
   tests, named for the service.
 - **FR-008**: `ankka init` run inside a project MUST add a service to it in any language the
   single-service template offers, wired into the checks and the releases with nothing edited by
-  hand: a JVM service into the project's build, a service in another language in a directory of its
-  own with its own toolchain. Run in a directory that is not a project it MUST keep its current
-  behaviour, and asked to add a service where there is no project it MUST refuse and say why.
+  hand: a Scala service into the project's build, a service in any other language, Java and Kotlin
+  included, in a directory of its own with its own build tool. Run in a directory that is not a
+  project it MUST keep its current behaviour, and asked to add a service where there is no project
+  it MUST refuse and say why.
 - **FR-009**: A project's checks MUST run, for a change, the tests of each service whose directory
   changed, the tests of each service that uses a shared module that changed, and the project's
   cross-service tests that start one of those services, and no others.
@@ -326,10 +348,14 @@ answer.
 
 **The context map as a file**
 
-- **FR-022**: The project's checks MUST compare the context map with every service's descriptor and
-  fail when a service is in one and not the other, when a crossing names a declared topic or a
-  contract that no service of the project declares, or when a service reads or publishes a declared
-  topic the context map records no crossing for.
+- **FR-022**: The project's checks MUST hold the context map true in two places. Statically, a
+  command of the command line MUST fail when a service in the map has no directory or a service
+  directory is not in the map, when a topic crossing's contract names no schema file the
+  repository holds, when a crossing is neither a declared topic with a contract nor a route, or
+  when the rendering is out of step. At run time, the project's tests module MUST start each Scala
+  service under its kit and fail when the service publishes to or reads a declared topic the map
+  records no crossing for, or states a contract other than the crossing's; the inspect skill MUST
+  make the same comparison against a running service of any language.
 - **FR-023**: The context map MUST be rendered for people to read, in the project's repository, and
   the checks MUST fail when the rendering is out of step with the file.
 - **FR-024**: The inspect skill MUST read the context map for the services and the crossing each
@@ -351,8 +377,8 @@ answer.
   an endpoint route with its caller.
 - **Project template**: What the platform gives a developer to start a project of several services
   from, beside the template for one service.
-- **Shared module**: The code a project's JVM services build against together, holding the types
-  of the contracts that cross their boundaries; never a component. A service in another language
+- **Shared module**: The code a project's Scala services build against together, holding the types
+  of the contracts that cross their boundaries; never a component. A service in any other language
   reads the contract's schema instead.
 - **Service tag**: A tag that names one service of a project and a version, and releases that
   service alone.
@@ -390,11 +416,12 @@ answer.
 - One project repository corresponds to one project on the platform; services of another project
   are reached through cross-project access and are not in the repository.
 - Contracts that cross services are the project-held contracts of declared topics; the shared
-  module carries their types for the JVM services. HTTP routes that cross services are described in
+  module carries their types for the Scala services. HTTP routes that cross services are described in
   the context map and their caller's spec; no new contract format for them.
-- The project build covers the JVM languages, which share one build tool; a service in another
-  language lives in the project's repository in a directory of its own with its own toolchain, and
-  `ankka init` wires its checks and its release in as it does a JVM service's.
+- The project build is one Scala build holding the Scala services, the shared module and the tests
+  module; a service in any other language, Java and Kotlin included since each has a build tool
+  of its own, lives in the project's repository in a directory of its own with its own toolchain,
+  and `ankka init` wires its checks and its release in as it does a Scala service's.
 - Locally the project's compose file runs one database server and one broker; the run recipe names
   each service's database for the service, as the platform does when deployed.
 - The context map's format, its fixed place and what renders it are the plan's. It is one file,

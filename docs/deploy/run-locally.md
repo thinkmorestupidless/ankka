@@ -3,7 +3,7 @@ title: Run a service locally
 description: Run an ankka service on your own machine against a local Postgres, configure its database and HTTP port, form a two-node cluster in two terminals, and run a Python service beside the sidecar.
 kind: guide
 languages: [scala, python]
-related: [operate/local-console.md, deploy/images.md, reference/configuration.md]
+related: [operate/local-console.md, deploy/images.md, reference/configuration.md, build/projects.md]
 ---
 
 # Run a service locally
@@ -80,6 +80,10 @@ by component id alone, so two services sharing a database overwrite and delete e
 a database per service, locally as the platform does when deployed. See
 [Databases](../platform/databases.md) for the reasons.
 
+A project of several services does this for each of them: `scripts/run.sh <service>` makes a database
+named for the service, applies the schema to it, and starts the service on the port its `service.json`
+names. See [Build a project of several services](../build/projects.md#run-every-service-on-one-machine).
+
 The complete list of variables and settings is in [Runtime configuration](../reference/configuration.md).
 A service can also override any setting in its own `src/main/resources/application.conf`.
 
@@ -108,6 +112,16 @@ With neither set, a node picks a random remoting port and joins itself. That is 
 test suites can run on one laptop without knowing about each other, and why a plain `sbt run` needs no
 cluster configuration at all. See [Clusters and instances](../concepts/clustering.md) for how the same
 service forms its cluster when deployed.
+
+## Run several services that call each other
+
+Each service run on a laptop announces itself under the name it states (`ankka.service.name`, or
+`ANKKA_SERVICE_NAME`) in a file under `~/.ankka/running/`. A call to another service by name reaches
+the address that service announced, so services started in any order find each other with nothing
+configured, whether or not `ankka local console` is running; the console lists the same files. Where
+those files cannot be read, as from a sidecar in a container, `ankka.local-services.<name>` names the
+address instead, as [calling other services](../build/calling-services.md#on-a-developers-machine)
+shows.
 
 ## Run a Python service
 

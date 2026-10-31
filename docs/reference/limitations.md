@@ -260,6 +260,13 @@ feature also says what that feature does not do.
 
 ## Observability
 
+- **No local tool reads the messages on a topic.** What a service published is seen locally as the span
+  that published it and the span of the consumer that read it, not as the message itself; read the
+  topic with Kafka's own tools for its contents.
+- **A trace across services is read one service at a time, locally.** Each service on a laptop keeps its
+  own spans, so the local console and `local_traces` show one service's half of a trace that crosses
+  services; ask each service for the same trace id. A collector holds the whole trace once telemetry is
+  exported.
 - **The installation's console shows a deployed service's topology, not its traces.** [The console](../operate/console.md)
   at `console.<base domain>` manages organizations, projects, members, deploy tokens, machines and services, and shows
   a service's status, history, logs and topology. It does not show a deployed service's traces, sessions or

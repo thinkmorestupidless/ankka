@@ -7,6 +7,8 @@ pages:
   - operate/local-console.md
   - concepts/observability.md
   - build/testing.md
+  - concepts/projects.md
+  - build/projects.md
 ---
 
 # Inspecting a running service against its specification
@@ -54,6 +56,7 @@ Run the project's own tests first; a service whose tests fail is not inspected.
 | TypeScript | `npm test` | `docker compose up -d`, then `npm start` |
 | Go | `go vet ./...`, `go test ./...`, then `ANKKA_SLOW=1 go test ./...` | `docker compose up -d`, then `go run .` |
 | Rust | `cargo test` | `cargo module`, then `docker compose up -d runtime` |
+| A project of several services | `sbt test` (every Scala service, then `sbt tests/test` for the crossings and the map), and each other service's own | `docker compose up -d` and `sbt schema` at the project's root, then `scripts/run.sh <service>` for each service, each in its own terminal |
 
 Run the service in the background and keep its output. Then call `list_local_services`: the service must
 be listed, under the name it was started with, which every later tool takes as `service`. A service that
@@ -108,6 +111,41 @@ nobody accounts for (**unattributed**), which is usually a journal write, a mode
 wait. A span with an unknown parent is work the runtime could not attribute; report it as unknown rather
 than guessing which request it belonged to. The trace window is a fixed ring of recent spans, so read a
 scenario's trace soon after running it.
+
+## A scenario that crosses services
+
+In a project of several services (a `context-map.json` at its root, `references/build/projects.md`), a
+scenario can start at one service and end at another. Check it as one scenario, across both:
+
+1. **Find the crossing.** Read `context-map.json` for the services the scenario names and the crossing it
+   passes: a topic with its contract, or a route with the service that calls it. Run
+   `ankka context-map check` at the project's root; a map that does not hold is a finding before anything
+   runs.
+2. **Every service it names is running.** Each must be listed by `list_local_services`. A service that is
+   not is *not met*, naming that service and saying it did not answer; do not start it in place of the
+   person, and do not report the scenario as not checkable.
+3. **Both sides state the crossing's contract.** With `ankka local console` running, read
+   `http://localhost:9889/api/topology/<service>` for each side: the edge to the topic states the contract
+   each component publishes or reads (`describe_local_service` lists components, not what they state for a
+   topic). A side stating another contract than the crossing's is *not met*, naming the service and the
+   contract each side states.
+4. **Drive the first service.** Make the scenario's request with `call_local_endpoint` on the service
+   where it starts, on fresh ids.
+5. **Wait on the second service.** Poll its declared query with `query_local_entity` until it answers
+   with the state the scenario names, for as long as the scenario allows a consumer to lag, and report the
+   wait. A second service that never answers is *not met*, naming it.
+6. **Join the trace.** Take the request's trace id from `local_traces` on the first service: its trace
+   holds the handler, and a published message or a call to the other service as a span of its own. Ask
+   `local_traces` on the second service for the same trace id: its consumer's or endpoint's span continues
+   that trace. Both halves under one id are the evidence that the second service acted on what the first
+   one did; no tool reads a topic's messages, so the publishing span and the consuming span are what was
+   published.
+
+Report the row with the crossing named as the map names it, `orders → billing by orders-events`, the
+request, the publishing and consuming spans, the declared query's answer, and the trace id. A met
+scenario is kept in the project's `tests/` module as a test that starts the services it needs
+(`references/build/projects.md`, "A test that crosses services"); that module starts Scala services, so a
+scenario through a service in another language stays an inspection.
 
 ## 7. Keep each met scenario as a test
 

@@ -389,3 +389,94 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
     for language <- Vector("scala", "python", "typescript", "go", "rust", "java", "kotlin", "web")
     do assert(languages.contains(s"'$language'"), s"service-checks.yml has no checks for $language")
   }
+
+  // ── features/projects/running-locally.feature and inspecting.feature, as far as a read proves them ──
+  // The behaviour, two services run by hand and an agent's inspection of the crossing, is the recorded
+  // run in specs/062-projects-of-services/runs/inspect.md (quickstart §4).
+
+  private val inspectPath     = "tools/docs/skill/ankka-inspect/SKILL.md"
+  private def inspect: String = read(inspectPath).replaceAll("\\s+", " ")
+
+  test(
+    "every service of a project runs on one machine with nothing configured, and each finds the others"
+  ) {
+    val run = read(s"$template/scripts/run.sh")
+    assert(
+      run.contains("""export ANKKA_DB_NAME="$service""""),
+      "each service is not given its own database"
+    )
+    assert(
+      run.contains("""export ANKKA_HTTP_PORT="${port:-9000}""""),
+      "the port is not the descriptor's"
+    )
+    assert(
+      run.contains("""export ANKKA_SERVICE_NAME="$service""""),
+      "the service is not run under its name"
+    )
+    val compose = read(s"$template/docker-compose.yml")
+    assert(
+      compose.contains("postgres:") && compose.contains("apache/kafka:"),
+      "the compose file lacks Postgres or Kafka"
+    )
+    says(
+      "deploy/run-locally.md",
+      page("deploy/run-locally.md"),
+      "## Run several services that call each other",
+      "A call to another service by name reaches the address that service announced"
+    )
+    says(
+      "build/calling-services.md",
+      page("build/calling-services.md"),
+      "the service called continues it: its handler's span is under the call's, under the same trace id"
+    )
+  }
+
+  test("the local console lists every service of a running project") {
+    says(
+      "build/projects.md",
+      page("build/projects.md"),
+      "ankka local console # every running service, and the calls between them",
+      "the console only reads the same files to list them"
+    )
+  }
+
+  test(
+    "a scenario that crosses services is reported met with the requests, what was published and the trace that joins them"
+  ) {
+    val text = inspect
+    assert(
+      text.indexOf("## A scenario that crosses services") >= 0,
+      "the inspect skill has no section on crossings"
+    )
+    says(
+      inspectPath,
+      text,
+      "Read `context-map.json` for the services the scenario names and the crossing it passes",
+      "Ask `local_traces` on the second service for the same trace id",
+      "Report the row with the crossing named as the map names it",
+      "the request, the publishing and consuming spans, the declared query's answer, and the trace id"
+    )
+  }
+
+  test("a scenario that crosses services is reported not met, naming the service that failed it") {
+    says(
+      inspectPath,
+      inspect,
+      "A service that is not is *not met*, naming that service and saying it did not answer",
+      "A side stating another contract than the crossing's is *not met*, naming the service and the contract each side states"
+    )
+  }
+
+  test("a met scenario that crosses services is kept as a test that starts the services it needs") {
+    says(
+      inspectPath,
+      inspect,
+      "A met scenario is kept in the project's `tests/` module as a test that starts the services it needs"
+    )
+    val suite =
+      read(s"$template/tests/src/test/scala/{{package_path}}/ItemAddedIsRecordedSuite.scala")
+    assert(
+      suite.contains("InMemoryBroker()") && suite.contains("localServices"),
+      "the sample crossing test starts no services"
+    )
+  }

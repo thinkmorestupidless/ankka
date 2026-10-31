@@ -411,8 +411,9 @@ other header is sent as given.
 
 A call made from a handler is part of that handler's work: the service's traces show it as a span under
 the handler's span, and its topology counts it from that handler. A call made outside any handler is
-counted from the unknown caller. The trace does not continue into the service called, which starts a
-trace of its own.
+counted from the unknown caller. The call carries its trace as a `traceparent` header, and the service
+called continues it: its handler's span is under the call's, under the same trace id, so one request that
+crosses services is one trace. See [Telemetry](../operate/telemetry.md).
 
 A Python, TypeScript or Go process never holds a certificate or a key. It asks the runtime beside it to make
 the call, and the runtime makes it with the service's certificate. A Rust module asks the runtime that

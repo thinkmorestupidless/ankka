@@ -107,6 +107,9 @@ jobs:
               - '.specify/extensions/design-build/**'
               - '.specify/extensions.yml'
               - '.claude/skills/**'
+              # The design skill's source, whose rules for a project of several services
+              # `ProjectsDocumentationSuite` holds to the scenarios.
+              - 'tools/docs/skill/ankka-design/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow

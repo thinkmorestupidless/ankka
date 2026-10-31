@@ -174,7 +174,9 @@ A person building a service, who runs it on their own machine.
 Avoid: user
 
 ### project
-A group of services deployed together, which a member may operate.
+A group of services that deliver what is required of them when they run together, each
+deployed on its own, which a member may operate. Services that must be deployed together are one
+service, not a project.
 
 ### member
 A person, or a machine acting for one, who belongs to the organization a project is in and may
@@ -202,7 +204,7 @@ What a service says it is made of and how the parts are connected: its component
 the topics they read and publish to, their declared connections and their observed calls. It is
 not where a service's instances run, nor how they find each other.
 
-Avoid: graph, map, diagram
+Avoid: graph, diagram, service map
 
 ### declared connection
 A connection a component declared when it was registered: an event subscription, a
@@ -1161,7 +1163,9 @@ One run of a repository's automation on GitHub, on one machine, whose commands r
 What a job uses to install the command line at a version it names, point it at a control plane and authenticate it with a deploy token for every later command in the job.
 
 ### repository
-Where a service's code is kept on GitHub, with the deploy settings its jobs read.
+*Proposed.* Where a project's code, or a service's, is kept on GitHub, with the deploy settings its
+jobs read. A project's repository holds every service of the project unless one has been moved to a
+repository of its own.
 
 ### deploy settings
 What a repository holds for the job that deploys its service: the control plane's address, a deploy token and a project, and where needed an authority.
@@ -3137,9 +3141,37 @@ change's branch was cut from a branch whose own pull request is not merged.
 Something that runs before or after a stage because the repository registered it: the
 "bdd" hooks around "specify" and "clarify", the "review" hook after "implement".
 
+## Projects of several services
+
+### project template
+*Proposed.* What the platform gives a developer to start a project of several services from: one
+repository holding the services, a shared module, a place for the context map, and the jobs that
+check and release each service on its own. It is not the template, which starts one service.
+
+### context map
+*Proposed.* The record of a project's services: what each owns, why each boundary is where it is,
+and every crossing. A design of several services starts with it.
+
+### boundary
+*Proposed.* Where one service of a project ends and another begins, put there because the two
+differ in ownership, scaling or consistency. Only a crossing passes it.
+
+### crossing
+*Proposed.* What passes a boundary: a declared topic with its contract, or a route of an endpoint
+with the service that calls it. Reading another service's database or its entities' events is not
+a crossing but a defect.
+
+### shared module
+*Proposed.* The code every service of a project that needs it builds against, holding the types of
+the contracts that cross its boundaries. It is not a component and is never deployed.
+
+### service tag
+*Proposed.* A tag in a project's repository that names one of its services and a version, and
+releases that service alone. Avoid: release tag.
+
 ## Everyday words
 
-exits, help, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
+exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded,
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

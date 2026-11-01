@@ -4,10 +4,11 @@ import java.nio.file.{Files, Path}
 
 /**
  * `-Dankka.template.tests`: unset runs every template suite, `off` runs none, and a comma-separated
- * list of languages (`python`, `typescript,scala`) runs those. The SDK jobs in CI name their own
- * language, so each proves its template against the SDK and sidecar of the same commit without
- * paying for the Scala template's local publish, which `build.sbt` runs only when `scala` is
- * selected.
+ * list of languages (`python`, `typescript,scala`) runs those. `project` names the template of a
+ * project of several services, which builds Scala services and so needs the same local publish as
+ * `scala`. The SDK jobs in CI name their own language, so each proves its template against the SDK
+ * and sidecar of the same commit without paying for the Scala template's local publish, which
+ * `build.sbt` runs only when `scala` is selected.
  */
 object TemplateSwitch:
   def enabled(language: String): Boolean = sys.props.get("ankka.template.tests") match

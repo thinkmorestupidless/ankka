@@ -8,6 +8,13 @@ feature also says what that feature does not do.
 
 ## Platform
 
+- **Each service is deployed on its own, and never several as one.** A project of several services is
+  released one service tag at a time, and the platform offers no way to roll several services out
+  together, deliberately: services that must be deployed together are one service. A change that
+  crosses services is released in an order that keeps every deployed pair working, contract first.
+- **The project template's tests module starts Scala services only.** A test that crosses services
+  starts each service in the test JVM, which a service in another language cannot be; such a service
+  is checked against the running project by the inspect skill instead.
 - **Replication between installations needs `ankka-replication`.** An event sourced entity can be
   [replicated](../concepts/replicated-entities.md): held at several installations of a service and
   written at one, its home. What one installation offers on its own is the whole model over the
@@ -249,6 +256,13 @@ feature also says what that feature does not do.
 
 ## Observability
 
+- **No local tool reads the messages on a topic.** What a service published is seen locally as the span
+  that published it and the span of the consumer that read it, not as the message itself; read the
+  topic with Kafka's own tools for its contents.
+- **A trace across services is read one service at a time, locally.** Each service on a laptop keeps its
+  own spans, so the local console and `local_traces` show one service's half of a trace that crosses
+  services; ask each service for the same trace id. A collector holds the whole trace once telemetry is
+  exported.
 - **The installation's console shows a deployed service's topology, not its traces.** [The console](../operate/console.md)
   at `console.<base domain>` manages organizations, projects, members, deploy tokens, machines and services, and shows
   a service's status, history, logs and topology. It does not show a deployed service's traces, sessions or

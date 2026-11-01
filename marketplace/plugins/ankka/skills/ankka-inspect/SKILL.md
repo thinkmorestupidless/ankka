@@ -48,6 +48,7 @@ Run the project's own tests first; a service whose tests fail is not inspected.
 | TypeScript | `npm test` | `docker compose up -d`, then `npm start` |
 | Go | `go vet ./...`, `go test ./...`, then `ANKKA_SLOW=1 go test ./...` | `docker compose up -d`, then `go run .` |
 | Rust | `cargo test` | `cargo module`, then `docker compose up -d runtime` |
+| A project of several services | `sbt test` (every Scala service, then `sbt tests/test` for the crossings and the map), and each other service's own | `docker compose up -d` and `sbt schema` at the project's root, then `scripts/run.sh <service>` for each service, each in its own terminal |
 
 Run the service in the background and keep its output. Then call `list_local_services`: the service must
 be listed, under the name it was started with, which every later tool takes as `service`. A service that
@@ -103,6 +104,56 @@ wait. A span with an unknown parent is work the runtime could not attribute; rep
 than guessing which request it belonged to. The trace window is a fixed ring of recent spans, so read a
 scenario's trace soon after running it.
 
+## A scenario that crosses services
+
+In a project of several services (a `context-map.json` at its root, `references/build/projects.md`), a
+scenario can start at one service and end at another. Check it as one scenario, across both:
+
+1. **Find the crossing.** Read `context-map.json` for the services the scenario names and the crossing it
+   passes: a topic with its contract, or a route with the service that calls it. Run
+   `ankka context-map check` at the project's root; a map that does not hold is a finding before anything
+   runs.
+2. **Every service it names is running.** Each must be listed by `list_local_services`. A service that is
+   not is *not met*, naming that service and saying it did not answer; do not start it in place of the
+   person, and do not report the scenario as not checkable. A service of the project that the scenario
+   does not name need not run.
+3. **Both sides state the crossing's contract.** Start `ankka local console --no-open` in the background
+   (it prints its address, `http://localhost:9889` unless that port is taken) and read
+   `<address>/api/topology/<service>` for each side: its `declared` connections to the topic
+   (`topic-publication`, `topic-subscription`) state the contract each component publishes or reads. The
+   reading side's contract also shows under `topicSources` in `describe_local_service`; the publishing
+   side's shows only in the topology. Stop the console afterwards if this inspection started it. A side stating another
+   contract than the crossing's is *not met*, naming the service and the contract each side states. Check
+   this before anything runs and whatever the requests then show: off the platform no contract is compared
+   per message, so a reader stating another contract still reads, and the scenario would look met.
+4. **Drive the first service.** Make the scenario's request with `call_local_endpoint` on the service
+   where it starts, on fresh ids.
+5. **Wait on the second service.** Poll its declared query with `query_local_entity` until it answers
+   with the state the scenario names, for as long as the scenario allows a consumer to lag, and report the
+   wait. A second service that never answers is *not met*, naming it.
+6. **Join the trace.** Read `local_traces` on each side and find the trace both hold under one id.
+   - **A route crossing** is in the request's own trace: the first service's handler span holds the call
+     to the other service (`service:local/<service>` on a laptop, where every service's project is
+     `local`), and the second service holds the same trace id, its endpoint's span at the root of its
+     half.
+   - **A topic crossing** is not in the request's trace. The request's trace ends at the entity's write,
+     and an event carries no trace; the message is published by the first service's consumer
+     (`<publisher>#on-message`), in a trace of its own that starts there. The second service's reader
+     (`<reader>#on-message`) continues that trace, under the same id.
+
+   Both halves under one id are the evidence that the second service acted on what the first one did; no
+   tool reads a topic's messages, so the publishing span and the consuming span are what was published.
+   Each service keeps only its own spans, so the second service's half is marked `partial`, its first span
+   with `parentUnknown`: here that is the crossing, not the unattributed work section 6 describes. Spans
+   name handlers, not entity ids, so a trace is matched to the scenario's request by its handler and its
+   time: run the scenario on an otherwise idle machine and read the traces straight after.
+
+Report the row with the crossing named as the map names it, `orders → billing by orders-events`, the
+request, the publishing and consuming spans, the declared query's answer, and the trace id. A met
+scenario is kept in the project's `tests/` module as a test that starts the services it needs
+(`references/build/projects.md`, "A test that crosses services"); that module starts Scala services, so a
+scenario through a service in another language stays an inspection.
+
 ## 7. Keep each met scenario as a test
 
 An inspection holds only for the build it ran against. A scenario that is met should also be an
@@ -143,10 +194,12 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Concepts
 
+- `references/concepts/projects.md` — When an application is several services rather than one, how their boundaries are drawn and recorded in a context map, what may cross them, and why each service is still deployed on its own.
 - `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, a service's topology of declared connections and observed calls, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.
 
 ### Build
 
+- `references/build/projects.md` — Start a project of several services with ankka init, add a service in any language, keep the context map true, run every service on one machine, test across services, and release one service at a time with a service tag.
 - `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy

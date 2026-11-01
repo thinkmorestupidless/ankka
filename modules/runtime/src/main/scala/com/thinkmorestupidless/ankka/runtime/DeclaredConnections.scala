@@ -105,3 +105,35 @@ private[runtime] object DeclaredConnections:
           options.broker
         )
       )
+
+/**
+ * The topics a service's components read and publish to, with the contracts they state: what a
+ * project's context map is checked against at run time (feature 062). Read through
+ * `DeclaredConnections`, as the runtime and the topology read them, so the check cannot disagree
+ * with what the service actually subscribes to. A topic on a declared broker is not the project's,
+ * and is left out.
+ */
+object DeclaredTopics:
+
+  /** One component's side of a topic: `publishes` true for a publication, false for a read. */
+  final case class Side(
+      component: ComponentId,
+      topic: String,
+      contract: Option[Contract],
+      publishes: Boolean
+  )
+
+  def of(components: Vector[ComponentDescriptor]): Vector[Side] =
+    components.flatMap { component =>
+      val reads = DeclaredConnections.sourcesOf(component).collect {
+        case DeclaredSource.Topic(name, contract, None) =>
+          Side(component.componentId, name, contract, publishes = false)
+      }
+      val publishes = DeclaredConnections.publicationOf(component).collect {
+        case p if p.broker.isEmpty =>
+          Side(component.componentId, p.address, p.contract, publishes = true)
+      }
+      reads ++ publishes
+    }
+
+  def of(service: AnkkaService): Vector[Side] = of(service.registry.components)

@@ -37,6 +37,7 @@ jobs:
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
       template-java: ${{ steps.filter.outputs.template-java == 'true' || github.event_name == 'workflow_dispatch' }}
+      template-project: ${{ steps.filter.outputs.template-project == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-kotlin: ${{ steps.filter.outputs.sdk-kotlin == 'true' || github.event_name == 'workflow_dispatch' }}
       features: ${{ steps.filter.outputs.features == 'true' || github.event_name == 'workflow_dispatch' }}
       web: ${{ steps.filter.outputs.web == 'true' || github.event_name == 'workflow_dispatch' }}
@@ -106,6 +107,9 @@ jobs:
               - '.specify/extensions/design-build/**'
               - '.specify/extensions.yml'
               - '.claude/skills/**'
+              # The design skill's source, whose rules for a project of several services
+              # `ProjectsDocumentationSuite` holds to the scenarios.
+              - 'tools/docs/skill/ankka-design/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow
@@ -202,6 +206,28 @@ jobs:
               - 'cli/src/main/scala/**/cli/Main.scala'
               - 'cli/src/main/scala/**/mcp/McpInstall.scala'
               - 'cli/src/test/scala/**/cli/TemplateSuite.scala'
+              - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
+            # `ankka init <project> --project`: the project template and the Scala service skeleton, the
+            # commands that render them and check the map, the map's rules and the tests module's check
+            # of it, the spec-kit setup a project is given, and everything a project's services build
+            # against (the modules this commit publishes locally).
+            template-project:
+              - *workflow
+              - *scala-build
+              - *templates
+              - 'cli/src/main/templates/project/**'
+              - 'cli/src/main/templates/project-service-scala/**'
+              - 'controlplane-api/**'
+              - 'cli/src/main/scala/**/cli/Init.scala'
+              - 'cli/src/main/scala/**/cli/Main.scala'
+              - 'cli/src/main/scala/**/cli/Projects.scala'
+              - 'cli/src/main/scala/**/cli/Scaffold.scala'
+              - 'cli/src/main/scala/**/cli/ContextMapCommand.scala'
+              - 'modules/core/src/main/scala/**/core/ContextMap.scala'
+              - 'modules/testkit/src/main/scala/**/testkit/ContextMapCheck.scala'
+              - '.specify/extensions/**'
+              - '.claude/skills/speckit-*/**'
+              - 'cli/src/test/scala/**/cli/ProjectTemplateSuite.scala'
               - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
             # `ankka init --language java`: the Maven template, the command that renders it, the suite,
             # and everything the rendered project resolves from ~/.m2 (the JVM modules, the Java SDK
@@ -377,6 +403,27 @@ jobs:
           cache: sbt
       - uses: sbt/setup-sbt@v1
       - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=java 'cli/testOnly *JavaTemplateSuite'
+
+  # The project template, rendered by `ankka init --project` into a directory outside this build: its
+  # own sbt test (each service's suites, the test that crosses two services and the map held to the
+  # code), one service's image, its per-service tags, the map check, a Python service added inside
+  # it, and its scripts and workflows. Naming `project` makes a missing sbt or Docker a failure
+  # rather than a skipped suite reported green. Not a matrix, so the job's own name is the check.
+  template-project:
+    needs: changes
+    if: needs.changes.outputs.template-project == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the published version, and the one the project pins, come from tags
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=project 'cli/testOnly *ProjectTemplateSuite'
 
   # The Kotlin SDK: its fixtures are the protocol's, its build and tests pass against this commit's
   # Java SDK (published to ~/.m2 first by the script), the conformance suite passes against the Kotlin

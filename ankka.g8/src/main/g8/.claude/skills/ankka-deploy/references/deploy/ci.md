@@ -150,6 +150,25 @@ Exposure is desired state and survives every later deploy, so no workflow needs 
 workflow decides on its own that a service should face the internet. See
 [Expose a service](expose.md).
 
+## A project of several services
+
+A project started with `ankka init <project> --project` keeps several services in one repository and
+releases each on its own. Its `deploy.yml` runs on a **service tag**, `<service>/v<version>` such as
+`orders/v1.4.2`, and on nothing else:
+
+- The tag names the service, and the version is what follows `/v`. A tag naming no service of the
+  project fails the job, saying so; a plain `v1.4.2` tag starts nothing.
+- The service's checks run first, through the project's reusable `service-checks.yml`, the same
+  checks a pull request runs for that service. A service whose checks fail is not deployed.
+- One image is built and pushed, for that service, and one `ankka services deploy` names it, with the
+  service's own `services/<service>/service.json`. No other service is built or deployed.
+- The secrets are the same four, set once for the repository: `ANKKA_URL`, `ANKKA_TOKEN`,
+  `ANKKA_PROJECT` and, when needed, `ANKKA_CA`.
+
+The project's `ci.yml` runs on every push to a branch and every pull request, never on a tag, checks only the services the change touched (every
+Scala service when the shared module changed), runs the tests that cross services, and needs no
+secret. See [Build a project of several services](../build/projects.md#release-one-service).
+
 ## Any other CI system
 
 Nothing above needs GitHub beyond the action, which is a convenience. The CLI resolves each setting

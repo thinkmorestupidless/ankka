@@ -64,6 +64,18 @@ done
   || fail "ankka init --language kotlin wrote no gradle wrapper jar: the image dropped a binary template file"
 echo "init       renders the python, typescript, rust, go, web, java and kotlin templates"
 
+# A project of several services is rendered by the same code from the same resources, plus the
+# family's spec-kit extensions the build copies beside them; `specify` is never run here.
+ANKKA_INIT_SPECIFY=off "$bin" init shop --project --services orders,billing --dir "$work/project" > /dev/null \
+  || fail "ankka init --project failed"
+for file in context-map.json CONTEXT-MAP.md build.sbt services/orders/service.json services/billing/service.json \
+  .github/workflows/deploy.yml .specify/extensions.yml .claude/skills/speckit-design/SKILL.md; do
+  [ -f "$work/project/shop/$file" ] || fail "ankka init --project wrote no $file: the image is missing ankka/templates/project"
+done
+[ -x "$work/project/shop/scripts/run.sh" ] || fail "ankka init --project wrote scripts/run.sh without its execute bit"
+"$bin" context-map check --dir "$work/project/shop" || fail "ankka context-map check refused the project ankka init made"
+echo "init       renders a project of several services, and its context map checks"
+
 mkdir -p "$work/existing"
 "$bin" mcp install --scope project --dir "$work/existing" > /dev/null \
   || fail "ankka mcp install --scope project failed"

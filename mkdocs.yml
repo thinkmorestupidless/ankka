@@ -168,6 +168,7 @@ nav:
       - Effects are data: concepts/effects.md
       - Components: concepts/components.md
       - Designing a service: concepts/designing-services.md
+      - A project of several services: concepts/projects.md
       - Handlers and wire names: concepts/wire-names.md
       - Consistency and delivery: concepts/consistency.md
       - Replicated entities: concepts/replicated-entities.md
@@ -198,6 +199,7 @@ nav:
       - MCP endpoints: build/mcp-endpoints.md
       - HTTP endpoints: build/http-endpoints.md
       - Calling other services: build/calling-services.md
+      - Build a project of several services: build/projects.md
       - gRPC endpoints: build/grpc-endpoints.md
       - Calling components: build/component-client.md
       - Broker topics: build/topics.md

@@ -1,0 +1,88 @@
+# One service's checks, by its language: what ci runs for each service a change touched, and what
+# deploy runs before it builds the service's image.
+name: service-checks
+on:
+  workflow_call:
+    inputs:
+      service:
+        type: string
+        required: true
+      language:
+        type: string
+        required: true
+
+jobs:
+  checks:
+    name: ${{ inputs.service }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/${{ inputs.service }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Scala: the project's build, from the root.
+      - if: inputs.language == 'scala'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - if: inputs.language == 'scala'
+        uses: sbt/setup-sbt@v1
+      - if: inputs.language == 'scala'
+        working-directory: .
+        run: sbt "${{ inputs.service }}/test"
+
+      - if: inputs.language == 'python'
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+      - if: inputs.language == 'python'
+        run: uv sync && uv run mypy && uv run pytest -q -rs
+
+      - if: inputs.language == 'typescript' || inputs.language == 'web'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - if: inputs.language == 'typescript' || inputs.language == 'web'
+        run: npm ci && npm run typecheck && npm test
+      - if: inputs.language == 'web'
+        run: npm run build
+
+      - if: inputs.language == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - if: inputs.language == 'rust'
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --features slow -- -D warnings
+          cargo module
+          cargo test --features slow
+
+      - if: inputs.language == 'go'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: services/${{ inputs.service }}/go.mod
+      - if: inputs.language == 'go'
+        run: go mod verify && go vet ./... && go test ./...
+        env:
+          ANKKA_SLOW: "1"
+
+      - if: inputs.language == 'java'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - if: inputs.language == 'java'
+        run: ./mvnw -B verify
+
+      - if: inputs.language == 'kotlin'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - if: inputs.language == 'kotlin'
+        run: ./gradlew --no-daemon test

@@ -21,6 +21,7 @@ pages:
   - reference/web-hosting.md
   - deploy/scaling-and-rollouts.md
   - deploy/ci.md
+  - build/projects.md
   - deploy/upgrading.md
   - operate/local-console.md
   - operate/status-and-history.md

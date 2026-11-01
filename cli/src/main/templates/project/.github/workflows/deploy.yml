@@ -1,0 +1,138 @@
+# Releases one service of {{project}}: a service tag, `<service>/v<version>` such as
+# `{{first}}/v1.0.0`, checks that service, builds its image, pushes it and deploys it. Nothing of any
+# other service is built or deployed. A plain `v1.0.0` tag names no service and starts nothing.
+#
+# It declines to deploy rather than failing when the secrets are absent; see README.md.
+name: deploy
+on:
+  push:
+    tags: ["*/v*"]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: The service to release, a directory under services/
+        required: true
+      version:
+        description: The version to release it as
+        required: true
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      service: ${{ steps.resolve.outputs.service }}
+      version: ${{ steps.resolve.outputs.version }}
+      language: ${{ steps.resolve.outputs.language }}
+      deploy: ${{ steps.resolve.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: resolve
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          INPUT_SERVICE: ${{ inputs.service }}
+          INPUT_VERSION: ${{ inputs.version }}
+          TOKEN: ${{ secrets.ANKKA_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TAG" ]; then
+            service="${TAG%%/v*}"
+            version="${TAG#*/v}"
+          else
+            service="$INPUT_SERVICE"
+            version="$INPUT_VERSION"
+          fi
+          if [ ! -f "services/$service/service.json" ]; then
+            echo "::error::{{project}} has no service $service"
+            exit 1
+          fi
+          if ! [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+            echo "::error::\"$version\" is not a version (letters, digits, '.' and '-', as an image tag allows); a service tag is <service>/v<version>, as orders/v1.0.0"
+            exit 1
+          fi
+          echo "service=$service" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "language=$(scripts/service-language.sh "services/$service")" >> "$GITHUB_OUTPUT"
+          if [ -n "$TOKEN" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No ANKKA_TOKEN secret is configured, so nothing is deployed. See README.md, 'Release one service'."
+          fi
+
+  # A service whose checks fail is not deployed.
+  checks:
+    needs: resolve
+    uses: ./.github/workflows/service-checks.yml
+    with:
+      service: ${{ needs.resolve.outputs.service }}
+      language: ${{ needs.resolve.outputs.language }}
+
+  deploy:
+    needs: [resolve, checks]
+    if: needs.resolve.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push the image to this repository's GitHub Container Registry
+    env:
+      SERVICE: ${{ needs.resolve.outputs.service }}
+      LANGUAGE: ${{ needs.resolve.outputs.language }}
+      SERVICE_VERSION: ${{ needs.resolve.outputs.version }}
+      DOCKER_REPOSITORY: ghcr.io/${{ github.repository_owner }}
+      ANKKA_IMAGE_PLATFORMS: linux/amd64,linux/arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - if: env.LANGUAGE == 'scala' || env.LANGUAGE == 'java' || env.LANGUAGE == 'kotlin'
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - if: env.LANGUAGE == 'scala'
+        uses: sbt/setup-sbt@v1
+      - if: env.LANGUAGE == 'rust'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build and push the image
+        run: |
+          set -euo pipefail
+          # A registry path is lowercase.
+          repository="${DOCKER_REPOSITORY,,}"
+          image="$repository/$SERVICE:$SERVICE_VERSION"
+          case "$LANGUAGE" in
+            scala)
+              DOCKER_REPOSITORY="$repository" sbt "$SERVICE/Docker/publish" ;;
+            python|typescript|web|go)
+              docker build -t "$image" "services/$SERVICE" && docker push "$image" ;;
+            rust)
+              (cd "services/$SERVICE" && cargo module)
+              docker build -t "$image" "services/$SERVICE" && docker push "$image" ;;
+            java)
+              (cd "services/$SERVICE" && ./mvnw -B -DskipTests package jib:build -Dimage="$image" -Djib.from.platforms=linux/amd64,linux/arm64) ;;
+            kotlin)
+              (cd "services/$SERVICE" && ./gradlew --no-daemon installDist)
+              docker buildx build --platform linux/amd64,linux/arm64 --push -t "$image" "services/$SERVICE" ;;
+          esac
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+
+      - uses: thinkmorestupidless/ankka-action@v1
+        with:
+          url: ${{ secrets.ANKKA_URL }}
+          token: ${{ secrets.ANKKA_TOKEN }}
+          project: ${{ secrets.ANKKA_PROJECT }}
+          ca: ${{ secrets.ANKKA_CA }}
+
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          ankka services deploy "$SERVICE" "$IMAGE" -f "services/$SERVICE/service.json"
+          ankka services get "$SERVICE"

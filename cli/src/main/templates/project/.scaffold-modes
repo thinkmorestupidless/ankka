@@ -1,0 +1,5 @@
+# How ankka init writes these files; every other file is text with its tokens filled.
+scripts/run.sh  exec
+scripts/databases.sh  exec
+scripts/changed-services.sh  exec
+scripts/service-language.sh  exec

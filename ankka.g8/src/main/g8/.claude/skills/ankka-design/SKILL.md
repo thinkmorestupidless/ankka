@@ -10,6 +10,51 @@ how the rest of the system learns of their changes, and what may lag. Work throu
 in order, write the answers down as a table, and only then write code. When the design goes into a
 written plan (a `plan.md`, a design document, a pull request description), the table goes in with it.
 
+## One service, or several
+
+Decide this first, before any component table, and say which it is.
+
+Look for parts of the domain that differ in **ownership** (a team that releases on its own cadence),
+**scaling** (a part with very different load) or **consistency** (a rule that must hold across them at
+the same moment). Only those differences justify a boundary. When nothing differs, the design is one
+service: it has no context map, and the rest of this skill designs it.
+
+When the design is several services, write the context map before designing any of them, as
+`context-map.json` at the root of the project (`references/concepts/projects.md` shows the file):
+
+- **Every service**, with what it owns and, for its boundary, the criterion (`ownership`, `scaling` or
+  `consistency`) and why.
+- **Every crossing**, and nothing else. A crossing is one of two things: a declared topic with the
+  contract it carries and the path of that contract's schema, published by one service and read by the
+  other; or a route of an endpoint of one service, with the service that calls it.
+
+Then design each service in turn with the component table below. Its rows that publish to or read a
+topic, or call another service, are the crossings, and agree with the map.
+
+Hold the map to these rules, and say so in the design when one applies:
+
+- **Two services that must be released together are one service.** The platform deploys each service on
+  its own, never several as one. When a rule must hold across two parts at the same moment, merge them
+  and write in the design that they are one service because they must be consistent together.
+- **A cycle of calls is named.** When each of two services calls a route of the other, write that it is
+  a cycle and ask which of the two calls becomes a declared topic. Do not choose for the person.
+- **Anything else that passes a boundary is a defect, not a crossing.** A service reading another's
+  database, the events of another's entities, or a topic that carries no contract: do not record it in
+  the map, and name it in the design as a defect to remove, with the crossing that replaces it.
+
+## A change that crosses services
+
+A feature that changes several services of a project is one spec in the project's repository
+(`references/concepts/projects.md`, "A change that crosses services"). Its plan names each service's
+part and every contract it adds or changes. Its work list changes each contract before either side
+depends on it. An incompatible change is a new contract name (`order.v2` beside `order.v1`), and the
+reading side reads both until no service publishes the old one. Each service is released on its own
+service tag when its part is done.
+
+When a service of the change lives in a repository of its own, the spec, the context map and the
+contracts stay in the project's repository; the moved service's repository holds a spec for its part
+that names the project's spec it implements.
+
 ## The component table
 
 One row per requirement, rule, process or question, with four columns, as in the worked checkout example
@@ -29,7 +74,7 @@ close-call row whose last column is empty is not finished:
 - a named timer and a timed action, or a paused workflow step (step 7)
 - an agent, or a workflow with a fixed sequence (step 8)
 - one endpoint, or one per audience (step 9)
-- one service, or two (step 10)
+- one service, or two (step 10, and "One service, or several" above)
 
 For an obvious choice, leave the last column empty rather than invent an alternative nobody would pick.
 Pure logic with no state, subscription, schedule or route is a plain function or class, not a component,
@@ -82,10 +127,11 @@ service never disagree.
    whose refusal becomes the HTTP status with no mapping. Cross-entity checks that only catch mistakes
    belong in the endpoint; checks that must hold belong in an entity or workflow. Different audiences
    get different endpoints, because each endpoint has one ACL.
-10. **Draw service boundaries where ownership, scaling or consistency differ.** Start with fewer, larger
-    services; splitting later means publishing what was internal. Across services there is no component
-    client, only HTTP and topics, and everything is eventually consistent. Each service owns its
-    database. Publish a stable message type from a consumer, never the entity's own events.
+10. **Service boundaries were decided first**, in "One service, or several", and written in the context
+    map. Start with fewer, larger services; splitting later means publishing what was internal. Across
+    services there is no component client, only declared topics with contracts and routes, and
+    everything is eventually consistent. Each service owns its database. Publish a stable message type
+    from a consumer, never the entity's own events.
 
 ## Consistency, stated precisely
 
@@ -130,6 +176,10 @@ Refuse a design that has any of these, and say which rule it breaks:
 - A consumer or timed action whose reaction is not safe to repeat, or that errors on "nothing to do".
 - A workflow step with retries on a call that is not idempotent, or a failover step that expects an input.
 - Two services sharing a database, or one service reading another's tables or events.
+- A crossing that is neither a declared topic with a contract nor a route of an endpoint, or a topic
+  between services that carries no contract.
+- A synchronous call cycle between services: each calls a route of the other.
+- Two services that must be deployed together, which are one service.
 - An endpoint with domain validation in it, or an `AllowAll` ACL nobody chose deliberately.
 - An agent whose tools write to storage directly, or a shared session id that several unrelated features
   address.
@@ -147,6 +197,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/concepts/effects.md` — Why every ankka handler returns a description of what should happen instead of doing it, what each component's effects look like, and why a refusal is a returned value rather than an exception.
 - `references/concepts/components.md` — The component kinds an ankka service is built from, what each is for, how the runtime hosts it, and how to choose between them.
 - `references/concepts/designing-services.md` — The concepts that shape an ankka system — consistency boundaries, events, read models, reactions, processes, time, agents, the edge and service boundaries — with a worked example mapping a checkout onto components.
+- `references/concepts/projects.md` — When an application is several services rather than one, how their boundaries are drawn and recorded in a context map, what may cross them, and why each service is still deployed on its own.
 - `references/concepts/wire-names.md` — How ankka names components, handlers and stored types independently of your code's names, why those names are a versioning boundary, and which renames are safe in a running system.
 - `references/concepts/consistency.md` — The guarantees ankka gives — strong consistency per entity, eventually consistent views, exactly-once and at-least-once delivery, ordering, timeouts and timers — and what each means for the code you write.
 - `references/concepts/replicated-entities.md` — An event sourced entity held at several installations and written at one, its home — followers, the replication set, the handover, forwarded writes, stale reads, conflicts, and the replication transport.
@@ -156,7 +207,9 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
+- `references/build/calling-services.md` — Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in any of the six languages — so that service's access rules can admit yours by name.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
+- `references/build/topics.md` — Read views and consumers from a Kafka topic and publish to one — start positions, groups, contracts, a topic on another broker, parallel partitions, rebuilding by version, headers, ordering, and testing without a broker.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 
 ### Reference

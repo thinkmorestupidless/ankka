@@ -341,6 +341,25 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
 
 ## Traps
 
+- **The project template is the CLI's, and its sbt plugin is Scala 2.12** (2026-11-01, feature 062).
+  `cli/src/main/templates/project/` and `project-service-scala/` are rendered by `Projects` through
+  `Scaffold`, never by Giter8, so `${{ }}` needs no escape. The rendered build finds its services
+  with `extraProjects` in `project/Services.scala` (one project per `services/<name>/src/main/scala`,
+  root read from `user.dir`), which runs under sbt 1's Scala 2.12: `.scalafmt.conf` formats
+  `templates/project/project/**` with the 2.12 dialect and no Scala 3 rewrites, which would break it.
+  Native-packager 1.13's keys are `com.typesafe.sbt.packager.Keys`, except `Docker` and
+  `dockerBuildxPlatforms`, which only `DockerPlugin.autoImport` has; importing both wholesale is
+  ambiguous.
+- **A project's services are versioned by their own tags** (2026-11-01). `versionOf` reads
+  `SERVICE_VERSION` first (the deploy job sets it from the service tag), then
+  `git describe --tags --long --match "<service>/v*"`: the release at a clean tag, `+<n>-<sha>-SNAPSHOT`
+  past it, `0.0.0+<n>-<sha>-SNAPSHOT` with none. Never a plain `v*` match, which would hand one
+  service another's version. `-Dankka.template.tests=project` runs `ProjectTemplateSuite` and makes
+  `templateArtifacts` publish the Scala service libraries, as `scala` does.
+- **A rendered project's `ankka.init.specify` is switched off in every test** (2026-11-01). `ankka init
+  --project` runs `specify init` when it is on `PATH`; `InitSuite` and `ProjectTemplateSuite` set the
+  property in `beforeAll` so a developer's own `specify` never runs in a temporary directory.
+
 - **A Maven or Gradle build of an unreleased version needs every ankka module in `~/.m2`** (2026-10-23).
   `ankka-java`'s pom names `ankka-core_3`, `ankka-sdk_3`, `ankka-runtime_3` and the rest at compile scope,
   so `publishM2` of the three Java modules alone leaves a template build that cannot resolve; the

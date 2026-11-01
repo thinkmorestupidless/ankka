@@ -1,0 +1,67 @@
+# Checks what a change touched, on every push to a branch and every pull request: each service it
+# changed, by that service's own tools, and the tests that cross services when it could have broken a
+# crossing. Needs no secrets, so it is green from the first push. A service tag is deploy.yml's: it
+# runs that service's checks itself, so a tag starts nothing here.
+name: ci
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.changed.outputs.matrix }}
+      tests: ${{ steps.changed.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          set -euo pipefail
+          work=$(scripts/changed-services.sh "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}")
+          echo "$work"
+          echo "matrix=$(echo "$work" | jq -c .services)" >> "$GITHUB_OUTPUT"
+          echo "tests=$(echo "$work" | jq -r .tests)" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: changes
+    if: needs.changes.outputs.matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.changes.outputs.matrix) }}
+    uses: ./.github/workflows/service-checks.yml
+    with:
+      service: ${{ matrix.service }}
+      language: ${{ matrix.language }}
+
+  # The tests that cross services, and the context map held to the code.
+  tests:
+    needs: changes
+    if: needs.changes.outputs.tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - run: sbt tests/test
+
+  # Every commit of a pull request, and its title, is a Conventional Commit: the check the commit-msg
+  # hook makes, for a clone that did not enable it.
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: .githooks/check-commits "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"

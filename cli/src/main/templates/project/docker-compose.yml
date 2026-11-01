@@ -1,0 +1,47 @@
+# What {{project}}'s services need on this machine besides themselves: one Postgres, holding a
+# database per service (scripts/databases.sh makes each and applies ankka's schema to it), and one
+# Kafka, which the services' declared topics cross.
+#
+#   docker compose up -d
+#   scripts/run.sh <service>
+#
+# A service in another language started inside the project keeps a compose file of its own, in its
+# directory, for its sidecar; scripts/run.sh starts it.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ankka
+      POSTGRES_PASSWORD: ankka
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ankka"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # 9092 for a service run on this machine; 9094 for a sidecar in a container, which reaches the
+      # host as host.docker.internal.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTAINERS://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,CONTAINERS://host.docker.internal:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,CONTAINERS:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+
+volumes:
+  pgdata:

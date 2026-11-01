@@ -486,7 +486,7 @@ jobs:
         include:
           # 22.04, as the release builds: the binary links the build machine's glibc.
           - { platform: linux-x64, runner: ubuntu-22.04 }
-          - { platform: macos-arm64, runner: macos-14 }
+          - { platform: macos-arm64, runner: macos-15 }
     runs-on: ${{ matrix.runner }}
     name: cli-native (${{ matrix.platform }})
     steps:

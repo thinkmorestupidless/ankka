@@ -452,7 +452,7 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
       inspectPath,
       text,
       "Read `context-map.json` for the services the scenario names and the crossing it passes",
-      "Ask `local_traces` on the second service for the same trace id",
+      "The second service's reader (`<reader>#on-message`) continues that trace, under the same id.",
       "Report the row with the crossing named as the map names it",
       "the request, the publishing and consuming spans, the declared query's answer, and the trace id"
     )

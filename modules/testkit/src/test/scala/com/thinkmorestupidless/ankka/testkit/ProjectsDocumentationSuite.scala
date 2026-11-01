@@ -372,6 +372,14 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
     )
   }
 
+  test("a changed contract schema changes every Scala service's fingerprint, so their checks run") {
+    assertEquals(
+      changes("contracts/order.v1.json"),
+      """{"services":[{"service":"billing","language":"scala"},{"service":"orders","language":"scala"}],"tests":true}"""
+    )
+    assertEquals(changes("context-map.json"), """{"services":[],"tests":true}""")
+  }
+
   test(
     "a service added inside a project is found by its directory: the build, the checks and the release name no service"
   ) {
@@ -390,6 +398,11 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
       read(s"$template/project/Services.scala").contains("\"services\""),
       "the plugin does not look under services/"
     )
+    assert(
+      read(s"$template/project/Services.scala").contains("start sbt from the project's root"),
+      "a build loaded away from the project's root holds no service and says nothing"
+    )
+    assert(deploy.contains("is not a version"), "deploy.yml takes any version from the tag")
     val languages = read(s"$template/.github/workflows/service-checks.yml")
     for language <- Vector("scala", "python", "typescript", "go", "rust", "java", "kotlin", "web")
     do assert(languages.contains(s"'$language'"), s"service-checks.yml has no checks for $language")

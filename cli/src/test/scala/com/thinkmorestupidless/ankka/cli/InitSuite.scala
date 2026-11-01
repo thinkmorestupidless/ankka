@@ -213,6 +213,14 @@ class InitSuite extends munit.FunSuite:
     assert(Init.problems(request("orders", Some("Orders.App"))).exists(_.contains("is invalid")))
   }
 
+  test("--services without --project is refused rather than ignored") {
+    val dir            = Files.createTempDirectory("init")
+    val (code, _, err) = cli("init", "orders", "--services", "a,b", "--dir", dir.toString)
+    assertEquals(code, 1, err)
+    assert(err.contains("--services applies to --project"), err)
+    assert(!Files.exists(dir.resolve("orders")) && !Files.exists(dir.resolve("build.sbt")), err)
+  }
+
   test("options that belong to another language are refused rather than ignored") {
     val dir    = Files.createTempDirectory("init")
     val python =
@@ -411,6 +419,19 @@ class InitSuite extends munit.FunSuite:
     for owned <- Vector(".github", ".githooks", ".claude", ".mcp.json") do
       assert(!Files.exists(service.resolve(owned)), owned)
     assert(!Files.readString(service.resolve("README.md")).contains("## Deploy"))
+  }
+
+  test("a web service added inside a project mounts the project's first service, not \"backend\"") {
+    val root             = started()
+    val (code, out, err) = cli("init", "shopfront", "--language", "web", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    val descriptor = Files.readString(root.resolve("services/shopfront/service.json"))
+    assert(descriptor.contains("\"service\": \"orders\""), descriptor)
+    assert(!descriptor.contains("backend"), descriptor)
+    assert(
+      !Files.readString(root.resolve("services/shopfront/server/server.ts")).contains("backend")
+    )
+    assert(out.contains("mounts the project's first service"), out)
   }
 
   test(

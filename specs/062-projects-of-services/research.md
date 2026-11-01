@@ -558,3 +558,9 @@ of every service's checks beside the deploy. It now runs on branch pushes only
 (https://github.com/thinkmorestupidless/ankka-062-scratch-project/actions/runs/41256055102). `ProjectsDocumentationSuite` holds the trigger.
 
 The repository is to be deleted; the CLI's token here lacks the `delete_repo` scope.
+- **A change to a Scala service runs the whole tests module** (review, 2026-11-01). FR-009 asks for
+  "the project's cross-service tests that start one of those services, and no others"; with one tests
+  module the pipeline runs the module whole whenever a Scala service, the shared module, a contract
+  or the map changed, which is coarser than the requirement and never misses a test. Splitting the
+  module by the services a suite starts is a later refinement, not a defect.
+

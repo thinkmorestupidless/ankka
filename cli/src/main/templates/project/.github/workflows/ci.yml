@@ -1,9 +1,11 @@
-# Checks what a change touched, on every push and pull request: each service it changed, by that
-# service's own tools, and the tests that cross services when it could have broken a crossing.
-# Needs no secrets, so it is green from the first push.
+# Checks what a change touched, on every push to a branch and every pull request: each service it
+# changed, by that service's own tools, and the tests that cross services when it could have broken a
+# crossing. Needs no secrets, so it is green from the first push. A service tag is deploy.yml's: it
+# runs that service's checks itself, so a tag starts nothing here.
 name: ci
 on:
   push:
+    branches: ["**"]
   pull_request:
 
 jobs:

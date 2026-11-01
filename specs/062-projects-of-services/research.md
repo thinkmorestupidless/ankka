@@ -538,3 +538,23 @@ the person: Scala initial services; a sidecar service keeps a trimmed compose fi
 
 The first `sbt test` on a machine with no cached dependencies takes longer by the download; the
 template's CI job measures that on every pull request that touches it.
+
+### The pipeline, live (T048, R15a)
+
+2026-11-01, on a private scratch repository holding a rendered three-service project (orders,
+billing, stock, all Scala). Its build pinned the released ankka 0.14.2, since this branch's snapshot
+is not on Maven Central; that is why its tests module, which uses this feature's `ContextMap` and
+`ContextMapCheck`, could not compile there. Every service's own checks compiled and passed.
+
+| What | Run | Result |
+|---|---|---|
+| A pull request changing `services/orders/` only | https://github.com/thinkmorestupidless/ankka-062-scratch-project/actions/runs/41255803972 | `changes` printed `{"services":[{"service":"orders","language":"scala"}],"tests":true}`; one `checks` job, orders, green; `tests` ran (red only on the 0.14.2 pin) |
+| The tag `orders/v0.1.0` | https://github.com/thinkmorestupidless/ankka-062-scratch-project/actions/runs/41255812820 | `resolve` named orders; `checks / orders` green; `deploy` skipped with the notice "No ANKKA_TOKEN secret is configured, so nothing is deployed" |
+| The tag `shipping/v0.1.0` | https://github.com/thinkmorestupidless/ankka-062-scratch-project/actions/runs/41255820226 | `resolve` failed with "shop has no service shipping"; `checks` and `deploy` skipped |
+
+**Found:** the project's `ci.yml` ran on `push` with no filter, so each tag also started a full run
+of every service's checks beside the deploy. It now runs on branch pushes only
+(`branches: ["**"]`); with that file, the tag `orders/v0.1.1` started the deploy alone
+(https://github.com/thinkmorestupidless/ankka-062-scratch-project/actions/runs/41256055102). `ProjectsDocumentationSuite` holds the trigger.
+
+The repository is to be deleted; the CLI's token here lacks the `delete_repo` scope.

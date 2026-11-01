@@ -293,6 +293,11 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
     assert(!read(s"$template/.github/workflows/ci.yml").contains("secrets."))
   }
 
+  test("a service tag starts the deploy alone, never a second run of every service's checks") {
+    val ci = read(s"$template/.github/workflows/ci.yml")
+    assert(ci.contains("  push:\n    branches: [\"**\"]\n"), "ci.yml runs on tag pushes too")
+  }
+
   /**
    * Runs the change script over a temporary repository of three services: two Scala, one Python.
    */

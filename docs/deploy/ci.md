@@ -169,7 +169,7 @@ releases each on its own. Its `deploy.yml` runs on a **service tag**, `<service>
 - The secrets are the same four, set once for the repository: `ANKKA_URL`, `ANKKA_TOKEN`,
   `ANKKA_PROJECT` and, when needed, `ANKKA_CA`.
 
-The project's `ci.yml` runs on every push and pull request, checks only the services the change touched (every
+The project's `ci.yml` runs on every push to a branch and every pull request, never on a tag, checks only the services the change touched (every
 Scala service when the shared module changed), runs the tests that cross services, and needs no
 secret. See [Build a project of several services](../build/projects.md#release-one-service).
 

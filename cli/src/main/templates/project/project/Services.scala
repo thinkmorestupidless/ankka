@@ -36,6 +36,10 @@ object Services extends AutoPlugin {
 
   /** The names of the Scala services, in order. */
   lazy val names: Seq[String] = {
+    // The root is where sbt was started. Started anywhere else, the build would silently hold no
+    // service and the tests module would check nothing, so it refuses to load instead.
+    if (!(root / "services").isDirectory)
+      sys.error(s"$root has no services/ directory: start sbt from the project's root")
     val dirs = Option((root / "services").listFiles()).map(_.toSeq).getOrElse(Nil)
     dirs
       .filter(d => d.isDirectory && (d / "src" / "main" / "scala").isDirectory)

@@ -45,6 +45,10 @@ jobs:
             echo "::error::{{project}} has no service $service"
             exit 1
           fi
+          if ! [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z.+-]*$ ]]; then
+            echo "::error::\"$version\" is not a version; a service tag is <service>/v<version>, as orders/v1.0.0"
+            exit 1
+          fi
           echo "service=$service" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "language=$(scripts/service-language.sh "services/$service")" >> "$GITHUB_OUTPUT"

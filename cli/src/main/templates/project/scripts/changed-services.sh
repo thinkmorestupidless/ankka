@@ -8,8 +8,10 @@
 # With no arguments, every service and the tests: what a run by hand checks.
 #
 #   services/<name>/**                          that service; the tests too when it is Scala
-#   shared/**, build.sbt, project/**            every Scala service, and the tests
-#   tests/**, contracts/**, context-map.json    the tests
+#   shared/**, build.sbt, project/**, contracts/**   every Scala service, and the tests (a schema
+#                                               is on the shared module's classpath, so its fingerprint
+#                                               is every Scala service's)
+#   tests/**, context-map.json                  the tests
 #   .github/**, scripts/**                      every service, and the tests
 #   anything else                               nothing
 set -euo pipefail
@@ -49,13 +51,13 @@ else
           [ "$(language_of "$name")" = scala ] && tests=true
         fi
         ;;
-      shared/*|build.sbt|project/*)
+      shared/*|build.sbt|project/*|contracts/*)
         for s in $(all_services); do
           [ "$(language_of "$s")" = scala ] && add "$s"
         done
         tests=true
         ;;
-      tests/*|contracts/*|context-map.json)
+      tests/*|context-map.json)
         tests=true
         ;;
       .github/*|scripts/*)

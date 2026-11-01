@@ -162,6 +162,77 @@ class ContextMapCheckSuite extends munit.FunSuite with LogCapturing:
     assertEquals(ContextMapCheck.problems(map(topic, call), "orders", orders), Vector.empty)
   }
 
+  /**
+   * billing, reading another project's topic: the runtime addresses it `payments/ledger-events`.
+   */
+  private object LedgerReader
+      extends Consumer.Companion[InvoiceOnOrder, Line, Nothing](
+        ComponentId("ledger-reader"),
+        ChangeSource.fromTopic("payments", "ledger-events", lines)
+      ):
+    def create(ctx: ConsumerContext) = new InvoiceOnOrder
+
+  /** orders, publishing to another project's topic. */
+  private object LedgerRelay
+      extends Consumer.Companion[LedgerFanout, LedgerEvent, Line](
+        ComponentId("ledger-relay"),
+        ChangeSource.eventsOf(LedgerEntity)
+      ):
+    def create(ctx: ConsumerContext)                        = new LedgerFanout
+    override val outputSerializer: Option[Serializer[Line]] = Some(lines)
+    override def produces: Option[Publication]              =
+      Some(Publication("ledger-events", Some(orderV1), project = Some("payments")))
+
+  test("a topic read from another project's service is recorded by the topic's bare name") {
+    val crossing = ContextMap.Crossing(
+      "payments/ledger",
+      "billing",
+      topic = Some("ledger-events"),
+      contract = Some("order.v1"),
+      schema = Some("contracts/order.v1.json")
+    )
+    assertEquals(
+      ContextMapCheck.problems(map(crossing), "billing", Seq(LedgerReader.descriptor)),
+      Vector.empty
+    )
+    assertEquals(
+      ContextMapCheck.problems(map(), "billing", Seq(LedgerReader.descriptor)),
+      Vector(
+        "\"billing\" reads \"payments/ledger-events\", and the context map records no crossing to " +
+          "\"billing\" by \"payments/ledger-events\""
+      )
+    )
+    assertEquals(
+      ContextMapCheck.problems(map(crossing), "billing", Seq(Invoicer.descriptor)),
+      Vector(
+        "\"billing\" reads \"orders-placed\", and the context map records no crossing to " +
+          "\"billing\" by \"orders-placed\"",
+        "the context map records a crossing to \"billing\" by \"ledger-events\", and no component " +
+          "of \"billing\" reads it"
+      )
+    )
+  }
+
+  test("a topic published to another project's service is recorded the same way") {
+    val crossing = ContextMap.Crossing(
+      "orders",
+      "payments/ledger",
+      topic = Some("ledger-events"),
+      contract = Some("order.v1"),
+      schema = Some("contracts/order.v1.json")
+    )
+    val components = Seq(LedgerEntity.descriptor, LedgerRelay.descriptor)
+    assertEquals(ContextMapCheck.problems(map(crossing), "orders", components), Vector.empty)
+    val v2 = crossing.copy(contract = Some("order.v2"))
+    assertEquals(
+      ContextMapCheck.problems(map(v2), "orders", components),
+      Vector(
+        "\"orders\" publishes to \"payments/ledger-events\" as \"order.v1\"; the context map says " +
+          "\"order.v2\""
+      )
+    )
+  }
+
 /** Reads a line and does nothing with it: the reading side of a crossing. */
 final class InvoiceOnOrder extends Consumer[Line, Nothing]:
   def onMessage(line: Line): Effect = effects.done()

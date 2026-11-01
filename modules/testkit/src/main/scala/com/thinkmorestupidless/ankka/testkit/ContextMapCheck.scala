@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ContextMap}
 import com.thinkmorestupidless.ankka.runtime.{AnkkaService, DeclaredTopics}
+import com.thinkmorestupidless.ankka.sdk.TopicAddress
 
 /**
  * A project's context map held true at run time (feature 062): what one running service states in
@@ -40,14 +41,26 @@ object ContextMapCheck:
     val published = sides.filter(_.publishes)
     val read      = sides.filterNot(_.publishes)
 
+    // The map records a topic by its bare name. A component reads or publishes to another project's
+    // topic as `<project>/<name>`, so a crossing with another project's service (written
+    // `<project>/<service>`) is stated by either form: the topic may be this project's or theirs.
+    def addresses(crossing: ContextMap.Crossing): Set[String] =
+      crossing.topic.toSet.flatMap { topic =>
+        val other   = if crossing.from == service then crossing.to else crossing.from
+        val project = Option.when(other.contains('/'))(other.takeWhile(_ != '/'))
+        Set(topic) ++ project.map(p => TopicAddress.of(topic, Some(p)))
+      }
+    def records(recorded: Vector[ContextMap.Crossing], topic: String): Boolean =
+      recorded.exists(c => addresses(c).contains(topic))
+
     val unrecordedPublications = published.distinctBy(_.topic).collect {
-      case side if !crossings.published.exists(_.topic.contains(side.topic)) =>
+      case side if !records(crossings.published, side.topic) =>
         val as = side.contract.fold("")(c => s" as \"${c.name}\"")
         s"\"$service\" publishes to \"${side.topic}\"$as, and the context map records no crossing " +
           s"from \"$service\" by \"${side.topic}\""
     }
     val unrecordedReads = read.distinctBy(_.topic).collect {
-      case side if !crossings.read.exists(_.topic.contains(side.topic)) =>
+      case side if !records(crossings.read, side.topic) =>
         s"\"$service\" reads \"${side.topic}\", and the context map records no crossing to " +
           s"\"$service\" by \"${side.topic}\""
     }
@@ -61,21 +74,21 @@ object ContextMapCheck:
       for
         side     <- sides
         stated   <- side.contract.toVector
-        crossing <- recorded.filter(_.topic.contains(side.topic))
+        crossing <- recorded.filter(c => addresses(c).contains(side.topic))
         expected <- crossing.contract.toVector
         if stated.name != expected
       yield s"\"$service\" $verb \"${side.topic}\" as \"${stated.name}\"; the context map says \"$expected\""
     val wrongContracts =
       (differing(published, crossings.published, "publishes to") ++
         differing(read, crossings.read, "reads")).distinct
-    val unstatedPublications = crossings.published.flatMap(_.topic).distinct.collect {
-      case topic if !published.exists(_.topic == topic) =>
-        s"the context map records a crossing from \"$service\" by \"$topic\", and no component of " +
-          s"\"$service\" publishes to it"
+    val unstatedPublications = crossings.published.distinctBy(_.topic).collect {
+      case c if !published.exists(side => addresses(c).contains(side.topic)) =>
+        s"the context map records a crossing from \"$service\" by \"${c.topic.get}\", and no " +
+          s"component of \"$service\" publishes to it"
     }
-    val unstatedReads = crossings.read.flatMap(_.topic).distinct.collect {
-      case topic if !read.exists(_.topic == topic) =>
-        s"the context map records a crossing to \"$service\" by \"$topic\", and no component of " +
-          s"\"$service\" reads it"
+    val unstatedReads = crossings.read.distinctBy(_.topic).collect {
+      case c if !read.exists(side => addresses(c).contains(side.topic)) =>
+        s"the context map records a crossing to \"$service\" by \"${c.topic.get}\", and no " +
+          s"component of \"$service\" reads it"
     }
     unrecordedPublications ++ unrecordedReads ++ wrongContracts ++ unstatedPublications ++ unstatedReads

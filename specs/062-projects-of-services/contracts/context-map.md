@@ -114,4 +114,7 @@ crossing from "<service>" by "<topic>"`; `"<service>" reads "<topic>", and the c
 no crossing to "<service>" by "<topic>"`; `"<service>" publishes to "<topic>" as "<stated>"; the
 context map says "<contract>"`; `the context map records a crossing from "<service>" by "<topic>",
 and no component of "<service>" publishes to it` (and the reading side likewise). The generated
-`ContextMapSuite` asserts `problems` is empty for each Scala service.
+`ContextMapSuite` asserts `problems` is empty for each Scala service. A crossing with another
+project's service (`<project>/<service>`) records its topic by the bare name, and is stated by a
+component naming either that name or `<project>/<name>`, the address a component gives another
+project's topic: the topic may be this project's or theirs.

@@ -519,3 +519,22 @@ the person: Scala initial services; a sidecar service keeps a trimmed compose fi
   `ankka/templates/**`, which it already carries.
 - **`docs check` wants a page's description under 240 characters**; the build page's was shortened.
 
+
+## Measurements
+
+2026-11-01, on the developer's Mac (OrbStack), against this branch's ankka published locally.
+
+| What | Result |
+|---|---|
+| `sbt scalafmtCheckAll scalafmtSbtCheck` | clean |
+| `core/testOnly *ContextMap*` | 25 passed |
+| `testkit/testOnly *ContextMap* *ProjectsDocumentationSuite` | 34 passed (the documentation suite alone, after the last skill edit: 27) |
+| `cli/testOnly *InitSuite *CliReferenceSuite *ContextMapCommandSuite` | 36 passed |
+| `-Dankka.template.tests=project cli/testOnly *ProjectTemplateSuite` | 12 passed |
+| `-Dankka.template.tests=scala cli/testOnly ...TemplateSuite` (FR-012, the single-service template unchanged) | passed |
+| `just docs` | 110 pages, no problems |
+| `just features` | 0 findings in 3183 scenarios and 63 specs |
+| SC-002: `ankka init shop --project --services orders,billing,stock` in an empty directory, then `sbt test` | green in 43 s wall clock, nothing edited (under ten minutes); warm caches |
+
+The first `sbt test` on a machine with no cached dependencies takes longer by the download; the
+template's CI job measures that on every pull request that touches it.

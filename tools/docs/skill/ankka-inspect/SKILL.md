@@ -123,11 +123,14 @@ scenario can start at one service and end at another. Check it as one scenario, 
    runs.
 2. **Every service it names is running.** Each must be listed by `list_local_services`. A service that is
    not is *not met*, naming that service and saying it did not answer; do not start it in place of the
-   person, and do not report the scenario as not checkable.
-3. **Both sides state the crossing's contract.** With `ankka local console` running, read
-   `http://localhost:9889/api/topology/<service>` for each side: its `declared` connections to the topic
-   (`topic-publication`, `topic-subscription`) state the contract each component publishes or reads
-   (`describe_local_service` lists components, not what they state for a topic). A side stating another
+   person, and do not report the scenario as not checkable. A service of the project that the scenario
+   does not name need not run.
+3. **Both sides state the crossing's contract.** Start `ankka local console --no-open` in the background
+   (it prints its address, `http://localhost:9889` unless that port is taken) and read
+   `<address>/api/topology/<service>` for each side: its `declared` connections to the topic
+   (`topic-publication`, `topic-subscription`) state the contract each component publishes or reads. The
+   reading side's contract also shows under `topicSources` in `describe_local_service`; the publishing
+   side's shows only in the topology. Stop the console afterwards if this inspection started it. A side stating another
    contract than the crossing's is *not met*, naming the service and the contract each side states. Check
    this before anything runs and whatever the requests then show: off the platform no contract is compared
    per message, so a reader stating another contract still reads, and the scenario would look met.
@@ -138,8 +141,9 @@ scenario can start at one service and end at another. Check it as one scenario, 
    wait. A second service that never answers is *not met*, naming it.
 6. **Join the trace.** Read `local_traces` on each side and find the trace both hold under one id.
    - **A route crossing** is in the request's own trace: the first service's handler span holds the call
-     to the other service (`service:<project>/<service>`), and the second service holds the same trace id,
-     its endpoint's span under the call.
+     to the other service (`service:local/<service>` on a laptop, where every service's project is
+     `local`), and the second service holds the same trace id, its endpoint's span at the root of its
+     half.
    - **A topic crossing** is not in the request's trace. The request's trace ends at the entity's write,
      and an event carries no trace; the message is published by the first service's consumer
      (`<publisher>#on-message`), in a trace of its own that starts there. The second service's reader
@@ -147,6 +151,10 @@ scenario can start at one service and end at another. Check it as one scenario, 
 
    Both halves under one id are the evidence that the second service acted on what the first one did; no
    tool reads a topic's messages, so the publishing span and the consuming span are what was published.
+   Each service keeps only its own spans, so the second service's half is marked `partial`, its first span
+   with `parentUnknown`: here that is the crossing, not the unattributed work section 6 describes. Spans
+   name handlers, not entity ids, so a trace is matched to the scenario's request by its handler and its
+   time: run the scenario on an otherwise idle machine and read the traces straight after.
 
 Report the row with the crossing named as the map names it, `orders → billing by orders-events`, the
 request, the publishing and consuming spans, the declared query's answer, and the trace id. A met

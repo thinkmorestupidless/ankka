@@ -494,3 +494,28 @@ the person: Scala initial services; a sidecar service keeps a trimmed compose fi
   would be read by nothing.
 - **An add answers 204.** `POST /<service>/{id}` replies `Done`, which the HTTP module answers with
   no content.
+
+2026-11-01, from the recorded runs (T016, T042) and the rest of the build:
+
+- **The design skill holds on three descriptions** (`runs/`). Different owners became two services by
+  ownership, a context map first, every crossing a declared topic with a contract and a schema path;
+  orders and stock under one rule became one service "because they must be consistent together"; a
+  one-team shop stayed one service with no map. Nothing in the skill needed changing for these runs.
+- **A topic crossing is not in the request's trace.** An event carries no trace, so the request's trace
+  ends at the entity's write; the publishing consumer starts a trace and the reader continues it. The
+  inspect skill joins a topic crossing on the publisher's trace and a route crossing on the request's.
+- **`describe_local_service` does not state what a publisher declares for a topic.** R11 assumed it
+  did. The contract each side states is read from the topology's `declared` connections through the
+  local console (`/api/topology/<service>`); the reading side's also shows under `topicSources`.
+- **Off the platform no contract is compared per message.** A reader stating `orders.v2` still read
+  `orders.v1` messages locally, so a contract mismatch is caught only by comparing the topologies (and,
+  for Scala, by the tests module's `ContextMapSuite`); the inspect skill compares before running.
+- **`docs/build/calling-services.md` said a call starts a new trace in the service called.** It does
+  not: the call carries `traceparent` and the callee continues it, as `operate/telemetry.md` says and
+  the run showed. Corrected.
+- **The CLI's templates are formatted as Scala 2.12 where sbt reads them.** `.scalafmt.conf` gained a
+  `fileOverride` for `cli/src/main/templates/project/project/**`; the Scala 3 rewrites would have broken
+  the rendered build's plugin. The native image needs no new glob: the project templates are under
+  `ankka/templates/**`, which it already carries.
+- **`docs check` wants a page's description under 240 characters**; the build page's was shortened.
+

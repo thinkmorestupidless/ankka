@@ -25,6 +25,9 @@ object Projects:
   /** The first port a service of a project is given locally. */
   val FirstPort: Int = 9000
 
+  /** The first process port; `ANKKA_PROCESS_PORT`'s default, which a single service keeps. */
+  val FirstProcessPort: Int = 9010
+
   /** spec-kit's own setup, which the project template carries no copy of. */
   val SpecifyCommand: Vector[String] =
     Vector("specify", "init", "--here", "--ai", "claude", "--ai-skills")
@@ -143,6 +146,15 @@ object Projects:
     Iterator.from(FirstPort).find(p => !used(p)).get
 
   /**
+   * The smallest even port from 9010 that no process service's compose file dials: a Python,
+   * TypeScript or Go process listens on it, and its sidecar's observe port is the one above, so two
+   * such services run side by side.
+   */
+  def nextProcessPort(root: Path): Int =
+    val used = composes(root).flatMap(processPortOf).toSet
+    Iterator.from(FirstProcessPort, 2).find(p => !used(p)).get
+
+  /**
    * Writes `services/<name>/`, appends it to the map and renders the map again; returns its
    * directory.
    */
@@ -156,14 +168,17 @@ object Projects:
         val pkg = request.pkg.getOrElse(projectPackage(root))
         writeSkeleton(root, name, "plain", port, pkg, version, name, name)
       case language =>
-        val values = Scaffold.tokens(request, version)
+        // Chosen before the language's own compose file is written, which names the default port.
+        val process = nextProcessPort(root)
+        val values  = Scaffold.tokens(request, version)
         write(language.id, service, values, keep, identity)
         withPort(service.resolve("service.json"), port)
         stripDeploy(service.resolve("README.md"))
         val compose = service.resolve("docker-compose.yml")
         language match
           case Language.Python | Language.TypeScript | Language.Go =>
-            Files.writeString(compose, sidecarCompose(name, port, version)): Unit
+            Files.writeString(compose, sidecarCompose(name, port, process, version)): Unit
+            withProcessPort(service.resolve("README.md"), process)
           case Language.Rust =>
             Files.writeString(
               compose,
@@ -341,6 +356,24 @@ object Projects:
       .map(_.group(1).toInt)
       .getOrElse(FirstPort)
 
+  // The process ports the project's compose files dial.
+  private def composes(root: Path): Vector[Path] =
+    descriptors(root).map(_.resolveSibling("docker-compose.yml")).filter(Files.isRegularFile(_))
+
+  private def processPortOf(compose: Path): Option[Int] =
+    "ANKKA_PROCESS_ADDRESS:\\s*host\\.docker\\.internal:(\\d+)".r
+      .findFirstMatchIn(Files.readString(compose))
+      .map(_.group(1).toInt)
+
+  // A language's README says its process listens on 9010; inside a project it is this service's port.
+  private def withProcessPort(readme: Path, process: Int): Unit =
+    if Files.isRegularFile(readme) then
+      val text = Files.readString(readme)
+      Files.writeString(
+        readme,
+        text.replace(s"port $FirstProcessPort", s"port $process (ANKKA_PROCESS_PORT=$process)")
+      ): Unit
+
   private def withPort(descriptor: Path, port: Int): Unit =
     val text = Files.readString(descriptor)
     Files.writeString(
@@ -397,23 +430,28 @@ object Projects:
        |      ANKKA_OTLP_ENDPOINT: $${ANKKA_OTLP_ENDPOINT:-}
        |      ANKKA_OTLP_HEADERS: $${ANKKA_OTLP_HEADERS:-}""".stripMargin
 
-  /** A process service's sidecar, on the project's Postgres and Kafka: no Postgres of its own. */
-  def sidecarCompose(name: String, port: Int, version: String): String =
+  /**
+   * A process service's sidecar, on the project's Postgres and Kafka: no Postgres of its own. It
+   * dials the process on `process`, a port of this service's own, and its observe port is the one
+   * above, so the project's process services run side by side; `scripts/run.sh` reads the process
+   * port from this file.
+   */
+  def sidecarCompose(name: String, port: Int, process: Int, version: String): String =
     s"""# $name's sidecar, beside the project's Postgres and Kafka (the docker-compose.yml at the project's
        |# root): it owns the journal, the views and HTTP, in the database "$name", and dials this
-       |# service's process on port 9010. scripts/run.sh $name starts it, then the process.
+       |# service's process on port $process. scripts/run.sh $name starts it, then the process on that port.
        |services:
        |  sidecar:
        |    image: ${sidecar(version)}
        |    environment:
-       |      ANKKA_PROCESS_ADDRESS: host.docker.internal:9010
+       |      ANKKA_PROCESS_ADDRESS: host.docker.internal:$process
        |      ANKKA_SIDECAR_BIND: 0.0.0.0
        |${database(name, port)}
        |    extra_hosts:
        |      - "host.docker.internal:host-gateway"
        |    ports:
        |      - "$port:$port"
-       |      - "127.0.0.1:9011:9011"
+       |      - "127.0.0.1:${process + 1}:9011"
        |""".stripMargin
 
   /** A WebAssembly service's runtime, on the project's Postgres and Kafka. */

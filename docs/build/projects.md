@@ -147,7 +147,8 @@ ankka local console         # every running service, and the calls between them
 applies the schema to it. It then starts the service on the port its `service.json` names, in its
 own database, under its own name, with Kafka at `localhost:9092`. A service in another language is
 started with its sidecar or runtime from its own compose file, which reaches the same Postgres and
-Kafka from its container.
+Kafka from its container. Each Python, TypeScript or Go service has a process port of its own in that
+file, which the script exports as `ANKKA_PROCESS_PORT`, so several such services run side by side.
 
 A service started this way announces itself in a file under `~/.ankka/running/`, and a call to
 another service by name reaches the address that service announced. The announcement is a file, so

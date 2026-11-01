@@ -24,6 +24,11 @@ if [ -f "$dir/docker-compose.yml" ]; then
 fi
 
 port=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$dir/service.json" | head -1)
+# A process service listens where its sidecar dials: the port its compose file names.
+if [ -f "$dir/docker-compose.yml" ]; then
+  process=$(sed -n 's/.*ANKKA_PROCESS_ADDRESS:[[:space:]]*host\.docker\.internal:\([0-9][0-9]*\).*/\1/p' "$dir/docker-compose.yml" | head -1)
+  [ -n "$process" ] && export ANKKA_PROCESS_PORT="$process"
+fi
 export ANKKA_DB_NAME="$service"
 export ANKKA_HTTP_PORT="${port:-9000}"
 export ANKKA_SERVICE_NAME="$service"

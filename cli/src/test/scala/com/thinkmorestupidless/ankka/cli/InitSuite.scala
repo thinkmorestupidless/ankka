@@ -414,6 +414,32 @@ class InitSuite extends munit.FunSuite:
   }
 
   test(
+    "two process services in one project listen on different ports, each dialled by its sidecar"
+  ) {
+    val root = started()
+    assertEquals(Projects.nextProcessPort(root), 9010)
+    for (name, language) <- Vector("stock" -> "python", "pricing" -> "typescript") do
+      val (code, _, err) = cli("init", name, "--language", language, "--dir", root.toString)
+      assertEquals(code, 0, err)
+    val stock   = Files.readString(root.resolve("services/stock/docker-compose.yml"))
+    val pricing = Files.readString(root.resolve("services/pricing/docker-compose.yml"))
+    assert(stock.contains("ANKKA_PROCESS_ADDRESS: host.docker.internal:9010"), stock)
+    assert(stock.contains("\"127.0.0.1:9011:9011\""), stock)
+    assert(pricing.contains("ANKKA_PROCESS_ADDRESS: host.docker.internal:9012"), pricing)
+    assert(pricing.contains("\"127.0.0.1:9013:9011\""), pricing)
+    assert(!pricing.contains("9010"), pricing)
+    assertEquals(Projects.nextProcessPort(root), 9014)
+    assert(
+      Files
+        .readString(root.resolve("services/pricing/README.md"))
+        .contains("ANKKA_PROCESS_PORT=9012")
+    )
+    // run.sh exports the port the compose file names, before it starts the process.
+    val run = Files.readString(root.resolve("scripts/run.sh"))
+    assert(run.contains("ANKKA_PROCESS_ADDRESS") && run.contains("export ANKKA_PROCESS_PORT"), run)
+  }
+
+  test(
     "adding a service the project already has, or one named for its own directories, is refused"
   ) {
     val root = started()

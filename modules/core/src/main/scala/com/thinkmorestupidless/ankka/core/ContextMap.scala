@@ -113,11 +113,14 @@ object ContextMap:
           .sorted
       finally stream.close()
 
-  // The descriptor's name, read as any JSON: `core` cannot see the descriptor's own codec.
-  private def descriptorName(file: Path): Option[String] =
-    GraphJson.parse(Files.readAllBytes(file)).toOption.flatMap(_.field("name")).collect {
-      case GraphJson.Str(name) => name
-    }
+  // The descriptor's name, read as any JSON: `core` cannot see the descriptor's own codec. A file
+  // that is not JSON is the message on the left.
+  private def descriptorName(file: Path): Either[String, Option[String]] =
+    GraphJson
+      .parse(Files.readAllBytes(file))
+      .map(_.field("name").collect { case GraphJson.Str(name) =>
+        name
+      })
 
   /**
    * Everything that is wrong between the map and the project at `root`, in the order the contract
@@ -145,6 +148,12 @@ object ContextMap:
         s"the boundary of \"${s.name}\" is drawn by \"${s.boundary.criterion}\", which is not " +
           Criteria.mkString(", ")
     }
+    val namedTwice = named
+      .groupBy(identity)
+      .collect { case (n, copies) if copies.size > 1 => n }
+      .toVector
+      .sorted
+      .map(n => s"the context map names \"$n\" twice")
     val withoutDirectory = named.distinct.collect {
       case n if !directories.contains(n) =>
         s"the context map names \"$n\", and services/$n/service.json does not exist"
@@ -154,9 +163,11 @@ object ContextMap:
         s"$p has a service \"$d\" (services/$d/service.json) that the context map does not name"
     }
     val misnamed = directories.flatMap { d =>
-      descriptorName(root.resolve("services").resolve(d).resolve("service.json")).collect {
-        case n if n != d => s"services/$d/service.json is named \"$n\", not \"$d\""
-      }
+      descriptorName(root.resolve("services").resolve(d).resolve("service.json")) match
+        case Left(message) => Some(s"services/$d/service.json is not a JSON document: $message")
+        case Right(Some(n)) if n != d =>
+          Some(s"services/$d/service.json is named \"$n\", not \"$d\"")
+        case Right(_) => None
     }
     val unresolved = map.crossings.flatMap { c =>
       Vector(c.from, c.to).distinct.collect {
@@ -211,7 +222,8 @@ object ContextMap:
         Vector(s"$RenderingName is out of step with $FileName; run ankka context-map render")
       else Vector.empty
 
-    project ++ criteria ++ withoutDirectory ++ notNamed ++ misnamed ++ unresolved ++ neither ++
+    project ++ criteria ++ namedTwice ++ withoutDirectory ++ notNamed ++ misnamed ++ unresolved ++
+      neither ++
       both ++ missingSchema ++ notJson ++ contracts ++ topics ++ routes ++ twice ++ renderingProblems
 
   // A table cell holds no line break and no unescaped bar.

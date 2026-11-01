@@ -122,6 +122,20 @@ class ContextMapSuite extends munit.FunSuite:
     )
   }
 
+  test("a service named twice") {
+    val map = sample.copy(services = sample.services :+ sample.services.head)
+    assertEquals(problems(map), Vector("the context map names \"orders\" twice"))
+  }
+
+  test("a descriptor that is not JSON") {
+    val found = problems(
+      sample,
+      root => write(root, "services/orders/service.json", "{ not json")
+    )
+    assertEquals(found.size, 1, found)
+    assert(found.head.startsWith("services/orders/service.json is not a JSON document: "), found)
+  }
+
   test("a service with no directory") {
     val map = sample.copy(services =
       sample.services :+ ContextMap.Service("shipping", "", ContextMap.Boundary("ownership"))

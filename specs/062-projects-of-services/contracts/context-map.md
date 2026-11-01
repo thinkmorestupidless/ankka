@@ -40,8 +40,10 @@ in this order and with these words (the suites assert them):
 | no file | `<dir> holds no project started from the project template (no context-map.json)` |
 | not JSON, or unknown field | `context-map.json: <jsoniter message>` / `the context map names a field the platform does not know: "<field>"` |
 | invalid project id | `the context map's project "<p>" is not a valid project name: <rule>` |
+| a service named twice | `the context map names "<name>" twice` |
 | a service with no directory | `the context map names "<name>", and services/<name>/service.json does not exist` |
 | a directory not in the map | `<project> has a service "<name>" (services/<name>/service.json) that the context map does not name` |
+| a descriptor that is not JSON | `services/<dir>/service.json is not a JSON document: <message>` |
 | a descriptor whose name differs from its directory | `services/<dir>/service.json is named "<name>", not "<dir>"` |
 | an unresolved `from` or `to` | `the crossing from "<from>" to "<to>" names "<x>", which is not a service of <project>; another project's service is written "<project>/<service>"` |
 | a crossing of neither shape | `the crossing from "<from>" to "<to>" is neither a declared topic with a contract and a schema nor a route` |

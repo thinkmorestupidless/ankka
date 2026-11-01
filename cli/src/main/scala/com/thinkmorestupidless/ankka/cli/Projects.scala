@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.core.{ContextMap, Names}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
+import scala.util.Using
 
 /**
  * `ankka init --project` and `ankka init <service>` inside a project (feature 062).
@@ -63,7 +64,7 @@ object Projects:
            else Vector.empty) ++
           names.filter(n => ScalaKeywords(servicePackage(n))).map(keyword)
     val occupied =
-      if Files.isDirectory(target) && Files.list(target).iterator().asScala.nonEmpty then
+      if Files.isDirectory(target) && Using.resource(Files.list(target))(_.findAny().isPresent) then
         Vector(s"$target already exists and is not empty")
       else Vector.empty
     val options =
@@ -184,6 +185,9 @@ object Projects:
               compose,
               runtimeCompose(name, port, version, Scaffold.module(request).replace('-', '_'))
             ): Unit
+          case Language.Web =>
+            Files.deleteIfExists(compose): Unit
+            mountOn(service, readMap(root).services.map(_.name).headOption.getOrElse("backend"))
           case _ => Files.deleteIfExists(compose): Unit
     writeMap(root, appendService(readMap(root), name))
     service
@@ -265,7 +269,12 @@ object Projects:
       case Language.Java   => Vector(s"(cd $dir && ./mvnw test)", s"scripts/run.sh $name")
       case Language.Kotlin => Vector(s"(cd $dir && ./gradlew test)", s"scripts/run.sh $name")
       case Language.Web => Vector(s"(cd $dir && npm install && npm test)", s"scripts/run.sh $name")
-    s"created $service\n\n" + steps.map("  " + _).mkString("\n") +
+    val mount = language match
+      case Language.Web =>
+        s"\n\n$dir/service.json mounts the project's first service at /api; change it to the service " +
+          "this interface fronts"
+      case _ => ""
+    s"created $service\n\n" + steps.map("  " + _).mkString("\n") + mount +
       s"\n\ncomplete the context map's entry for \"$name\" (owns, why) and record its crossings"
 
   // ── Files ─────────────────────────────────────────────────────────────────────────────────────
@@ -341,13 +350,14 @@ object Projects:
     val services = root.resolve("services")
     if !Files.isDirectory(services) then Vector.empty
     else
-      Files
-        .list(services)
-        .iterator()
-        .asScala
-        .map(_.resolve("service.json"))
-        .filter(Files.isRegularFile(_))
-        .toVector
+      Using.resource(Files.list(services)) { stream =>
+        stream
+          .iterator()
+          .asScala
+          .map(_.resolve("service.json"))
+          .filter(Files.isRegularFile(_))
+          .toVector
+      }
 
   // A descriptor that names no port is served on the runtime's default, 9000.
   private def portOf(descriptor: Path): Int =
@@ -364,6 +374,14 @@ object Projects:
     "ANKKA_PROCESS_ADDRESS:\\s*host\\.docker\\.internal:(\\d+)".r
       .findFirstMatchIn(Files.readString(compose))
       .map(_.group(1).toInt)
+
+  // A web service's template mounts a service called `backend`; inside a project that is the project's
+  // first service, the one the interface most likely fronts.
+  private def mountOn(service: Path, backend: String): Unit =
+    for file <- Vector("service.json", "server/server.ts", "README.md") do
+      val path = service.resolve(file)
+      if Files.isRegularFile(path) then
+        Files.writeString(path, Files.readString(path).replace("backend", backend)): Unit
 
   // A language's README says its process listens on 9010; inside a project it is this service's port.
   private def withProcessPort(readme: Path, process: Int): Unit =

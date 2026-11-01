@@ -1522,6 +1522,11 @@ object Main:
           names.head,
           Projects.specify(target)
         )
+      else if services.nonEmpty then
+        throw ApiError(
+          0,
+          "--services applies to --project: a single service has no services of its own"
+        )
       else if Projects.isProject(request.directory) then
         val problems = Projects.addProblems(request)
         if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))

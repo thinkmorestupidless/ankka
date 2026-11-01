@@ -52,9 +52,11 @@ class ProjectTemplateSuite extends munit.FunSuite:
       .redirectOutput(log.toFile)
       .start()
     val code = process.waitFor()
-    (code, Files.readString(log))
+    // CI's sbt colours its log, so a line that looks like `1.4.2` ends in an escape sequence.
+    (code, Files.readString(log).replaceAll("\u001b\\[[0-9;]*[A-Za-z]", ""))
 
-  private def sbt(args: String*): (Int, String) = run(("sbt" +: "-batch" +: args)*)
+  private def sbt(args: String*): (Int, String) =
+    run(("sbt" +: "-batch" +: "-Dsbt.color=false" +: "-Dsbt.log.noformat=true" +: args)*)
 
   private def read(path: String): String = Files.readString(project.resolve(path))
 

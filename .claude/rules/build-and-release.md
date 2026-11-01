@@ -341,6 +341,12 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
 
 ## Traps
 
+- **A hosted runner image retires, and the tag's workflow keeps naming it** (2026-11-01). v0.15.0's
+  `macos-arm64` leg was cancelled by GitHub's scheduled brownout of `macos-14` (retired 2026-11-02), so
+  `homebrew` and `action` were skipped: both need every leg. A tag runs the workflow at the tagged commit, so
+  the fix on `main` reaches only later tags; the tag's own run is finished by re-running its failed jobs
+  outside a brownout window, or not at all. Watch actions/runner-images for the next retirement
+  (`ubuntu-22.04` holds the Linux legs for the glibc reason above) and move the label before it bites a release.
 - **The project template is the CLI's, and its sbt plugin is Scala 2.12** (2026-11-01, feature 062).
   `cli/src/main/templates/project/` and `project-service-scala/` are rendered by `Projects` through
   `Scaffold`, never by Giter8, so `${{ }}` needs no escape. The rendered build finds its services

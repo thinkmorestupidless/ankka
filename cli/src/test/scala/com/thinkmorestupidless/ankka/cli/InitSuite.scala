@@ -431,6 +431,13 @@ class InitSuite extends munit.FunSuite:
     assert(
       !Files.readString(root.resolve("services/shopfront/server/server.ts")).contains("backend")
     )
+    // The server's own test stands in for the mounted service, and must name the same one; the
+    // other test names a variable `backend`, which is left alone.
+    val serverTest = Files.readString(root.resolve("services/shopfront/test/server.test.ts"))
+    assert(serverTest.contains("/orders/") && !serverTest.contains("backend"), serverTest)
+    assert(
+      Files.readString(root.resolve("services/shopfront/test/api.test.ts")).contains("backend")
+    )
     assert(out.contains("mounts the project's first service"), out)
   }
 

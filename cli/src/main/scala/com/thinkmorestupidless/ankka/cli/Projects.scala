@@ -378,7 +378,8 @@ object Projects:
   // A web service's template mounts a service called `backend`; inside a project that is the project's
   // first service, the one the interface most likely fronts.
   private def mountOn(service: Path, backend: String): Unit =
-    for file <- Vector("service.json", "server/server.ts", "README.md") do
+    // `test/api.test.ts` names a variable `backend`, and is left alone.
+    for file <- Vector("service.json", "server/server.ts", "test/server.test.ts", "README.md") do
       val path = service.resolve(file)
       if Files.isRegularFile(path) then
         Files.writeString(path, Files.readString(path).replace("backend", backend)): Unit
@@ -423,13 +424,16 @@ object Projects:
     val found =
       if !Files.isDirectory(scala) then None
       else
-        Files
-          .walk(scala)
-          .iterator()
-          .asScala
-          .find(p => Files.isDirectory(p) && p.getFileName.toString == "contracts")
-          .map(p => scala.relativize(p.getParent).toString.replace(java.io.File.separatorChar, '.'))
-          .filter(_.nonEmpty)
+        Using.resource(Files.walk(scala)) { stream =>
+          stream
+            .iterator()
+            .asScala
+            .find(p => Files.isDirectory(p) && p.getFileName.toString == "contracts")
+            .map(p =>
+              scala.relativize(p.getParent).toString.replace(java.io.File.separatorChar, '.')
+            )
+            .filter(_.nonEmpty)
+        }
     found.getOrElse(Scaffold.jvmPackage(Init.Request(readMap(root).project)))
 
   private def sidecar(version: String): String =

@@ -402,7 +402,10 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
       read(s"$template/project/Services.scala").contains("start sbt from the project's root"),
       "a build loaded away from the project's root holds no service and says nothing"
     )
-    assert(deploy.contains("is not a version"), "deploy.yml takes any version from the tag")
+    assert(
+      deploy.contains("=~ ^[0-9A-Za-z][0-9A-Za-z.-]*$"),
+      "deploy.yml takes a version an image tag cannot hold"
+    )
     val languages = read(s"$template/.github/workflows/service-checks.yml")
     for language <- Vector("scala", "python", "typescript", "go", "rust", "java", "kotlin", "web")
     do assert(languages.contains(s"'$language'"), s"service-checks.yml has no checks for $language")

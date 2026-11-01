@@ -121,8 +121,10 @@ ankka context-map render    # write CONTEXT-MAP.md from context-map.json
 
 `check` holds the map to the project's files. Every service the map names has a
 `services/<name>/service.json` named the same, and every service there is in the map. Every crossing
-names two services of the project, or a service of another project as `<project>/<service>`. Every
-crossing is either a topic with a contract and an existing schema, or a route written
+names two services of the project, or a service of another project as `<project>/<service>`; a
+crossing with another project's service by a topic records the topic's bare name, which a component
+of this project states either as that name or as `<project>/<name>`, the address it gives another
+project's topic. Every crossing is either a topic with a contract and an existing schema, or a route written
 `<METHOD> <path>`, never both and never neither. Each boundary is drawn by one of the known
 criteria. `CONTEXT-MAP.md` is what `render` would write. Each problem is one line, and the command
 exits 1 when there is any.

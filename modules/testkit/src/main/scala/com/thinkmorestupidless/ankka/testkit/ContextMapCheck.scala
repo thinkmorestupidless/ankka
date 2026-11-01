@@ -81,14 +81,18 @@ object ContextMapCheck:
     val wrongContracts =
       (differing(published, crossings.published, "publishes to") ++
         differing(read, crossings.read, "reads")).distinct
-    val unstatedPublications = crossings.published.distinctBy(_.topic).collect {
-      case c if !published.exists(side => addresses(c).contains(side.topic)) =>
-        s"the context map records a crossing from \"$service\" by \"${c.topic.get}\", and no " +
-          s"component of \"$service\" publishes to it"
-    }
-    val unstatedReads = crossings.read.distinctBy(_.topic).collect {
-      case c if !read.exists(side => addresses(c).contains(side.topic)) =>
-        s"the context map records a crossing to \"$service\" by \"${c.topic.get}\", and no " +
-          s"component of \"$service\" reads it"
-    }
+    val unstatedPublications =
+      for
+        c     <- crossings.published.distinctBy(_.topic)
+        topic <- c.topic.toVector
+        if !published.exists(side => addresses(c).contains(side.topic))
+      yield s"the context map records a crossing from \"$service\" by \"$topic\", and no " +
+        s"component of \"$service\" publishes to it"
+    val unstatedReads =
+      for
+        c     <- crossings.read.distinctBy(_.topic)
+        topic <- c.topic.toVector
+        if !read.exists(side => addresses(c).contains(side.topic))
+      yield s"the context map records a crossing to \"$service\" by \"$topic\", and no " +
+        s"component of \"$service\" reads it"
     unrecordedPublications ++ unrecordedReads ++ wrongContracts ++ unstatedPublications ++ unstatedReads

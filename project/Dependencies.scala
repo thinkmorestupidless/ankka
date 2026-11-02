@@ -23,7 +23,7 @@ object Dependencies {
     val jsoniter  = "2.42.2"
     val anthropic = "3.3.0"
     // OpenAI's official Java SDK (feature 052), transport only, as Anthropic's is. Apache-2.0.
-    val openai = "4.91.0"
+    val openai = "4.96.0"
 
     val logback = "1.6.6"
     val munit   = "1.3.6"

@@ -142,6 +142,19 @@ final class ViewQueries[Row] private[ankka] (
 
   private given ExecutionContext = system.executionContext
 
+  /**
+   * The values `query` is run with, in order: a value compared with a lookup field as its token
+   * under the project's lookup key (feature 042), every other as it was given.
+   */
+  private def bound(query: CheckedQuery, values: Map[String, String]): Vector[String] =
+    query.values.map(name =>
+      query.lookups.get(name) match
+        case None       => values(name)
+        case Some(path) =>
+          val keyring = com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(system)
+          LookupTokens.ofValue(keyring.lookupKey(keyring.project), path, values(name))
+    )
+
   // Lazy: an endpoint is built before it serves, and a suite that only lists its routes builds one
   // with no actor system behind it. Nothing is counted until a query is made.
   private lazy val observability = Observability(system)
@@ -269,7 +282,7 @@ final class ViewQueries[Row] private[ankka] (
       case Right(query)  =>
         val rows = streamed(name)(
           database
-            .stream(statementTimeout, fetchSize)(query.sql, query.values.map(values)) {
+            .stream(statementTimeout, fetchSize)(query.sql, bound(query, values)) {
               (row, metadata) =>
                 if !metadata.contains("payload") then throw ViewQueries.NoPayload()
                 decode(row.get("payload", classOf[String]))
@@ -324,7 +337,7 @@ final class ViewQueries[Row] private[ankka] (
           )
         )
       case Right(query) =>
-        val binds = query.values.map(values)
+        val binds = bound(query, values)
         opened(
           name,
           ViewWatches.Target.Named(query.sql, binds),
@@ -465,7 +478,7 @@ final class ViewQueries[Row] private[ankka] (
         counted(name)(
           database
             .readOnly(timeout)(
-              _.queryUpTo(query.sql, query.values.map(values), limit) { (row, metadata) =>
+              _.queryUpTo(query.sql, bound(query, values), limit) { (row, metadata) =>
                 if !metadata.contains("payload") then throw ViewQueries.NoPayload()
                 decode(row.get("payload", classOf[String]))
               }

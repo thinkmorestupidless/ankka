@@ -67,6 +67,28 @@ final class KeyringClient(
       case e: java.util.concurrent.ExecutionException =>
         throw Option(e.getCause).getOrElse(e)
 
+  private val lookupKeys = java.util.concurrent.ConcurrentHashMap[String, IArray[Byte]]()
+
+  /** `project`'s lookup key: asked for once, then held, since an erasure never destroys it. */
+  def lookupKey(project: String): IArray[Byte] =
+    Option(lookupKeys.get(project)).getOrElse {
+      val call = fetching.submit(() => store.lookupKey(project))
+      val key  =
+        try call.get(settings.fetchTimeout.toMillis, TimeUnit.MILLISECONDS)
+        catch
+          case _: TimeoutException =>
+            call.cancel(true): Unit
+            throw CommandError(
+              s"the keyring is unavailable: it did not answer within ${settings.fetchTimeout} " +
+                "(ankka.keyring.fetch-timeout)",
+              ErrorCode.Unavailable,
+              Map(Personal.ErrorKey -> Personal.Unavailable)
+            )
+          case e: java.util.concurrent.ExecutionException => throw Option(e.getCause).getOrElse(e)
+      lookupKeys.putIfAbsent(project, key)
+      key
+    }
+
   /** Hands every notice to `handler` too, after the cache has dropped its key. */
   def onNotice(handler: KeyringNotice => Unit): Unit =
     handlers.updateAndGet(_ :+ handler): Unit

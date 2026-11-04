@@ -205,7 +205,7 @@ private[ankka] final class RemoteKeyedView(
       sequence: Long,
       change: Option[Payload],
       standing: Option[WorkflowLifecycle]
-  ): Future[Vector[(String, Option[String])]] =
+  ): Future[Vector[(String, Option[com.thinkmorestupidless.ankka.runtime.KeyedRow])]] =
     val handler = source.toString
     val span    = observability.recorder.begin(
       traceId = Trace.mint(),
@@ -234,7 +234,12 @@ private[ankka] final class RemoteKeyedView(
       }
       .flatMap {
         case ViewOutcome.Rows(changes) =>
-          Future.successful(changes.map((key, row) => key -> row.map(p => String(p.data, "UTF-8"))))
+          Future.successful(
+            changes.map((key, row) =>
+              key -> row
+                .map(p => com.thinkmorestupidless.ankka.runtime.KeyedRow(String(p.data, "UTF-8")))
+            )
+          )
         case ViewOutcome.Ignore => Future.successful(Vector.empty)
         case other              =>
           Future.failed(

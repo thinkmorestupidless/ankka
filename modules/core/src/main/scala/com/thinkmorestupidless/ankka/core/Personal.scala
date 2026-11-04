@@ -121,6 +121,27 @@ object PersonalScope:
     try body
     finally if before == null then bound.remove() else bound.set(before)
 
+  private val collected = new ThreadLocal[scala.collection.mutable.ArrayBuffer[Option[Array[Byte]]]]
+
+  /**
+   * Runs `body`, answering with it each personal field sealed in it, in the order they were
+   * written: the field's own JSON, or `None` for one written erased. A view's row writer reads them
+   * to make its lookup tokens (feature 042, R13), the one place a value is seen beside its row.
+   */
+  def collecting[T](body: => T): (T, Vector[Option[Array[Byte]]]) =
+    val before = collected.get
+    val here   = scala.collection.mutable.ArrayBuffer.empty[Option[Array[Byte]]]
+    collected.set(here)
+    try
+      val result = body
+      (result, here.toVector)
+    finally if before == null then collected.remove() else collected.set(before)
+
+  /** Records a sealed field for `collecting`, when something is collecting on this thread. */
+  private[core] def sealedField(plaintext: Option[Array[Byte]]): Unit =
+    val here = collected.get
+    if here != null then here += plaintext
+
   /** Runs `body` with no scope bound, as at the edge, restoring what was bound before. */
   def outside[T](body: => T): T =
     val before = bound.get
@@ -239,7 +260,9 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
     val keyring = Keyring.current
     val project = keyring.project
     val boxed   = x match
-      case Erased(_)            => None
+      case Erased(_) =>
+        PersonalScope.sealedField(None)
+        None
       case Present(subj, value) =>
         PersonalCodec.ask(keyring.key(project, subj, create = true)) match
           case KeyAnswer.Absent =>
@@ -256,7 +279,8 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
             )
           case KeyAnswer.Key(key) =>
             val plaintext = writeToArrayReentrant(value)(using inner)
-            val ad        = PersonalCipher.associatedData(subj.value, project, scope.manifest)
+            PersonalScope.sealedField(Some(plaintext))
+            val ad = PersonalCipher.associatedData(subj.value, project, scope.manifest)
             Some(PersonalCipher.seal(key, scope.nonce, plaintext, ad))
     out.writeObjectStart()
     out.writeKey("$personal")

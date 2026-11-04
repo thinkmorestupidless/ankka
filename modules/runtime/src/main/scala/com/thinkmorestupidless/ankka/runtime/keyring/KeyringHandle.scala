@@ -12,4 +12,6 @@ final class KeyringHandle(val project: String, val client: KeyringClient) extend
   def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
     client.key(project, subject, create)
 
+  override def lookupKey(project: String): IArray[Byte] = client.lookupKey(project)
+
   override def toString: String = s"KeyringHandle($project)"

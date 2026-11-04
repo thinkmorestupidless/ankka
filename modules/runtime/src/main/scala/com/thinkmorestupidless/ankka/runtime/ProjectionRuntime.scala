@@ -209,6 +209,10 @@ final class ProjectionRuntime private (
       val tables = views.map(_.tableName) ++ keyed.map(_.tableName) ++
         remoteViews.map(v => ViewDescriptor.tableFor(v.componentId)) ++
         remoteKeyed.map(v => ViewDescriptor.tableFor(v.componentId))
+      // Feature 042: a view with lookup fields keeps its rows' tokens in a column beside them.
+      val lookupColumns =
+        (views.filter(_.lookupFields.nonEmpty).map(_.tableName) ++
+          keyed.filter(_.lookupFields.nonEmpty).map(_.tableName)).map(ViewStore.addLookupColumn)
       // The recorded versions belong with the tables they describe: every view has one, since
       // a view of entities or of a topic is rebuilt by raising it, and one that declares none is
       // at version 1 and stops writing when another instance declares a higher one.
@@ -222,7 +226,8 @@ final class ProjectionRuntime private (
         // once and CREATE TABLE IF NOT EXISTS races (ViewStore.schemaLock explains).
         Await.result(
           database.executeAllInTransaction(
-            (ViewStore.schemaLock +: tables.map(ViewStore.createTable)) ++ versions
+            (ViewStore.schemaLock +: tables.map(ViewStore.createTable)) ++ lookupColumns ++
+              versions
           ),
           30.seconds
         )
@@ -1530,6 +1535,8 @@ private final class ViewEventHandler[A](
   private given ExecutionContext = system.executionContext
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Feature 042: the row under the service's keyring, and its lookup tokens.
+  private val writer = ViewRowWriter.of(descriptor)
   // Captured here, at construction, not looked up inside `process`: projection handlers run on
   // the projection's own threads, and the recorded rule is to take what async work needs while
   // you are still somewhere it is safe to take it.
@@ -1556,7 +1563,14 @@ private final class ViewEventHandler[A](
               reader.installation(envelope.event),
               reader.local(envelope.event)
             )
-        ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
+        ProjectionSupport.applyView(
+          session,
+          table,
+          subject,
+          effect,
+          descriptor.rowSerializer,
+          Some(writer)
+        )
       }
 
 /** As `ViewEventHandler`, but for key value state changes. */
@@ -1571,6 +1585,8 @@ private final class ViewStateHandler(
   private val database           = Database()
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Feature 042: the row under the service's keyring, and its lookup tokens.
+  private val writer = ViewRowWriter.of(descriptor)
   // Taken at construction, as the event handler's is: `process` runs on the projection's threads.
   private val observability = Observability(system)
 
@@ -1608,8 +1624,7 @@ private final class ViewStateHandler(
           )
         effect match
           case ViewEffect.UpdateRow(row) =>
-            val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-            write(ViewStore.upsert(table, subject, json))
+            write(writer.upsert(subject, row))
           case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
           case ViewEffect.Ignore    =>
             Future.successful(Done)

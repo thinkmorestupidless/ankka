@@ -26,8 +26,9 @@ private[ankka] final class ViewTopicHandler(
 
   private given ExecutionContext = system.executionContext
 
-  private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
-  private val table = descriptor.tableName
+  private val view   = descriptor.create(SimpleViewContext(descriptor.componentId, client))
+  private val table  = descriptor.tableName
+  private val writer = ViewRowWriter.of(descriptor)
   // Taken at construction, where the system is safe to ask: `process` runs on the broker's threads.
   private val observability = Observability(system)
 
@@ -68,8 +69,7 @@ private[ankka] final class ViewTopicHandler(
 
             effect match
               case ViewEffect.UpdateRow(row) =>
-                val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-                guard.write(ViewStore.upsert(table, subject, json))
+                guard.write(writer.upsert(subject, row))
               case ViewEffect.DeleteRow =>
                 guard.write(ViewStore.delete(table, subject))
               case ViewEffect.Ignore =>

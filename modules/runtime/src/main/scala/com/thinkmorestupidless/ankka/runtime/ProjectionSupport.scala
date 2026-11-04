@@ -136,7 +136,8 @@ private[ankka] object ProjectionSupport:
       table: String,
       subject: String,
       effect: ViewEffect[A],
-      serializer: Serializer[A]
+      serializer: Serializer[A],
+      writer: Option[ViewRowWriter[A]] = None
   )(using ec: ExecutionContext): Future[Done] =
     def run(fragment: SqlFragment): Future[Done] =
       session
@@ -145,7 +146,11 @@ private[ankka] object ProjectionSupport:
 
     effect match
       case ViewEffect.UpdateRow(row) =>
-        run(ViewStore.upsert(table, subject, String(serializer.toBytes(row), "UTF-8")))
+        run(
+          writer.fold(ViewStore.upsert(table, subject, String(serializer.toBytes(row), "UTF-8")))(
+            _.upsert(subject, row)
+          )
+        )
       case ViewEffect.DeleteRow => run(ViewStore.delete(table, subject))
       case ViewEffect.Ignore    => Future.successful(Done)
 

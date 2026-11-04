@@ -42,6 +42,17 @@ trait Keyring:
    */
   def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer
 
+  /**
+   * `project`'s lookup key, which makes a view's lookup tokens (feature 042, R13). Throws
+   * `CommandError` with `ErrorCode.Unavailable` when the keyring cannot be reached.
+   */
+  def lookupKey(project: String): IArray[Byte] =
+    throw CommandError(
+      s"the keyring is unavailable: $this holds no lookup keys",
+      ErrorCode.Unavailable,
+      Map(Personal.ErrorKey -> Personal.Unavailable)
+    )
+
 object Keyring:
 
   /** The keyring of a service that reaches none: every personal field is refused, naming it. */

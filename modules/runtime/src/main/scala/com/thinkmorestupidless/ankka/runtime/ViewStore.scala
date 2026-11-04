@@ -83,6 +83,32 @@ private[ankka] object ViewStore:
         )
     )
 
+  /**
+   * The column a view with lookup fields keeps its rows' lookup tokens in (feature 042, R13):
+   * `{"<path>":"<token>"}`, null for a row with none. Added at start beside the table, never to a
+   * view that has no lookup field.
+   */
+  def addLookupColumn(table: String): SqlFragment =
+    SqlFragment.raw(s"ALTER TABLE $table ADD COLUMN IF NOT EXISTS lookup JSONB")
+
+  /** As `upsert`, with the row's lookup tokens, or none. */
+  def upsertWithLookup(
+      table: String,
+      key: String,
+      payload: String,
+      lookup: Option[String]
+  ): SqlFragment =
+    val tokens = lookup.getOrElse("")
+    announcing(
+      table,
+      SqlFragment.raw(s"INSERT INTO $table (row_key, payload, lookup, updated_at) VALUES (") ++
+        sql"$key, $payload, NULLIF($tokens, '')::jsonb" ++
+        SqlFragment.raw(
+          ", now()) ON CONFLICT (row_key) DO UPDATE SET payload = EXCLUDED.payload, " +
+            "lookup = EXCLUDED.lookup, updated_at = now() RETURNING row_key"
+        )
+    )
+
   /** Removes a row, announced when there was one to remove. */
   def delete(table: String, key: String): SqlFragment =
     announcing(

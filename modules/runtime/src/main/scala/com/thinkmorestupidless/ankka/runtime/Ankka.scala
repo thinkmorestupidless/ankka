@@ -572,6 +572,38 @@ final class ServiceBuilder private[ankka] (
     }
     Observability(system).declare(DeclaredNames.of(registry, service.routes))
 
+    // Feature 042: once the views' tables exist, every erasure notice is carried out here, the
+    // views of this instance redacted and the keyring told. A service with no keyring hears none.
+    keyringHandle match
+      case handle: com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle =>
+        import com.thinkmorestupidless.ankka.runtime.keyring.{
+          ErasureDuties,
+          ErasureHooks,
+          ViewRedaction
+        }
+        val tables = registry.components.toVector.collect {
+          case v: ViewDescriptor[?, ?, ?] if v.personalFields.nonEmpty =>
+            ViewRedaction.Table(v.tableName, v.lookupFields.nonEmpty)
+          case v: KeyedViewDescriptor[?, ?] if v.personalFields.nonEmpty =>
+            ViewRedaction.Table(v.tableName, v.lookupFields.nonEmpty)
+        }
+        val instance = sys.env
+          .get("HOSTNAME")
+          .filter(_.nonEmpty)
+          .getOrElse(org.apache.pekko.cluster.typed.Cluster(system).selfMember.address.toString)
+        ErasureDuties(
+          serviceIdentity.toOption.flatMap(_.service).getOrElse(system.name),
+          instance,
+          handle.client,
+          () => Database()(using system),
+          tables,
+          ErasureHooks.of(system)
+        )(using system.executionContext).start()
+        system.whenTerminated.foreach(_ => ErasureHooks.forget(system))(using
+          scala.concurrent.ExecutionContext.parasitic
+        )
+      case _ => ()
+
     // After the extensions, so the endpoint can report the address they bound. Local mode only:
     // in Kubernetes the pod is the registry and management is the exposure, and management is
     // started there and only there because it binds a fixed port two local services would fight

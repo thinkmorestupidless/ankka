@@ -554,7 +554,25 @@ table and column, where any of the values appears as written, in base64 or in he
 `kit.assertNoPersonalValueIn(broker)(values*)` searches the records published to an in-memory broker too.
 Break the marking of a field once and watch it fail: that is what proves the field is marked.
 `kit.keyring` answers whether it holds a key (`holdsKey`), how often a key was fetched, and the notices it
-sent; `kit.keyring.outage(duration)` makes it refuse for a while.
+sent; `kit.keyring.outage(duration)` makes it refuse for a while, erasures included, and
+`kit.keyring.recover()` ends the outage. A subject whose key the service holds is still read and written in
+an outage; one it does not hold is refused as unavailable. In Java the same keyring is `kit.keyring()`,
+with `erase(subject)`, `outage(Duration)` and `recover()`.
+
+The Python, TypeScript and Go integration kits offer the same three through the sidecar, whose keyring is
+the local one, kept in the kit's database:
+
+| | Erase | Outage | Assert |
+|---|---|---|---|
+| Python | `await kit.keyring.erase("player/8c1f")` | `await kit.keyring.outage(600)`, `await kit.keyring.recover()` | `await kit.assert_no_personal_value("ada@example.com")` |
+| TypeScript | `await kit.keyring.erase("player/8c1f")` | `await kit.keyring.outage(600)`, `await kit.keyring.recover()` | `await kit.assertNoPersonalValue("ada@example.com")` |
+| Go | `kit.Keyring().Erase(ctx, "player/8c1f")` | `kit.Keyring().Outage(ctx, 10*time.Minute)`, `kit.Keyring().Recover(ctx)` | `kit.AssertNoPersonalValue(t, "ada@example.com")`, or `kit.CheckNoPersonalValue(ctx, ...)` for the error |
+
+An erasure answers once the sidecar has carried it out, and an outage lasts until it ends or the sidecar is
+restarted. The assertion searches every column of every table in the kit's database, cast to text, for
+each value as written, in base64 (standard and URL-safe) and in hex, by the same rules as the JVM kit's,
+and fails naming the table and column. The local keyring keeps each data subject in the clear in its own
+tables, so assert on personal values, never on data subjects.
 
 ## What to mark
 

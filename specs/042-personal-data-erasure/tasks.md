@@ -201,7 +201,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T068 [P] Rust: `RS/src/personal.rs` (`Personal<T>` with serde through `keyring_seal`/`keyring_open` dedicated `call_*` functions in `abi/imports.rs`, the native stub), `erasure.rs` and the `#[ankka::erasure_handler]` attribute exporting `erase`; `RS/tests/personal.rs` against `FIX/` including `edge.json` (a module's endpoint reply)
 - [X] T069 Conformance: `personal.*` and `erasure.*` cases in `SCT/conformance/ConformanceSuite.scala` and `ConformanceReference.scala` (write an envelope; read one back; erased decodes; a write for an erased data subject refused; the handler runs and reports; `personal.sidecar-reads-nothing`, which hands the sidecar's payload path bytes it could not parse as JSON and proves the event is journaled unchanged); the Python, TypeScript, Go and Rust references implement them
 - [X] T070 Bind and run `FEAT/languages.feature`'s process and module rows (`ranElsewhere` names the conformance runs); SC-008 green for every reference
-- [ ] T071 Test kits: Python's, TypeScript's and Go's integration kits expose `keyring.erase`, `keyring.outage` and `assert_no_personal_value` through their sidecar; `testkit-java` exposes the JVM kit's
+- [X] T071 Test kits: Python's, TypeScript's and Go's integration kits expose `keyring.erase`, `keyring.outage` and `assert_no_personal_value` through their sidecar; `testkit-java` exposes the JVM kit's
 
 **Checkpoint**: every SDK marks, reads and erases.
 

@@ -1,7 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane.erasure
 
 import com.github.plokhotnyuk.jsoniter_scala.core.*
-import com.github.plokhotnyuk.jsoniter_scala.macros.{CodecMakerConfig, JsonCodecMaker}
 import com.thinkmorestupidless.ankka.controlplane.deploy.InstanceTopologies
 import com.thinkmorestupidless.ankka.core.PlatformVariables
 import com.thinkmorestupidless.ankka.core.keyring.{ErasureDestroyed, ErasureOrder, ErasureStatus}
@@ -54,10 +53,8 @@ object KeyringAdmin:
             .map(Paths.get(_))
         directory.fold(off)(Door(address, _))
 
-  private given JsonValueCodec[ErasureOrder]     = JsonCodecMaker.make
-  private given JsonValueCodec[ErasureDestroyed] = JsonCodecMaker.make
-  private given JsonValueCodec[ErasureStatus]    =
-    JsonCodecMaker.make(CodecMakerConfig.withTransientDefault(false))
+  // The keyring's own definition of every message, so the two ends cannot disagree.
+  import com.thinkmorestupidless.ankka.core.keyring.KeyringWire.given
 
   /** Over mutual TLS as the control plane, to the keyring at `address`. */
   final class Door(address: String, directory: Path, timeout: FiniteDuration = 10.seconds)

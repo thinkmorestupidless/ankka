@@ -779,6 +779,27 @@ The features say "asks for" an erasure request, not "files" one (`file` is a ref
 `object`), "hold" stays an everyday word with `not-before date` as the term, the keyring handle and
 the tombstone are not named in any scenario, and `encrypted` was widened to cover a personal field.
 
+## Planning amendments
+
+Found while planning (2026-11-04); each is decided in `research.md`.
+
+1. **FR-004**: a codec does not see the serializer's manifest, so the manifest reaches it through a
+   scoped encoding context the serializer binds for the duration of one encode or decode (R2).
+2. **FR-003**: the Python, TypeScript and Go codecs are synchronous, so each SDK fetches every key a
+   payload needs before its codec runs (R6). The channel a process holds open to receive destroyed
+   notices is a stream the process starts, because no rpc pushes to a process (R7).
+3. **Keyring outages**: entity hosts have no supervision today. This feature adds a restart with
+   backoff on a keyring that does not answer, which is the mechanism behind "the runtime retries
+   with backoff" (R4).
+4. **A declared query on a personal field**: a view knows its row's personal fields from the row
+   type, derived in every SDK but Rust, where a view declares them by hand. A query on a personal
+   field that is not marked for lookup is refused at start against that list (R12).
+5. **FR-032**: a follower reaches the home's keyring through a relay SPI beside the replication
+   transport, which ankka-replication implements. Until it does, a follower's recovery fails and is
+   retried, naming the relay (R17).
+6. **FR-017**: the keyring is a standalone platform component with its own database, not an ankka
+   application, because a journal cannot forget a key (R10).
+
 ## Open Questions
 
 None. The review session settled the encryption placement, fan-out, objects, keyring availability, the

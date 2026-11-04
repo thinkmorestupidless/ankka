@@ -113,6 +113,27 @@ answering `Forbidden` naming both installations, which the forwarder returns unc
 
 ## Traps
 
+- **A codec reads `Keyring.current`, and its default is the last service installed** (2026-11-04,
+  feature 042). The personal codec cannot be handed a keyring, so every place that encodes or decodes
+  a service's values binds the service's own (`Keyring.binding`, `ServiceKeyring.binding(system)`):
+  the entity hosts' adapters, the snapshot adapters, the projections' handlers, and the event
+  handler, where a follower decodes a record it mirrors live (`Journaled.Mirrored`). Each missing
+  binding was found only with two services in one JVM, where the default is the other one: a
+  projection published its own events erased, and a follower read a replicated field as erased.
+  A new place a serializer runs binds the keyring, or two kits in one JVM will disagree.
+- **A key value write seals before it persists, or an outage times out instead of refusing**
+  (2026-11-04, feature 042). The entity's state is encoded by Pekko's adapter after the command
+  handler's effect is accepted; a keyring that could not be reached then failed the persist and the
+  caller waited out the ask timeout. `KeyValueEntityHost` encodes the new state under the keyring
+  while interpreting the effect (`sealRefusal`) and answers the refusal there, as the event sourced
+  host does for its events.
+- **A journal row is CBOR around the event's JSON** (2026-11-04). A test that reads `event_payload`
+  as text to find a personal envelope finds the JSON inside binary framing; match the envelope
+  (`\{"\$personal"[^{}]*\}`) rather than parsing the row as JSON.
+- **A replicated entity's keys are its home's** (2026-11-04, feature 042, R17). A follower binds
+  `RoutedKeyring`, which follows the home its journal has named so far and asks the home's keyring
+  through `KeyringRelay`; its own keyring never makes a key for it. Without a relay on the classpath
+  a follower's fetch is `Unavailable` and its recovery is retried, never read as erased.
 - **An actor timer re-armed on recovery is not durable when nothing wakes the entity** (2026-10-23).
   A pause's deadline was journalled and `onRecovered` re-armed its timer, but sharding passivates an
   entity idle for `idle-entity.timeout` (120s) and a timer's message to self is not traffic: a workflow

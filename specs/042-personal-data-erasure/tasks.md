@@ -213,7 +213,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 
 **Independent test**: `ErasureFeatures` with two projects and two installations in one JVM; the machine cases on k3s.
 
-- [ ] T072 [US5] Bind `FEAT/other-projects.feature` (in-process scenarios with two projects; the machine scenarios in `ErasureClusterFeatures`) and `FEAT/replication.feature` (two installations `north` and `south` in one JVM, `TestReplicationTransport`); red
+- [X] T072 [US5] Bind `FEAT/other-projects.feature` (in-process scenarios with two projects; the machine scenarios in `ErasureClusterFeatures`) and `FEAT/replication.feature` (two installations `north` and `south` in one JVM, `TestReplicationTransport`); red
 - [X] T073 [US5] A consumer in another project fetches the producing project's keys under its `decrypt` grant (admission in `KEY/Admission.scala`, and the in-memory keyring's equivalent); keeps the fields encrypted under the producing project's keys in its own stores; listens to the producing project's notices; a revoked grant refuses the next fetch
 - [X] T074 [US5] A consumer without `decrypt` reads every personal field as erased (the keyring answers `Refused`, the codec yields `Erased` for that grant's reads only, never caching a refusal as destroyed)
 - [X] T075 [US5] `KEY/DecryptRoute.scala`: `Decrypt` through the gateway for a machine token holding a decrypt grant, field by field, each recorded in `decryption`; refused once revoked or erased; the gateway route rendered by the operator when erasure is on
@@ -285,7 +285,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T102 [P] `docs/platform/erasure.md` (new): turning erasure on, the keyring, root keys on Postgres and Google Cloud, restores and the erasure log, the 60-second bound, outside machines and what reaches a partner (FR-031), followers and the relay
 - [X] T103 [P] Changed pages: `docs/reference/limitations.md` (erasure stated; a live entity keeps what it decrypted until it is passivated or restarted; not physical deletion, not a classifier, not across installations beyond followers, not re-encryption, not rotation; the local keyring is for development; ankka-replication must implement the relay; a write under the subject prefix after the re-run window needs a new erasure request; what a model provider received is beyond the edge), `docs/reference/service-descriptor.md`, `docs/reference/configuration.md`, `docs/operate/backups.md`, `docs/build/views.md`, `docs/build/agents.md`, `docs/build/object-storage.md`, `mkdocs.yml`
 - [X] T104 [P] Skills: `ankka-entities`, `ankka-views-consumers`, `ankka-agents`, `ankka-platform`, `ankka-deploy` in `tools/docs/skill/*/SKILL.md`; `just docs-sync`
-- [ ] T105 Rule-file traps learned during the build, in `.claude/rules/runtime.md`, `sidecar.md`, `kubernetes.md` and a new section in `control-plane.md` for erasure requests
+- [X] T105 Rule-file traps learned during the build, in `.claude/rules/runtime.md`, `sidecar.md`, `kubernetes.md` and a new section in `control-plane.md` for erasure requests
 - [ ] T106 `just features` (0 findings), `just docs`, `sbt scalafmtCheckAll`, then `caffeinate -i sbt buildAll`; the four SDKs' end-to-end commands from `CLAUDE.md`; `just test-console`; a full `gh workflow run cluster --ref 042-personal-data-erasure-design`
 
 ---

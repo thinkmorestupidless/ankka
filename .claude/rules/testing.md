@@ -107,3 +107,9 @@ appenders.
   file by the end of its path, or a scenario by `<file>:<line>` as its test name shows it. The cluster
   workflow shards the longest suites with it (`.github/cluster-suites.py`'s `SHARDS`); a selection
   that names nothing fails the suite. It is forwarded to the forked JVM like every test switch.
+- **`InMemoryKeyring` refuses everything in an outage, `erase` included** (2026-11-04, feature 042),
+  as the installation's keyring refuses the control plane: a test that erases during an outage and
+  expects the key gone is testing something the platform does not do.
+- **`ProcessDouble`'s `record-raw` handler persists its input verbatim** (2026-11-04), for the one
+  case the conformance suite cannot make from a process: an event the sidecar could not parse as JSON,
+  which `RemoteEntitySuite` proves is journaled unchanged.

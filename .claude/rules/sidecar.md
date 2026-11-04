@@ -28,6 +28,21 @@ records (kinds 3–7) never reach a process as events. A module is told the even
 
 ## Traps
 
+- **A process SDK's gRPC client must wait for ready, not fail fast** (2026-11-04, feature 042).
+  The sidecar restarts under a running process (the conformance suite's `target.restart()`), and a
+  gRPC channel that lost its connection is in backoff: every call in that window fails at once with
+  `UNAVAILABLE ... 127.0.0.1:9011 Connection refused`, even once the new sidecar listens. A suite's
+  next cases take milliseconds, so every one after a restart failed (48 in Python and in Go, at
+  gRPC's default backoff, which grows to two minutes). Both clients now bound the backoff to a
+  second and make every call wait for the connection (`waitForReady` in Python's service config,
+  `grpc.WaitForReady(true)` in Go). A second channel for the notices stream changed nothing and was
+  taken out. TypeScript's Connect client and Rust never showed it.
+- **A process reads another project's refused key as erased** (2026-11-04, feature 042).
+  `GetSubjectKey` answers `Erased` for a read the keyring refused (`KeyAnswer.Refused`), so an SDK
+  needs no new case; a write under a refused key is `Forbidden`. A new `KeyAnswer` case is a
+  non-exhaustive match in `ClientLogic`, which `-Werror` turns into a sidecar that does not compile:
+  every SDK's conformance run then fails at once, which is how the first run after `Refused` read.
+
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
   runtime does not know is read as absent, so a period added to `ScheduleRequest` would have been a timer
   that fires once, silently. `ScheduleRecurring` is its own rpc (1.12), which an older runtime answers

@@ -359,6 +359,15 @@ ConfigMap for nothing.
 
 ## Traps
 
+- **The overlay has the last word on erasure** (2026-11-04, feature 042). `erasure` in `ankka-platform`
+  is copied onto the operator and the control plane after the components, so an overlay that lists
+  `components/keyring` must also set `erasure: "on"`, or the component's own patch is replaced by the
+  overlay's `off`. The component and the cloud overlay both say so; `RemoteOverlaySuite` renders it.
+- **The personal namespace label is applied under its own field manager** (2026-11-04).
+  `ankka.cloud/personal=true` is written by `LabelNamespace` as `ankka-operator-labels`, so a later
+  server-side apply of the namespace by the service pass, which does not name the label, does not
+  remove it. It is never taken away when a project's last personal service goes.
+
 - **An image with no build for the node's architecture is refused at pull, and only sometimes at
   start.** A single-platform image for the other architecture — a developer's amd64-only image on
   an arm64 node — is `ImagePullBackOff` with containerd's `no match for platform in manifest: not

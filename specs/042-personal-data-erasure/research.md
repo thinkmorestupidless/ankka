@@ -92,7 +92,7 @@ trip per payload with personal fields.
 
 ## R10. The keyring is a standalone platform component with its own database, not an ankka application
 
-**Decision**: a new sbt project `keyring` (image `ankka-keyring`), depending on `grpc` for its mutual-TLS server binding and the caller read from a certificate, and so, transitively, on `http` and `runtime` as libraries; it hosts no component, opens no journal and joins no cluster. "Not an ankka application" is about the store, not the classpath. Keys live in a plain Postgres table on its own CNPG cluster in `ankka-keyring`, made by code as `secret-reads` does (`components/secret-reads`, `ReadRecordStore.scala:135`). Destroying a key is a `DELETE` of its row and a tombstone row in one transaction, followed by `VACUUM` of the table so no dead tuple holds it. It speaks gRPC over mutual TLS as `ankka://platform/keyring`, issued by the `ankka-service` ClusterIssuer and checked at start as the model keeper checks its own (`model-keeper` `Main.Identity`, `components/models/certificate.yaml:13-32`). It is a kustomize component, `components/keyring`, which an installation adds to turn erasure on (R19).
+**Decision**: a new sbt project `keyring` (image `ankka-keyring`), depending on `http` for its mutual-TLS server and the caller read from a certificate, and so, transitively, on `runtime` as a library; it hosts no component, opens no journal and joins no cluster. "Not an ankka application" is about the store, not the classpath. Keys live in a plain Postgres table on its own CNPG cluster in `ankka-keyring`, made by code as `secret-reads` does (`components/secret-reads`, `ReadRecordStore.scala:135`). Destroying a key is a `DELETE` of its row and a tombstone row in one transaction, followed by `VACUUM` of the table so no dead tuple holds it. It speaks HTTP (pekko-http, JSON, one WebSocket per instance for notices) over mutual TLS as `ankka://platform/keyring` (gRPC until implementation; see *Found during implementation*), issued by the `ankka-service` ClusterIssuer and checked at start as the model keeper checks its own (`model-keeper` `Main.Identity`, `components/models/certificate.yaml:13-32`). It is a kustomize component, `components/keyring`, which an installation adds to turn erasure on (R19).
 
 **Evidence**: an ankka application keeps its state in an append-only journal, where a destroyed key would stay forever: the one store the keyring must not be. The control plane is an ankka application by principle 6, but "the operator deliberately is not"; the keyring is the second such exception, and for a reason the journal itself gives.
 
@@ -204,3 +204,12 @@ None yet.
 
 2026-11-04: analyze reported nothing above LOW.
 2026-11-04 (review): a second design pass found the edge form unstated, the envelope without its project, FR-006 contradicting redaction, and the keyring's dependency line wrong; all fixed, analyze reported nothing above LOW.
+
+## Found during implementation
+
+- **The keyring speaks HTTP and a WebSocket, not gRPC** (T003, 2026-11-04, the person's decision).
+  `runtime` carries no gRPC (only `grpc`, above `http`, and the sidecar do), and every service's
+  runtime calls the keyring; gRPC would have put grpc-java, netty-shaded and generated stubs on every
+  service's classpath. pekko-http, already in `runtime`, serves and calls it; notices and acks ride
+  one WebSocket per instance. `contracts/keyring-and-protocol.md` is rewritten to routes; the keyring
+  depends on `http` and `authOidc`, and no generated-stubs project is needed.

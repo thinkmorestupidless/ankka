@@ -57,8 +57,8 @@ TypeScript on Node ≥ 22.22 (`sdks/typescript`, `console/package`); Go (`sdks/g
 
 **Primary Dependencies**: one added, `cryptography` (≥ 44, < 47) in the Python SDK, because the
 standard library has no AES (R6a). Everywhere else: `javax.crypto` on the JVM, `node:crypto`, Go's
-`crypto/aes` and `crypto/cipher`, and the host import for Rust modules. The keyring uses grpc-java
-and r2dbc-postgres already on the classpath.
+`crypto/aes` and `crypto/cipher`, and the host import for Rust modules. The keyring uses pekko-http
+and r2dbc-postgres already on the classpath (HTTP, not gRPC: *Found during implementation*).
 
 **Storage**: the keyring's own CNPG cluster (tables in `data-model.md`); the control plane's
 `erasure_log` table and the `ErasureRequestEntity` journal and view; the `platform.erasure-log`
@@ -123,7 +123,7 @@ scenarios.
 | Be your own customer / nothing civic or casino-specific in the platform | pass | the platform knows subjects, not players; holds are dates the domain gives |
 | Docs: pages stand alone, samples from tested code, limitations honest | pass | `contracts/platform.md`'s docs list; limitations say what erasure is not |
 | Every tracked file claimed by a CI path filter | pass | `keyring/` is a new top-level directory: `.github/ci-coverage.py` and the `build` job's filter gain it |
-| Every port a workload has is mutual TLS | pass | the keyring's gRPC port; the gateway's `Decrypt` route is the gateway's TLS with a machine token |
+| Every port a workload has is mutual TLS | pass | the keyring's HTTP port; the gateway's `Decrypt` route is the gateway's TLS with a machine token |
 
 **Violations to justify**: one, in *Complexity Tracking*.
 
@@ -141,7 +141,7 @@ specs/042-personal-data-erasure/
 ├── quickstart.md                    # the validation runs: codec → in-process → benchmark → conformance → offline → k3s → docs
 ├── contracts/
 │   ├── sdk.md                       # Personal in seven languages, errors, the handler, storage.erase, agents, views, the test kit
-│   ├── keyring-and-protocol.md      # the keyring's gRPC service, startup, the runtime client, protocol 1.23, the Wasm ABI, fixtures
+│   ├── keyring-and-protocol.md      # the keyring's HTTP service, startup, the runtime client, protocol 1.23, the Wasm ABI, fixtures
 │   ├── control-plane-and-cli.md     # routes, facts, descriptor refusal, CLI, console, MCP tools
 │   └── platform.md                  # the component, the operator, restores, documentation
 └── tasks.md                         # /speckit-tasks
@@ -171,13 +171,13 @@ modules/sdk-kotlin/…/Personal.kt
 modules/testkit-java/…/AnkkaTestKit.java
 
 keyring/                                             # new sbt project and image
-  src/main/protobuf/ankka/keyring/v1/keyring.proto
-  src/main/scala/…/keyring/{Main,KeyringServer,KeyStore,RootKey,Wrapping,Admission,Notices,ErasureLogReplay,DecryptRoute}.scala
+  src/main/scala/…/keyring/{Main,Wire,KeyringServer,KeyStore,RootKey,Wrapping,Admission,Notices,ErasureLogReplay,DecryptRoute}.scala
   src/test/scala/…/keyring/*Suite.scala
 
 protocol/src/main/protobuf/ankka/protocol/v1/{client,discovery,erasure}.proto   # 1.23
-protocol/fixtures/personal/{subjects,envelopes}.json (new); protocol/WASM-ABI.md; protocol/README.md; protocol/ENCODING.md
+protocol/fixtures/personal/{subjects,envelopes,edge}.json (new), protocol/scripts/personal_fixtures.py; protocol/WASM-ABI.md; protocol/README.md; protocol/ENCODING.md
 sidecar/…/sidecar/{ClientLogic,ClientService,Discovery,GrpcConversation}.scala, wasm/{HostImports,ModuleLoader,CallSite,WasmConversation}.scala
+modules/core/…/core/keyring/KeyringWire.scala         # the keyring's JSON, both ends
 modules/runtime/…/runtime/remote/Conversation.scala  # invokeErasure; WireProtocol.Version 1.23
 sidecar/src/test/…/conformance/{ConformanceSuite,ConformanceReference}.scala
 

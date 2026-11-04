@@ -1,41 +1,39 @@
 # Contract: the keyring, its protocol, and the sidecar
 
-## The keyring's gRPC service (`keyring/src/main/protobuf/ankka/keyring/v1/keyring.proto`)
+## The keyring's HTTP service
 
-Mutual TLS; the caller is read from its certificate (`ankka://<project>/<service>`), from a relayed
-installation identity (R17), or from a machine bearer token through the gateway (decrypt only).
+pekko-http over mutual TLS (found during implementation: `runtime` carries no gRPC, and every
+service's runtime calls the keyring). The caller is read from its certificate
+(`ankka://<project>/<service>`), from a relayed installation identity (R17), or from a machine bearer
+token through the gateway (decrypt only). Bodies are JSON; keys are standard base64.
 
-```proto
-service Keyring {
-  rpc GetSubjectKey(SubjectKeyRequest) returns (SubjectKeyReply);      // a service, or a granted consumer
-  rpc GetLookupKey(LookupKeyRequest) returns (LookupKeyReply);         // a service of the project only
-  rpc Notices(stream NoticeAck) returns (stream Notice);               // held open by every instance
-  rpc Destroy(DestroyRequest) returns (DestroyReply);                  // control plane only
-  rpc Resend(ResendRequest) returns (ResendReply);                     // control plane only (re-runs)
-  rpc ErasureStatus(StatusRequest) returns (StatusReply);              // control plane only; no key
-  rpc Decrypt(DecryptRequest) returns (DecryptReply);                  // a machine with a decrypt grant
-}
+| Method and path | Who | Body → answer |
+|---|---|---|
+| `POST /v1/keys` | a service of the project; a consumer with a `decrypt` grant; a relayed installation | `{"project","subject","create"}` → `{"key"}`, or `{"destroyed": true}`, or 403 `{"refused": reason}` |
+| `POST /v1/lookup-keys` | a service of the project | `{"project"}` → `{"key"}` |
+| `GET /v1/notices` (WebSocket) | every instance, held open | server sends `Notice`, client sends `NoticeAck` (below), text frames of JSON |
+| `POST /v1/erasures` | the control plane only | `{"seq","project","subject"}` → `{"destroyedAt"}` (destroy) |
+| `POST /v1/erasures/{seq}/resend` | the control plane only | → 202 (re-runs) |
+| `GET /v1/erasures/{seq}` | the control plane only | → `{"services": [{service, completedAt, completion}]}`; no key |
+| `POST /v1/decrypt` | a machine with a decrypt grant | `{"grant","project","manifest","fields": [envelope…]}` → `{"values": [json or null]}` |
 
-message SubjectKeyRequest { string project = 1; string subject = 2; bool create = 3; }
-message SubjectKeyReply {
-  oneof answer { bytes key = 1; Destroyed destroyed = 2; Refused refused = 3; }
-}
-message Notice { int64 erasure_seq = 1; string project = 2; string subject = 3; bool rerun = 4; }
-message NoticeAck { int64 erasure_seq = 1; string service = 2; string instance = 3; Completion completion = 4; }
-message DecryptRequest { string grant = 1; string project = 2; repeated Envelope fields = 3; string manifest = 4; }
+```json
+{"type":"notice","seq":12,"project":"brand","subject":"player/8c1f","rerun":false}
+{"type":"ack","seq":12,"service":"players","instance":"players-7f9c-0","completion":{"rowsRedacted":3,"tokensDropped":1,"sessionsEnded":0,"handler":{"objectsErased":2,"finality":"immediate"}}}
 ```
+
+On connect, the instance's first frame is `{"type":"hello","project":"brand","service":"players","instance":"…","after":<last seq acked>}`;
+the keyring answers the backlog after `after`, then live notices.
 
 - `create = true` on a write: makes the key if absent (FR-005); refused for a tombstoned subject.
 - A fetch from another project's consumer is admitted only when `grants.json` holds a consume grant
   with `decrypt` on a topic of `project` for the caller (FR-018); the keyring reads the rendered
   grants of every project from the `ankka-project` ConfigMaps it may list.
-- The control plane's identity may call `Destroy`, `Resend` and `ErasureStatus` only; a
-  `GetSubjectKey` from it is refused and recorded.
-- `Notices`: the keyring sends every destroyed notice for the instance's project (and for projects
-  it holds a decrypt grant on) as it happens, and the backlog since the instance's last ack on
-  reconnect. An instance acks when its duties are done (R15).
-- `Decrypt` answers values field by field; refused once the grant is revoked or the subject is
-  erased; each call recorded (FR-031).
+- The control plane's identity may call only the three `/v1/erasures` routes; a key fetch from it is
+  refused and recorded.
+- An instance acks when its duties are done (R15).
+- `/v1/decrypt` answers values field by field; refused once the grant is revoked or the data subject
+  is erased; each call recorded (FR-031).
 
 ## Startup order
 
@@ -47,7 +45,7 @@ message DecryptRequest { string grant = 1; string project = 2; repeated Envelope
 
 ## The runtime's keyring client (`RT/keyring/`)
 
-- `KeyringClient`: gRPC client over the service's mutual-TLS identity; the cache (R5, FR-020);
+- `KeyringClient`: pekko-http client over the service's mutual-TLS identity, its notices on a WebSocket; the cache (R5, FR-020);
   `Notices` held open from start; on no confirmation within `notice-bound`, the cache is dropped
   whole.
 - `KeyringHandle`: implements `core`'s `Keyring` over the client; installed as `Keyring.current`.

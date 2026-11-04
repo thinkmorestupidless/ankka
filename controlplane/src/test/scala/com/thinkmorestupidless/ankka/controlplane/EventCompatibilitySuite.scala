@@ -762,3 +762,80 @@ private object PreRollback:
     )
 
   val serializer = com.thinkmorestupidless.ankka.core.Codecs.serializer[OldEvent]("service-event")
+
+/**
+ * Every event of an erasure request as it is first written (feature 042, T038): each fixture must
+ * decode to its event and the event must write and read back as itself. A field renamed or added
+ * without a default fails here, before an installation's journal holds a request.
+ */
+class ErasureRequestEventCompatibilitySuite extends munit.FunSuite with LogCapturing:
+  import com.thinkmorestupidless.ankka.controlplane.erasure.*
+  import com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestEvent.*
+  import com.thinkmorestupidless.ankka.core.keyring.HandlerReport
+  import java.time.Instant
+
+  private val at    = Instant.parse("2026-11-04T10:00:00Z")
+  private val ada   = Actor("ada", Some("ada@brand.test"))
+  private val actor =
+    """"actor":{"subject":"ada","display":"ada@brand.test"},"at":"2026-11-04T10:00:00Z""""
+
+  private val fixtures: Vector[(String, ErasureRequestEvent)] = Vector(
+    s"""{"type":"Asked","project":"brand","subject":"player/8c1f","notBefore":"2026-12-01T00:00:00Z","reason":"aml-retention","correlation":"ticket-41",$actor}""" ->
+      Asked(
+        "brand",
+        "player/8c1f",
+        Some(Instant.parse("2026-12-01T00:00:00Z")),
+        Some("aml-retention"),
+        Some("ticket-41"),
+        Some(ada),
+        Some(at)
+      ),
+    s"""{"type":"Replaced","notBefore":"2026-12-02T00:00:00Z","reason":"court order",$actor}""" ->
+      Replaced(
+        Some(Instant.parse("2026-12-02T00:00:00Z")),
+        Some("court order"),
+        Some(ada),
+        Some(at)
+      ),
+    s"""{"type":"Withdrawn",$actor}""" -> Withdrawn(Some(ada), Some(at)),
+    s"""{"type":"HoldOverridden","reason":"the regulator asked",$actor}""" ->
+      HoldOverridden("the regulator asked", Some(ada), Some(at)),
+    s"""{"type":"HoldLapsed",$actor}"""          -> HoldLapsed(Some(ada), Some(at)),
+    s"""{"type":"LogWritten","seq":12,$actor}""" -> LogWritten(12, Some(ada), Some(at)),
+    s"""{"type":"KeyDestroyed","destroyedAt":"2026-11-04T10:00:01Z",$actor}""" ->
+      KeyDestroyed(Instant.parse("2026-11-04T10:00:01Z"), Some(ada), Some(at)),
+    s"""{"type":"ServiceCompleted","service":"players","completion":{"at":"2026-11-04T10:00:02Z","rowsRedacted":3,"tokensDropped":1,"sessionsEnded":2,"handler":{"objectsErased":2,"finality":"after:P7D"}},$actor}""" ->
+      ServiceCompleted(
+        "players",
+        ServiceCompletion(
+          Some(Instant.parse("2026-11-04T10:00:02Z")),
+          3,
+          1,
+          2,
+          Some(HandlerReport(2, "after:P7D"))
+        ),
+        Some(ada),
+        Some(at)
+      ),
+    s"""{"type":"HandlerRan","service":"kyc","report":{"objectsErased":0,"finality":"failed","error":"no bucket 'kyc'"},$actor}""" ->
+      HandlerRan("kyc", HandlerReport.failed("no bucket 'kyc'"), Some(ada), Some(at)),
+    s"""{"type":"ObjectsFinal","finalAt":"2026-11-11T10:00:00Z",$actor}""" ->
+      ObjectsFinal(Instant.parse("2026-11-11T10:00:00Z"), Some(ada), Some(at)),
+    s"""{"type":"Finalised",$actor}""" -> Finalised(Some(ada), Some(at))
+  )
+
+  test("every erasure request event decodes from its pinned shape and round-trips") {
+    val serializer = ErasureRequestEntity.eventSerializer
+    // One fixture for each of the eleven events.
+    assertEquals(fixtures.map(_._2.ordinal).distinct.size, 11)
+    fixtures.foreach { (json, event) =>
+      assertEquals(serializer.fromBytes(json.getBytes("UTF-8")), event, json)
+      assertEquals(serializer.fromBytes(serializer.toBytes(event)), event)
+    }
+  }
+
+  test("an event written without attribution still decodes") {
+    val decoded =
+      ErasureRequestEntity.eventSerializer.fromBytes("""{"type":"Withdrawn"}""".getBytes("UTF-8"))
+    assertEquals(decoded, Withdrawn(None, None))
+  }

@@ -104,9 +104,12 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
 
   /**
    * Destroys `subject`'s key in `project` now and sends the notice to every listener; answers the
-   * notice's sequence. `rerun` sends a notice again for a subject already erased.
+   * notice's sequence. `rerun` sends a notice again for a subject already erased. Refused as
+   * unavailable in an outage, as a stopped keyring refuses the control plane.
    */
   def erase(project: String, subject: DataSubject, rerun: Boolean = false): Long =
+    // A keyring that cannot be reached destroys nothing: the erasure waits for its return.
+    checkUp()
     val notice = synchronized {
       val at = (project, subject.value)
       keys.remove(at)

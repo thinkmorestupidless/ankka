@@ -80,6 +80,15 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
 
   def ack(ack: KeyringAck): Unit = acked.add(ack): Unit
 
+  /** Confirmed now, as an in-process channel always is, except in an outage: since it began. */
+  def confirmedAt(): Option[Instant] = synchronized {
+    down match
+      case Some(until) if clock.instant().isBefore(until) => downSince
+      case _                                              => Some(clock.instant())
+  }
+
+  private var downSince: Option[Instant] = None
+
   private def fresh(): IArray[Byte] =
     val k = new Array[Byte](32)
     random.nextBytes(k)
@@ -107,6 +116,7 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
   /** Refuses every request as unavailable for `duration`, by the keyring's clock. */
   def outage(duration: FiniteDuration): Unit = synchronized {
     down = Some(clock.instant().plusMillis(duration.toMillis))
+    downSince = Some(clock.instant())
   }
 
   /** Ends an outage now. */
@@ -116,13 +126,13 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
   def fetches(project: String, subject: DataSubject): Int =
     synchronized(fetched.getOrElse((project, subject.value), 0))
 
-  /** Whether `subject` has a key in `project` now. */
   /**
    * How many subject keys were ever made for `subject`: one, however many instances wrote first.
    */
   def keysMade(project: String, subject: DataSubject): Int =
     synchronized(made.getOrElse((project, subject.value), 0))
 
+  /** Whether `subject` has a key in `project` now. */
   def holdsKey(project: String, subject: DataSubject): Boolean =
     synchronized(keys.contains((project, subject.value)))
 

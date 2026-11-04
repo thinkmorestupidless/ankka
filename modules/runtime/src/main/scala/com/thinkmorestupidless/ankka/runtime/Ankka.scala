@@ -383,13 +383,17 @@ final class ServiceBuilder private[ankka] (
     // reaches no keyring is handed the one that refuses every personal field, naming it.
     val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringOverride match
       case Some(client) =>
+        val keyringClient = com.thinkmorestupidless.ankka.runtime.keyring.KeyringClient(
+          client,
+          com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings
+            .from(system.settings.config)
+        )
+        // The notices are heard from the start, before any component recovers: a key dropped by
+        // an erasure is never served from the cache after its notice.
+        keyringClient.start()
         com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(
           serviceIdentity.toOption.flatMap(_.project).getOrElse("local"),
-          client,
-          com.thinkmorestupidless.ankka.runtime.keyring.KeyCache(
-            com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings
-              .from(system.settings.config)
-          )
+          keyringClient
         )
       case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
     com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)
@@ -550,6 +554,9 @@ final class ServiceBuilder private[ankka] (
     system.whenTerminated.foreach { _ =>
       com.thinkmorestupidless.ankka.core.Keyring.uninstall(keyringHandle)
       com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.unregister(system, keyringHandle)
+      keyringHandle match
+        case h: com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle => h.client.close()
+        case _                                                              => ()
     }(using scala.concurrent.ExecutionContext.parasitic)
 
     // Extensions need a cluster member to bind to and a client to call through, so they

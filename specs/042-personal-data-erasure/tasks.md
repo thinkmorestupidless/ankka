@@ -117,7 +117,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 **Independent test**: `ErasureFeatures` over `erasing.feature`, two services in one project sharing an in-memory keyring; `PersonalRecoveryBenchmark` ≤ 1.3.
 
 - [ ] T028 [US2] Bind `FEAT/erasing.feature` (two services `players` and `wallet`, a view, a consumer); red
-- [ ] T029 [US2] `KR/KeyringClient.scala` over the `KeyStoreClient` trait: fetch through the cache with `fetch-timeout`, `Notices` held open from start, drop the whole cache when no confirmation arrives within `notice-bound`; `KeyringClientSuite` with a manual clock
+- [X] T029 [US2] `KR/KeyringClient.scala` over the `KeyStoreClient` trait: fetch through the cache with `fetch-timeout`, `Notices` held open from start, drop the whole cache when no confirmation arrives within `notice-bound`; `KeyringClientSuite` with a manual clock
 - [ ] T030 [US2] Refuse a write for an erased data subject in the codec (FR-013) naming the data subject; a tombstoned subject's first write refused (FR-005); bind the two scenarios
 - [ ] T031 [US2] View metadata (R12): `SDK/PersonalFields.scala` with a `Mirror`-derived `PersonalFields.of[Row]`, `lookup(_.field)` on the view builder, the paths carried in the view's descriptor (`SDK/DeclaredQuery.scala`'s owner); `PersonalFieldsSuite` for nested and optional fields
 - [ ] T032 [US2] `RT/QueryCheck.scala`: refuse at start a predicate on a personal path not marked for lookup, naming the view, the query and the field; rewrite an equality on a lookup path to `lookup->>'<path>' = <token>`; `QueryCheckPersonalSuite`

@@ -26,6 +26,13 @@ trait KeyStoreClient:
    */
   def subscribe(after: Long)(listener: KeyringNotice => Unit): AutoCloseable
 
+  /**
+   * When the keyring last confirmed the notices channel is open: a notice, or the keyring's
+   * heartbeat. An instance that has heard nothing for `notice-bound` cannot know it missed no
+   * erasure, and drops every key it holds. `None` until the channel has been confirmed once.
+   */
+  def confirmedAt(): Option[java.time.Instant]
+
   /** Tells the keyring this instance carried out a notice. */
   def ack(ack: KeyringAck): Unit
 

@@ -168,4 +168,12 @@ object ReplicationRuntime:
             IllegalStateException(_)
           )
         }
-      Some(Replication(settings, transport, replicated))
+      // A follower's keys come from the home's keyring through the relay, each held briefly.
+      val keyring = com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings.from(config)
+      val relay   = KeyringRelay.held(
+        KeyringRelay.resolve(system, config, settings),
+        keyring.foreignTtl,
+        keyring.maxKeys,
+        java.time.Clock.systemUTC()
+      )
+      Some(Replication(settings, transport, replicated, relay))

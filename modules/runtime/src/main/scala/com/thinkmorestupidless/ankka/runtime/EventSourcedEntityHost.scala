@@ -115,11 +115,16 @@ private[ankka] object EventSourcedEntityHost:
         val observability = Observability(ctx.system)
         val componentRef  = observability.names.intern(descriptor.componentId.toString)
         val empty         = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
-        // The service's keyring, bound around every encode and decode (feature 042).
-        val keyring =
+        // The service's keyring, bound around every encode and decode (feature 042); a replicated
+        // entity's routes to its home's keyring while another installation is its home (R17).
+        val own =
           com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
-        val copy = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
-        val host =
+        val routed = rep.map(r =>
+          com.thinkmorestupidless.ankka.runtime.replication.RoutedKeyring(own, r.self, r.relay)
+        )
+        val keyring = routed.getOrElse(own)
+        val copy    = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
+        val host    =
           Host(
             descriptor,
             entity,
@@ -143,14 +148,21 @@ private[ankka] object EventSourcedEntityHost:
             commandHandler = (state, command) =>
               host.onCommand(state, command, EventSourcedBehavior.lastSequenceNumber(ctx)),
             eventHandler = (state, event) =>
-              onEvent(
-                descriptor,
-                entity,
-                state,
-                event,
-                rep.map(_.self),
-                EventSourcedBehavior.lastSequenceNumber(ctx)
+              // Bound here too: a record a follower mirrors live is decoded in the handler, not
+              // the adapter, and would otherwise read under the JVM's default keyring.
+              val next = com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(
+                onEvent(
+                  descriptor,
+                  entity,
+                  state,
+                  event,
+                  rep.map(_.self),
+                  EventSourcedBehavior.lastSequenceNumber(ctx)
+                )
               )
+              // The home so far, which the next record is read under (R17).
+              routed.foreach(_.home = next.home)
+              next
           )
           .eventAdapter(eventAdapter(descriptor, rep.map(_.self), keyring))
           .snapshotAdapter(snapshotAdapter(descriptor, entity, keyring))
@@ -846,6 +858,19 @@ private[ankka] object EventSourcedEntityHost:
         // A `RemoteStateRecord` is what a sidecar-hosted port of this entity wrote (feature 009);
         // its extra positions are the sidecar's concern. Reading it is what makes the journal
         // portable in that direction.
+        // A snapshot is read with the keys of the home it names.
+        (keyring, from) match
+          case (
+                routed: com.thinkmorestupidless.ankka.runtime.replication.RoutedKeyring,
+                r: StateRecord
+              ) =>
+            routed.home = r.home
+          case (
+                routed: com.thinkmorestupidless.ankka.runtime.replication.RoutedKeyring,
+                r: RemoteStateRecord
+              ) =>
+            routed.home = r.home
+          case _ => ()
         from match
           case record: StateRecord =>
             Stored(

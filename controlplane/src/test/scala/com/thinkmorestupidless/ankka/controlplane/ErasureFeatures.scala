@@ -68,6 +68,13 @@ class ErasureFeatures(
       "ErasureAgentsFeatures",
     "a session started with no data subject is unchanged by any erasure" ->
       "ErasureAgentsFeatures",
+    // Two installations of one service in this JVM, and the test kit's keyring relay.
+    "a follower of a replicated entity reads a personal field with the subject key the home's keyring gives it" ->
+      "ErasureReplicationFeatures",
+    "an erasure at the home reaches a follower of a replicated entity within a minute" ->
+      "ErasureReplicationFeatures",
+    "a follower that cannot reach the home's keyring and has no subject key retries the recovery of the entity" ->
+      "ErasureReplicationFeatures",
     // The console is the console package's own: its Playwright suite, against the fake control
     // plane, which ControlPlaneFixturesSuite holds to the real one's answers.
     "a member asks for an erasure request through the console" ->
@@ -97,12 +104,12 @@ class ErasureFeatures(
       "ObjectStorageGcsClusterFeatures, against a real bucket",
     // Each language writes the envelope itself.
     "an SDK writes the same personal envelope and reads it back into its own personal type" ->
-      "each SDK's suite against protocol/fixtures/personal, and ConformanceSuite's personal.* cases",
+      ("ConformanceSuite's personal.* and erasure.handler-runs cases against each language's " +
+        "reference (uv run conformance, npm run conformance, go run ./cmd/conformance, " +
+        "./conformance.sh), RemoteEntitySuite for the bytes the sidecar journals, and each " +
+        "SDK's suite against protocol/fixtures/personal"),
     "a service written in a language of the JVM writes the personal envelope a service written in Scala writes" ->
-      "PersonalJavaSuite (testkit-java) and the Kotlin SDK's PersonalTest",
-    // The console is tested by its own Playwright suite against the fake control plane.
-    "the console shows the erasure requests of a project with where each one stands and each service's completion" ->
-      "console/e2e/tests/erasures.spec.ts, against the fake control plane"
+      "PersonalJavaSuite (testkit-java) and the Kotlin SDK's PersonalTest"
   )
 
   // ── the service ────────────────────────────────────────────────────────────

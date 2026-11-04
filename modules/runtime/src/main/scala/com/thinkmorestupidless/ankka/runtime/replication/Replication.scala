@@ -11,7 +11,9 @@ final class Replication private[ankka] (
     val settings: ReplicationSettings,
     val transport: ReplicationTransport,
     /** The replicated components this service hosts. */
-    val components: Set[ComponentId]
+    val components: Set[ComponentId],
+    /** How a follower is given the keys its home's keyring keeps (feature 042, R17). */
+    val relay: KeyringRelay = KeyringRelay.unavailable
 ):
   /** This installation. */
   val self: String = settings.installation.getOrElse(

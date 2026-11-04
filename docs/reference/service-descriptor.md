@@ -112,6 +112,7 @@ than ignored. A field a newer release of ankka knows needs the installation upgr
 | `objectStorageCredential` | boolean | `true` | `false` gives the service no storage credential, for a program that reaches its bucket by the identity it runs as. Refused where the installation keeps its buckets in Garage, which needs a credential. |
 | `objectStorageVersionAgeDays` | integer | — | After how many days an object's earlier versions are deleted, in a store that keeps them. No effect in Garage, which keeps one version. |
 | `buckets` | array of [buckets](#buckets) | `[]` | The service's named buckets, each reached by its name and exposed in its own way, beside the bucket `provisionObjectStorage` gives. |
+| `personal` | boolean | `false` | Whether the service holds personal fields. It is given the address of the installation's keyring; an installation whose erasure is off refuses it. See [personal data and erasure](../build/personal-data.md). |
 
 ### image
 

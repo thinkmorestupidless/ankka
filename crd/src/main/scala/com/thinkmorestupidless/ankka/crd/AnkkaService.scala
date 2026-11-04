@@ -236,7 +236,12 @@ final case class AnkkaServiceSpec(
      * proved or another service holds, and the Gateway's own listeners win every conflict with one,
      * so a name here cannot change how the base domain is reached.
      */
-    customHostnames: List[String] = Nil
+    customHostnames: List[String] = Nil,
+    /**
+     * Whether the service holds personal fields (feature 042), as its descriptor says: the operator
+     * renders the keyring's address for it, and the keyring's network policy admits it.
+     */
+    personal: Boolean = false
 )
 
 /** Where one custom hostname stands, as the operator read it from what serves it. */

@@ -128,6 +128,22 @@ class DescriptorSuite extends munit.FunSuite:
     assertEquals(InstanceType.names, Vector("small", "medium", "large"))
   }
 
+  test("a service holds no personal fields unless its descriptor says it does (feature 042)") {
+    val said   = """{"name":"players","service":{"image":"players:1.0","personal":true}}"""
+    val silent = """{"name":"players","service":{"image":"players:1.0"}}"""
+    val strict = Wire.strictDescriptorCodec
+    assertEquals(readFromString(said)(using strict).service.personal, true)
+    assertEquals(readFromString(silent)(using strict).service.personal, false)
+    val written = writeToString(readFromString(said)(using strict))
+    assert(written.contains("\"personal\":true"), written)
+    // A word where a boolean belongs is refused, not read as false.
+    intercept[JsonReaderException](
+      readFromString("""{"name":"players","service":{"image":"p:1","personal":"yes"}}""")(using
+        strict
+      )
+    )
+  }
+
   test("minInstances defaults to 1") {
     // Akka targets a managed production cluster; ankka's primary target is a dev cluster
     // where three replicas of everything is a surprise.

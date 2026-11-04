@@ -246,7 +246,13 @@ final case class ServiceSpec(
      * from the storage client: one the platform makes, reached as its `exposure` says, or one the
      * developer made and `supplied`. Accepted without `provisionObjectStorage`.
      */
-    buckets: Vector[BucketSpec] = Vector.empty
+    buckets: Vector[BucketSpec] = Vector.empty,
+    /**
+     * Whether the service holds personal fields (feature 042): it is given the address of the
+     * installation's keyring, and an installation whose erasure is off refuses it. A service that
+     * says nothing holds none, and is deployed exactly as before.
+     */
+    personal: Boolean = false
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */

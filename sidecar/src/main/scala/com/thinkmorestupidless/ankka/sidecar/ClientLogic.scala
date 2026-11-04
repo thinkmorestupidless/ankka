@@ -718,6 +718,47 @@ final class ClientLogic(
           )
     }(e => SubjectKeyReply(SubjectKeyReply.Reply.Error(e)))
 
+  /**
+   * A module's personal field sealed (protocol 1.23): by the runtime's keyring and core's own
+   * codec, under the record's manifest, so a module writes the bytes a Scala field does.
+   */
+  def keyringSeal(
+      request: ankka.protocol.v1.wasm.KeyringSealRequest
+  ): ankka.protocol.v1.wasm.KeyringSealReply =
+    import ankka.protocol.v1.wasm.KeyringSealReply.Reply
+    personal(e => ankka.protocol.v1.wasm.KeyringSealReply(Reply.Error(e))) {
+      val subject = com.thinkmorestupidless.ankka.core.PersonalJson.subjectProblem(request.subject)
+      if subject != null then throw CommandError(subject, ErrorCode.BadRequest)
+      val envelope = com.thinkmorestupidless.ankka.core.PersonalScope.within(request.manifest)(
+        com.thinkmorestupidless.ankka.core.PersonalJson
+          .write(request.subject, request.value.toByteArray)
+      )
+      ankka.protocol.v1.wasm.KeyringSealReply(Reply.Envelope(ByteString.copyFrom(envelope)))
+    }
+
+  /** A module's personal field read back (protocol 1.23): its JSON, or erased. */
+  def keyringOpen(
+      request: ankka.protocol.v1.wasm.KeyringOpenRequest
+  ): ankka.protocol.v1.wasm.KeyringOpenReply =
+    import ankka.protocol.v1.wasm.KeyringOpenReply.Reply
+    personal(e => ankka.protocol.v1.wasm.KeyringOpenReply(Reply.Error(e))) {
+      val read = com.thinkmorestupidless.ankka.core.PersonalScope.within(request.manifest)(
+        com.thinkmorestupidless.ankka.core.PersonalJson.read(request.envelope.toByteArray)
+      )
+      if read.value == null then ankka.protocol.v1.wasm.KeyringOpenReply(Reply.Erased(true))
+      else ankka.protocol.v1.wasm.KeyringOpenReply(Reply.Value(ByteString.copyFrom(read.value)))
+    }
+
+  /** `work` with the service's keyring current; a refusal or a fault as the reply's `Error`. */
+  private def personal[A](refused: pb.Error => A)(work: => A): A =
+    try com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.binding(service.system)(work)
+    catch
+      case e: CommandError                                                   => refused(error(e))
+      case e: com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException =>
+        refused(pb.Error(s"not a personal field: ${e.getMessage}", pb.ErrorCode.BAD_REQUEST))
+      case scala.util.control.NonFatal(e) =>
+        refused(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL))
+
   // ── Client keys (protocol 1.20) ─────────────────────────────────────────────
   //
   // The service's client keys, kept by its MCP runtime: what a Scala handler reaches as
@@ -866,6 +907,12 @@ final class ClientLogic(
         StorageReply(Reply.Url(bucket.signedUrl(r.name, access, span).toString))
       case StorageRequest.Op.URL =>
         StorageReply(Reply.Url(bucket.url(r.name).toString))
+      case StorageRequest.Op.ERASE =>
+        // A data subject's objects (feature 042): the bucket's erase lands with objects.feature.
+        throw CommandError(
+          "erasing a data subject's objects is not served by this runtime yet",
+          ErrorCode.Unavailable
+        )
       case StorageRequest.Op.Unrecognized(n) =>
         throw CommandError(
           s"storage operation $n is not one this runtime knows",

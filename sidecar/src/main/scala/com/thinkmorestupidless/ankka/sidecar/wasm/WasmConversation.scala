@@ -418,6 +418,25 @@ final class WasmConversation(
       case Right(reply) => Translate.fromMcpToolReply(reply)
     }
 
+  /** The module's erasure handler (1.23), on a fresh instance, as a timed action is run. */
+  override def invokeErasure(call: RemoteErasureCall): Future[RemoteErasureReport] =
+    val stampedMeta = stamped(call.metadata)
+    fresh(
+      "erase",
+      ankka.protocol.v1.erasure.ErasureCall(
+        call.subject,
+        call.erasureSeq,
+        call.rerun,
+        Some(Translate.toMetadata(stampedMeta))
+      ),
+      settings.requestTimeout,
+      Purpose("erasure-handler", None, stampedMeta)
+    )(ankka.protocol.v1.erasure.ErasureReply.parseFrom).map {
+      case Left(fault)  => RemoteErasureReport(0, "failed", Some(fault.message))
+      case Right(reply) =>
+        RemoteErasureReport(reply.objectsErased, reply.finality, reply.error.map(_.message))
+    }
+
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
     fresh(

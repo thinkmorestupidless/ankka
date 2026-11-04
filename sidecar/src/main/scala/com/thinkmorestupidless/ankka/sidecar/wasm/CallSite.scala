@@ -40,6 +40,19 @@ final case class CallSite(function: String, purpose: Purpose, instance: GuestIns
    */
   def mayStore: Either[String, Unit] = may("storage", StoreWhere)
 
+  /**
+   * Whether a personal field may be sealed or opened from here (protocol 1.23): from every call
+   * into the module, since an entity's command writes one and its replay reads it; only a call the
+   * runtime has abandoned may not.
+   */
+  def mayKeyring(importName: String): Either[String, Unit] =
+    if instance.broken then
+      Left(
+        s"$importName may not be called from a call the runtime has abandoned " +
+          s"($function, ${purpose.componentId})"
+      )
+    else Right(())
+
   private def may(importName: String, where: String): Either[String, Unit] =
     val component = purpose.componentId
     if !Permitted.contains(function) then

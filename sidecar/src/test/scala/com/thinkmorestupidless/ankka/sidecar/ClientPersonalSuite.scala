@@ -108,6 +108,57 @@ class ClientPersonalSuite extends munit.FunSuite with LogCapturing:
     finally ErasureHooks.of(testKit.service.system).onProcess(_ => scala.concurrent.Future.unit)
   }
 
+  // ── A module's two imports (protocol 1.23) ──────────────────────────────────
+
+  import ankka.protocol.v1.wasm.{KeyringOpenRequest, KeyringSealRequest}
+  import com.google.protobuf.ByteString
+
+  private def seal(subject: String, json: String, manifest: String = "player-registered") =
+    logic.keyringSeal(KeyringSealRequest(subject, manifest, ByteString.copyFromUtf8(json))).reply
+
+  private def open(envelope: ByteString, manifest: String = "player-registered") =
+    logic.keyringOpen(KeyringOpenRequest(envelope, manifest)).reply
+
+  test("a module's field is sealed as a Scala field is, and read back") {
+    val envelope = seal("player/m1", "\"ada@example.com\"").envelope.getOrElse(fail("no envelope"))
+    val text     = envelope.toStringUtf8
+    assert(
+      text.startsWith(
+        s"""{"$$personal":1,"project":"${testKit.project}","subject":"player/m1","c":"""
+      ),
+      text
+    )
+    assert(!text.contains("ada@example.com"), text)
+    assertEquals(
+      open(envelope) match
+        case ankka.protocol.v1.wasm.KeyringOpenReply.Reply.Value(v) => Some(v.toStringUtf8)
+        case _                                                      => None
+      ,
+      Some("\"ada@example.com\"")
+    )
+  }
+
+  test("a module's field under another manifest fails authentication; an erased one reads erased") {
+    val envelope = seal("player/m2", "\"bo@example.com\"").envelope.getOrElse(fail("no envelope"))
+    val corrupt  = open(envelope, manifest = "deposit-made").error
+    assertEquals(corrupt.map(_.details.get("personal")), Some(Some("corrupt")), corrupt.toString)
+    testKit.keyring.erase(testKit.project, DataSubject("player/m2")): Unit
+    assertEquals(open(envelope).erased, Some(true))
+    val refused = seal("player/m2", "\"bo@example.com\"").error
+    assertEquals(refused.map(_.code), Some(pb.ErrorCode.CONFLICT), refused.toString)
+    assertEquals(seal("player m2", "1").error.map(_.code), Some(pb.ErrorCode.BAD_REQUEST))
+  }
+
+  test("a module's keyring imports are refused outside a call into the module") {
+    val host = com.thinkmorestupidless.ankka.sidecar.wasm.HostImports(5.seconds, 5.seconds)
+    val e    = intercept[com.thinkmorestupidless.ankka.sidecar.wasm.ImportRefused](
+      host.keyringSeal(
+        KeyringSealRequest("player/m3", "m", ByteString.copyFromUtf8("1")).toByteArray
+      )
+    )
+    assert(e.getMessage.contains("keyring_seal may not be called outside"), e.getMessage)
+  }
+
   test("a handler's finality is immediate, or after an ISO-8601 duration, and nothing else") {
     assertEquals(RemoteErasureHandler.finality("immediate"), Finality.Immediate)
     assertEquals(RemoteErasureHandler.finality(""), Finality.Immediate)

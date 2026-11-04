@@ -269,6 +269,27 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     assert(accepted.isRight, accepted.left.toString)
   }
 
+  test("an erasure handler needs the export that runs it") {
+    val declared = WasmSpec(
+      Some(cartSpec().withProtocolVersion(Discovery.ProtocolVersion).withErasureHandler(true)),
+      Seq.empty,
+      "1"
+    )
+    val found = problems(declared, everyExport - "ankka1_erase")
+    assert(
+      found.exists(p => p.contains("erasure handler") && p.contains("ankka1_erase")),
+      found.toString
+    )
+    val accepted =
+      WasmDiscovery.validate(
+        declared,
+        everyExport,
+        Discovery.ProtocolVersion,
+        authConfigured = true
+      )
+    assert(accepted.isRight, accepted.left.toString)
+  }
+
   test("a declaration is refused for another ABI version, a bad stateful id, or a missing export") {
     val view = Component(
       kind = Kind.VIEW,

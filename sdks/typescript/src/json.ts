@@ -8,6 +8,8 @@
 
 import { Duration, Instant, LocalDate, LocalDateTime } from "./time.ts"
 import { done, resolve, describe, type Schema } from "./schema.ts"
+import { associatedData, currentScope, Erased, ENVELOPE_VERSION, open, PersonalError, Present, seal, subjectProblem, type DataSubject, type Scope } from "./personal.ts"
+import { requireKeyring } from "./keyring.ts"
 
 export class EncodingError extends Error {
   constructor(message: string) {
@@ -178,8 +180,50 @@ function write(schema: Schema, value: unknown, out: string[], path: string): voi
       out.push(`{"type":${JSON.stringify(value)}}`)
       return
     }
+    case "personal": {
+      if (!(value instanceof Present) && !(value instanceof Erased)) {
+        throw new EncodingError(`${at(path)}expected a personal field (personal(subject, value)), got ${kindOf(value)}`)
+      }
+      const problem = subjectProblem(value.subject)
+      if (problem !== undefined) throw new EncodingError(`${at(path)}${problem}`)
+      const scope = currentScope()
+      if (scope === undefined) {
+        // The edge: the value with its subject beside it.
+        out.push(`{"subject":${JSON.stringify(value.subject)}`)
+        if (value instanceof Present) {
+          out.push(`,"value":`)
+          write(r.inner, value.value, out, path ? `${path}.value` : "value")
+        }
+        out.push("}")
+      } else writeEnvelope(r.inner, value, scope, out, path)
+      return
+    }
   }
 }
+
+function writeEnvelope(inner: Schema, value: Present<unknown> | Erased, scope: Scope, out: string[], path: string): void {
+  let project: string
+  let c: string | undefined
+  if (value instanceof Present) {
+    const { project: own, key } = requireKeyring().keyForWrite(value.subject)
+    project = own
+    const plaintext: string[] = []
+    write(inner, value.value, plaintext, path)
+    const sealed = seal(key, utf8.encode(plaintext.join("")), associatedData(value.subject, project, scope.manifest), scope.nonce)
+    c = base64Encode(sealed)
+  } else {
+    // Written again after a redaction: the subject alone, under the service's own project.
+    const keyring = requireKeyring()
+    if (keyring.project === undefined) throw PersonalError.unavailable("this process does not know its project yet: no key answer from the sidecar has named it")
+    project = keyring.project
+  }
+  out.push(`{"$personal":${ENVELOPE_VERSION},"project":${JSON.stringify(project)},"subject":${JSON.stringify(value.subject)}`)
+  if (c !== undefined) out.push(`,"c":${JSON.stringify(c)}`)
+  out.push("}")
+}
+
+const utf8 = new TextEncoder()
+const utf8Strict = new TextDecoder("utf-8", { fatal: true })
 
 function writeFields(fields: Readonly<Record<string, Schema>>, value: Record<string, unknown>, out: string[], path: string, continuing: boolean): void {
   let first = !continuing
@@ -291,7 +335,44 @@ function decode(schema: Schema, raw: unknown, path: string): unknown {
       }
       return name
     }
+    case "personal":
+      return currentScope() === undefined ? decodeEdge(r.inner, raw, path) : decodeEnvelope(r.inner, raw, currentScope()!, path)
   }
+}
+
+function decodeEdge(inner: Schema, raw: unknown, path: string): Present<unknown> | Erased {
+  if (!isPlainObject(raw)) throw new DecodingError(`expected a personal field {"subject", "value"}, got ${kindOf(raw)}`, path)
+  const about = raw["subject"]
+  if (about === undefined) throw new DecodingError("a personal field names its data subject", path)
+  const problem = subjectProblem(about)
+  if (problem !== undefined) throw new DecodingError(problem, path ? `${path}.subject` : "subject")
+  if (!("value" in raw)) return new Erased(about as DataSubject)
+  return new Present(about as DataSubject, decode(inner, raw["value"], path ? `${path}.value` : "value"))
+}
+
+function decodeEnvelope(inner: Schema, raw: unknown, scope: Scope, path: string): Present<unknown> | Erased {
+  if (!isPlainObject(raw)) throw new DecodingError(`expected a personal envelope, got ${kindOf(raw)}`, path)
+  const { project, subject: about, c } = raw
+  if (typeof about !== "string" || typeof project !== "string") throw new DecodingError("a personal envelope names its project and its data subject", path)
+  const problem = subjectProblem(about)
+  if (problem !== undefined) throw new DecodingError(problem, path ? `${path}.subject` : "subject")
+  const s = about as DataSubject
+  if (raw["$personal"] !== ENVELOPE_VERSION) {
+    throw PersonalError.corrupt(about, `its version is ${String(raw["$personal"])}, and this reader knows ${ENVELOPE_VERSION}`)
+  }
+  if (c === undefined) return new Erased(s)
+  const answer = requireKeyring().keyForRead(project, about)
+  if (answer.kind === "erased") return new Erased(s)
+  if (typeof c !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(c)) throw PersonalError.corrupt(about, "it is not base64")
+  const plaintext = open(answer.key, base64Decode(c), associatedData(about, project, scope.manifest))
+  if (plaintext === undefined) throw PersonalError.corrupt(about, "it failed authentication")
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(utf8Strict.decode(plaintext), reviver)
+  } catch {
+    throw PersonalError.corrupt(about, "its plaintext is not JSON")
+  }
+  return new Present(s, decode(inner, parsed, path))
 }
 
 function decodeFields(fields: Readonly<Record<string, Schema>>, raw: Record<string, unknown>, path: string): Record<string, unknown> {

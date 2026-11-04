@@ -106,3 +106,9 @@ export {
   type Materialised, type MaterialisedKeyValue, type MaterialisedWorkflowCommand, type MaterialisedStep,
 } from "./materialise.ts"
 export type { ComponentKind } from "./kinds.ts"
+export {
+  personal, subject, subjectProblem, isPersonal, Present, Erased, PersonalError, DATA_SUBJECT_RULE,
+  type Personal, type DataSubject, type PersonalReason,
+} from "./personal.ts"
+export { Keyring, currentKeyring, type KeyAnswer, type KeyFetch, type KeyReply, type KeyringOptions } from "./keyring.ts"
+export { finalityToProto, type ErasureContext, type ErasureHandler, type ErasureReport, type Finality } from "./erasure.ts"

@@ -6,7 +6,9 @@
 
 import { isStartFrom, type StartFrom } from "./startFrom.ts"
 import { Contract, type Publication } from "./contract.ts"
-import { codecFor, isCodec, type Codec, type Shape } from "./codec.ts"
+import { codecFor, isCodec, schemaOf, type Codec, type Shape } from "./codec.ts"
+import { holdsPersonal, type Schema } from "./schema.ts"
+import type { ErasureHandler } from "./erasure.ts"
 import { EventSourcedEntity, type EventSourcedEntityClass } from "./eventSourcedEntity.ts"
 import { KeyValueEntity, type KeyValueEntityClass } from "./keyValueEntity.ts"
 import { Workflow, type WorkflowClass } from "./workflow.ts"
@@ -181,15 +183,25 @@ export class Registry {
   readonly endpoints: ReadonlyMap<string, RegisteredEndpoint>
   /** The MCP endpoints (1.20), by id, their references resolved. */
   readonly mcpEndpoints: ReadonlyMap<string, RegisteredMcpEndpoint>
+  /** The service's erasure handler (1.23), if it declares one. */
+  readonly erasureHandler: ErasureHandler | undefined
+  /** The components and endpoints whose shapes hold a personal field (1.23). */
+  readonly personalUsers: readonly string[]
 
   constructor(
     components: ReadonlyMap<string, RegisteredComponent>,
     endpoints: ReadonlyMap<string, RegisteredEndpoint>,
     mcpEndpoints: ReadonlyMap<string, RegisteredMcpEndpoint> = new Map(),
+    erasureHandler?: ErasureHandler,
   ) {
     this.components = components
     this.endpoints = endpoints
     this.mcpEndpoints = mcpEndpoints
+    this.erasureHandler = erasureHandler
+    this.personalUsers = Object.freeze([
+      ...[...components.values()].filter((c) => mentionsPersonal(c)).map((c) => c.id),
+      ...[...endpoints.values()].filter((e) => mentionsPersonal(e.routes)).map((e) => e.id),
+    ])
     Object.freeze(this)
   }
 
@@ -210,6 +222,37 @@ export class Registry {
   endpoint(id: string): RegisteredEndpoint | undefined {
     return this.endpoints.get(id)
   }
+}
+
+/**
+ * Whether a registered component or endpoint holds a schema with a personal field anywhere among its
+ * codecs and handler shapes. Its class is not searched: everything it declares was resolved into the entry.
+ */
+function mentionsPersonal(entry: unknown): boolean {
+  const seen = new Set<unknown>()
+  const go = (v: unknown, depth: number): boolean => {
+    if (depth > 8 || v === null || (typeof v !== "object" && typeof v !== "function") || seen.has(v)) return false
+    seen.add(v)
+    if (typeof v === "function") return false
+    if (isCodec(v as Shape<unknown>)) {
+      const schema = schemaOf(v as Codec<unknown>)
+      return schema !== undefined && holdsPersonal(schema)
+    }
+    if (typeof (v as { kind?: unknown }).kind === "string" && isSchemaKind((v as { kind: string }).kind)) return holdsPersonal(v as Schema)
+    if (v instanceof Map) return [...v.values()].some((x) => go(x, depth + 1))
+    if (Array.isArray(v)) return v.some((x) => go(x, depth + 1))
+    return Object.entries(v).some(([k, x]) => k !== "cls" && go(x, depth + 1))
+  }
+  return go(entry, 0)
+}
+
+const SCHEMA_KINDS = new Set([
+  "string", "int", "long", "double", "boolean", "instant", "duration", "localDate", "localDateTime", "bytes", "unit", "done",
+  "option", "list", "stringMap", "record", "sumType", "enumeration", "lazy", "personal",
+])
+
+function isSchemaKind(kind: string): boolean {
+  return SCHEMA_KINDS.has(kind)
 }
 
 /** Thrown by `validate`, `spec`, `server` and `listen` with every problem the registration has. */
@@ -246,6 +289,7 @@ export interface ServiceOptions {
 export class ServiceBuilder {
   readonly #classes: unknown[] = []
   readonly #client: ComponentClient
+  #erasureHandlers: ErasureHandler[] = []
   readonly #log: (message: string) => void
 
   constructor(options: ServiceOptions = {}) {
@@ -273,6 +317,16 @@ export class ServiceBuilder {
   register<C extends Endpoint>(cls: EndpointClass<C>): this
   register(cls: AnyClass): this {
     this.#classes.push(cls)
+    return this
+  }
+
+  /**
+   * The service's erasure handler (feature 042, protocol 1.23): run for each erased data subject, and again
+   * on each re-run, so it must be idempotent. One per service. A handler that throws is recorded as failed
+   * for that run and run again on the next.
+   */
+  erasureHandler(handler: ErasureHandler): this {
+    this.#erasureHandlers.push(handler)
     return this
   }
 
@@ -339,8 +393,11 @@ export class ServiceBuilder {
       else mcpEndpoints.set(r.id, r)
     }
 
+    if (this.#erasureHandlers.some((h) => typeof h !== "function")) problems.push("the erasure handler is not a function")
+    if (this.#erasureHandlers.length > 1) problems.push(`a service has one erasure handler, and ${this.#erasureHandlers.length} were given`)
+
     if (problems.length > 0) throw new RegistrationError(problems)
-    return new Registry(components, endpoints, mcpEndpoints)
+    return new Registry(components, endpoints, mcpEndpoints, this.#erasureHandlers[0])
   }
 
   /** The discovery `Spec` for what is registered, without listening. */

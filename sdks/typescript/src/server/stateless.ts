@@ -19,7 +19,7 @@ import type { Metadata } from "../effects/common.ts"
 import type { RegisteredConsumer } from "../service.ts"
 import type { TimedAction } from "../timedAction.ts"
 import { errorCodeToProto } from "../kinds.ts"
-import { decodePayload, encodePayload } from "./payloads.ts"
+import { decodePayload, encodePayload, prefetchPayload, prefetchValue } from "./payloads.ts"
 import { PayloadSchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import type { ServerContext } from "./server.ts"
 import { standingFromProto } from "../standing.ts"
@@ -41,12 +41,14 @@ async function handleKeyedView(req: ViewRequest, sourceId: string, ctx: ServerCo
   const view = new registered.cls() as KeyedView<unknown>
   try {
     const client = ctx.client.withMetadata(metadata)
+    await prefetchPayload(req.event)
     view._bind(metadata, client, clientRows(client, registered.id, registered.rowCodec), standingFromProto(req.standing))
     const effect = (req.deleted
       ? source.deleted
         ? await source.deleted(view)
         : undefined
       : await source.onChange(view, decodePayload(source.eventCodec, req.event))) as KeyedViewEffect<unknown> | undefined
+    await prefetchValue(effect)
     if (effect !== undefined && effect?.kind !== "rows") throw new TypeError(`${registered.id}'s handler for ${sourceId} returned something that is not a keyed view effect`)
     const changes = (effect?.changes ?? []).map((c) =>
       "deleted" in c
@@ -68,9 +70,11 @@ export async function handleView(req: ViewRequest, ctx: ServerContext): Promise<
   const metadata = metadataFromProto(req.metadata)
   const view = new registered.cls() as View<unknown, unknown>
   try {
+    await prefetchPayload(req.row, req.event)
     const row = req.row ? decodePayload(registered.rowCodec, req.row) : null
     view._bind(row, metadata, ctx.client.withMetadata(metadata), standingFromProto(req.standing))
     const effect = req.deleted ? await view.onDelete() : await view.onChange(decodePayload(registered.eventCodec, req.event))
+    await prefetchValue(effect)
     switch (effect.kind) {
       case "update-row":
         return create(ViewEffectSchema, { effect: { case: "updateRow", value: encodePayload(registered.rowCodec, effect.row) } })
@@ -109,7 +113,9 @@ function produceAll(request: Metadata, messages: { payload: ReturnType<typeof en
 async function graphEffect(registered: RegisteredConsumer, req: ConsumerRequest, metadata: Metadata, ctx: ServerContext): Promise<ProtoConsumerEffect> {
   const consumer = new registered.cls() as GraphConsumer<unknown>
   consumer._bind(metadata, ctx.client.withMetadata(metadata), standingFromProto(req.standing))
+  await prefetchPayload(req.message)
   const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
+  await prefetchValue(effect)
   switch (effect.kind) {
     case "publish":
       return produceAll(
@@ -132,7 +138,9 @@ async function graphEffect(registered: RegisteredConsumer, req: ConsumerRequest,
 async function consumerEffect(registered: RegisteredConsumer, req: ConsumerRequest, metadata: Metadata, ctx: ServerContext): Promise<ProtoConsumerEffect> {
   const consumer = new registered.cls() as Consumer<unknown, unknown>
   consumer._bind(metadata, ctx.client.withMetadata(metadata), standingFromProto(req.standing))
+  await prefetchPayload(req.message)
   const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
+  await prefetchValue(effect)
   const outCodec = () => {
     if (!registered.outCodec) throw new Error(`${registered.id} produced a message but declares no out shape`)
     return registered.outCodec
@@ -179,6 +187,7 @@ export async function handleTimedAction(req: TimedActionRequest, ctx: ServerCont
   const metadata = metadataFromProto(req.metadata)
   const instance = new registered.cls() as TimedAction
   try {
+    await prefetchPayload(req.payload)
     const input = action.input ? decodePayload(codecFor(action.input), req.payload) : undefined
     instance._bind(metadata, ctx.client.withMetadata(metadata))
     const effect = await action.run(instance, input)

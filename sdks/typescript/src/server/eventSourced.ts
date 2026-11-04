@@ -27,7 +27,8 @@ import { binaryCodecs } from "../codec.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import { materialiseEventSourced } from "../materialise.ts"
 import type { RegisteredEventSourced } from "../service.ts"
-import { decodePayload, encodePayload } from "./payloads.ts"
+import { PersonalError } from "../personal.ts"
+import { decodePayload, encodePayload, prefetchPayload, prefetchValue } from "./payloads.ts"
 import type { ServerContext } from "./server.ts"
 
 type RetentionInit = MessageInitShape<typeof RetentionSchema>
@@ -87,6 +88,7 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
         }
         registered = found
         entityId = init.entityId
+        await prefetchPayload(init.snapshot?.payload)
         try {
           entity = new registered.cls() as EventSourcedEntity<unknown, unknown>
           entity._bindInstance(entityId)
@@ -110,6 +112,7 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
           return
         }
         const ev = m.message.value
+        await prefetchPayload(ev.payload)
         try {
           const written = ev.installation || here
           state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload), eventContext(written, written === here, ev.sequence, ev.attribution, ev.forwardedFrom))
@@ -160,6 +163,7 @@ async function runCommand(
   if (!handler) return { out: failure(cmd.id, { message: `no handler ${JSON.stringify(cmd.name)} on ${registered.id}`, code: ErrorCode.NotFound }) }
 
   let input: unknown
+  await prefetchPayload(cmd.payload)
   try {
     input = handler.input ? decodePayload(codecFor(handler.input), cmd.payload) : undefined
   } catch (e) {
@@ -199,6 +203,7 @@ async function runCommand(
       applied += 1n
       return entity.applyEvent(s, e, eventContext(here, true, applied, context.attribution, context.forwardedFrom))
     })
+    await prefetchValue(m.events, m.reply, cmd.snapshotRequested ? m.newState : undefined)
     const replication = !m.error && effect.kind === "persist" ? replicationToProto(effect.replication) : undefined
     const events = m.events.map((e) => encodePayload(registered.eventCodec, e))
     const replyCodec = handler.reply ? codecFor(handler.reply) : binaryCodecs.done
@@ -224,6 +229,6 @@ async function runCommand(
     return { out, newState: { state: m.newState, sequence: sequence + BigInt(events.length) } }
   } catch (e) {
     ctx.log(`ankka: ${registered.id}/${entityId}/${cmd.name}: the effect could not be applied: ${messageOf(e)}`)
-    return { out: failure(cmd.id, { message: messageOf(e), code: ErrorCode.Internal }) }
+    return { out: failure(cmd.id, { message: messageOf(e), code: e instanceof PersonalError ? e.code : ErrorCode.Internal }) }
   }
 }

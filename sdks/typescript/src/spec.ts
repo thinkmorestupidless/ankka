@@ -307,5 +307,6 @@ export function renderSpec(registry: Registry): Spec {
     components,
     endpoints,
     mcpEndpoints,
+    erasureHandler: registry.erasureHandler !== undefined,
   })
 }

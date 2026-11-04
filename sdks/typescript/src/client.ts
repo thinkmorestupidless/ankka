@@ -14,7 +14,8 @@ import type { HandlerRef } from "./handlers.ts"
 import { decodeJsonValue, reviver } from "./json.ts"
 import { errorCodeFromProto, kindToProto, type ComponentKind } from "./kinds.ts"
 import { metadataToProto } from "./context.ts"
-import { encodePayload, decodePayload, EMPTY_PAYLOAD } from "./server/payloads.ts"
+import { encodePayload, decodePayload, EMPTY_PAYLOAD, prefetchPayload, prefetchValue } from "./server/payloads.ts"
+import { withinScope } from "./personal.ts"
 import type { Schema } from "./schema.ts"
 import { Duration } from "./time.ts"
 import { PROTOCOL_VERSION } from "./spec.ts"
@@ -90,6 +91,12 @@ function decodeReply<R>(shape: Shape<R> | undefined, payload: Payload | undefine
   // No reply shape named: a primitive by its manifest, `done` otherwise.
   const codec = payload ? codecForManifest(payload.manifest) : undefined
   return (codec ?? binaryCodecs.done).decode(payload?.data ?? new Uint8Array()) as R
+}
+
+/** Fetches the keys a reply's personal fields need before it is decoded (feature 042). */
+async function prefetched(answer: InvokeReply): Promise<InvokeReply> {
+  if (answer.result.case === "reply") await prefetchPayload(answer.result.value.payload)
+  return answer
 }
 
 function outcomeOf<R>(reply: Shape<R> | undefined, answer: InvokeReply): AgentOutcome<R> {
@@ -197,7 +204,8 @@ export class Invocation<I, R> {
 
   /** Calls an agent's handler for its outcome: the model's answer, or the approval requests the turn waits on. */
   async ask(input?: I): Promise<AgentOutcome<R>> {
-    return outcomeOf(this.#reply, await stubOf(this.#connection).invoke(this.#request(input)))
+    await prefetchValue(input)
+    return outcomeOf(this.#reply, await prefetched(await stubOf(this.#connection).invoke(this.#request(input))))
   }
 
   /**
@@ -206,7 +214,7 @@ export class Invocation<I, R> {
    * and this answers as `ask` would have. A request already decided is a conflict.
    */
   async decide(approvalId: string, decision: DecisionInput): Promise<AgentOutcome<R>> {
-    return outcomeOf(this.#reply, await decideOn(this.#connection, this.#metadata, this.#kind, this.#componentId, this.#entityId, this.#name, approvalId, decision))
+    return outcomeOf(this.#reply, await prefetched(await decideOn(this.#connection, this.#metadata, this.#kind, this.#componentId, this.#entityId, this.#name, approvalId, decision)))
   }
 
   /** Invokes a streaming handler; yields tokens in order; a failure rejects with `CommandError`, a turn that waits with `ApprovalAwaited`. */
@@ -219,6 +227,7 @@ export class Invocation<I, R> {
 
   /** As `stream`, ending with one awaiting part when the turn waits for a person. */
   async *streamParts(input?: I): AsyncIterable<string | Extract<AgentOutcome<never>, { kind: "awaiting-approval" }>> {
+    await prefetchValue(input)
     for await (const token of stubOf(this.#connection).invokeStream(this.#request(input))) {
       switch (token.token.case) {
         case "text":
@@ -306,7 +315,7 @@ export class Calls {
    */
   async awaitEnd<S>(timeoutMillis: number, state?: Shape<S>): Promise<S> {
     const shape = (state ?? this.#state) as Shape<S> | undefined
-    const answer = await stubOf(this.#connection).awaitEnd(this.#awaitRequest(timeoutMillis)).catch(awaitTooOld)
+    const answer = await prefetched(await stubOf(this.#connection).awaitEnd(this.#awaitRequest(timeoutMillis)).catch(awaitTooOld))
     const outcome = outcomeOf(shape, answer)
     if (outcome.kind !== "answered") throw new CommandError({ message: "a workflow answered a wait as an agent", code: "INTERNAL" })
     return outcome.value
@@ -325,6 +334,7 @@ export class Calls {
             yield { kind: "heartbeat" }
             break
           case "ended":
+            await prefetchPayload(token.token.value)
             yield { kind: "ended", state: decodeReply(shape, token.token.value) }
             return
           case "failed": {
@@ -501,7 +511,8 @@ export class Views {
       for await (const frame of frames) {
         switch (frame.frame.case) {
           case "row":
-            yield { kind: "row", key: frame.frame.value.key, row: codec.decode(frame.frame.value.payload?.data ?? new Uint8Array()) }
+            await prefetchPayload(frame.frame.value.payload)
+            yield { kind: "row", key: frame.frame.value.key, row: decodePayload(codec, frame.frame.value.payload) }
             break
           case "removed":
             yield { kind: "removed", key: frame.frame.value.key }
@@ -528,17 +539,20 @@ export class Views {
     }
   }
 
-  static #rows<Row>(answer: QueryReply, row: Shape<Row>): Row[] {
+  static async #rows<Row>(answer: QueryReply, row: Shape<Row>): Promise<Row[]> {
     switch (answer.result.case) {
       case "rows": {
+        // A row's personal fields are envelopes under the row's manifest (feature 042).
+        await prefetchPayload(answer.result.value)
+        const manifest = codecFor(row).manifest
         const text = new TextDecoder().decode(answer.result.value.data)
         const documents = JSON.parse(text, reviver) as unknown[]
         if (!Array.isArray(documents)) throw new CommandError({ message: "the view answered something other than a JSON array", code: "INTERNAL" })
         if (isCodec(row)) {
           const utf8 = new TextEncoder()
-          return documents.map((d) => row.decode(utf8.encode(JSON.stringify(d, (_k, v) => (typeof v === "bigint" ? (JSON as unknown as { rawJSON(s: string): unknown }).rawJSON(v.toString()) : v)))))
+          return withinScope(manifest, () => documents.map((d) => row.decode(utf8.encode(JSON.stringify(d, (_k, v) => (typeof v === "bigint" ? (JSON as unknown as { rawJSON(s: string): unknown }).rawJSON(v.toString()) : v))))))
         }
-        return documents.map((d) => decodeJsonValue(row as Schema<Row>, d))
+        return withinScope(manifest, () => documents.map((d) => decodeJsonValue(row as Schema<Row>, d)))
       }
       case "error":
         throw new CommandError(errorOf(answer.result.value))
@@ -582,6 +596,7 @@ export class Timers {
       "component" in target
         ? { kind: target.component.prototype._kind, componentId: target.component.componentId, name: target.handler.name, input: target.handler.input as Shape<unknown> | undefined, entityId: target.entityId }
         : target
+    await prefetchValue(input)
     await stubOf(this.#connection).schedule({
       timerId,
       delayMillis: BigInt(delay.toMillis()),
@@ -603,6 +618,7 @@ export class Timers {
     const problem = periodProblem(timerId, period)
     if (problem !== undefined) throw new CommandError({ message: problem, code: "BAD_REQUEST" })
     const t = "component" in target ? { componentId: target.component.componentId, name: target.handler.name, input: target.handler.input as Shape<unknown> | undefined } : target
+    await prefetchValue(input)
     const reply = await stubOf(this.#connection)
       .scheduleRecurring({
         timerId,

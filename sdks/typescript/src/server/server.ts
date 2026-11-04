@@ -20,6 +20,12 @@ import { statelessRoutes } from "./stateless.ts"
 import { agentRoutes } from "./agent.ts"
 import { httpRoutes } from "./http.ts"
 import { mcpRoutes } from "./mcp.ts"
+import { erasureRoutes } from "./erasure.ts"
+import { randomUUID } from "node:crypto"
+import { channelOf } from "../client.ts"
+import { currentKeyring, followNotices, installKeyring, Keyring, type KeyReply } from "../keyring.ts"
+import { olderThan } from "../startFrom.ts"
+import { PERSONAL_SINCE } from "./discovery.ts"
 
 export interface ServerOptions {
   /** `127.0.0.1` by default; `0.0.0.0` for the testkit; anything else is refused. */
@@ -36,6 +42,8 @@ export interface ServerOptions {
   readonly storage?: Buckets
   /** Where `service.json` is read from for the buckets it declares; the working directory by default. */
   readonly serviceDirectory?: string
+  /** How long a subject key is waited for from the sidecar; 10 seconds by default. */
+  readonly keyTimeoutMillis?: number
 }
 
 /** What every servicer needs. */
@@ -51,7 +59,7 @@ export interface ServerContext {
 function withStorageEndpoint(registry: Registry): Registry {
   const cls = DirectoryStorageEndpoint
   const endpoint: RegisteredEndpoint = Object.freeze({ id: cls.name, cls, prefix: cls.prefix, acl: cls.acl, routes: new Map(Object.entries(cls.routes)) })
-  return new Registry(registry.components, new Map([...registry.endpoints, [endpoint.id, endpoint]]))
+  return new Registry(registry.components, new Map([...registry.endpoints, [endpoint.id, endpoint]]), registry.mcpEndpoints, registry.erasureHandler)
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1", "0.0.0.0", "::"])
@@ -63,6 +71,8 @@ export class Server {
   readonly #sessions = new Set<ServerHttp2Session>()
   #http2: Http2Server | undefined
   #address: { host: string; port: number } | undefined
+  #keyring: Keyring | undefined
+  #following = false
   #resolveClosed!: () => void
   readonly closed: Promise<void> = new Promise((resolve) => {
     this.#resolveClosed = resolve
@@ -90,11 +100,15 @@ export class Server {
     _setProcessStorage(chosen.buckets)
     const registry = chosen.buckets instanceof DirectoryBuckets ? withStorageEndpoint(this.#context.registry) : this.#context.registry
     this.#context = { ...this.#context, registry, storage: chosen.buckets }
+    this.#installKeyring()
     this.#context.log(`ankka: object storage is ${chosen.backend}${chosen.buckets instanceof DirectoryBuckets ? ` at ${chosen.buckets.root}` : ""}`)
 
     const handler = connectNodeAdapter({
       routes: (router: ConnectRouter) => {
-        discoveryRoutes(router, () => renderSpec(this.#context.registry), this.#context.log)
+        discoveryRoutes(router, () => renderSpec(this.#context.registry), this.#context.log, {
+          users: () => this.#context.registry.personalUsers,
+          discovered: (protocol) => this.#followNotices(protocol),
+        })
         eventSourcedRoutes(router, this.#context)
         keyValueRoutes(router, this.#context)
         workflowRoutes(router, this.#context)
@@ -102,6 +116,7 @@ export class Server {
         agentRoutes(router, this.#context)
         httpRoutes(router, this.#context)
         mcpRoutes(router, this.#context)
+        erasureRoutes(router, this.#context)
       },
       shutdownSignal: this.#shutdown.signal,
       readMaxBytes: this.#options.readMaxBytes ?? 64 * 1024 * 1024,
@@ -129,6 +144,49 @@ export class Server {
     return this.#address
   }
 
+  /** The process's keyring: subject keys asked of the sidecar this server's client dials (feature 042). */
+  #installKeyring(): void {
+    const channel = channelOf(this.#context.client)
+    if (!channel) return
+    const timeoutMs = this.#options.keyTimeoutMillis ?? 10_000
+    // The project is learned from the sidecar's answers (`SubjectKeyReply.project`), never configured.
+    this.#keyring = new Keyring({
+      fetch: async (project, subject, create): Promise<KeyReply> => {
+        const reply = await channel.stub().getSubjectKey({ subject, create, project }, { timeoutMs })
+        switch (reply.reply.case) {
+          case "key":
+            return { project: reply.project, answer: { kind: "key", key: reply.reply.value } }
+          case "erased":
+            return { project: reply.project, answer: { kind: "erased" } }
+          case "error":
+            throw new Error(reply.reply.value.message)
+          default:
+            throw new Error("the sidecar answered a subject key request with nothing")
+        }
+      },
+    })
+    installKeyring(this.#keyring)
+  }
+
+  /** Holds the sidecar's subject notices once a runtime speaking 1.23 has discovered a service with personal fields. */
+  #followNotices(protocol: string): void {
+    const keyring = this.#keyring
+    const channel = channelOf(this.#context.client)
+    if (this.#following || !keyring || !channel || olderThan(protocol, PERSONAL_SINCE) || this.#context.registry.personalUsers.length === 0) return
+    this.#following = true
+    const instance = randomUUID()
+    void followNotices(
+      keyring,
+      (signal) => channel.stub().subjectNotices({ instance }, { signal }),
+      async (seq) => {
+        const reply = await channel.stub().ackSubjectNotice({ seq, instance })
+        if (reply.error) this.#context.log(`ankka: the sidecar refused the ack of subject notice ${seq}: ${reply.error.message}`)
+      },
+      this.#shutdown.signal,
+      this.#context.log,
+    )
+  }
+
   /** The bound address; throws before `start`. */
   get address(): { host: string; port: number } {
     if (!this.#address) throw new Error("the server is not started")
@@ -140,6 +198,7 @@ export class Server {
     const server = this.#http2
     if (!server) return
     this.#shutdown.abort()
+    if (this.#keyring && currentKeyring() === this.#keyring) installKeyring(undefined)
     const closing = new Promise<void>((resolve) => server.close(() => resolve()))
     for (const session of this.#sessions) session.close()
     const grace = setTimeout(() => {

@@ -117,6 +117,30 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
   /** What a suite installs beyond the backups' stack, before the operator starts. */
   protected def installMore(): Unit = ()
 
+  /** The node's container before it starts: a suite that publishes a port maps it here. */
+  protected def configure(container: K3sContainer): K3sContainer = container
+
+  /** Whether the control plane erases personal data (feature 042); off, as it ships. */
+  protected def erasureSettings
+      : com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+    com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off
+
+  /** Where the control plane applies an erasure request; none, as without a keyring. */
+  protected def erasurePlane: Option[erasure.ErasurePlane] = None
+
+  /** Machines' settings and signing keys, for a suite that registers a machine. */
+  protected def machineSettings: com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings =
+    com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local
+  protected def machineKeys: Option[com.thinkmorestupidless.ankka.controlplane.auth.MachineKeys] =
+    None
+
+  /** The control plane's endpoints beyond its own server's: a second server a suite needs. */
+  protected def moreExtensions: Seq[com.thinkmorestupidless.ankka.runtime.RuntimeExtension] =
+    Seq.empty
+
+  /** Run once the control plane has started and the organization exists. */
+  protected def controlPlaneStarted(): Unit = ()
+
   protected def operatorSettings: OperatorSettings =
     OperatorSettings.default.copy(
       broker = broker,
@@ -134,7 +158,7 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
 
   override def beforeAll(): Unit =
     if !munitIgnore then
-      k3s = new K3sContainer(DockerImageName.parse(K3sImage))
+      k3s = configure(new K3sContainer(DockerImageName.parse(K3sImage)))
       k3s.start()
       ClusterImages.importInto(k3s, SampleImage)
       k8s = new KubernetesClientBuilder()
@@ -181,18 +205,23 @@ abstract class BackupClusterSteps(feature: String) extends GherkinSuite(feature)
           backups = controlPlaneBackups,
           platform = Some(projector),
           rehearsals = Some(projector),
-          divergence = divergence
+          divergence = divergence,
+          machineSettings = machineSettings,
+          machineKeys = machineKeys,
+          erasure = erasureSettings,
+          erasures = erasurePlane
         )*
       )
       testKit = AnkkaTestKit.start(
         ControlPlane.componentsWith(projector),
-        Seq(ProjectionRuntime(), projector, server)
+        Seq(ProjectionRuntime(), projector) ++ erasurePlane.toSeq ++ moreExtensions :+ server
       )
       url = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
       config = Files.createTempFile("ankka-backups", ".json")
       Files.delete(config)
       sys.props("ankka.config") = config.toString
       ok(ankka("organizations", "create", "acme", "--name", "Acme")): Unit
+      controlPlaneStarted()
 
   override def afterAll(): Unit =
     writing.set(false)

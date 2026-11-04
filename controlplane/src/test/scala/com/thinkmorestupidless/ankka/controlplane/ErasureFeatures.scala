@@ -62,8 +62,6 @@ class ErasureFeatures(
     // A restored database and a restored keyring are a cluster's: CNPG's recovery and the hold.
     "a service restored to before an erasure is not ready until it has applied the erasure log to its own tables" ->
       "ErasureRestoreClusterFeatures, on k3s",
-    "an entity recovered from a restored database reads an erased data subject as erased, because the keyring was not restored" ->
-      "ErasureRestoreClusterFeatures, on k3s",
     "the keyring restored to before an erasure applies the erasure log before it answers any request" ->
       "ErasureRestoreClusterFeatures, on k3s",
     // A machine outside the installation reaches the keyring through the installation's gateway.
@@ -320,6 +318,9 @@ class ErasureFeatures(
     admin = TestKeyringAdmin(keyring, () => names)
     if onKeyring then restartKeyring()
     asked = Map.empty
+    failing = None
+    failedApply = None
+    logBucket.refuse = false
     handlerRuns.clear()
     objectsHeld.clear()
 
@@ -359,7 +360,8 @@ class ErasureFeatures(
     def resend(seq: Long) = admin.resend(seq)
     def status(seq: Long) = admin.status(seq)
 
-  private val plane = ErasurePlane(currentKeyring, Some(MemoryErasureLogBucket()))
+  private val logBucket = MemoryErasureLogBucket()
+  private val plane     = ErasurePlane(currentKeyring, Some(logBucket))
 
   private def apply(service: String, personal: Boolean): (Int, String) =
     val said = if personal then ""","personal":true""" else ""
@@ -900,12 +902,123 @@ class ErasureFeatures(
 
   Given(
     "each of them has recorded personal fields of the data subject {string} and of the data subject {string}"
-  ) { (first: String, second: String) =>
-    for k <- kits; s <- Seq(first, second) do register(k, idOf(s), emailOf(s))
-    Seq(first, second).foreach(s => objectsHeld.put(s, true))
-    for k <- kits; s <- Seq(first, second) do
+  )((first: String, second: String) => recordPersonal(first, second))
+
+  private def recordPersonal(subjects: String*): Unit =
+    for k <- kits; s <- subjects do register(k, idOf(s), emailOf(s))
+    subjects.foreach(s => objectsHeld.put(s, true))
+    for k <- kits; s <- subjects do
       eventually(s"the profile of $s")(rowOf(k, s)): Unit
       eventually(s"the registration of $s on the topic")(deliveredTo(k, s).headOption): Unit
+
+  // ── restores.feature, in process ───────────────────────────────────────────
+
+  Given("a project {string} with the service {string}") { (in: String, service: String) =>
+    project = in
+    erasureOn = true
+    scenarios += 1
+    planeProject = s"$in-$scenarios"
+    logBucket.refuse = false
+    failing = None
+    harness.project(planeProject, "acme", "ada")
+    startKit(service): Unit
+    recordPersonal("player/8c1f", "player/9d2e")
+  }
+
+  Given("the keyring has not been restored")(() => ())
+
+  Given("the database of {string} has been restored to a point before the erasure") { (_: String) =>
+    // An erasure rewrites nothing, so the journal holds what a restore to before it gives back:
+    // every event of the erased data subject, its personal fields sealed under the destroyed key.
+    val k    = kitNamed("players")
+    val text = bytes("event_journal", "event_payload", "persistence_id = 'player|8c1f'", k)
+      .map(new String(_, UTF_8))
+      .mkString
+    assert(envelopeOf(text, "email").flatMap(e => parse(e).c).isDefined, text)
+  }
+
+  private var replayed: Option[com.thinkmorestupidless.ankka.keyring.ErasureLogReplay.Report] =
+    None
+  private var behindCopy = Option.empty[(String, Long)]
+
+  Given("one copy of the erasure log is behind the other") { () =>
+    val latest = logBucket.entries().map(_.seq).maxOption.getOrElse(fail("the log is empty"))
+    behindCopy = Some("bucket" -> latest)
+  }
+
+  When("the keyring applies the erasure log") { () =>
+    val (copy, missing) = behindCopy.getOrElse(fail("no copy is behind"))
+    val behind          = new com.thinkmorestupidless.ankka.keyring.LogCopy:
+      val name             = copy
+      def after(seq: Long) =
+        logBucket
+          .entries()
+          .filter(e => e.seq > seq && e.seq != missing)
+          .map(e =>
+            com.thinkmorestupidless.ankka.keyring
+              .LogEntry(e.seq, e.project, e.subject, e.rid, e.appliedAt)
+          )
+    given org.apache.pekko.actor.typed.ActorSystem[?] = kits(0).service.system
+    given scala.concurrent.ExecutionContext           = kits(0).service.system.executionContext
+    val database                                      = Database()
+    Await.result(
+      database.execute(SqlFragment.raw("DROP SCHEMA IF EXISTS keyring CASCADE")),
+      30.seconds
+    ): Unit
+    val store = com.thinkmorestupidless.ankka.keyring.KeyStore(database)
+    Await.result(store.ensure(), 30.seconds)
+    val replay =
+      com.thinkmorestupidless.ankka.keyring.ErasureLogReplay(store, Vector(planeLog, behind))
+    replayed = Some(Await.result(replay.run(), 60.seconds))
+    keyStoreOfReplay = Some(store)
+  }
+
+  private var keyStoreOfReplay = Option.empty[com.thinkmorestupidless.ankka.keyring.KeyStore]
+
+  Then("it applies every entry that either copy holds") { () =>
+    val store = keyStoreOfReplay.getOrElse(fail("nothing was replayed"))
+    val seqs  = (logBucket.entries().map(_.seq) ++ planeLog.after(0).map(_.seq)).distinct
+    assert(seqs.nonEmpty)
+    seqs.foreach(seq =>
+      assert(Await.result(store.applied(seq), 30.seconds).isDefined, s"entry $seq")
+    )
+    assert(replayed.exists(_.finished), replayed.toString)
+  }
+
+  Then("it reports which copy was behind") { () =>
+    val (copy, missing) = behindCopy.getOrElse(fail("no copy is behind"))
+    assertEquals(
+      replayed.map(_.behind.map(b => b.copy -> b.missing)),
+      Some(Vector(copy -> Vector(missing)))
+    )
+  }
+
+  private var failedApply: Option[Throwable] = None
+  private var failing: Option[String]        = None
+
+  Given("an erasure request for {string} in {string} whose write to the erasure log fails") {
+    (subject: String, in: String) =>
+      assertEquals(in, project)
+      assert(holdsKey(project, subject), s"$subject has no key to destroy")
+      logBucket.refuse = true
+      failing = Some(subject)
+      val (status, body) = askErasure(subject)
+      assertEquals(status, 201, body)
+  }
+
+  Then("no subject key is destroyed") { () =>
+    val subject = failing.getOrElse(fail("no request was refused its log write"))
+    assert(failedApply.isDefined, "the application did not fail")
+    assert(holdsKey(project, subject), s"the subject key of $subject was destroyed")
+  }
+
+  Then("the erasure request is not applied, and says why") { () =>
+    val subject = failing.getOrElse(fail("no request was refused its log write"))
+    val reply   = readRequest(subject)
+    logBucket.refuse = false
+    assert(reply.contains(""""state":"applying""""), reply)
+    assert(reply.contains(""""lastFailure":{"reason":""""), reply)
+    assert(reply.contains("erasure log"), reply)
   }
 
   Given("each of them has recorded fields of {string} that are not personal") { (subject: String) =>
@@ -1066,8 +1179,16 @@ class ErasureFeatures(
       reply = readRequest(subject)
   }
 
+  // One wording, two uses: restores.feature applies a request whose log write is refused (a When),
+  // erasing.feature reads that a request was applied (a Then).
   Then("the erasure request is applied") { () =>
-    assert(reply.contains(""""state":"applied""""), reply)
+    failing match
+      case Some(subject) =>
+        failedApply = scala.util
+          .Try(Await.result(application.apply(s"$planeProject/${requestOf(subject)}"), 30.seconds))
+          .failed
+          .toOption
+      case None => assert(reply.contains(""""state":"applied""""), reply)
   }
 
   Then("it says when the subject key was destroyed") { () =>

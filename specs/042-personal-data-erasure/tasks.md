@@ -162,7 +162,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 
 **Independent test**: `ErasureRestoreClusterFeatures` (k3s) for the two cases; in-process cases for readiness and the log's two copies.
 
-- [ ] T054 [US3] Bind `FEAT/restores.feature`'s in-process scenarios in `ErasureFeatures` (an entity recovered from a restored database reads erased; the union of both copies; a failed log write destroys nothing) and its cluster scenarios in `ErasureRestoreClusterFeatures`; red
+- [X] T054 [US3] Bind `FEAT/restores.feature`'s in-process scenarios in `ErasureFeatures` (an entity recovered from a restored database reads erased; the union of both copies; a failed log write destroys nothing) and its cluster scenarios in `ErasureRestoreClusterFeatures`; red
 - [ ] T055 [US3] A service switched to a restore holds `ExtensionsReadiness` as `erasure-replay` (`RT/ExtensionsReadiness.scala`, the secret-move precedent in `RT/Ankka.scala:387-390`) until it has applied every log entry of its project (R14 over each, agent sessions marked); the restore's status reports `erasureReplayedAt` (`CP/application/ProjectEntity.scala`'s `observeRestore`, the operator's project status)
 - [ ] T056 [US3] `RestoreHold`'s reconciler for the erasure log (`CP/deploy/RestoreHold.scala`'s `reconcilers`): bring `erasure_log` up to date from the bucket before release; `RestoreHoldErasureSuite`
 - [ ] T057 [US3] `ErasureRestoreClusterFeatures`: case A (the project database restored, the keyring untouched) and case B (the keyring's database restored) on k3s through `gh workflow run cluster --ref 042-personal-data-erasure-design -f suite=ErasureRestoreClusterFeatures`; green

@@ -43,6 +43,37 @@ trait ErasureRoutes extends HttpEndpoint:
   postBody("/{projectId}/erasures") { (projectId: String, ask: ErasureAsk) =>
     val access = authz.project(principal, projectId, write = true)
     requireOn()
+    // Asked again for a data subject already erased: that request, nothing recorded, and its
+    // notice sent again so every service, and every handler, runs it again (data-model.md).
+    // The listing follows the requests, so each of the subject's still in play is read from its
+    // entity: one applied a moment ago is listed as applying. One asked in the moment before the
+    // listing has it at all is not found, and a second request is made; applying it destroys a
+    // key already gone and runs every handler again, which is what the re-send does.
+    val applied = rows
+      .ask(ErasureRequestsView.bySubject, "project" -> projectId, "subject" -> ask.subject)
+      .iterator
+      .filter(r => r.state == ErasureState.Applied.wire || r.state == ErasureState.Applying.wire)
+      .map(r => request(projectId, r.rid).call(ErasureRequestEntity.get).invoke())
+      .find(_.state.contains(ErasureState.Applied))
+    applied match
+      case Some(current) =>
+        erasureApplication.foreach(app =>
+          app
+            .resend(current)
+            .failed
+            .foreach(e => log.warn(s"erasure request ${current.id} was not sent again", e))(using
+              scala.concurrent.ExecutionContext.parasitic
+            )
+        )
+        Respond(ErasureRoutes.view(current), 200)
+      case None => askNew(projectId, ask, access)
+  }
+
+  private def askNew(
+      projectId: String,
+      ask: ErasureAsk,
+      access: com.thinkmorestupidless.ankka.controlplane.auth.Authorized
+  ): Respond[ErasureRequestView] =
     val rid   = ErasureRoutes.rid()
     val asked = request(projectId, rid)
       .call(ErasureRequestEntity.ask)
@@ -50,7 +81,6 @@ trait ErasureRoutes extends HttpEndpoint:
       .invoke(AskErasure(projectId, ask.subject, ask.notBefore, ask.reason, ask.correlation))
     if asked.state.contains(ErasureState.Applying) then applyLater(asked.id)
     Respond(ErasureRoutes.view(asked), 201)
-  }
 
   get("/{projectId}/erasures") { (projectId: String) =>
     authz.project(principal, projectId, write = false): Unit

@@ -180,8 +180,9 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
    */
   private var admin: TestKeyringAdmin = TestKeyringAdmin(keyring)
   private object currentKeyring extends KeyringAdmin:
+    // The control plane's project for this scenario is a fresh one; the services' is `project`.
     def destroy(order: com.thinkmorestupidless.ankka.core.keyring.ErasureOrder) =
-      admin.destroy(order)
+      admin.destroy(order.copy(project = project))
     def resend(seq: Long) = admin.resend(seq)
     def status(seq: Long) = admin.status(seq)
 
@@ -634,6 +635,13 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   /** The request asked for each data subject in this scenario: its id within the project. */
   private var asked: Map[String, String] = Map.empty
 
+  /**
+   * The project as the control plane knows it in this scenario: one of its own, since the control
+   * plane outlives the scenarios and a request applied in one would answer the next one's ask.
+   */
+  private var planeProject: String = ""
+  private var scenarios: Int       = 0
+
   private def emailOf(subject: String): String = s"${idOf(subject)}@example.com"
 
   private val RequestId = """"id":"([0-9A-Z]{26})"""".r
@@ -646,7 +654,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
 
   private def readRequest(subject: String): String =
     val (status, body) =
-      harness.send("GET", s"/projects/$project/erasures/${requestOf(subject)}", as = "ada")
+      harness.send("GET", s"/projects/$planeProject/erasures/${requestOf(subject)}", as = "ada")
     assertEquals(status, 200, body)
     body
 
@@ -654,7 +662,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   private def askErasure(subject: String): (Int, String) =
     val answer = harness.send(
       "POST",
-      s"/projects/$project/erasures",
+      s"/projects/$planeProject/erasures",
       Some(s"""{"subject":"$subject"}"""),
       "ada"
     )
@@ -666,7 +674,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
    * read from the keyring, as the control plane's sweep does.
    */
   private def untilFinal(subject: String): String =
-    val id = s"$project/${requestOf(subject)}"
+    val id = s"$planeProject/${requestOf(subject)}"
     eventually("the erasure request is final", 60.seconds) {
       val now = Await.result(application.apply(id), 30.seconds)
       Option.when(now.finalAt.isDefined)(readRequest(subject))
@@ -711,7 +719,9 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     (in: String, a: String, b: String, c: String) =>
       project = in
       erasureOn = true
-      assert(harness != null)
+      scenarios += 1
+      planeProject = s"$in-$scenarios"
+      harness.project(planeProject, "acme", "ada")
       Seq(a, b, c).foreach(startKit(_): Unit)
   }
 
@@ -925,7 +935,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
       assertEquals(in, project)
       val (status, body) = harness.send(
         "GET",
-        s"/projects/$project/erasures/${requestOf(subject)}/certificate",
+        s"/projects/$planeProject/erasures/${requestOf(subject)}/certificate",
         as = "ada"
       )
       assertEquals(status, 200, body)
@@ -935,7 +945,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   Then(
     "the erasure certificate names the erasure request, the data subject {string} and who asked for it"
   ) { (subject: String) =>
-    assert(reply.contains(s""""request":"$project/${requestOf(subject)}""""), reply)
+    assert(reply.contains(s""""request":"$planeProject/${requestOf(subject)}""""), reply)
     assert(reply.contains(s""""subject":"$subject""""), reply)
     assert(reply.contains(""""askedBy":"ada""""), reply)
   }
@@ -956,8 +966,14 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   }
 
   Then("it is applied again later") { () =>
-    val subject        = asked.keys.headOption.getOrElse(fail("nothing was asked"))
-    val first          = requestOf(subject)
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    val first   = requestOf(subject)
+    // Later: once the project's listing shows the request applied, which follows the request.
+    eventually("the request listed as applied") {
+      val (_, list) =
+        harness.send("GET", s"/projects/$planeProject/erasures?state=applied", as = "ada")
+      Option.when(list.contains(first))(())
+    }
     val (status, body) = askErasure(subject)
     assert(status / 100 == 2, s"$status $body")
     assertEquals(requestOf(subject), first, "a second request was made for an applied data subject")

@@ -12,9 +12,10 @@ import java.security.SecureRandom
 
 /**
  * A project's erasure requests (feature 042, `contracts/control-plane-and-cli.md`): a member asks,
- * lists, reads one and its certificate. A request asked with no hold is applied at once, after the
- * answer; every write is refused while the installation's erasure is off. Mixed into the project
- * endpoint, whose prefix `/projects` they share and no second endpoint may.
+ * lists, reads one and its certificate; a member replaces or withdraws a held one, and only an
+ * owner overrides a hold. A request asked with no hold is applied at once, after the answer; every
+ * write is refused while the installation's erasure is off. Mixed into the project endpoint, whose
+ * prefix `/projects` they share and no second endpoint may.
  */
 trait ErasureRoutes extends HttpEndpoint:
 
@@ -110,6 +111,42 @@ trait ErasureRoutes extends HttpEndpoint:
   get("/{projectId}/erasures/{rid}") { (projectId: String, rid: String) =>
     authz.project(principal, projectId, write = false): Unit
     ErasureRoutes.view(request(projectId, rid).call(ErasureRequestEntity.get).invoke())
+  }
+
+  putBody("/{projectId}/erasures/{rid}") { (projectId: String, rid: String, body: ErasureReplace) =>
+    val access = authz.project(principal, projectId, write = true)
+    requireOn()
+    ErasureRoutes.view(
+      request(projectId, rid)
+        .call(ErasureRequestEntity.replace)
+        .withMetadata(authz.metadata(access))
+        .invoke(ReplaceErasure(body.notBefore, body.reason))
+    )
+  }
+
+  // Whoever asked for it or any other member: a hold is the project's, not its filer's.
+  post("/{projectId}/erasures/{rid}/withdraw") { (projectId: String, rid: String) =>
+    val access = authz.project(principal, projectId, write = true)
+    requireOn()
+    ErasureRoutes.view(
+      request(projectId, rid)
+        .call(ErasureRequestEntity.withdraw)
+        .withMetadata(authz.metadata(access))
+        .invoke()
+    )
+  }
+
+  postBody("/{projectId}/erasures/{rid}/override") {
+    (projectId: String, rid: String, body: ErasureOverride) =>
+      val access = authz.projectOwner(principal, projectId)
+      requireOn()
+      val overridden = request(projectId, rid)
+        .call(ErasureRequestEntity.overrideHold)
+        .withMetadata(authz.metadata(access))
+        .invoke(OverrideHold(body.reason))
+      // Applying at once, as an unheld request is: after the answer, and by the sweep if not now.
+      applyLater(overridden.id)
+      ErasureRoutes.view(overridden)
   }
 
   get("/{projectId}/erasures/{rid}/certificate") { (projectId: String, rid: String) =>

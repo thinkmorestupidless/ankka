@@ -27,6 +27,7 @@ class ErasureEndpointSuite extends munit.FunSuite with LogCapturing:
     harness.organization("brand-org", "ada")
     harness.project("brand", "brand-org", "ada")
     harness.organization("other-org", "bo")
+    harness.member("cy", "brand-org", "ada")
 
   override def afterAll(): Unit = harness.stop()
 
@@ -88,6 +89,84 @@ class ErasureEndpointSuite extends munit.FunSuite with LogCapturing:
     val (status, body) = ask("""{"subject":"player 8c1f"}""")
     assertEquals(status, 400, body)
     assert(body.contains("1 to 253 characters"), body)
+  }
+
+  private def held(subject: String): String =
+    val (status, body) =
+      ask(s"""{"subject":"$subject","notBefore":"2099-01-01T00:00:00Z","reason":"aml-retention"}""")
+    assertEquals(status, 201, body)
+    Rid.findFirstMatchIn(body).map(_.group(1)).getOrElse(fail(body))
+
+  test("a member replaces a held request's date and reason; one not held is not replaced") {
+    val rid            = held("player/r1")
+    val (status, body) = harness.send(
+      "PUT",
+      s"/projects/brand/erasures/$rid",
+      Some("""{"notBefore":"2099-06-01T00:00:00Z","reason":"chargeback window"}"""),
+      "cy"
+    )
+    assertEquals(status, 200, body)
+    assert(body.contains(""""notBefore":"2099-06-01T00:00:00Z""""), body)
+    assert(body.contains(""""reason":"chargeback window""""), body)
+    assert(body.contains(""""state":"held""""), body)
+    harness.send("POST", s"/projects/brand/erasures/$rid/withdraw", None, "ada"): Unit
+    val (again, why) = harness.send(
+      "PUT",
+      s"/projects/brand/erasures/$rid",
+      Some("""{"notBefore":"2099-07-01T00:00:00Z"}"""),
+      "ada"
+    )
+    assertEquals(again, 409, why)
+  }
+
+  test("any member withdraws a held request; an applied one cannot be withdrawn") {
+    val rid            = held("player/w1")
+    val (status, body) = harness.send("POST", s"/projects/brand/erasures/$rid/withdraw", None, "cy")
+    assertEquals(status, 200, body)
+    assert(body.contains(""""state":"withdrawn""""), body)
+
+    val (_, asked) = ask("""{"subject":"player/w2"}""")
+    val now        = Rid.findFirstMatchIn(asked).map(_.group(1)).getOrElse(fail(asked))
+    harness.eventually("the request applied") {
+      val (_, r) = harness.send("GET", s"/projects/brand/erasures/$now", as = "ada")
+      Option.when(r.contains(""""state":"applied""""))(r)
+    }: Unit
+    val (refused, why) =
+      harness.send("POST", s"/projects/brand/erasures/$now/withdraw", None, "ada")
+    assertEquals(refused, 409, why)
+    assert(why.contains("applied"), why)
+  }
+
+  test("an owner overrides a hold with a reason and it is applied; a member cannot") {
+    val rid           = held("player/o1")
+    val (member, why) = harness.send(
+      "POST",
+      s"/projects/brand/erasures/$rid/override",
+      Some("""{"reason":"asked twice"}"""),
+      "cy"
+    )
+    assertEquals(member, 403, why)
+    val (empty, none) =
+      harness.send(
+        "POST",
+        s"/projects/brand/erasures/$rid/override",
+        Some("""{"reason":" "}"""),
+        "ada"
+      )
+    assertEquals(empty, 400, none)
+    assert(none.contains("an override needs a reason"), none)
+    val (status, body) = harness.send(
+      "POST",
+      s"/projects/brand/erasures/$rid/override",
+      Some("""{"reason":"the hold was filed in error"}"""),
+      "ada"
+    )
+    assertEquals(status, 200, body)
+    assert(body.contains(""""holdOverride":{"owner":"ada""""), body)
+    harness.eventually("the overridden request applied") {
+      val (_, r) = harness.send("GET", s"/projects/brand/erasures/$rid", as = "ada")
+      Option.when(r.contains(""""state":"applied""""))(r)
+    }: Unit
   }
 
   test("someone outside the project can neither ask nor read") {

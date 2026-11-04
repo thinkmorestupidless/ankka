@@ -102,8 +102,16 @@ final case class ErasureCertificate(
     finalAt: Option[Instant] = None
 )
 
+/** `PUT …/erasures/{rid}`: a held request's new date and reason, in place of the old. */
+final case class ErasureReplace(notBefore: Option[Instant] = None, reason: Option[String] = None)
+
+/** `POST …/erasures/{rid}/override`: an owner's reason for applying a held request now. */
+final case class ErasureOverride(reason: String = "")
+
 object ErasureWire:
   given erasureAskCodec: JsonValueCodec[ErasureAsk]                 = Codecs.make[ErasureAsk]
+  given erasureReplaceCodec: JsonValueCodec[ErasureReplace]         = Codecs.make[ErasureReplace]
+  given erasureOverrideCodec: JsonValueCodec[ErasureOverride]       = Codecs.make[ErasureOverride]
   given erasureRequestViewCodec: JsonValueCodec[ErasureRequestView] =
     Codecs.make[ErasureRequestView]
   given erasureSummariesCodec: JsonValueCodec[Vector[ErasureRequestSummary]] =

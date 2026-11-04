@@ -74,3 +74,14 @@ object Keyring:
     bound.set(keyring)
     try body
     finally if before == null then bound.remove() else bound.set(before)
+
+/**
+ * A personal field could not be sealed or opened because the keyring could not be reached (feature
+ * 042). Thrown by the personal codec in place of the keyring's `CommandError`, which it carries as
+ * its cause, so a caller reads the refusal through `CommandError.from` while a host can supervise
+ * this, and only this, with a retry: an entity recovered during an outage is restarted with backoff
+ * rather than stopped, and never reads its personal fields as erased.
+ */
+final class KeyringUnavailable(val error: CommandError)
+    extends RuntimeException(error.getMessage, error):
+  override def fillInStackTrace(): Throwable = this

@@ -106,8 +106,11 @@ private[ankka] object EventSourcedEntityHost:
         val observability = Observability(ctx.system)
         val componentRef  = observability.names.intern(descriptor.componentId.toString)
         val empty         = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
-        val copy          = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
-        val host          =
+        // The service's keyring, bound around every encode and decode (feature 042).
+        val keyring =
+          com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
+        val copy = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
+        val host =
           Host(descriptor, entity, entityId, observability, componentRef, copy, timers)
 
         val base = EventSourcedBehavior
@@ -130,8 +133,8 @@ private[ankka] object EventSourcedEntityHost:
                 EventSourcedBehavior.lastSequenceNumber(ctx)
               )
           )
-          .eventAdapter(eventAdapter(descriptor, rep.map(_.self)))
-          .snapshotAdapter(snapshotAdapter(descriptor, entity))
+          .eventAdapter(eventAdapter(descriptor, rep.map(_.self), keyring))
+          .snapshotAdapter(snapshotAdapter(descriptor, entity, keyring))
           .receiveSignal {
             case (state, RecoveryCompleted) =>
               copy.foreach(_.recovered(state, EventSourcedBehavior.lastSequenceNumber(ctx)))
@@ -724,11 +727,15 @@ private[ankka] object EventSourcedEntityHost:
    */
   private def eventAdapter[C <: EventSourcedEntity[S, E], S, E](
       descriptor: EventSourcedEntityDescriptor[C, S, E],
-      self: Option[String]
+      self: Option[String],
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ): EventAdapter[Journaled[E], JournalRecord] =
     new EventAdapter[Journaled[E], JournalRecord]:
 
-      def toJournal(event: Journaled[E]): JournalRecord = event match
+      def toJournal(event: Journaled[E]): JournalRecord =
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(encode(event))
+
+      private def encode(event: Journaled[E]): JournalRecord = event match
         case Journaled.Domain(e, _, attribution, forwardedFrom) =>
           JournalRecord
             .domain(descriptor.eventSerializer.manifest, descriptor.eventSerializer.toBytes(e))
@@ -744,15 +751,24 @@ private[ankka] object EventSourcedEntityHost:
         case other                        => manifestOf(toJournal(other))
 
       def fromJournal(record: JournalRecord, manifest: String): EventSeq[Journaled[E]] =
-        EventSeq.single(decode(descriptor, record))
+        EventSeq.single(
+          com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(decode(descriptor, record))
+        )
 
   private def snapshotAdapter[C <: EventSourcedEntity[S, E], S, E](
       descriptor: EventSourcedEntityDescriptor[C, S, E],
-      entity: C
+      entity: C,
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ): SnapshotAdapter[Stored[S]] =
     new SnapshotAdapter[Stored[S]]:
 
       def toJournal(state: Stored[S]): Any =
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(encode(state))
+
+      def fromJournal(from: Any): Stored[S] =
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(decode(from))
+
+      private def encode(state: Stored[S]): Any =
         StateRecord(
           descriptor.stateSerializer.manifest,
           descriptor.stateSerializer.toBytes(state.value),
@@ -764,7 +780,7 @@ private[ankka] object EventSourcedEntityHost:
           state.conflict
         )
 
-      def fromJournal(from: Any): Stored[S] =
+      private def decode(from: Any): Stored[S] =
         // A `RemoteStateRecord` is what a sidecar-hosted port of this entity wrote (feature 009);
         // its extra positions are the sidecar's concern. Reading it is what makes the journal
         // portable in that direction.

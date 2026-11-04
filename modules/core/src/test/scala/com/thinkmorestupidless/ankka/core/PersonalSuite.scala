@@ -132,13 +132,15 @@ final class PersonalSuite extends munit.FunSuite:
   }
 
   test("with no keyring installed a personal field is refused as unavailable, naming the keyring") {
-    val e = intercept[CommandError](
+    val thrown = intercept[KeyringUnavailable](
       Keyring.binding(Keyring.unavailable)(
         PersonalScope.within("player-registered")(
           writeToArray(Personal(DataSubject("player/8c1f"), "ada@example.com"))
         )
       )
     )
+    // A caller reads it as the keyring's own refusal.
+    val e = CommandError.from(thrown).getOrElse(fail("no CommandError behind it"))
     assertEquals(e.code, ErrorCode.Unavailable)
     assert(e.getMessage.contains("keyring"), e.getMessage)
   }

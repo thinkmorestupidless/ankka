@@ -393,6 +393,7 @@ final class ServiceBuilder private[ankka] (
         )
       case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
     com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.register(system, keyringHandle)
 
     // The installation's backend: the service's own database (no store at all for a service with
     // no database, feature 037) or Secret Manager. A wrong setting stops the start, naming it.
@@ -546,9 +547,10 @@ final class ServiceBuilder private[ankka] (
       keyringHandle
     )
     started.set(service)
-    system.whenTerminated.foreach(_ =>
+    system.whenTerminated.foreach { _ =>
       com.thinkmorestupidless.ankka.core.Keyring.uninstall(keyringHandle)
-    )(using scala.concurrent.ExecutionContext.parasitic)
+      com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.unregister(system)
+    }(using scala.concurrent.ExecutionContext.parasitic)
 
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
@@ -595,11 +597,13 @@ final class ServiceBuilder private[ankka] (
     val typed = descriptor.asInstanceOf[EventSourcedEntityDescriptor[AnyEntity, Any, Any]]
     val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
-        EventSourcedEntityHost.behavior[AnyEntity, Any, Any](
-          typed,
-          EntityId(ctx.entityId),
-          componentClient,
-          replicating
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+          EventSourcedEntityHost.behavior[AnyEntity, Any, Any](
+            typed,
+            EntityId(ctx.entityId),
+            componentClient,
+            replicating
+          )
         )
       }
     )
@@ -616,13 +620,15 @@ final class ServiceBuilder private[ankka] (
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
     val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
-        WorkflowHost.behavior[AnyWorkflow, Any](
-          typed,
-          EntityId(ctx.entityId),
-          componentClient,
-          secrets,
-          services,
-          storage
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+          WorkflowHost.behavior[AnyWorkflow, Any](
+            typed,
+            EntityId(ctx.entityId),
+            componentClient,
+            secrets,
+            services,
+            storage
+          )
         )
       }
     )
@@ -636,10 +642,12 @@ final class ServiceBuilder private[ankka] (
     val typed = descriptor.asInstanceOf[KeyValueEntityDescriptor[AnyEntity, Any]]
     val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
-        KeyValueEntityHost.behavior[AnyEntity, Any](
-          typed,
-          EntityId(ctx.entityId),
-          componentClient
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+          KeyValueEntityHost.behavior[AnyEntity, Any](
+            typed,
+            EntityId(ctx.entityId),
+            componentClient
+          )
         )
       }
     )

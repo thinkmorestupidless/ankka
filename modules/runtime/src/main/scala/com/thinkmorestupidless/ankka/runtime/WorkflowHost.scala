@@ -71,6 +71,8 @@ private[ankka] object WorkflowHost:
       storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
+      // The service's keyring, bound around every encode and decode of the state (feature 042).
+      val keyring = com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
       Behaviors.withTimers { timers =>
         val context = SimpleWorkflowContextImpl(
           workflowId,
@@ -133,8 +135,8 @@ private[ankka] object WorkflowHost:
           commandHandler = (state, command) => engine.onCommand(state, command),
           eventHandler = (state, event) => applyEvent(empty, state, event)
         )
-          .eventAdapter(eventAdapter(descriptor))
-          .snapshotAdapter(snapshotAdapter(descriptor))
+          .eventAdapter(eventAdapter(descriptor, keyring))
+          .snapshotAdapter(snapshotAdapter(descriptor, keyring))
           .withRetention(RetentionCriteria.snapshotEvery(100, 2))
           .receiveSignal {
             case (state, RecoveryCompleted) => engine.onRecovered(state)
@@ -202,13 +204,18 @@ private[ankka] object WorkflowHost:
   // ── Storage adapters ──────────────────────────────────────────────────────
 
   private def eventAdapter[W <: Workflow[S], S](
-      descriptor: WorkflowDescriptor[W, S]
+      descriptor: WorkflowDescriptor[W, S],
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ): EventAdapter[Event[S], WorkflowRecord] =
     new EventAdapter[Event[S], WorkflowRecord]:
 
       def toJournal(event: Event[S]): WorkflowRecord = event match
         case Event.StateUpdated(state, standing) =>
-          WorkflowRecord.stateUpdated(descriptor.stateSerializer.toBytes(state), standing)
+          WorkflowRecord.stateUpdated(
+            com.thinkmorestupidless.ankka.core.Keyring
+              .binding(keyring)(descriptor.stateSerializer.toBytes(state)),
+            standing
+          )
         case Event.TransitionedTo(step) =>
           WorkflowRecord.transitioned(step.name, step.input.getOrElse(Array.emptyByteArray))
         case Event.Paused(onTimeout, deadline) =>
@@ -231,7 +238,8 @@ private[ankka] object WorkflowHost:
         val event = record.kind match
           case WorkflowRecord.KindStateUpdated =>
             Event.StateUpdated(
-              descriptor.stateSerializer.fromBytes(record.state),
+              com.thinkmorestupidless.ankka.core.Keyring
+                .binding(keyring)(descriptor.stateSerializer.fromBytes(record.state)),
               Option(record.standing).flatten
             )
           case WorkflowRecord.KindTransitioned =>
@@ -253,13 +261,15 @@ private[ankka] object WorkflowHost:
         EventSeq.single(event)
 
   private def snapshotAdapter[W <: Workflow[S], S](
-      descriptor: WorkflowDescriptor[W, S]
+      descriptor: WorkflowDescriptor[W, S],
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ): SnapshotAdapter[Run[S]] =
     new SnapshotAdapter[Run[S]]:
 
       def toJournal(state: Run[S]): Any =
         WorkflowSnapshot(
-          descriptor.stateSerializer.toBytes(state.value),
+          com.thinkmorestupidless.ankka.core.Keyring
+            .binding(keyring)(descriptor.stateSerializer.toBytes(state.value)),
           state.status.ordinal,
           state.pending.map(_.name).getOrElse(""),
           state.pending.flatMap(_.input).getOrElse(Array.emptyByteArray),
@@ -275,7 +285,8 @@ private[ankka] object WorkflowHost:
       def fromJournal(from: Any): Run[S] =
         val snapshot = from.asInstanceOf[WorkflowSnapshot]
         Run(
-          descriptor.stateSerializer.fromBytes(snapshot.state),
+          com.thinkmorestupidless.ankka.core.Keyring
+            .binding(keyring)(descriptor.stateSerializer.fromBytes(snapshot.state)),
           Status.fromOrdinal(snapshot.status),
           Option(snapshot.pendingStep)
             .filter(_.nonEmpty)

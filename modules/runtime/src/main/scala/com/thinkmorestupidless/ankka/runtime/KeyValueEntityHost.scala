@@ -68,7 +68,13 @@ private[ankka] object KeyValueEntityHost:
               componentRef
             )
         )
-        .snapshotAdapter(snapshotAdapter(descriptor, empty))
+        .snapshotAdapter(
+          snapshotAdapter(
+            descriptor,
+            empty,
+            com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
+          )
+        )
     }
 
   private def onCommand[C <: KeyValueEntity[S], S](
@@ -225,26 +231,33 @@ private[ankka] object KeyValueEntityHost:
 
   private def snapshotAdapter[C <: KeyValueEntity[S], S](
       descriptor: KeyValueEntityDescriptor[C, S],
-      empty: Stored[S]
+      empty: Stored[S],
+      // The service's keyring, bound around each encode and decode (feature 042): the state's
+      // personal fields are sealed under it.
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ): SnapshotAdapter[Stored[S]] =
     new SnapshotAdapter[Stored[S]]:
 
       def toJournal(state: Stored[S]): Any =
-        StateRecord(
-          descriptor.stateSerializer.manifest,
-          descriptor.stateSerializer.toBytes(state.value),
-          state.deleted,
-          state.expiryMillis
-        )
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring) {
+          StateRecord(
+            descriptor.stateSerializer.manifest,
+            descriptor.stateSerializer.toBytes(state.value),
+            state.deleted,
+            state.expiryMillis
+          )
+        }
 
       def fromJournal(from: Any): Stored[S] =
-        val record = from.asInstanceOf[StateRecord]
-        // A deleted record holds the empty state here and nothing at all when a remote host
-        // wrote it; either way there is nothing to decode.
-        if record.deleted then Stored(empty.value, deleted = true, record.expiryMillis)
-        else
-          Stored(
-            descriptor.stateSerializer.fromBytes(record.payload),
-            record.deleted,
-            record.expiryMillis
-          )
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring) {
+          val record = from.asInstanceOf[StateRecord]
+          // A deleted record holds the empty state here and nothing at all when a remote host
+          // wrote it; either way there is nothing to decode.
+          if record.deleted then Stored(empty.value, deleted = true, record.expiryMillis)
+          else
+            Stored(
+              descriptor.stateSerializer.fromBytes(record.payload),
+              record.deleted,
+              record.expiryMillis
+            )
+        }

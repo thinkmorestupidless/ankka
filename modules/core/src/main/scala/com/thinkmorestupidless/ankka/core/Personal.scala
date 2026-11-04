@@ -233,7 +233,7 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
     val boxed   = x match
       case Erased(_)            => None
       case Present(subj, value) =>
-        keyring.key(project, subj, create = true) match
+        PersonalCodec.ask(keyring.key(project, subj, create = true)) match
           case KeyAnswer.Absent =>
             throw CommandError(
               s"the keyring made no key for '${subj.value}' when asked to; nothing was written",
@@ -288,7 +288,7 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
       throw corrupt(subject, s"its version is $version, and this reader knows ${Personal.Version}")
     if boxed == null then Erased(s)
     else
-      Keyring.current.key(project, s, create = false) match
+      PersonalCodec.ask(Keyring.current.key(project, s, create = false)) match
         case KeyAnswer.Destroyed | KeyAnswer.Absent => Erased(s)
         case KeyAnswer.Key(key)                     =>
           val bytes =
@@ -305,3 +305,10 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
       ErrorCode.Internal,
       Map(Personal.ErrorKey -> Personal.Corrupt)
     )
+
+object PersonalCodec:
+
+  /** `answer`, with the keyring's unavailability rethrown as `KeyringUnavailable`. */
+  private[core] inline def ask(answer: => KeyAnswer): KeyAnswer =
+    try answer
+    catch case e: CommandError if e.code == ErrorCode.Unavailable => throw KeyringUnavailable(e)

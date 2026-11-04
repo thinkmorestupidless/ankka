@@ -207,18 +207,20 @@ final class AgentRuntime private (
         val mcpTools = connectMcp(typed.componentId, typed.mcpServers, service, timers)
         val _        = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](typed.componentId)) { ctx =>
-            AgentHost.behavior(
-              typed,
-              SessionId(ctx.entityId),
-              client,
-              defaultModel,
-              modelTimeout,
-              judgments,
-              service.secrets,
-              service.services,
-              service.storage,
-              timers,
-              mcpTools
+            com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+              AgentHost.behavior(
+                typed,
+                SessionId(ctx.entityId),
+                client,
+                defaultModel,
+                modelTimeout,
+                judgments,
+                service.secrets,
+                service.services,
+                service.storage,
+                timers,
+                mcpTools
+              )
             )
           }
         )
@@ -300,12 +302,14 @@ final class AgentRuntime private (
       // sharding itself, from its record, with nothing sent to it.
       val _ = ClusterSharding(system).init(
         Entity(EntityTypeKey[EntityProtocol.Command](blueprint.RunHost.ComponentId)) { ctx =>
-          blueprint.RunHost.behavior(
-            ctx.entityId,
-            ctx.shard,
-            service.componentClient,
-            registry,
-            judgments
+          com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+            blueprint.RunHost.behavior(
+              ctx.entityId,
+              ctx.shard,
+              service.componentClient,
+              registry,
+              judgments
+            )
           )
         }.withStopMessage(blueprint.RunHost.Stop)
           .withSettings(
@@ -436,20 +440,22 @@ final class AgentRuntime private (
 
         val _ = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](descriptor.componentId)) { ctx =>
-            autonomous.AutonomousAgentHost.behavior(
-              descriptor,
-              ctx.entityId,
-              ctx.shard,
-              client,
-              defaultModel,
-              modelTimeout,
-              judgments,
-              service.secrets,
-              service.services,
-              service.storage,
-              timers,
-              mcpTools,
-              perTask
+            com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+              autonomous.AutonomousAgentHost.behavior(
+                descriptor,
+                ctx.entityId,
+                ctx.shard,
+                client,
+                defaultModel,
+                modelTimeout,
+                judgments,
+                service.secrets,
+                service.services,
+                service.storage,
+                timers,
+                mcpTools,
+                perTask
+              )
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(

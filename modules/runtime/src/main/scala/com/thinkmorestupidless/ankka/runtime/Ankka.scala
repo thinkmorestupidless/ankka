@@ -266,6 +266,21 @@ final class ServiceBuilder private[ankka] (
    * hands every service a keyring in memory and a suite that wants the local one instead.
    */
   def withLocalKeyring(): ServiceBuilder =
+    withKeyStore((system, project) =>
+      com.thinkmorestupidless.ankka.runtime.keyring
+        .LocalKeyring(project, Database()(using system))(using system.executionContext)
+    )
+
+  /**
+   * The keyring the service is handed, made once its actor system exists from that system and the
+   * service's project: what `withLocalKeyring` uses, and a suite that wraps one to count its calls.
+   */
+  def withKeyStore(
+      make: (
+          ActorSystem[?],
+          String
+      ) => com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+  ): ServiceBuilder =
     ServiceBuilder(
       descriptors,
       extensions,
@@ -274,10 +289,7 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      Some((system, project) =>
-        com.thinkmorestupidless.ankka.runtime.keyring
-          .LocalKeyring(project, Database()(using system))(using system.executionContext)
-      ),
+      Some(make),
       erasureHandler
     )
 

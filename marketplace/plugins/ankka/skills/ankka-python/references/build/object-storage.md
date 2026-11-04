@@ -547,6 +547,20 @@ ankka.Delete("/storage", func(ctx context.Context, req *ankka.Request) (StorageR
 }),
 ```
 
+## A data subject's objects
+
+The platform cannot see what a service writes to a bucket, so an object about a person is the service's to
+erase. Keep each [data subject's](personal-data.md) objects under that subject's **subject prefix**,
+`subjects/`, the data subject with every `/` written `%2F`, and `/` (`subjects/player%2F8c1f/` for
+`player/8c1f`). Build it with `ObjectRules.subjectPrefix` in Scala, `subject_prefix` in Python,
+`subjectPrefix` in TypeScript or `ankka.SubjectPrefix` in Go; no data subject's prefix holds another's.
+
+`erase(subject)` on a bucket deletes every object under the prefix, and on a store that keeps versions
+every version of each, keeps everything else, and answers how many objects it removed and when they are
+gone for good: at once, or after the store's soft-delete window when `ANKKA_S3_SOFT_DELETE_DAYS` gives one.
+Call it from the service's [erasure handler](personal-data.md#the-erasure-handler), which runs again after
+each erasure for the re-run window, so an object written under the prefix late is erased too.
+
 ## Names
 
 An object's name is 1 to 1024 bytes as UTF-8. Its segments are separated by `/`; it does not begin with

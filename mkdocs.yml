@@ -189,6 +189,7 @@ nav:
       - Timers: build/timers.md
       - Secrets a service keeps: build/secrets.md
       - Objects a service keeps: build/object-storage.md
+      - Personal data and erasure: build/personal-data.md
       - Agents: build/agents.md
       - Judgments: build/judgments.md
       - Streaming responses: build/streaming.md
@@ -240,6 +241,7 @@ nav:
       - Installation models: platform/installation-models.md
       - The cloud provider: platform/cloud-provider.md
       - Secrets on the platform: platform/secrets.md
+      - Erasure on the platform: platform/erasure.md
       - Cross-project access: platform/cross-project-access.md
       - Networking and TLS: platform/networking.md
   - Reference:

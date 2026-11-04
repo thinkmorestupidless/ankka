@@ -15,6 +15,7 @@ pages:
   - platform/installation-models.md
   - platform/cloud-provider.md
   - platform/secrets.md
+  - platform/erasure.md
   - platform/cross-project-access.md
   - platform/networking.md
   - deploy/custom-hostnames.md
@@ -105,6 +106,15 @@ shared by every installation and one overlay per cluster carrying only what diff
     `installation` and gives no address or key; it starts only once every model it names is served,
     and `services get` says why it waits or failed. Adding the component rolls every service once,
     since every platform container is given the door's address.
+12. **Erasure is on only where a keyring runs.** `ANKKA_ERASURE` (`on`/`off`), `ANKKA_KEYRING_INSTANCES`,
+    `ANKKA_ERASURE_RERUN_WINDOW` (`30d`) and `ANKKA_KEYRING_ADDRESS` on the control plane; while off, a
+    descriptor with `"personal": true` and every erasure write are refused. The keyring (`ankka-keyring`)
+    holds every subject key apart from project databases, under a root key in its own secret store
+    (`ANKKA_SECRET_KEY`) or a Cloud KMS key (`ANKKA_KEYRING_KMS_KEY`). An erasure is written to the
+    erasure log (the control plane's table and `platform.erasure-log`) before any key is destroyed, and a
+    restored keyring applies both copies before it answers. Requests: `ankka projects erasures
+    file|list|get|replace|withdraw|override|certificate`; only an owner overrides a hold. No overlay runs
+    the keyring yet: read `references/platform/erasure.md` and the limitations first.
 
 ## Operating checklist
 

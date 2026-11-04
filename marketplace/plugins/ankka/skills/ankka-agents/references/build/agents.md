@@ -863,6 +863,56 @@ Choose session ids to match conversations: one per chat, or one per workflow ins
 agents collaborate on one task. The [multi-agent orchestration](multi-agent-orchestration.md) guide uses
 the workflow's id.
 
+## A session about a person
+
+A conversation holds a person's own words, which no field can mark. Start a session that is about a person
+with that person's [data subject](personal-data.md), and everything the session keeps (every message, tool
+call and tool result) is kept encrypted under the data subject's key:
+
+**Scala**
+
+```scala
+componentClient
+  .forAgent(SessionId("support-91"), subject = Some(DataSubject("player/8c1f")))
+  .call(HelperAgent.ask)
+  .invoke("my card was declined")
+```
+
+**Python**
+
+```python
+await client.for_agent("helper", "support-91", subject="player/8c1f").call("ask").invoke("my card was declined", reply=str)
+```
+
+**TypeScript**
+
+```typescript
+await client.forAgent("helper", "support-91", { subject: "player/8c1f" }).call("ask").invoke("my card was declined");
+```
+
+**Go**
+
+```go
+ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
+```
+
+Every call to an agent made with `ctx` names the data subject.
+
+**Rust**
+
+```rust
+let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
+```
+
+Every call to an agent made through `client` names the data subject.
+
+The data subject is fixed by the session's first call, and a later call naming another is refused. Once
+the data subject is erased, the session's conversation reads as empty, the model is told at its next turn
+that the earlier conversation was erased, and a turn in the session is answered with nothing of it
+recorded. A session started with no data subject is not changed by any erasure. What a session sent to its
+model provider has left the installation, and no erasure reaches it. An autonomous agent's instance and a
+task take a data subject the same way; see [Agents](personal-data.md#agents) on the personal data page.
+
 ## Agents in Python and TypeScript
 
 A `Tool` is a description, an async or plain function taking the agent and the decoded input, and an

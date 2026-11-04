@@ -131,6 +131,19 @@ in a service with the projection runtime registered.
 - **Who creates the topic?** Not ankka. It must be compacted; declare it as a managed topic in the
   ankka-flow pipeline that reads it and deploy the pipeline before the service publishes.
 
+## Personal fields in rows and messages
+
+- A row or a message may hold `Personal` fields; tables and topics hold them encrypted, a read gives the
+  value, and an erased data subject reads as erased. Handle erased in every handler.
+- **A declared query may not compare a personal field**, except by equality with a `:value` on a field the
+  Scala companion marks with `lookup(_.email)`; anything else (`LIKE`, ranges, `ORDER BY`, a literal, an
+  unmarked field) is refused at start, naming the view, query and field. A lookup token leaks equality:
+  mark only what a query must find by.
+- On an erasure each view's rows lose that subject's values and lookup tokens; nothing else changes.
+- A consumer may ask for an erasure with `ctx.erasures.ask(subject)` (the service needs the project's
+  `erasure` grant). A consumer in another project reads another project's personal fields only under a
+  topic grant made with `--decrypt`. See `references/build/personal-data.md` in the `ankka-entities` skill.
+
 ## Topics
 
 Messages are CloudEvents in binary mode: a plain JSON body with `ce-*` Kafka headers. `ce-subject` is the

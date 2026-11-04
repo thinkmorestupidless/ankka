@@ -512,6 +512,63 @@ feature also says what that feature does not do.
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.
 
+## Personal data and erasure
+
+See [Personal data and erasure](../build/personal-data.md) and [Erasure on the platform](../platform/erasure.md).
+
+- **An erasure makes data unreadable; it deletes nothing.** The ciphertext of an erased data subject's
+  fields stays in journals, snapshots, topics and backups until their own retention removes it. Only a
+  bucket's objects are deleted, by the service's erasure handler.
+- **It is not a classifier.** The platform encrypts the fields typed `Personal`, and what an agent keeps of
+  a session started with a data subject, and nothing else. A name in a field that is not marked, in a free
+  text field, in an entity id, in a topic's record key or in a log line written by your code is not
+  reached.
+- **The data subject is in the clear.** It is beside every envelope, in row keys, lookups and topic
+  records, because what survives an erasure is keyed by it. Choose an id that is not itself personal.
+- **A live entity keeps what it decrypted until it is passivated or restarted.** An erasure does not stop
+  entities in memory: one that recovered before the erasure reads the data subject's fields as written
+  until it leaves memory, and as erased from its next recovery. Its next write of such a field is refused.
+  Views, consumers, every key fetch and every recovery read the subject as erased within 60 seconds.
+- **Records written before a field was marked are not re-encrypted.** They stay in the clear, and an
+  erasure does not reach them. Changing an existing field's type to `Personal` breaks the reading of every
+  record written before; add a new event case instead.
+- **No key is ever rotated.** A subject key, a project's key-encryption key, its lookup key and the root
+  key are made once and kept until destroyed.
+- **A lookup token leaks equality.** Rows with the same value in a lookup field have the same token, and
+  anyone holding the table and the project's lookup key can test a guess. A declared query compares a
+  personal field only by equality with a given value, on a field marked for lookup; anything else is
+  refused at start. Lookup fields are declared in the Scala SDK only.
+- **An erasure applies in one project.** A person known to two projects is two data subjects, and needs an
+  erasure request in each. Nothing reaches another installation: the subject keys of a replicated entity
+  are not shared with its followers, whose own keyrings hold none of them, and the relay through which a
+  follower would fetch the home's keys and hear its notices is not defined yet; `ankka-replication` must
+  implement it. Do not mark personal fields in a replicated entity until it does.
+- **An object written under a subject prefix after the re-run window is kept.** Erasure handlers are run
+  again for 30 days after an erasure (`ANKKA_ERASURE_RERUN_WINDOW`); after that only a new erasure request
+  for the same data subject runs them again.
+- **A store's soft-delete window is reported only when the service is told it.** A bucket's erasure is
+  reported final at once unless `ANKKA_S3_SOFT_DELETE_DAYS` is set in the service's environment, and the
+  platform does not set it, so on Google Cloud Storage an erasure is reported final before the store's
+  soft-delete window has passed.
+- **What left the installation is beyond an erasure.** What a session sent to its model provider, a value a
+  machine outside the installation was answered before the erasure, an export, an email: none is reached.
+- **A session started with no data subject cannot be erased.** A turn in a session whose data subject was
+  erased is answered, and nothing of it is recorded.
+- **Workflow steps and timed actions cannot ask for an erasure.** Only endpoints, consumers and erasure
+  handlers have `erasures`.
+- **Java and Kotlin services mark personal fields and nothing more.** They have no erasure handler and
+  cannot ask for an erasure from code, and they start no session or autonomous agent's instance with a
+  data subject. The Rust SDK has no function for the subject prefix.
+- **A consumer in another project without a decrypt grant is refused, not handed erased.** Its read of a
+  personal field of the producing project fails as `Forbidden`.
+- **No overlay runs the keyring, and nothing gives a deployed service its address.** On a Kubernetes
+  installation a service whose descriptor declares `"personal": true` reaches no keyring, and every read or
+  write of a personal field it makes is refused as unavailable. No gateway route reaches the keyring's
+  decryption for a machine outside the installation. Personal fields and erasures work end to end on a
+  developer's machine, against the local keyring, and in tests.
+- **The local keyring is for development.** It keeps its keys in the service's own database, so a backup
+  of that database holds the keys beside what they encrypt.
+
 ## SDKs and releases
 
 - **gRPC endpoints are for Scala and Java services.** A Kotlin service declares one through the Java SDK's

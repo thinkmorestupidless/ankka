@@ -28,7 +28,9 @@ because the kubelet holds no certificate, and it answers only `GET /ready`. See
 The observe port admits exactly one peer, the installation's control plane, which presents the identity
 `ankka://platform/controlplane`; any other certificate, the service's own included, fails the handshake. It
 serves `GET /observability/service` and `GET /observability/topology`, the same documents the local
-endpoint serves, and nothing else. It is not part of readiness: an instance whose observe listener could not
+endpoint serves, and `GET /observability/erasure-replay`, when the instance finished applying the
+erasure log to its own tables after a restore, which a restore's status reads (see
+[Erasure on the platform](../platform/erasure.md#restores-and-the-erasure-log)). It is not part of readiness: an instance whose observe listener could not
 start is still ready, and the control plane reports it as one whose topology could not be read.
 
 In a process-hosted service these ports belong to the sidecar container; the process container has none.
@@ -127,6 +129,7 @@ memory, so it is never started on a deployed instance.
 | `GET /observability/traces/{traceId}` | One trace as a tree of spans. |
 | `GET /observability/sessions/{sessionId}` | An agent session's stored conversation and the tokens it has used. |
 | `GET /observability/query/{component}/{id}/{method}` | Runs one of a component's query handlers against an entity id, and answers with its reply. |
+| `POST /_ankka/erasures` | Erases a data subject in the service's local keyring: `{"subject": "player/8c1f", "rerun": false}`, answered with what the instance did. `ankka local erasures file` calls it. JSON only. |
 
 `/observability/query` runs only handlers declared with `query`, which cannot persist. Naming a command
 answers `405` with `'<method>' is a command, not a query; the console only runs queries`, and an unknown

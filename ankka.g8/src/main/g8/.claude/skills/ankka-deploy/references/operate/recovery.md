@@ -68,6 +68,22 @@ A restore takes back a service's journal and read positions. It does not take ba
 published from events the restore lost are still on their topics, and a view or consumer that reads a
 topic reads a message published again as a new one.
 
+## Erased data subjects stay erased
+
+A restore holds the personal fields of every data subject as it held them at the moment restored to,
+encrypted. The keys are not in the project's database or its backups but in the installation's keyring,
+which is not restored with the project, so a data subject erased after that moment reads as erased from
+the restore too.
+
+A view's rows are another matter: the redaction of an erased data subject's fields and lookup tokens was
+written after the moment restored to. A service switched to a restore is therefore not ready, as
+`erasure-replay`, until it has carried out every erasure the keyring holds for its project against its own
+tables. The restore's status names when each service switched to it finished, as `erasureReplayedAt`.
+A restart on the same database does not wait again.
+
+The keyring's own database, and what an installation does when it is restored, is in
+[Erasure on the platform](../platform/erasure.md#restores-and-the-erasure-log).
+
 ## Reclaim a cluster nobody uses
 
 The platform never removes a project database, a restore, or a cluster every service has left. Each is
@@ -136,6 +152,10 @@ credentials, by hand:
    ```bash
    ankka installation restore --release
    ```
+
+   On an installation whose erasure is on, the held control plane has already brought its copy of the
+   erasure log up to date from the platform bucket `platform.erasure-log`, and says so in what it lists,
+   so no erasure applied after the moment restored to is forgotten.
 
 6. Archive the restored database as a line of history of its own: set `restoreName` in
    `kustomization/recovery/controlplane/archive/kustomization.yaml` and apply it server-side, which adds

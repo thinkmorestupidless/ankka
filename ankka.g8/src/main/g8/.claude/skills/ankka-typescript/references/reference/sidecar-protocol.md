@@ -80,12 +80,17 @@ The table is generated from the `.proto` files.
 | `Client` | `IssueClientKey` | `IssueClientKeyRequest` | `IssueClientKeyReply` | `client.proto` |
 | `Client` | `ListClientKeys` | `ListClientKeysRequest` | `ListClientKeysReply` | `client.proto` |
 | `Client` | `RevokeClientKey` | `RevokeClientKeyRequest` | `RevokeClientKeyReply` | `client.proto` |
+| `Client` | `GetSubjectKey` | `SubjectKeyRequest` | `SubjectKeyReply` | `client.proto` |
+| `Client` | `SubjectNotices` | `SubjectNoticesRequest` | `stream SubjectNotice` | `client.proto` |
+| `Client` | `AckSubjectNotice` | `SubjectNoticeAck` | `SubjectNoticeAckReply` | `client.proto` |
+| `Client` | `AskErasure` | `AskErasureRequest` | `AskErasureReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
 | `Http` | `Handle` | `HttpRequest` | `HttpReply` | `endpoint.proto` |
 | `Http` | `HandleStream` | `HttpRequest` | `stream StreamFrame` | `endpoint.proto` |
 | `Http` | `HandleSocket` | `stream SocketIn` | `stream SocketOut` | `endpoint.proto` |
+| `Erasure` | `Invoke` | `ErasureCall` | `ErasureReply` | `erasure.proto` |
 | `EventSourced` | `Handle` | `stream EventSourcedIn` | `stream EventSourcedOut` | `event_sourced.proto` |
 | `KeyValue` | `Handle` | `stream KeyValueIn` | `stream KeyValueOut` | `key_value.proto` |
 | `Mcp` | `InvokeTool` | `McpToolRequest` | `McpToolReply` | `mcp.proto` |

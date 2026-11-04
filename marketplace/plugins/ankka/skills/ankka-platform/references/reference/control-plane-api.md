@@ -119,6 +119,13 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/organizations/{organizationId}/enable` | |
 | `PUT` | `/organizations/{organizationId}/quota` | |
 | `DELETE` | `/organizations/{organizationId}/quota` | |
+| `POST` | `/projects/{projectId}/erasures` | |
+| `GET` | `/projects/{projectId}/erasures` | |
+| `GET` | `/projects/{projectId}/erasures/{rid}` | |
+| `PUT` | `/projects/{projectId}/erasures/{rid}` | |
+| `POST` | `/projects/{projectId}/erasures/{rid}/withdraw` | |
+| `POST` | `/projects/{projectId}/erasures/{rid}/override` | |
+| `GET` | `/projects/{projectId}/erasures/{rid}/certificate` | |
 | `GET` | `/projects` | |
 | `GET` | `/projects/{projectId}` | |
 | `POST` | `/projects/{projectId}` | |
@@ -154,6 +161,8 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/projects/{projectId}/grants/received` | |
 | `DELETE` | `/projects/{projectId}/grants/{grantId}` | |
 | `POST` | `/secret-reads` | |
+| `GET` | `/erasures` | |
+| `GET` | `/internal/erasure-log` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
@@ -245,7 +254,7 @@ with a token may read it. Response:
 | `retention` | object, optional | The longest retention a topic may be given; absent from an older control plane. |
 | `retention.longest` | string, optional | The bound as a duration, such as `30d`; absent when there is none. |
 | `retention.unbounded` | boolean, optional | `true` when a topic may keep its messages for ever; absent when there is a bound. |
-| `erasure` | object, optional | Whether erasure is on (`enabled`) and how many keyring instances hold its keys (`keyringInstances`). Not yet reported: absent, which means not stated. |
+| `erasure` | object, optional | Whether erasure is on (`enabled`, from `ANKKA_ERASURE`) and how many keyring instances hold its keys (`keyringInstances`); absent from an older control plane. See [Erasure on the platform](../platform/erasure.md). |
 
 | `backups` | object | Where the installation's backups go, and how safely. |
 
@@ -908,6 +917,65 @@ a moment after it is made on the granting project, which is the one record a cha
 Ends a grant from the grantor's side: a pending grant is withdrawn and an accepted one revoked. Owners of
 the project's organization, or a deploy token created for this project. Answers `204`; `404` for a grant the project does not hold, `409` for
 one that has already ended. An ended grant is never reopened; granting the same again makes a new one.
+
+## Erasure requests
+
+A project's requests to erase a data subject's personal fields. See
+[Erasure on the platform](../platform/erasure.md). While the installation's erasure is off, every write
+below is refused with `409`, `erasure is off on this installation (ANKKA_ERASURE)`.
+
+### `POST /projects/{projectId}/erasures`
+
+Asks for an erasure. Body: `{ "subject": "player/8c1f", "notBefore": "2031-10-08T00:00:00Z", "reason":
+"aml-retention", "correlation": "closure-4411" }`, every field but `subject` optional. A member of the
+project's organization, or a service, as itself, of any project holding an accepted `erasure` grant of
+this one (its own project included); a service without one is refused with `403`, and the refusal is
+recorded in the project's history as `erasure-refused`. Answers `201` with the request: `held` with a
+`notBefore` still to come, otherwise applied at once, after the answer. A data subject outside the rule is
+refused with `400`.
+
+### `GET /projects/{projectId}/erasures`
+
+The project's requests, newest first: `[{ "id", "subject", "state", "correlation", "notBefore",
+"askedBy", "askedAt", "appliedAt", "finalAt" }]`. Narrowed by `subject`, `state` (`held`, `applying`,
+`applied`, `withdrawn`) and `correlation`; at most `limit` rows, 100 by default and at most 1000. Members.
+
+### `GET /projects/{projectId}/erasures/{rid}`
+
+One request: its state, who asked and when, its hold (`notBefore`, `reason`) and any override, when its
+key was destroyed (`destroyedAt`), each service's completion (`completions`: `service`, `completedAt`,
+`rowsRedacted`, `tokensDropped`, `sessionsEnded`, and the erasure handler's `objectsErased`, `finality`
+and any `error`), when the objects are final (`objectsFinalAt`) and the erasure final (`finalAt`), and,
+while an attempt to apply it has failed, `lastFailure` (`reason`, `at`). Members.
+
+### `PUT /projects/{projectId}/erasures/{rid}`
+
+Replaces a held request's `notBefore` and `reason`. Members; `409` once it is not held.
+
+### `POST /projects/{projectId}/erasures/{rid}/withdraw`
+
+Withdraws a held request. Members; `409` for an applied request, which nobody can withdraw.
+
+### `POST /projects/{projectId}/erasures/{rid}/override`
+
+Applies a held request at once. Body: `{ "reason": "regulator order 2028/41" }`, recorded with the owner's
+name. Owners of the project's organization; a member is refused with `403`.
+
+### `GET /projects/{projectId}/erasures/{rid}/certificate`
+
+The erasure certificate of an applied request: `request`, `project`, `subject`, `askedBy`, `askedAt`,
+`hold`, `holdOverride`, `keyDestroyedAt`, each service's completion (`services`) and `finalAt`. It holds
+no personal field. Members; `409` before the request is applied.
+
+### `GET /erasures`
+
+The requests carrying one correlation id (`?correlation=closure-4411`) in every project the caller is a
+member of, each naming its `project`. A project the caller may not read is left out.
+
+### `GET /internal/erasure-log`
+
+The installation's erasure log after `?after=<seq>`, oldest first, for the keyring to apply before it
+answers anything. The keyring's identity alone.
 
 ## Installation
 

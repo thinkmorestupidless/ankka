@@ -312,3 +312,4 @@ None yet.
   leaves a scenario to another suite by name, and every row of an outline had one name. With `<place>`
   (and `<who>`) in the title each row is named, so `ErasureFeatures` runs the command line and MCP rows
   against the real control plane and leaves the console rows to the console's Playwright suite.
+- **Samples on the personal data pages (T101, 2026-11-04).** Scala's marking sample is included from the conformance reference's `personal-contact`, which every language's reference reproduces and the suite runs. The other samples are written on the page and checked against the API by hand: the tested handlers and asks record what they did for their suite's assertions, which a reader should not copy. A sample a later change breaks is caught by review, not by the build.

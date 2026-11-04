@@ -55,6 +55,10 @@ pausing and restarting are commands, not descriptor fields.
    as MCP tools, as the logged-in user, with tenancy administration deliberately absent.
 10. **Upgrading is additive within a supported range.** A running service never loses a table or column
     it needs; declare `runtime` so an unsupported version is refused before anything is written.
+11. **Declare `"personal": true` for a service with personal fields.** An installation whose erasure is
+    off refuses it, saying so; `ANKKA_KEYRING_ADDRESS` is the platform's to set, never the descriptor's.
+    Locally a service keeps its subject keys in its own database, and `ankka local erasures file <subject>
+    [--service <name>] [--rerun]` erases one on every service running here.
 
 ## Before deploying
 

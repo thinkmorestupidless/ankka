@@ -103,3 +103,30 @@ class ErasureEndpointSuite extends munit.FunSuite with LogCapturing:
       assert(body.contains("erasure is off on this installation"), body)
     finally on = true
   }
+
+  test("the erasure log is read by the keyring alone, after a sequence") {
+    import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+    import com.thinkmorestupidless.ankka.http.Caller
+    val (_, asked) = ask("""{"subject":"player/77aa"}""")
+    val rid        = Rid.findFirstMatchIn(asked).map(_.group(1)).getOrElse(fail(asked))
+    harness.eventually("the request applied") {
+      val (_, now) = harness.send("GET", s"/projects/brand/erasures/$rid", as = "ada")
+      Option.when(now.contains(""""state":"applied""""))(now)
+    }: Unit
+    val keyring                       = Caller.Service("platform", "keyring")
+    def read(as: Caller, after: Long) =
+      harness.raw(
+        "GET",
+        s"/internal/erasure-log?after=$after",
+        None,
+        headers = Map(harness.callerHeader(as))
+      )
+    val (status, body, _) = read(keyring, 0)
+    assertEquals(status, 200, body)
+    val mine = readFromString[ErasureLogPage](body).entries
+      .find(_.rid == rid)
+      .getOrElse(fail(s"no entry for $rid in $body"))
+    assertEquals((mine.project, mine.subject), ("brand", "player/77aa"))
+    assert(!read(keyring, mine.seq)._2.contains(rid))
+    assertEquals(read(Caller.Service("brand", "players"), 0)._1, 403)
+  }

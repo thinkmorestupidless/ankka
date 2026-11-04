@@ -164,6 +164,10 @@ final class GrantsHarness(
       )(())
     }
 
+  /** The header that has a request read as `caller`, as a certificate would name it. */
+  def callerHeader(caller: com.thinkmorestupidless.ankka.http.Caller): (String, String) =
+    kit.asCaller(caller)
+
   /**
    * A request with its own content type and headers, answering the response's headers too: the
    * token route takes a form, and says when to come back.

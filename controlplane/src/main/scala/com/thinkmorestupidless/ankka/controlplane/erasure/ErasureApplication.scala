@@ -16,7 +16,7 @@ import scala.concurrent.{ExecutionContext, Future}
  */
 final class ErasureApplication(
     client: ComponentClient,
-    log: ErasureLog,
+    val log: ErasureLog,
     keyring: KeyringAdmin,
     clock: Clock = Clock.systemUTC(),
     attribution: () => Metadata = () => Metadata.empty

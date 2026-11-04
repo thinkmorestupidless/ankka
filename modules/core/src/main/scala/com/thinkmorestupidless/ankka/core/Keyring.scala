@@ -14,6 +14,11 @@ enum KeyAnswer:
    */
   case Absent
 
+object KeyAnswer:
+
+  /** A key, for a caller on the JVM that cannot construct a Scala enum's case (Java, Kotlin). */
+  def key(bytes: Array[Byte]): KeyAnswer = Key(IArray.from(bytes))
+
 /**
  * Where a service's personal fields get their keys (feature 042): the runtime's client of the
  * installation's keyring, a test kit's in-memory one, or `Keyring.unavailable`.

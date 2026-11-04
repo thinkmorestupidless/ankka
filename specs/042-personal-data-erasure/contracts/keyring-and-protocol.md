@@ -48,7 +48,7 @@ the keyring answers the backlog after `after`, then live notices.
 
 ## The runtime's keyring client (`RT/keyring/`)
 
-- `KeyringClient`: pekko-http client over the service's mutual-TLS identity, its notices on a WebSocket; the cache (R5, FR-020);
+- `KeyringClient`: the cache (R5, FR-020) over `RemoteKeyStoreClient`, the JDK HTTP client over the service's mutual-TLS identity, its notices on a WebSocket;
   `Notices` held open from start; on no confirmation within `notice-bound`, the cache is dropped
   whole.
 - `KeyringHandle`: implements `core`'s `Keyring` over the client; installed as `Keyring.current`.

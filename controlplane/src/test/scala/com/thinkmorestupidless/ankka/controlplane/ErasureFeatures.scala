@@ -46,7 +46,15 @@ import scala.jdk.CollectionConverters.*
  * suite. `features/installation/facts.feature`'s erasure scenarios run in
  * `InstallationFactsFeatures`, which runs that file whole.
  */
-class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCapturing:
+class ErasureFeatures(
+    features: String = "../features/erasure",
+    /** Through the keyring's own server over loopback, rather than the keyring in memory. */
+    onKeyring: Boolean = false
+) extends GherkinSuite(features)
+    with LogCapturing:
+
+  /** munit's: the whole directory, with the keyring in memory. */
+  def this() = this("../features/erasure", false)
 
   override val munitTimeout = 4.minutes
 
@@ -115,6 +123,165 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     com.thinkmorestupidless.ankka.sdk.ErasureReport(erased)
   }
 
+  // ── the keyring's own server, for `ErasureKeyringFeatures` ──────────────────
+
+  private lazy val pki     = com.thinkmorestupidless.ankka.testpki.TestPki.root("erasure-features")
+  private lazy val pkiRoot = java.nio.file.Files.createTempDirectory("erasure-features")
+  private var keyringKit   = Option.empty[AnkkaTestKit]
+  private var keyringStarted = Option.empty[com.thinkmorestupidless.ankka.keyring.Keyring.Started]
+  private val instances      = java.util.concurrent.atomic.AtomicInteger()
+
+  /** The certificate of `uri`, issued by the suite's authority, in a directory of its own. */
+  private def certificate(uri: String, dns: Seq[String] = Nil): java.nio.file.Path =
+    val dir = pkiRoot.resolve(uri.replaceAll("[^a-z0-9]+", "-"))
+    if java.nio.file.Files.isRegularFile(dir.resolve("tls.crt")) then dir
+    else pki.issue(uris = Seq(uri), dnsNames = dns).writeTo(dir)
+
+  private def keyringDatabase: Database =
+    Database()(using keyringKit.getOrElse(fail("no keyring is running")).service.system)
+
+  private def keyringAddress: String =
+    s"https://localhost:${keyringStarted.getOrElse(fail("no keyring is running")).server.ports.main}"
+
+  /** The erasure log as the control plane holds it, for the keyring to replay. */
+  private object planeLog extends com.thinkmorestupidless.ankka.keyring.LogCopy:
+    val name             = "control plane"
+    def after(seq: Long) =
+      plane.application.fold(Vector.empty[com.thinkmorestupidless.ankka.keyring.LogEntry])(a =>
+        Await
+          .result(a.log.after(seq), 30.seconds)
+          .map(e =>
+            com.thinkmorestupidless.ankka.keyring
+              .LogEntry(e.seq, e.project, e.subject, e.rid, e.appliedAt)
+          )
+      )
+
+  /**
+   * A keyring of its own for each scenario: its tables emptied, its replay done before it answers.
+   */
+  private def restartKeyring(): Unit =
+    keyringStarted.foreach(_.stop())
+    val host = keyringKit.getOrElse {
+      val k = AnkkaTestKit.start(Seq.empty)
+      keyringKit = Some(k)
+      k
+    }
+    given org.apache.pekko.actor.typed.ActorSystem[?] = host.service.system
+    Await.result(
+      Database().execute(SqlFragment.raw("DROP SCHEMA IF EXISTS keyring CASCADE")),
+      30.seconds
+    ): Unit
+    val started = com.thinkmorestupidless.ankka.keyring.Keyring.start(
+      Database(),
+      com.thinkmorestupidless.ankka.keyring.RootKey.Local(IArray.fill[Byte](32)(5), "suite"),
+      com.thinkmorestupidless.ankka.keyring.ProjectGrants.none,
+      Vector(planeLog),
+      com.thinkmorestupidless.ankka.runtime.RotatingTls(
+        certificate(com.thinkmorestupidless.ankka.keyring.Main.Identity, Seq("localhost")),
+        1.minute
+      ),
+      port = 0,
+      probePort = 0,
+      machines = None,
+      replica = "keyring-0",
+      retryEvery = 100.millis
+    )
+    keyringStarted = Some(started)
+    eventually("the keyring ready")(Option.when(started.replay.done)(()))
+    admin = KeyringAdmin.Door(
+      keyringAddress,
+      certificate(
+        s"ankka://${com.thinkmorestupidless.ankka.keyring.Admission.ControlPlane.project}/controlplane"
+      )
+    )
+
+  /** The keyring as `service` of `in` reaches it: what a kit is handed, and what the steps read. */
+  private def remoteAs(in: String, service: String) =
+    com.thinkmorestupidless.ankka.runtime.keyring.RemoteKeyStoreClient(
+      keyringAddress,
+      Some(
+        com.thinkmorestupidless.ankka.runtime
+          .RotatingTls(certificate(s"ankka://$in/$service"), 1.minute)
+      ),
+      in,
+      service,
+      s"$service-${instances.incrementAndGet()}",
+      10.seconds
+    )
+
+  // What the steps ask of the keyring, of whichever one the scenario runs.
+
+  private def keyOf(in: String, subject: String): KeyAnswer =
+    if onKeyring then
+      val probe = remoteAs(in, "players")
+      try probe.key(in, DataSubject(subject), create = false)
+      finally probe.close()
+    else keyring.key(in, DataSubject(subject), create = false)
+
+  private def holdsKey(in: String, subject: String): Boolean =
+    if onKeyring then keyOf(in, subject).isInstanceOf[KeyAnswer.Key]
+    else keyring.holdsKey(in, DataSubject(subject))
+
+  private def keysMade(in: String, subject: String): Int =
+    if onKeyring then
+      // One row per data subject, by its key: a second key made would have replaced nothing.
+      Await
+        .result(
+          keyringDatabase.query(
+            SqlFragment.raw(
+              s"SELECT count(*) AS n FROM keyring.subject_key WHERE project = '$in' AND subject = '$subject'"
+            )
+          )(_.get("n", classOf[java.lang.Long]).intValue),
+          30.seconds
+        )
+        .headOption
+        .getOrElse(0)
+    else keyring.keysMade(in, DataSubject(subject))
+
+  /** The last re-run sent, by its sequence. */
+  private def lastRerun: Option[Long] =
+    if onKeyring then
+      Await
+        .result(
+          keyringDatabase.query(
+            SqlFragment.raw(
+              "SELECT erasure_seq FROM keyring.notice_outbox WHERE rerun ORDER BY id DESC LIMIT 1"
+            )
+          )(_.get("erasure_seq", classOf[java.lang.Long]).longValue),
+          30.seconds
+        )
+        .headOption
+    else keyring.sent.filter(_.rerun).lastOption.map(_.seq)
+
+  /** `service`'s acknowledgement of `seq`, as the keyring recorded it. */
+  private def ackOf(
+      seq: Long,
+      service: String
+  ): Option[com.thinkmorestupidless.ankka.core.keyring.Completion] =
+    if onKeyring then
+      Await.result(
+        keyringDatabase.queryOne(
+          SqlFragment.raw(
+            s"SELECT objects_erased, finality, error FROM keyring.notice_ack WHERE erasure_seq = $seq AND service = '$service'"
+          )
+        )(r =>
+          com.thinkmorestupidless.ankka.core.keyring.Completion(
+            0,
+            0,
+            0,
+            Option(r.get("finality", classOf[String])).map(f =>
+              com.thinkmorestupidless.ankka.core.keyring.HandlerReport(
+                Option(r.get("objects_erased", classOf[java.lang.Long])).fold(0L)(_.longValue),
+                f,
+                Option(r.get("error", classOf[String]))
+              )
+            )
+          )
+        ),
+        30.seconds
+      )
+    else keyring.acks.find(a => a.seq == seq && a.service == service).map(_.completion)
+
   private def startKit(name: String = "players"): AnkkaTestKit =
     val http = com.thinkmorestupidless.ankka.http.HttpServer.at("127.0.0.1", 0)(clients =>
       PlayersEndpoint(clients)
@@ -123,7 +290,10 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     val started = AnkkaTestKit.start(
       descriptors,
       Seq(ProjectionRuntime.withBroker(broker, broker), http),
-      configure = b => if name == "players" then b.withErasureHandler(handler) else b,
+      configure = b =>
+        val handled = if name == "players" then b.withErasureHandler(handler) else b
+        if onKeyring then handled.withKeyStore((_, in) => remoteAs(in, name)) else handled
+      ,
       serviceIdentity = ServiceIdentity.deployed(project, name),
       keyring = keyring
     )
@@ -148,12 +318,15 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     Engagement.handed.clear()
     written = None
     admin = TestKeyringAdmin(keyring, () => names)
+    if onKeyring then restartKeyring()
     asked = Map.empty
     handlerRuns.clear()
     objectsHeld.clear()
 
   override def afterAll(): Unit =
     stopKits()
+    keyringStarted.foreach(_.stop())
+    keyringKit.foreach(_.stop())
     if harnessStarted then harness.stop()
 
   // ── the control plane, for what a member applies ──────────────────────────
@@ -178,7 +351,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
    * The installation's keyring as the control plane orders it: the scenario's, which each scenario
    * replaces, so the plane the control plane started with reaches the current one.
    */
-  private var admin: TestKeyringAdmin = TestKeyringAdmin(keyring)
+  private var admin: KeyringAdmin = TestKeyringAdmin(keyring)
   private object currentKeyring extends KeyringAdmin:
     // The control plane's project for this scenario is a fresh one; the services' is `project`.
     def destroy(order: com.thinkmorestupidless.ankka.core.keyring.ErasureOrder) =
@@ -254,7 +427,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     val e = parse(envelope)
     assertEquals(e.subject, subject)
     val c = e.c.getOrElse(fail(s"the envelope holds no value: $envelope"))
-    keyring.key(e.project, DataSubject(subject), create = false) match
+    keyOf(e.project, subject) match
       case KeyAnswer.Key(key) =>
         val opened = PersonalCipher.open(
           key,
@@ -456,7 +629,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   }
 
   Given("the keyring holds no subject key for {string}") { (subject: String) =>
-    assert(!keyring.holdsKey(project, DataSubject(subject)))
+    assert(!holdsKey(project, subject))
   }
 
   Given("two instances of {string}") { (_: String) =>
@@ -470,8 +643,8 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
 
   Then("the keyring holds one subject key for {string}, made with that write") {
     (subject: String) =>
-      assert(keyring.holdsKey(project, DataSubject(subject)))
-      assertEquals(keyring.keysMade(project, DataSubject(subject)), 1)
+      assert(holdsKey(project, subject))
+      assertEquals(keysMade(project, subject), 1)
   }
 
   Then(
@@ -485,7 +658,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     val envelope = envelopeOf(text, "email").getOrElse(fail(s"no envelope in $text"))
     // It opens under the one key the keyring holds for the data subject, and no second was made.
     assertEquals(sealedUnder(envelope, subject, "player-event"), "\"second@example.com\"")
-    assertEquals(keyring.keysMade(project, DataSubject(subject)), 1)
+    assertEquals(keysMade(project, subject), 1)
   }
 
   // The outline of where no service runs. Neither the command line nor a test with no test kit
@@ -925,7 +1098,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     )
     assert(sealedUnder.exists(_.contains(s""""subject":"$subject","c":"""")), sealedUnder.toString)
     assert(
-      !keyring.key(project, DataSubject(subject), create = false).isInstanceOf[KeyAnswer.Key],
+      !keyOf(project, subject).isInstanceOf[KeyAnswer.Key],
       "the keyring still answers a key"
     )
   }
@@ -989,12 +1162,20 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   Then("the second run, with nothing of its own to do, completed at once") { () =>
     val runs = handlerRuns.asScala.toVector
     assertEquals(runs.map(_._2).take(2), Vector(1L, 0L))
-    val rerun = keyring.sent.filter(_.rerun).lastOption.getOrElse(fail("no re-run was sent"))
-    val ack   = eventually("players acknowledged the re-run")(
-      keyring.acks.find(a => a.seq == rerun.seq && a.service == "players")
-    )
+    val rerun = eventually("a re-run sent")(lastRerun)
+    val ack   = eventually("players acknowledged the re-run")(ackOf(rerun, "players"))
     assertEquals(
-      ack.completion.handler.map(h => (h.objectsErased, h.finality, h.error)),
+      ack.handler.map(h => (h.objectsErased, h.finality, h.error)),
       Some((0L, "immediate", None))
     )
   }
+
+/**
+ * `erasing.feature` through the keyring's own server on loopback (feature 042, T053): every key a
+ * service holds fetched over mutual TLS, every erasure ordered by the control plane's door and
+ * heard on each instance's notices socket.
+ */
+class ErasureKeyringFeatures
+    extends ErasureFeatures("../features/erasure/erasing.feature", onKeyring = true):
+  // Every scenario this suite leaves to another is in another file of the directory.
+  override protected def ranElsewhere: Map[String, String] = Map.empty

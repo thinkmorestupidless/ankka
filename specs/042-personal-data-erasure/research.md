@@ -235,3 +235,17 @@ None yet.
   see; the control plane's tests see the kits, the CLI and the keyring. `facts.feature`'s erasure
   scenarios run in `InstallationFactsFeatures`, which already runs that file whole (a `GherkinSuite`
   takes one directory or one file).
+
+- **The keyring runs as several replicas, so its notices go through its database** (T050, T052).
+  An instance holds its socket open to one replica, so a notice kept in one replica's memory missed
+  the instances on the other. A notice is written to `keyring.notice_outbox`, which every replica
+  polls each second for the instances connected to it, and which instances are connected is
+  `keyring.notice_connection`, refreshed with each heartbeat; an instance no replica has seen for
+  three heartbeats is gone. The status, asked of either replica, therefore waits for all of them.
+- **The runtime reaches the keyring with the JDK's HTTP client, not pekko-http's** (T053), as it
+  reaches the control plane's record of secret reads (`ReadRecorder`): every key fetch blocks a
+  virtual thread, and the JDK client's WebSocket carries the notices. The wire is unchanged. The
+  client acknowledges as the instance that said hello, whatever the duties name it.
+- **The keyring is not ready until both copies of the erasure log have been read** (T051): with one
+  copy unreadable the union is unknown, so it applies nothing and answers nothing, and tries again
+  every five seconds, reporting the unread copy on `/status`.

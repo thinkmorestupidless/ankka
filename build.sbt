@@ -592,6 +592,8 @@ lazy val controlPlane = project
     operator % "test->test;test->compile",
     testkit  % Test,
     testPki  % Test,
+    // ErasureKeyringFeatures runs the keyring's server in the suite's JVM (feature 042).
+    keyring % Test,
     // GrpcClusterSuite calls the deployed sample over gRPC from the host, through the gateway.
     grpc            % Test,
     shoppingCartApi % Test

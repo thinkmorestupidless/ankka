@@ -150,7 +150,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T050 `KEY/Notices.scala`: the bidi stream per instance, backlog since the last ack on reconnect, acks into `notice_ack`, a service complete when every instance connected at the notice has acked or been replaced; `NoticesSuite`
 - [X] T051 `KEY/ErasureLogReplay.scala` (FR-021's keyring half): before serving, read `applied_log`'s last sequence, read both copies (`GET /internal/erasure-log?after=` and the bucket), apply the union in order, report a copy that was behind on `/status` and in the log; `/ready` holds until done; `ErasureLogReplaySuite` with one copy behind and with the keyring's database restored to before an erasure
 - [X] T052 `KEY/KeyringServer.scala` and `KEY/Main.scala`: pekko-http over mutual TLS as `ankka://platform/keyring` (routes and the notices WebSocket) (refuse to start on another identity, as the model keeper does), `/ready` and `/status` on the probe port; `KeyringServerSuite` end to end with `test-pki`
-- [ ] T053 `KR/RemoteKeyStoreClient.scala`: the runtime's `KeyStoreClient` over the keyring's routes and notices WebSocket (pekko-http client) with the service's identity; `ErasureFeatures` gains a mode that starts a real keyring in-process against the shared Postgres and runs `erasing.feature` through it; green
+- [X] T053 `KR/RemoteKeyStoreClient.scala`: the runtime's `KeyStoreClient` over the keyring's routes and notices WebSocket (pekko-http client) with the service's identity; `ErasureFeatures` gains a mode that starts a real keyring in-process against the shared Postgres and runs `erasing.feature` through it; green
 
 **Checkpoint**: `sbt keyring/test` green; story 2 green against the real keyring.
 

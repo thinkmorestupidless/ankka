@@ -446,8 +446,29 @@ final class ServiceBuilder private[ankka] (
     val keyringProject = serviceIdentity.toOption.flatMap(_.project).getOrElse("local")
     // A service run on a developer's machine with a database keeps its keys there (R20); one in a
     // cluster reaches the installation's keyring, or none.
+    val keyringService  = serviceIdentity.toOption.flatMap(_.service).getOrElse(system.name)
+    val keyringInstance = sys.env
+      .get("HOSTNAME")
+      .filter(_.nonEmpty)
+      .getOrElse(org.apache.pekko.cluster.typed.Cluster(system).selfMember.address.toString)
+    val keyringSettings =
+      com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings.from(system.settings.config)
     val keyringStore = keyringOverride
       .map(make => make(system, keyringProject))
+      // A service the platform pointed at the installation's keyring reaches it there.
+      .orElse(
+        keyringSettings.address.map(address =>
+          com.thinkmorestupidless.ankka.runtime.keyring.RemoteKeyStoreClient(
+            address,
+            com.thinkmorestupidless.ankka.runtime.keyring.RemoteKeyStoreClient
+              .tlsFrom(system.settings.config),
+            keyringProject,
+            keyringService,
+            keyringInstance,
+            keyringSettings.fetchTimeout
+          )
+        )
+      )
       .orElse(
         Option.when(
           !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap") &&
@@ -459,11 +480,8 @@ final class ServiceBuilder private[ankka] (
       )
     val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringStore match
       case Some(client) =>
-        val keyringClient = com.thinkmorestupidless.ankka.runtime.keyring.KeyringClient(
-          client,
-          com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings
-            .from(system.settings.config)
-        )
+        val keyringClient =
+          com.thinkmorestupidless.ankka.runtime.keyring.KeyringClient(client, keyringSettings)
         // The notices are heard from the start, before any component recovers: a key dropped by
         // an erasure is never served from the cache after its notice.
         keyringClient.start()
@@ -660,13 +678,9 @@ final class ServiceBuilder private[ankka] (
           case v: KeyedViewDescriptor[?, ?] if v.personalFields.nonEmpty =>
             ViewRedaction.Table(v.tableName, v.lookupFields.nonEmpty)
         }
-        val instance = sys.env
-          .get("HOSTNAME")
-          .filter(_.nonEmpty)
-          .getOrElse(org.apache.pekko.cluster.typed.Cluster(system).selfMember.address.toString)
         ErasureDuties(
-          serviceIdentity.toOption.flatMap(_.service).getOrElse(system.name),
-          instance,
+          keyringService,
+          keyringInstance,
           handle.client,
           () => Database()(using system),
           tables,

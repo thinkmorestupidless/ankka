@@ -1,0 +1,118 @@
+{
+  "about": "Each case: the field's own JSON (plaintext) sealed under key with nonce, associated data subject, project, manifest each length-prefixed (4-byte big-endian). Writers must produce envelope exactly, keys in this order, compact, standard base64 with padding.",
+  "cases": [
+    {
+      "name": "a string",
+      "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "nonce": "AAECAwQFBgcICQoL",
+      "project": "brand",
+      "subject": "player/8c1f",
+      "manifest": "player-registered",
+      "plaintext": "\"ada@example.com\"",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "player/8c1f",
+        "c": "AAECAwQFBgcICQoLZWOyeoWAunrgMfvun4oXAKFzXcKX0JP4kgdUt7lXHacD"
+      }
+    },
+    {
+      "name": "a date",
+      "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "nonce": "DA0ODxAREhMUFRYX",
+      "project": "brand",
+      "subject": "player/8c1f",
+      "manifest": "player-registered",
+      "plaintext": "\"1990-04-01\"",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "player/8c1f",
+        "c": "DA0ODxAREhMUFRYXus9Q4U9bzGcaGnn3ceJdx8T5lW+n9E7O7eI0DA=="
+      }
+    },
+    {
+      "name": "a record",
+      "key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+      "nonce": "GBkaGxwdHh8gISIj",
+      "project": "payments",
+      "subject": "cardholder/77a0",
+      "manifest": "deposit-made",
+      "plaintext": "{\"line1\":\"1 High St\",\"city\":\"Leeds\"}",
+      "envelope": {
+        "$personal": 1,
+        "project": "payments",
+        "subject": "cardholder/77a0",
+        "c": "GBkaGxwdHh8gISIjBEs38CUi7ZiP1E15CH/CrjBNYkxI7tjkwYkCE5XF+F+h9jxGQUw9xCK1F/Zlb70Ur1/EVQ=="
+      }
+    },
+    {
+      "name": "unicode and every allowed subject character",
+      "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "nonce": "AAECAwQFBgcICQoL",
+      "project": "brand",
+      "subject": "a.b_c-d/e:f9",
+      "manifest": "note-taken",
+      "plaintext": "\"Zoë — naïve 東京\"",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "a.b_c-d/e:f9",
+        "c": "AAECAwQFBgcICQoLZVi52G7FIJsZYfnqckYOCKMwGoUUwfNejDNiHTItoTY9jyZu6BErGg=="
+      }
+    }
+  ],
+  "erased": [
+    {
+      "name": "a data subject alone",
+      "project": "brand",
+      "subject": "player/8c1f",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "player/8c1f"
+      }
+    }
+  ],
+  "corrupt": [
+    {
+      "name": "an envelope copied to another data subject",
+      "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "manifest": "player-registered",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "player/41d2",
+        "c": "AAECAwQFBgcICQoLZWOyeoWAunrgMfvun4oXAKFzXcKX0JP4kgdUt7lXHacD"
+      }
+    },
+    {
+      "name": "an envelope read under another manifest",
+      "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "manifest": "player-registered-other",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "player/8c1f",
+        "c": "AAECAwQFBgcICQoLZWOyeoWAunrgMfvun4oXAKFzXcKX0JP4kgdUt7lXHacD"
+      }
+    },
+    {
+      "name": "an envelope sealed under another key",
+      "key": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=",
+      "manifest": "player-registered",
+      "envelope": {
+        "$personal": 1,
+        "project": "brand",
+        "subject": "player/8c1f",
+        "c": "AAECAwQFBgcICQoLZWOyeoWAunrgMfvun4oXAKFzXcKX0JP4kgdUt7lXHacD"
+      }
+    }
+  ],
+  "unknown-version": {
+    "$personal": 2,
+    "project": "brand",
+    "subject": "player/8c1f",
+    "c": "AAAA"
+  }
+}

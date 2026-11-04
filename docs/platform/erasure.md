@@ -170,8 +170,10 @@ is passivated or its instance restarts (see [Limitations](../reference/limitatio
 Each service instance keeps the keys it has used in a cache:
 
 - `ankka.keyring.cache.max-keys` (`10000`): how many it holds; the least recently used goes first.
-- `ankka.keyring.cache.ttl` (`5m`): how long a key is held before it is asked for again. A revoked grant
-  therefore ends another project's reads within five minutes.
+- `ankka.keyring.cache.ttl` (`5m`): how long a key is held before it is asked for again.
+- `ankka.keyring.cache.foreign-ttl` (`30s`): how long a key of another project's data subject, read under
+  a grant that allows decryption, is held. No notice of that project reaches this one, so this is how
+  long an erasure or a revoked grant there takes to reach a read here.
 - `ankka.keyring.cache.outage-bound` (`15m`): how long a held key still serves while the keyring cannot
   be reached. Past it, every read and write of a personal field is refused as unavailable.
 - `ankka.keyring.fetch-timeout` (`2s`): how long one fetch waits.
@@ -217,17 +219,30 @@ the topic allows decryption:
 ankka projects grants make service:payments/cardholders topic players consume --decrypt -p brand
 ```
 
-The keyring reads every project's grants and admits the consumer's service because of that grant; what
-the consumer keeps of the field stays encrypted under the producing project's keys, so an erasure in the
-producing project reaches it with no erasure request of its own. A consumer whose grant does not allow
-decryption is refused the key, as `Forbidden`, and the keyring records the refusal. A revoked grant is
-refused at the next fetch, and a key already held is asked for again within `ankka.keyring.cache.ttl`.
+The keyring reads every project's grants, admits the consumer's service because of that grant, and
+records each key it gives with the grant it was given under. What the consumer keeps of the field (a
+view's row, an entity's state, a message it publishes again) stays encrypted under the producing
+project's keys, so an erasure in the producing project reaches it with no erasure request of its own.
+A consumer whose grant does not allow decryption reads every personal field of the producing project as
+erased, and the keyring records each refusal. The consumer hears no notice of the producing project: it
+holds a key of that project for `ankka.keyring.cache.foreign-ttl` (30 seconds) and never holds a
+refusal, so an erasure there, or a revoked grant, reaches its reads within 30 seconds, and a grant made
+later counts at once.
 
 A **machine outside the installation** is never given a key. The keyring answers `POST /v1/decrypt` for a
 machine token whose grant allows decryption, field by field, and records every decryption against the
-machine and the grant, never with a value; a revoked grant or an erased data subject is refused at the
-next request. A machine whose grant does not allow decryption has only the envelopes, which it cannot
-open.
+machine and the grant, never with a value:
+
+```json
+{"grant": "g-warehouse", "project": "brand", "manifest": "player-event",
+ "fields": [{"$personal": 1, "project": "brand", "subject": "player/8c1f", "c": "…"}]}
+```
+
+is answered `{"values": ["Ada Byron"]}`, each field's own JSON in order, or `null` for a field that holds
+no value. The manifest is the one the message was published under. A revoked grant is refused at the
+next request, and so is a request naming an erased data subject, which the refusal names; each refusal is
+recorded. A machine whose grant does not allow decryption has only the envelopes, which it cannot open,
+and its request for a key is refused like any other.
 
 **An erasure reaches a partner's later reads, not the copies it already stored.** A value a machine was
 answered before the erasure is the partner's to erase.

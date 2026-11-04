@@ -559,8 +559,14 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
 - **Java and Kotlin services mark personal fields and nothing more.** They have no erasure handler and
   cannot ask for an erasure from code, and they start no session or autonomous agent's instance with a
   data subject. The Rust SDK has no function for the subject prefix.
-- **A consumer in another project without a decrypt grant is refused, not handed erased.** Its read of a
-  personal field of the producing project fails as `Forbidden`.
+- **A consumer in another project reads an erasure there up to 30 seconds late.** It hears no notice of
+  the producing project and holds that project's keys for `ankka.keyring.cache.foreign-ttl`, so an
+  erasure or a revoked grant reaches its reads within 30 seconds, not at once; an entity of its own
+  already in memory keeps what it decrypted until it is passivated or restarted.
+- **Only a Scala service in another project keeps what it reads under the producing project's keys.** A
+  Java or Kotlin service that writes again a personal field it read from another project's topic seals it
+  under its own project's key, so an erasure in the producing project does not reach that copy; the SDKs
+  behind the sidecar and the Rust SDK are not held to the rule either.
 - **No overlay runs the keyring, and nothing gives a deployed service its address.** On a Kubernetes
   installation a service whose descriptor declares `"personal": true` reaches no keyring, and every read or
   write of a personal field it makes is refused as unavailable. No gateway route reaches the keyring's

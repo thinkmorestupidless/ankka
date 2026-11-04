@@ -114,6 +114,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.keyring.cache.max-keys` | `10000` | every service |
 | `ankka.keyring.cache.ttl` | `5m` | every service |
 | `ankka.keyring.cache.outage-bound` | `15m` | every service |
+| `ankka.keyring.cache.foreign-ttl` | `30s` | every service |
 | `ankka.keyring.notice-bound` | `60s` | every service |
 | `ankka.keyring.fetch-timeout` | `2s` | every service |
 | `ankka.storage.descriptor-directory` | `""` | every service |

@@ -102,7 +102,10 @@ final class ServiceBuilder private[ankka] (
     private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
     private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity,
     private val transportFactory: Option[replication.ReplicationTransportFactory] = None,
-    private val storageOverride: Option[ObjectStorage] = None
+    private val storageOverride: Option[ObjectStorage] = None,
+    private val keyringOverride: Option[
+      com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+    ] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
@@ -113,7 +116,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
@@ -124,7 +128,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
@@ -136,7 +141,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   /**
@@ -151,7 +157,8 @@ final class ServiceBuilder private[ankka] (
       Some(identity),
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   /**
@@ -167,7 +174,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   /**
@@ -183,7 +191,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices.andThen(wrap),
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   /**
@@ -201,7 +210,8 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       Some(factory),
-      storageOverride
+      storageOverride,
+      keyringOverride
     )
 
   /**
@@ -217,7 +227,27 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      Some(storage)
+      Some(storage),
+      keyringOverride
+    )
+
+  /**
+   * The keyring the service's personal fields are sealed with, in place of the one its settings
+   * would reach (feature 042). For the test kit, which hands every service it starts a keyring in
+   * memory, and for a developer's machine.
+   */
+  def withKeyring(
+      client: com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+  ): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      storageOverride,
+      Some(client)
     )
 
   /** Validates the definition without starting anything. */
@@ -347,6 +377,18 @@ final class ServiceBuilder private[ankka] (
     // source when this is a Left; the secret store says why it cannot know whose secrets it holds.
     val serviceIdentity =
       identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
+
+    // The keyring this service's personal fields are sealed with (feature 042), installed before any
+    // component can recover, and bound by each host around its serializer calls. A service that
+    // reaches no keyring is handed the one that refuses every personal field, naming it.
+    val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringOverride match
+      case Some(client) =>
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(
+          serviceIdentity.toOption.flatMap(_.project).getOrElse("local"),
+          client
+        )
+      case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
+    com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)
 
     // The installation's backend: the service's own database (no store at all for a service with
     // no database, feature 037) or Secret Manager. A wrong setting stops the start, naming it.
@@ -496,9 +538,13 @@ final class ServiceBuilder private[ankka] (
       Some(readRecorder),
       replicating,
       builtStorage.storage,
-      builtStorage.directory
+      builtStorage.directory,
+      keyringHandle
     )
     started.set(service)
+    system.whenTerminated.foreach(_ =>
+      com.thinkmorestupidless.ankka.core.Keyring.uninstall(keyringHandle)
+    )(using scala.concurrent.ExecutionContext.parasitic)
 
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
@@ -676,7 +722,13 @@ final class AnkkaService private[ankka] (
     /** The directory store, on a developer's machine: what the runtime serves its URLs from. */
     private[ankka] val directoryStorage: Option[
       com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
-    ] = None
+    ] = None,
+    /**
+     * The keyring this service's personal fields are sealed with (feature 042): what each host
+     * binds as `Keyring.current` around its serializer calls.
+     */
+    val keyring: com.thinkmorestupidless.ankka.core.Keyring =
+      com.thinkmorestupidless.ankka.core.Keyring.unavailable
 ):
 
   /**

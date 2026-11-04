@@ -98,6 +98,43 @@ final class ErasureLog(database: Database, bucket: ErasureLogBucket)(using Execu
 object ErasureLog:
   val Prefix: String = "erasure-log/"
 
+  /**
+   * Brings the table up to date from the bucket (feature 042, R22): after the control plane's own
+   * database is restored, the table lacks every entry written since the backup, and the bucket,
+   * which no restore touches, holds them. Each is written back under its own sequence, and the
+   * table's sequence moved past the highest, so the next entry is never one the bucket holds. The
+   * entries written back, in order.
+   */
+  def reconcile(database: Database, bucket: ErasureLogBucket)(using
+      ExecutionContext
+  ): Future[Vector[ErasureLogEntry]] =
+    for
+      _    <- database.execute(Table)
+      held <- database.query(SqlFragment.raw("SELECT seq FROM erasure_log"))(
+        _.get("seq", classOf[java.lang.Long]).longValue
+      )
+      kept <- Future(bucket.entries())(using
+        com.thinkmorestupidless.ankka.runtime.AnkkaExecutors.virtual
+      )
+      lacked = kept.filterNot(e => held.contains(e.seq)).sortBy(_.seq)
+      _ <- lacked.foldLeft(Future.unit)((done, e) =>
+        done.flatMap(_ =>
+          database
+            .execute(
+              sql"INSERT INTO erasure_log (seq, project, rid, subject, applied_at) VALUES (${e.seq}, ${e.project}, ${e.rid}, ${e.subject}, ${e.appliedAt}) " ++
+                SqlFragment.raw("ON CONFLICT DO NOTHING")
+            )
+            .map(_ => ())
+        )
+      )
+      _ <- database.execute(
+        SqlFragment.raw(
+          "SELECT setval(pg_get_serial_sequence('erasure_log', 'seq'), " +
+            "GREATEST((SELECT max(seq) FROM erasure_log), 1))"
+        )
+      )
+    yield lacked
+
   private val Table = SqlFragment.raw(
     """CREATE TABLE IF NOT EXISTS erasure_log (
       |  seq BIGSERIAL PRIMARY KEY, project TEXT NOT NULL, rid TEXT NOT NULL, subject TEXT NOT NULL,

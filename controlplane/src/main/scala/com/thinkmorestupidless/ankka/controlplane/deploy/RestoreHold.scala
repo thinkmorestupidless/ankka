@@ -19,12 +19,13 @@ import scala.concurrent.duration.DurationInt
  * administrator releases it, which is recorded on the row. Registered first, so the hold is known
  * before the projector starts.
  *
- * `reconcilers` is where a later feature brings what the restore lost back from elsewhere before a
- * release (an erasure log from its bucket); each answers a line for the listing. None exist yet.
+ * `reconcilers` is where a feature brings what the restore lost back from elsewhere before a
+ * release; each is handed the service and answers a line for the listing. Feature 042's brings the
+ * erasure log's table up to date from its bucket (`ErasurePlane.reconciler`).
  */
 final class RestoreHold(
     database: AnkkaService => Database = service => Database()(using service.system),
-    val reconcilers: Vector[() => String] = Vector.empty
+    val reconcilers: Vector[AnkkaService => String] = Vector.empty
 ) extends RuntimeExtension:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.restore")
@@ -66,7 +67,7 @@ final class RestoreHold(
           log.warn(s"could not read the restore marker; not held: ${failure.getMessage}")
           None
     if held then
-      reconciled = reconcilers.map(r => r())
+      reconciled = reconcilers.map(r => r(service))
       log.warn(
         s"the control plane's database was restored to ${marker.map(_.targetTime).orNull}: " +
           "projection is held until a platform administrator releases it"

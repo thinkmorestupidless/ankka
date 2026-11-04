@@ -343,7 +343,9 @@ object ControlPlane:
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     // First of the extensions (feature 041): the projector must know it is held before it starts.
-    val hold      = new com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold()
+    val hold = new com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold(
+      reconcilers = if erasure.enabled then Vector(erasurePlane.reconciler) else Vector.empty
+    )
     val projector = ServiceProjector(deploy, backups, hold)
     // Feature 040: a deployed control plane signs with the keys its Secret holds, mounted, and
     // writes a new one there; a local one keeps them in memory.

@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.controlplane.erasure.*
 import com.thinkmorestupidless.ankka.core.{
+  Codecs,
   CommandError,
   DataSubject,
   Done,
@@ -90,29 +91,55 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   /** The endpoint of `edge.feature`, served by the first kit, on a port of its own. */
   private var server: Option[com.thinkmorestupidless.ankka.http.HttpServer] = None
 
-  private def startKit(): AnkkaTestKit =
+  private val descriptors = Seq(
+    PlayerEntity.descriptor,
+    PlayerContactEntity.descriptor,
+    Profiles.descriptor,
+    RegistrationPublisher.descriptor,
+    Engagement.descriptor
+  )
+
+  /** The services' names, as `kits` holds them. */
+  private var names: Vector[String] = Vector.empty
+
+  /**
+   * Each run of `players`' erasure handler: the data subject, and how many objects it erased. It
+   * holds one object per data subject until a run erases it, so a second run has nothing to do.
+   */
+  private val handlerRuns = java.util.concurrent.ConcurrentLinkedQueue[(String, Long)]()
+  private val objectsHeld = java.util.concurrent.ConcurrentHashMap[String, java.lang.Boolean]()
+
+  private val handler = com.thinkmorestupidless.ankka.sdk.ErasureHandler { _ => subject =>
+    val erased = if objectsHeld.remove(subject.value) != null then 1L else 0L
+    handlerRuns.add(subject.value -> erased)
+    com.thinkmorestupidless.ankka.sdk.ErasureReport(erased)
+  }
+
+  private def startKit(name: String = "players"): AnkkaTestKit =
     val http = com.thinkmorestupidless.ankka.http.HttpServer.at("127.0.0.1", 0)(clients =>
       PlayersEndpoint(clients)
     )
     if kits.isEmpty then server = Some(http)
     val started = AnkkaTestKit.start(
-      Seq(
-        PlayerEntity.descriptor,
-        PlayerContactEntity.descriptor,
-        Profiles.descriptor,
-        RegistrationPublisher.descriptor,
-        Engagement.descriptor
-      ),
+      descriptors,
       Seq(ProjectionRuntime.withBroker(broker, broker), http),
-      serviceIdentity = ServiceIdentity.deployed(project, "players"),
+      configure = b => if name == "players" then b.withErasureHandler(handler) else b,
+      serviceIdentity = ServiceIdentity.deployed(project, name),
       keyring = keyring
     )
     kits :+= started
+    names :+= name
     started
+
+  private def kitNamed(name: String): AnkkaTestKit =
+    names.indexOf(name) match
+      case -1 => fail(s"no service '$name' was started")
+      case i  => kits(i)
 
   private def stopKits(): Unit =
     kits.foreach(k => scala.util.Try(k.stop()))
     kits = Vector.empty
+    names = Vector.empty
 
   override def beforeEach(context: BeforeEach): Unit =
     stopKits()
@@ -120,6 +147,10 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     keyring = InMemoryKeyring()
     Engagement.handed.clear()
     written = None
+    admin = TestKeyringAdmin(keyring, () => names)
+    asked = Map.empty
+    handlerRuns.clear()
+    objectsHeld.clear()
 
   override def afterAll(): Unit =
     stopKits()
@@ -130,8 +161,10 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   private var erasureOn                   = false
   private var harnessStarted              = false
   private lazy val harness: GrantsHarness =
-    val h = GrantsHarness(erasure =
-      () => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings(erasureOn, 2)
+    val h = GrantsHarness(
+      erasure =
+        () => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings(erasureOn, 2),
+      erasurePlane = Some(plane)
     )
     h.start()
     h.organization("acme", "ada")
@@ -140,6 +173,19 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     h
 
   private var applied: (Int, String) = (0, "")
+
+  /**
+   * The installation's keyring as the control plane orders it: the scenario's, which each scenario
+   * replaces, so the plane the control plane started with reaches the current one.
+   */
+  private var admin: TestKeyringAdmin = TestKeyringAdmin(keyring)
+  private object currentKeyring extends KeyringAdmin:
+    def destroy(order: com.thinkmorestupidless.ankka.core.keyring.ErasureOrder) =
+      admin.destroy(order)
+    def resend(seq: Long) = admin.resend(seq)
+    def status(seq: Long) = admin.status(seq)
+
+  private val plane = ErasurePlane(currentKeyring, Some(MemoryErasureLogBucket()))
 
   private def apply(service: String, personal: Boolean): (Int, String) =
     val said = if personal then ""","personal":true""" else ""
@@ -581,4 +627,358 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     val envelope = envelopeOf(text, "email").getOrElse(fail(s"no envelope of 'email' in $text"))
     assertEquals(sealedUnder(envelope, subject, "player-event"), "\"" + email + "\"")
     kit.assertNoPersonalValue(email)
+  }
+
+  // ── erasing.feature ────────────────────────────────────────────────────────
+
+  /** The request asked for each data subject in this scenario: its id within the project. */
+  private var asked: Map[String, String] = Map.empty
+
+  private def emailOf(subject: String): String = s"${idOf(subject)}@example.com"
+
+  private val RequestId = """"id":"([0-9A-Z]{26})"""".r
+
+  private def application: ErasureApplication =
+    eventually("the control plane's erasure plane")(plane.application)
+
+  private def requestOf(subject: String): String =
+    asked.getOrElse(subject, fail(s"no erasure request was asked for $subject"))
+
+  private def readRequest(subject: String): String =
+    val (status, body) =
+      harness.send("GET", s"/projects/$project/erasures/${requestOf(subject)}", as = "ada")
+    assertEquals(status, 200, body)
+    body
+
+  /** A member asks; the answer's request id is kept for `subject`. */
+  private def askErasure(subject: String): (Int, String) =
+    val answer = harness.send(
+      "POST",
+      s"/projects/$project/erasures",
+      Some(s"""{"subject":"$subject"}"""),
+      "ada"
+    )
+    RequestId.findFirstMatchIn(answer._2).foreach(m => asked += subject -> m.group(1))
+    answer
+
+  /**
+   * Carries the request for `subject` until it is final: applied, and every service's completion
+   * read from the keyring, as the control plane's sweep does.
+   */
+  private def untilFinal(subject: String): String =
+    val id = s"$project/${requestOf(subject)}"
+    eventually("the erasure request is final", 60.seconds) {
+      val now = Await.result(application.apply(id), 30.seconds)
+      Option.when(now.finalAt.isDefined)(readRequest(subject))
+    }
+
+  private def erased(subject: String): String =
+    val (status, body) = askErasure(subject)
+    assertEquals(status, 201, body)
+    untilFinal(subject)
+
+  private def emailOf(k: AnkkaTestKit, subject: String): String =
+    k.componentClient
+      .forEventSourcedEntity(EntityId(idOf(subject)))
+      .call(PlayerEntity.email)
+      .invoke()
+
+  private def currencyOf(k: AnkkaTestKit, subject: String): String =
+    k.componentClient
+      .forEventSourcedEntity(EntityId(idOf(subject)))
+      .call(PlayerEntity.currency)
+      .invoke()
+
+  private def rowOf(k: AnkkaTestKit, subject: String): Option[ProfileRow] =
+    k.service.viewClient.forView(Profiles).get(idOf(subject))
+
+  /** Every registration of `subject` on the topic, read as each service's consumer reads it. */
+  private def deliveredTo(k: AnkkaTestKit, subject: String): Vector[Personal[String]] =
+    val serializer = Codecs.serializer[PlayerEvent]("player-event")
+    broker
+      .publishedTo("players")
+      .toVector
+      .map(d =>
+        com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+          .binding(k.service.system)(serializer.fromBytes(d.message.payload))
+      )
+      .collect { case r: PlayerRegistered if r.playerId == idOf(subject) => r.email }
+
+  private def journalRows(k: AnkkaTestKit, subject: String): Int =
+    bytes("event_journal", "event_payload", s"persistence_id = 'player|${idOf(subject)}'", k).size
+
+  Given("a project {string} with the services {string}, {string} and {string}") {
+    (in: String, a: String, b: String, c: String) =>
+      project = in
+      erasureOn = true
+      assert(harness != null)
+      Seq(a, b, c).foreach(startKit(_): Unit)
+  }
+
+  Given(
+    "each of them has recorded personal fields of the data subject {string} and of the data subject {string}"
+  ) { (first: String, second: String) =>
+    for k <- kits; s <- Seq(first, second) do register(k, idOf(s), emailOf(s))
+    Seq(first, second).foreach(s => objectsHeld.put(s, true))
+    for k <- kits; s <- Seq(first, second) do
+      eventually(s"the profile of $s")(rowOf(k, s)): Unit
+      eventually(s"the registration of $s on the topic")(deliveredTo(k, s).headOption): Unit
+  }
+
+  Given("each of them has recorded fields of {string} that are not personal") { (subject: String) =>
+    kits.foreach(k => assertEquals(currencyOf(k, subject), "EUR"))
+  }
+
+  When(
+    "a member asks for an erasure request for {string} in {string} with no not-before date"
+  ) { (subject: String, in: String) =>
+    assertEquals(in, project)
+    val (status, body) = askErasure(subject)
+    assertEquals(status, 201, body)
+    assert(body.contains(""""state":"applying""""), body)
+    untilFinal(subject): Unit
+  }
+
+  Then(
+    "within 60 seconds every view and every consumer of each service of {string} reads every personal field of {string} as erased"
+  ) { (_: String, subject: String) =>
+    kits.foreach { k =>
+      eventually(s"the profile of $subject redacted", 60.seconds)(
+        rowOf(k, subject).filter(_.email.isErased)
+      ): Unit
+      eventually(s"the consumer reads $subject as erased", 60.seconds)(
+        Option.when(deliveredTo(k, subject).forall(_.isErased))(())
+      )
+    }
+  }
+
+  Then("every entity of {string} recovered from then on reads its personal fields as erased") {
+    (subject: String) =>
+      kits.foreach { k =>
+        k.restartService()
+        assertEquals(emailOf(k, subject), "erased")
+        assertEquals(currencyOf(k, subject), "EUR")
+      }
+  }
+
+  Then("every service of {string} reads every personal field of {string} as it was written") {
+    (_: String, subject: String) =>
+      kits.foreach { k =>
+        assertEquals(emailOf(k, subject), emailOf(subject))
+        assertEquals(rowOf(k, subject).map(_.email.orElse("erased")), Some(emailOf(subject)))
+        assert(deliveredTo(k, subject).nonEmpty)
+        assert(
+          deliveredTo(k, subject).forall(_.orElse("erased") == emailOf(subject)),
+          deliveredTo(k, subject).toString
+        )
+      }
+  }
+
+  Given("{string} has been erased in {string}") { (subject: String, in: String) =>
+    assertEquals(in, project)
+    erased(subject): Unit
+  }
+
+  When("an entity of {string} holding events of {string} is recovered") {
+    (service: String, subject: String) =>
+      kitNamed(service).restartService()
+      written = Some(service -> subject)
+  }
+
+  private def recovered: (AnkkaTestKit, String) =
+    written
+      .map((service, subject) => kitNamed(service) -> subject)
+      .getOrElse(fail("nothing recovered"))
+
+  Then("the entity is recovered") { () =>
+    val (k, subject) = recovered
+    assertEquals(currencyOf(k, subject), "EUR")
+  }
+
+  Then("its state holds erased in each personal field of {string}") { (subject: String) =>
+    val (k, _) = recovered
+    assertEquals(emailOf(k, subject), "erased")
+    val registration = k.componentClient
+      .forEventSourcedEntity(EntityId(idOf(subject)))
+      .call(PlayerEntity.registration)
+      .invoke()
+    assert(registration.email.isErased, registration.toString)
+  }
+
+  Then("every field of its state that is not personal is as it was written") { () =>
+    val (k, subject) = recovered
+    assertEquals(currencyOf(k, subject), "EUR")
+  }
+
+  Given("a view of {string} holding rows with personal fields of {string}") {
+    (service: String, subject: String) =>
+      assert(rowOf(kitNamed(service), subject).nonEmpty)
+      written = Some(service -> subject)
+  }
+
+  When("the view is declared at a higher version and rebuilt") { () =>
+    val (k, _) = recovered
+    k.stopService()
+    k.startService(descriptors = descriptors.map {
+      case v if v.componentId == Profiles.descriptor.componentId =>
+        Profiles.descriptor.copy(version = Some(2))
+      case d => d
+    })
+  }
+
+  Then("the rebuild finishes") { () =>
+    val (k, subject) = recovered
+    eventually("the view rebuilt", 60.seconds)(rowOf(k, subject)): Unit
+    // Every row of the source is back, not only the erased data subject's.
+    eventually("every row rebuilt", 60.seconds)(rowOf(k, "player/9d2e")): Unit
+  }
+
+  Then("its rows hold erased in each personal field of {string}") { (subject: String) =>
+    val (k, _) = recovered
+    assert(rowOf(k, subject).exists(_.email.isErased), rowOf(k, subject).toString)
+    assertEquals(
+      rowOf(k, "player/9d2e").map(_.email.orElse("erased")),
+      Some(emailOf("player/9d2e"))
+    )
+  }
+
+  private var refused: Option[Throwable] = None
+  private var rowsBefore: Int            = 0
+
+  When("a command of {string} records an event with a personal field of {string}") {
+    (service: String, subject: String) =>
+      val k = kitNamed(service)
+      written = Some(service -> subject)
+      rowsBefore = journalRows(k, subject)
+      refused = scala.util
+        .Try(
+          k.componentClient
+            .forEventSourcedEntity(EntityId(idOf(subject)))
+            .call(PlayerEntity.changeEmail)
+            .invoke("again@example.com")
+        )
+        .failed
+        .toOption
+  }
+
+  Then("the command is refused") { () =>
+    assert(refused.nonEmpty, "the command was accepted")
+  }
+
+  Then("the refusal names {string} as erased") { (subject: String) =>
+    assert(refused.exists(_.getMessage.contains(s"'$subject' is erased")), String.valueOf(refused))
+  }
+
+  Then("nothing is recorded") { () =>
+    val (k, subject) = recovered
+    assertEquals(journalRows(k, subject), rowsBefore)
+    k.assertNoPersonalValue("again@example.com")
+  }
+
+  private var reply: String = ""
+
+  When("a member reads the erasure request for {string} in {string}") {
+    (subject: String, in: String) =>
+      assertEquals(in, project)
+      reply = readRequest(subject)
+  }
+
+  Then("the erasure request is applied") { () =>
+    assert(reply.contains(""""state":"applied""""), reply)
+  }
+
+  Then("it says when the subject key was destroyed") { () =>
+    assert(reply.contains(""""destroyedAt":""""), reply)
+  }
+
+  Then("it names each service of {string} with the time it completed") { (_: String) =>
+    names.foreach(name =>
+      assert(reply.contains(s""""service":"$name","completedAt":""""), s"$name in $reply")
+    )
+  }
+
+  Then("it says when the erasure became final") { () =>
+    assert(reply.contains(""""finalAt":""""), reply)
+  }
+
+  When("a member reads every table of every service of {string}")((_: String) => ())
+
+  Then(
+    "no table holds a value from which a personal field of {string} can be recovered without the destroyed subject key"
+  ) { (subject: String) =>
+    kits.foreach(_.assertNoPersonalValue(emailOf(subject), "1990-04-01"))
+    kit.assertNoPersonalValueIn(broker)(emailOf(subject))
+    // What the tables hold of the data subject is sealed under a key no one can fetch any more.
+    val sealedUnder = kits.flatMap(k =>
+      bytes("event_journal", "event_payload", s"persistence_id = 'player|${idOf(subject)}'", k)
+        .map(new String(_, UTF_8))
+    )
+    assert(sealedUnder.exists(_.contains(s""""subject":"$subject","c":"""")), sealedUnder.toString)
+    assert(
+      !keyring.key(project, DataSubject(subject), create = false).isInstanceOf[KeyAnswer.Key],
+      "the keyring still answers a key"
+    )
+  }
+
+  When("a member fetches the erasure certificate for {string} in {string}") {
+    (subject: String, in: String) =>
+      assertEquals(in, project)
+      val (status, body) = harness.send(
+        "GET",
+        s"/projects/$project/erasures/${requestOf(subject)}/certificate",
+        as = "ada"
+      )
+      assertEquals(status, 200, body)
+      reply = body
+  }
+
+  Then(
+    "the erasure certificate names the erasure request, the data subject {string} and who asked for it"
+  ) { (subject: String) =>
+    assert(reply.contains(s""""request":"$project/${requestOf(subject)}""""), reply)
+    assert(reply.contains(s""""subject":"$subject""""), reply)
+    assert(reply.contains(""""askedBy":"ada""""), reply)
+  }
+
+  Then("it holds no personal field") { () =>
+    assert(!reply.contains("$personal"), reply)
+    asked.keys.foreach(subject => assert(!reply.contains(emailOf(subject)), reply))
+  }
+
+  Given("{string} has an erasure handler") { (service: String) =>
+    assertEquals(service, "players")
+  }
+
+  When("an erasure request for {string} in {string} is applied") { (subject: String, in: String) =>
+    assertEquals(in, project)
+    erased(subject): Unit
+    eventually("the handler ran")(handlerRuns.asScala.find(_._1 == subject)): Unit
+  }
+
+  Then("it is applied again later") { () =>
+    val subject        = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    val first          = requestOf(subject)
+    val (status, body) = askErasure(subject)
+    assert(status / 100 == 2, s"$status $body")
+    assertEquals(requestOf(subject), first, "a second request was made for an applied data subject")
+  }
+
+  Then("the erasure handler of {string} ran for {string} each time") {
+    (_: String, subject: String) =>
+      eventually("the handler ran twice")(
+        Option.when(handlerRuns.asScala.count(_._1 == subject) >= 2)(())
+      )
+  }
+
+  Then("the second run, with nothing of its own to do, completed at once") { () =>
+    val runs = handlerRuns.asScala.toVector
+    assertEquals(runs.map(_._2).take(2), Vector(1L, 0L))
+    val rerun = keyring.sent.filter(_.rerun).lastOption.getOrElse(fail("no re-run was sent"))
+    val ack   = eventually("players acknowledged the re-run")(
+      keyring.acks.find(a => a.seq == rerun.seq && a.service == "players")
+    )
+    assertEquals(
+      ack.completion.handler.map(h => (h.objectsErased, h.finality, h.error)),
+      Some((0L, "immediate", None))
+    )
   }

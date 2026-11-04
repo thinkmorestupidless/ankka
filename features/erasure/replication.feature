@@ -15,7 +15,7 @@ Feature: An erasure at the home reaches every installation of a replicated entit
 
   Scenario: an erasure at the home reaches a follower of a replicated entity within a minute
     When a member asks for an erasure request for "player/8c1f" at "north" and it is applied
-    Then within 60 seconds the entity at "south" reads the field "email" as erased
+    Then within 60 seconds the entity at "south", recovered again, reads the field "email" as erased
 
   Scenario: a follower that cannot reach the home's keyring and has no subject key retries the recovery of the entity
     Given the keyring of "north" does not answer "south"

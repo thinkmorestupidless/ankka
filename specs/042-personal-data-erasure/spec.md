@@ -624,7 +624,9 @@ and a listing by correlation id returns both; assert a service without the grant
   keyring MUST push each destroyed notice down every such channel. From the moment an erasure's key is
   destroyed, no instance of any service of the project, and no consumer in another project, MUST decrypt
   a personal field of the subject more than 60 seconds later; an instance that cannot confirm it
-  received the notice within that time MUST drop its whole cache.
+  received the notice within that time MUST drop its whole cache. An entity already in memory keeps
+  the values it decrypted before the notice until it is passivated or its instance restarts; from its
+  next recovery it reads them as erased (2026-11-04, the person's decision).
 - **FR-023**: Replay MUST fetch each subject's key at most once per entity recovery, and a recovery of
   an entity of 1,000 events with personal fields of one subject MUST take no more than 1.3 times as long
   as the same recovery without personal fields, measured locally against a keyring on the same

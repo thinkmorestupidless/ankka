@@ -207,6 +207,15 @@ None yet.
 
 ## Found during implementation
 
+- **An entity already in memory keeps what it decrypted** (T041, 2026-11-04, the person's decision).
+  Nothing in the design stopped a live entity whose state holds a subject's fields decrypted. The
+  duties do not stop entities: a live entity reads the subject as written until it is passivated or
+  its instance restarts, and erased from its next recovery. Views, consumers, every new fetch and
+  every recovery read the subject as erased within the 60 seconds. `erasing.feature` and
+  `replication.feature` say so, FR-022 carries the sentence, and `docs/reference/limitations.md`
+  must state it (T103). Rejected: a per-host registry of subjects held, and stopping every live
+  entity of the service on each notice.
+
 - **A failed handler run is acknowledged, with why** (T036, 2026-11-04, the person's decision). The
   handler must not hold up the platform's duties, and a service's completion must say a run was
   refused (`objects.feature`), so an ack's `handler` gains an optional `error` beside

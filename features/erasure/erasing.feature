@@ -14,7 +14,8 @@ Feature: An erasure makes a data subject's personal fields unreadable everywhere
   Scenario: an erasure request with no not-before date destroys the subject key and every service reads the data subject as erased
     When a member asks for an erasure request for "player/8c1f" in "brand" with no not-before date
     Then the keyring holds no subject key for "player/8c1f"
-    And within 60 seconds every service of "brand" reads every personal field of "player/8c1f" as erased
+    And within 60 seconds every view and every consumer of each service of "brand" reads every personal field of "player/8c1f" as erased
+    And every entity of "player/8c1f" recovered from then on reads its personal fields as erased
     And every service of "brand" reads every personal field of "player/9d2e" as it was written
 
   Scenario: an entity of an erased data subject is recovered with its personal fields erased

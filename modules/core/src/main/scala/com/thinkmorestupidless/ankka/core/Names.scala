@@ -70,9 +70,12 @@ object Names:
      * installation's cloud provider runs in `ankka-cloud-provider` (feature 044). `machine` is
      * reserved for the same reason: a registered machine reads a topic under the group prefix
      * `ankka.machine.<organization>.<name>.`, so a project called `machine` with a service named
-     * after an organization would hold read on that organization's machines' groups.
+     * after an organization would hold read on that organization's machines' groups. `keyring` is
+     * reserved as `cloud-provider` is: the installation's keyring runs in `ankka-keyring` (feature
+     * 042).
      */
-    val Reserved: Set[String] = Set("platform", "local", "cloud-provider", "machine")
+    val Reserved: Set[String] =
+      Set("platform", "local", "cloud-provider", "machine", "keyring")
 
     /** Why `id` is reserved, in a sentence that is true of it. */
     def reservedBecause(id: String): String =
@@ -80,6 +83,8 @@ object Names:
         s"project id '$id' is reserved for services run locally, whose consumer groups it names"
       else if id == "cloud-provider" then
         s"project id '$id' is reserved for the namespace the installation's cloud provider runs in"
+      else if id == "keyring" then
+        s"project id '$id' is reserved for the namespace the installation's keyring runs in"
       else if id == "machine" then
         s"project id '$id' is reserved for registered machines, whose consumer groups it names"
       else s"project id '$id' is reserved for the platform's own workloads"

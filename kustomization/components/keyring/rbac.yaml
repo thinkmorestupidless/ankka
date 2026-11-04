@@ -1,0 +1,32 @@
+# The keyring's identity in the cluster, and the one thing it may read: every project's
+# `ankka-project` ConfigMap, whose `grants.json` says which consumer in another project may be given
+# a project's keys. Listed across namespaces by name (a list whose field selector names the one
+# object is authorised by `resourceNames`), and nothing else: no Secret, no workload, no write.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ankka-keyring
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["ankka-project"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ankka-keyring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ankka-keyring
+subjects:
+  - kind: ServiceAccount
+    name: ankka-keyring
+    namespace: ankka-keyring

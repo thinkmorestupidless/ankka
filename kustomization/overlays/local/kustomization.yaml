@@ -385,6 +385,39 @@ replacements:
           name: ankka-cloud
         fieldPaths:
           - data.ANKKA_CLOUD_LOCATION
+  # Erasure (feature 042): "on" only for an installation that lists components/keyring, whose
+  # patches say "on" too; this copy has the last word on both Deployments. The keyring's instance
+  # count goes to its Deployment and to the control plane, which reports it.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.erasure
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_ERASURE].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_ERASURE].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.keyringInstances
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_KEYRING_INSTANCES].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.replicas
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -405,6 +438,13 @@ replacements:
           name: ankka-cloud
         fieldPaths:
           - data.ANKKA_CLOUD_KMS_KEY
+      # The keyring's root key, when the installation lists the keyring (feature 042); nothing
+      # without it.
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_KEYRING_KMS_KEY].value
   - source:
       kind: ConfigMap
       name: ankka-platform

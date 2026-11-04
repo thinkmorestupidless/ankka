@@ -1,0 +1,23 @@
+# Tells the operator that erasure is on and where the keyring is: it gives a service that declares
+# personal fields ANKKA_KEYRING_ADDRESS and labels its namespace so this component's policy admits
+# it, and it makes the erasure log's bucket and the keyring's credentials. In this component rather
+# than the operator's own manifest, so an installation without the keyring renders an operator with
+# erasure off. Both or neither: the operator refuses to start with erasure on and no keyring named.
+#
+# The container's name must be the operator's own, `ankka-operator`: a strategic merge patch that
+# names a container the Deployment lacks adds a second container instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_ERASURE
+              value: "on"
+            - name: ANKKA_KEYRING_ADDRESS
+              value: "https://keyring.ankka-keyring.svc:8443"

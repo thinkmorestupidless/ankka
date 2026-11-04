@@ -48,6 +48,10 @@ data:
   cloudKmsKey: ""
   cloudAcknowledgementBound: 2m
   cloudRotationGrace: 1h
+  # Erasure of personal data (feature 042) is off: the local platform does not list the keyring, and
+  # a descriptor that declares personal fields is refused. "on" belongs beside components/keyring.
+  erasure: "off"
+  keyringInstances: "2"
   # The installation's own authority signs every custom hostname's certificate too (feature 045):
   # it runs no challenge, so a name a developer points here with a hosts entry is served at once.
   hostnameIssuer: ankka-ca

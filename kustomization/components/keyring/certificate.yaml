@@ -1,0 +1,36 @@
+# The keyring's own certificate: the platform's identity, from the installation's service authority,
+# so every service already trusts it with the ca.crt it mounts and the keyring trusts every
+# service's. The keyring refuses to start on a certificate that does not name
+# ankka://platform/keyring, and every service refuses a keyring that does not present it. Client
+# auth too: the keyring reads the control plane's copy of the erasure log as itself.
+#
+# A day, as every workload's certificate: the keyring re-reads the files when they change, so a
+# renewal restarts nothing.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+spec:
+  secretName: ankka-keyring-tls
+  uris:
+    - ankka://platform/keyring
+  dnsNames:
+    - keyring
+    - keyring.ankka-keyring
+    - keyring.ankka-keyring.svc
+    - keyring.ankka-keyring.svc.cluster.local
+  usages:
+    - server auth
+    - client auth
+  duration: 24h
+  renewBefore: 16h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: ankka-service
+    kind: ClusterIssuer
+    group: cert-manager.io

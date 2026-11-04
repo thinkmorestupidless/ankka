@@ -1,0 +1,9 @@
+# A platform namespace, as the control plane's is: the label admits the keyring to the object store
+# and to the control plane's API, and its database's instances to the store for their backups. No
+# project can have it: `keyring` is a reserved project id.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka

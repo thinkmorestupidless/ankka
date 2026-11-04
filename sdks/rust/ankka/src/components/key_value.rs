@@ -330,7 +330,16 @@ impl<C: KeyValueEntity> Registration<C> {
         };
         let encoded = match stateful.keep(state, held) {
             Ok(encoded) => encoded,
-            Err(message) => return fault(command_id, message),
+            // A personal field refused is the caller's refusal, with its code and details.
+            Err(message) => {
+                let error = crate::personal::refusal_or(ErrorCode::Internal, message.clone());
+                let mut reply = fault(command_id, message);
+                reply.failure = Some(proto::Failure {
+                    command_id,
+                    error: Some(error.to_proto()),
+                });
+                return reply;
+            }
         };
         let reply = proto::key_value_out::Reply {
             command_id,

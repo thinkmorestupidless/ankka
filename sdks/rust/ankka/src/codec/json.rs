@@ -33,7 +33,7 @@ impl serde_json::ser::Formatter for JsoniterFormatter {
 
 /// `value` as the encoding's compact JSON.
 pub fn to_vec<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, EncodingError> {
-    check::check(value).map_err(|r| EncodingError(r.0))?;
+    crate::personal::checking(|| check::check(value)).map_err(|r| EncodingError(r.0))?;
     let mut out = Vec::new();
     let mut serializer = serde_json::Serializer::with_formatter(&mut out, JsoniterFormatter);
     value.serialize(&mut serializer)?;
@@ -91,11 +91,11 @@ impl<T: Serialize + DeserializeOwned> Codec<T> for Json<T> {
     }
 
     fn encode(&self, value: &T) -> Result<Vec<u8>, EncodingError> {
-        to_vec(value)
+        crate::personal::within(&self.manifest, || to_vec(value))
     }
 
     fn decode(&self, data: &[u8]) -> Result<T, EncodingError> {
-        from_slice(data)
+        crate::personal::within(&self.manifest, || from_slice(data))
     }
 }
 

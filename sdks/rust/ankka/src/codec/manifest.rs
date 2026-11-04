@@ -228,7 +228,20 @@ impl<T> Default for Auto<T> {
 
 impl<T: Serialize> Auto<T> {
     /// The value's bytes. Needs only `Serialize`, so a reply can be written without being readable.
+    ///
+    /// Written under this codec's manifest (feature 042): a personal field in the value is sealed
+    /// by the runtime under it.
     pub fn encode_value(&self, value: &T) -> Result<Vec<u8>, EncodingError> {
+        crate::personal::within(&self.manifest, || self.encode_raw(value))
+    }
+
+    /// The value's bytes at the edge — an endpoint's reply, a body sent to another service — where
+    /// a personal field is its edge form, `{"subject", "value"}`.
+    pub fn encode_edge(&self, value: &T) -> Result<Vec<u8>, EncodingError> {
+        crate::personal::outside(|| self.encode_raw(value))
+    }
+
+    fn encode_raw(&self, value: &T) -> Result<Vec<u8>, EncodingError> {
         if matches!(self.form, Form::Json(_)) {
             return json::to_vec(value);
         }
@@ -256,7 +269,20 @@ impl<T: Serialize> Auto<T> {
 
 impl<T: DeserializeOwned> Auto<T> {
     /// The value these bytes are. Needs only `DeserializeOwned`.
+    ///
+    /// Read under this codec's manifest (feature 042): a personal field in the value is opened by
+    /// the runtime under it, and reads as erased once its subject is.
     pub fn decode_value(&self, data: &[u8]) -> Result<T, EncodingError> {
+        crate::personal::within(&self.manifest, || self.decode_raw(data))
+    }
+
+    /// The value these bytes are at the edge — an endpoint's request body, another service's
+    /// answer — where a personal field is its edge form.
+    pub fn decode_edge(&self, data: &[u8]) -> Result<T, EncodingError> {
+        crate::personal::outside(|| self.decode_raw(data))
+    }
+
+    fn decode_raw(&self, data: &[u8]) -> Result<T, EncodingError> {
         if matches!(self.form, Form::Json(_)) {
             return json::from_slice(data);
         }

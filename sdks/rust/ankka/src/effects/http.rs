@@ -29,7 +29,7 @@ impl Response {
     pub fn json<T: Serialize + 'static>(value: &T) -> Result<Response, HttpProblem> {
         let codec = Auto::<T>::new();
         let body = codec
-            .encode_value(value)
+            .encode_edge(value)
             .map_err(|e| HttpProblem::new(500, format!("the reply does not encode: {e}")))?;
         Ok(Response::with(
             200,

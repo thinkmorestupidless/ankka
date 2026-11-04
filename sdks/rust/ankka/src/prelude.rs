@@ -25,7 +25,9 @@ pub use crate::effects::{
     self, CommandError, Effect, ErrorCode, HttpProblem, KeyValueEffect, ReadOnlyEffect,
     ReplicationChange, Response, StepEffect, WorkflowEffect,
 };
+pub use crate::erasure::{ErasureReport, Finality};
 pub use crate::graph::{self, GraphConsumer, GraphEffect};
+pub use crate::personal::{DataSubject, Personal};
 pub use crate::service::Service;
 pub use crate::services::{RequestOptions, ServiceError, ServiceResponse};
 pub use crate::standing::Standing;

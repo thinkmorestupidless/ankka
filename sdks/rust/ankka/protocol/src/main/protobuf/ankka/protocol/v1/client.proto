@@ -329,6 +329,8 @@ message StorageRequest {
     STAT = 4;                                 // 1.21
     SIGNED_URL = 5;                           // 1.21
     URL = 6;                                  // 1.21: a public bucket's address, signed by nothing
+    ERASE = 7;                                // 1.23: every object, and every version, under
+                                              // `subjects/<name>/`, where `name` is a data subject
   }
   Op op = 2;                                  // 1.21
   string name = 3;                            // 1.21: the object's name, or the prefix for LIST
@@ -353,7 +355,13 @@ message StorageReply {
     string url = 4;                           // 1.21: SIGNED_URL, URL
     Empty done = 5;                           // 1.21: PUT, DELETE; a GET or STAT that finds nothing
     Error error = 6;                          // 1.21
+    ErasedObjects erased = 7;                 // 1.23: ERASE
   }
+}
+
+message ErasedObjects {
+  uint64 count = 1;                           // 1.23: objects removed
+  string finality = 2;                        // 1.23: "immediate", or "after:" and an ISO-8601 duration
 }
 
 message StoredObject {
@@ -396,6 +404,10 @@ message SubjectKeyReply {
     bool erased = 2;                          // 1.23: the subject's key is destroyed
     Error error = 3;                          // 1.23: UNAVAILABLE, FORBIDDEN, or the subject refused
   }
+  string project = 4;                         // 1.23: the project the answer is for; the service's
+                                              // own when the request left it empty. A process
+                                              // learns its project here, and writes it in every
+                                              // envelope it seals
 }
 
 // 1.23: the process instance holding the stream, which acks under the same name.

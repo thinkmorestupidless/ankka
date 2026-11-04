@@ -58,6 +58,7 @@ pub struct Service {
     mcp_endpoints: Vec<Box<dyn RegisteredMcpEndpoint>>,
     problems: Vec<String>,
     held: RefCell<HashMap<String, HeldState>>,
+    erasure: Option<crate::erasure::Handler>,
 }
 
 impl Service {
@@ -70,7 +71,43 @@ impl Service {
             mcp_endpoints: Vec::new(),
             problems: Vec::new(),
             held: RefCell::default(),
+            erasure: None,
         }
+    }
+
+    /// Registers the service's erasure handler (protocol 1.23): what the platform cannot erase for
+    /// it, run for a data subject on every application of an erasure request and on each re-run,
+    /// so it must be idempotent. One per service; `service!` exports it as `ankka1_erase`.
+    ///
+    /// ```ignore
+    /// Service::new("players").erasure_handler(|ctx, subject| Ok(ErasureReport::immediate(0)))
+    /// ```
+    pub fn erasure_handler<F>(mut self, handler: F) -> Service
+    where
+        F: Fn(
+                &crate::Context,
+                &crate::DataSubject,
+            ) -> Result<crate::ErasureReport, crate::effects::CommandError>
+            + 'static,
+    {
+        if self.erasure.is_some() {
+            self.problems
+                .push("the service declares an erasure handler twice".to_string());
+        } else {
+            self.erasure = Some(Box::new(handler));
+        }
+        self
+    }
+
+    /// Whether the service declares an erasure handler.
+    pub fn has_erasure_handler(&self) -> bool {
+        self.erasure.is_some()
+    }
+
+    /// `ankka1_erase`: the service's erasure handler, for one data subject. With none declared,
+    /// the reply's error says so.
+    pub fn erase(&self, call: proto::ErasureCall) -> proto::ErasureReply {
+        crate::erasure::answer(self.erasure.as_ref(), call)
     }
 
     /// Registers a component by its value: `.register(ShoppingCart)`.
@@ -271,6 +308,7 @@ impl Service {
         if let Some(refusal) = grants_refusal(&endpoints, &info.protocol_version)
             .or_else(|| cross_project_refusal(&components, &info.protocol_version))
             .or_else(|| mcp_refusal(&mcp_endpoints, &info.protocol_version))
+            .or_else(|| self.erasure_refusal(&info.protocol_version))
         {
             panic!("{refusal}");
         }
@@ -291,12 +329,24 @@ impl Service {
                 components,
                 endpoints,
                 mcp_endpoints,
-                // 1.23: set once a module declares an erasure handler (feature 042, T068).
-                erasure_handler: false,
+                // 1.23: the module's `ankka1_erase` answers for the service.
+                erasure_handler: self.erasure.is_some(),
             }),
             stateful,
             abi_version: ABI_VERSION.to_string(),
         }
+    }
+
+    /// Why a host speaking `host_protocol` cannot run the erasure handler, if it cannot: one
+    /// before 1.23 would never call it, and the subject's data would stay.
+    fn erasure_refusal(&self, host_protocol: &str) -> Option<String> {
+        (self.erasure.is_some() && start_from::older_than_erasure(host_protocol)).then(|| {
+            format!(
+                "the service declares an erasure handler, which needs protocol 1.23: the runtime \
+                 speaks {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a runtime speaking \
+                 1.23 or later."
+            )
+        })
     }
 
     fn component(&self, id: &str) -> Option<&dyn Registered> {
@@ -431,6 +481,7 @@ impl Service {
             Export::Fold => self.fold(decode(export, request)).encode_to_vec(),
             Export::Http => self.http(decode(export, request)).encode_to_vec(),
             Export::McpTool => self.mcp_tool(decode(export, request)).encode_to_vec(),
+            Export::Erase => self.erase(decode(export, request)).encode_to_vec(),
             Export::Close => {
                 self.close(decode(export, request));
                 Vec::new()

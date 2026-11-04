@@ -307,7 +307,7 @@ impl Request {
     /// The body decoded as `T` by its default codec; one that does not decode is a `400`.
     pub fn body_as<T: DeserializeOwned + 'static>(&self) -> Result<T, HttpProblem> {
         Auto::<T>::new()
-            .decode_value(&self.body)
+            .decode_edge(&self.body)
             .map_err(|e| HttpProblem::new(400, format!("cannot decode the request body: {e}")))
     }
 

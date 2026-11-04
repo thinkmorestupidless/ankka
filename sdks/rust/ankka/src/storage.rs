@@ -386,6 +386,7 @@ fn unexpected<T>(op: &str, reply: &Reply) -> Result<T, StorageError> {
         Reply::Url(_) => "a URL",
         Reply::Done(_) => "nothing",
         Reply::Error(_) => "a refusal",
+        Reply::Erased(_) => "what an erasure removed",
     };
     Err(StorageError::Internal(format!(
         "the runtime answered a {op} with {case}"
@@ -449,6 +450,23 @@ impl Bucket {
                 body: o.body,
             })),
             other => unexpected("get", &other),
+        }
+    }
+
+    /// Removes every object, and on a store that keeps them every version, under
+    /// `subjects/<subject>/` (protocol 1.23): what an erasure handler does for a data subject's
+    /// objects. Answers how many were removed and when they are gone for good.
+    pub fn erase(
+        &self,
+        subject: &crate::personal::DataSubject,
+    ) -> Result<crate::erasure::ErasureReport, StorageError> {
+        match ask(self.request(proto::storage_request::Op::Erase, subject.as_str()))? {
+            Reply::Erased(erased) => Ok(crate::erasure::ErasureReport {
+                objects_erased: erased.count as i64,
+                finality: crate::erasure::Finality::parse(&erased.finality)
+                    .map_err(StorageError::Internal)?,
+            }),
+            other => unexpected("erase", &other),
         }
     }
 

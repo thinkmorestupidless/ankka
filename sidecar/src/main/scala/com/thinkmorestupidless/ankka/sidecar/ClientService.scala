@@ -28,7 +28,8 @@ final class ClientService(
     service: AnkkaService,
     settings: Settings,
     timers: () => Option[TimerScheduler],
-    declaredProtocol: Option[String] = None
+    declaredProtocol: Option[String] = None,
+    notices: ProcessNotices = ProcessNotices()
 )(using system: ActorSystem[?])
     extends ClientGrpc.Client:
 
@@ -50,10 +51,10 @@ final class ClientService(
 
   // 1.17: a view's rows as a stream, and a watch. Sent only as the process reads them.
   def queryStream(request: QueryRequest, out: StreamObserver[RowFrame]): Unit =
-    ClientService.drain(logic.queryStream(request), out)
+    ClientService.drain(logic.queryStream(request), out)(ClientService.rowEnds)
 
   def watch(request: WatchRequest, out: StreamObserver[RowFrame]): Unit =
-    ClientService.drain(logic.watch(request), out)
+    ClientService.drain(logic.watch(request), out)(ClientService.rowEnds)
 
   def schedule(request: ScheduleRequest): Future[pb.Empty] =
     logic.schedule(request).recoverWith(status)
@@ -79,18 +80,26 @@ final class ClientService(
   def revokeClientKey(request: RevokeClientKeyRequest): Future[RevokeClientKeyReply] =
     logic.revokeClientKey(request)
 
-  // Personal data (1.23): answered by T063 of feature 042; until then as an older runtime would.
-  private def unimplemented[A]: Future[A] =
-    Future.failed(
-      Status.UNIMPLEMENTED.withDescription("personal data is not served yet").asException()
-    )
-  def getSubjectKey(request: SubjectKeyRequest): Future[SubjectKeyReply] = unimplemented
+  // Personal data (1.23): a refusal travels in the reply. The notices are sent as the process
+  // reads them, and held open for its life.
+  def getSubjectKey(request: SubjectKeyRequest): Future[SubjectKeyReply] =
+    logic.getSubjectKey(request)
   def subjectNotices(request: SubjectNoticesRequest, out: StreamObserver[SubjectNotice]): Unit =
-    out.onError(
-      Status.UNIMPLEMENTED.withDescription("personal data is not served yet").asException()
+    if request.instance.isEmpty then
+      out.onError(
+        Status.INVALID_ARGUMENT.withDescription("a stream names its instance").asException()
+      )
+    else ClientService.drain(notices.open(request.instance), out)(_ => false)
+  def ackSubjectNotice(request: SubjectNoticeAck): Future[SubjectNoticeAckReply] =
+    // An ack nothing waited for (a notice handed before a restart) is no error: the work is done.
+    notices.ack(request.seq, request.instance): Unit
+    Future.successful(SubjectNoticeAckReply())
+  // Filing from a service lands with asking.feature (feature 042, T090).
+  def askErasure(request: AskErasureRequest): Future[AskErasureReply] =
+    Future.failed(
+      Status.UNIMPLEMENTED.withDescription("filing an erasure is not served yet").asException()
     )
-  def ackSubjectNotice(request: SubjectNoticeAck): Future[SubjectNoticeAckReply] = unimplemented
-  def askErasure(request: AskErasureRequest): Future[AskErasureReply]            = unimplemented
+
   def decide(request: DecideRequest): Future[InvokeReply] = logic.decide(request)
 
   // A wait's end, a failure included, travels in the reply; this never fails the gRPC call.
@@ -136,10 +145,14 @@ object ClientService:
    * when the call can send it, on a virtual thread that waits for the call to be ready, so a slow
    * reader makes the stream produce slowly; the process going away cancels the stream.
    */
-  private[sidecar] def drain(frames: Source[RowFrame, ?], out: StreamObserver[RowFrame])(using
-      system: ActorSystem[?]
+  /** A row stream's last frame: ended or failed. */
+  private[sidecar] def rowEnds(frame: RowFrame): Boolean =
+    frame.frame.isEnded || frame.frame.isFailed
+
+  private[sidecar] def drain[A](frames: Source[A, ?], out: StreamObserver[A])(ends: A => Boolean)(
+      using system: ActorSystem[?]
   ): Unit =
-    val call                = out.asInstanceOf[io.grpc.stub.ServerCallStreamObserver[RowFrame]]
+    val call                = out.asInstanceOf[io.grpc.stub.ServerCallStreamObserver[A]]
     val ready               = java.util.concurrent.Semaphore(0)
     @volatile var cancelled = false
     call.setOnReadyHandler(() => ready.release())
@@ -149,7 +162,7 @@ object ClientService:
     )
     val parts = frames.runWith(
       org.apache.pekko.stream.scaladsl.Sink
-        .queue[RowFrame]()
+        .queue[A]()
         .withAttributes(org.apache.pekko.stream.Attributes.inputBuffer(1, 1))
     )
     Thread.ofVirtual().start { () =>
@@ -166,7 +179,7 @@ object ClientService:
               .result(parts.pull(), scala.concurrent.duration.Duration.Inf) match
               case Some(next) =>
                 call.onNext(next)
-                if next.frame.isEnded || next.frame.isFailed then
+                if ends(next) then
                   call.onCompleted()
                   parts.cancel()
                   done = true

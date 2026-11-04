@@ -180,6 +180,9 @@ object Discovery:
   /** The first minor that declares an MCP endpoint (feature 054). */
   private[sidecar] val McpSince = 20
 
+  /** The first minor that declares an erasure handler (feature 042). */
+  private[sidecar] val ErasureSince = 23
+
   /** The minor that introduced a watched query. */
   private val WatchedSince = 17
 
@@ -487,6 +490,11 @@ object Discovery:
     // MCP endpoints (feature 054): the rules `McpEndpoint.problems` holds a Scala one to, in its
     // words, and the version they need, last.
     problems ++= mcpProblems(spec, authConfigured, issuersWithoutClientId)
+    // An older sidecar reads the field as absent and would never run the handler: refused here
+    // from a process that declares an earlier minor, as the SDKs refuse an older runtime.
+    if spec.erasureHandler && minorOf(spec.protocolVersion).exists(_ < ErasureSince) then
+      problems += s"an erasure handler needs protocol 1.$ErasureSince; the SDK speaks " +
+        spec.protocolVersion
 
     val found = problems.result()
     if found.nonEmpty then Left(found)

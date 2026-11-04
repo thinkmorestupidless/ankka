@@ -60,7 +60,13 @@ final class SidecarExtension(
           settings.wasmModule.getOrElse("")
         )
       case None =>
-        val client = ClientService(service, settings, scheduler, declaredProtocol)
+        // Feature 042: every erasure notice reaches the process before the runtime's own duties,
+        // which wait for each instance holding the stream to drop the subject's key.
+        val notices = ProcessNotices()
+        com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks
+          .of(service.system)
+          .onProcess(notices.notify)
+        val client = ClientService(service, settings, scheduler, declaredProtocol, notices)
         server = Some(CallbackServer.start(client, settings.callbackBind, settings.callbackPort))
         log.info(
           "sidecar hosting {} against the process at {}",

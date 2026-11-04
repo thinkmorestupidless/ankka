@@ -17,11 +17,12 @@ import scala.util.{Failure, Success}
 
 /**
  * What an instance does for an erasure notice (feature 042, R14, R15, R16, R23), in order: its key
- * was dropped from the cache before the notice was handed here; then each view's rows are redacted,
- * the agent sessions and instances of the subject are ended, the service's erasure handler is run
- * (on the one instance that holds its singleton), and the keyring is told, with what was done. A
- * duty that fails is logged and nothing is acknowledged: the keyring hands the notice again to an
- * instance that reconnects, and every duty is safe to run twice.
+ * was dropped from the cache before the notice was handed here; a process beside the runtime drops
+ * it from its own (protocol 1.23); then each view's rows are redacted, the agent sessions and
+ * instances of the subject are ended, the service's erasure handler is run (on the one instance
+ * that holds its singleton), and the keyring is told, with what was done. A duty that fails is
+ * logged and nothing is acknowledged: the keyring hands the notice again to an instance that
+ * reconnects, and every duty is safe to run twice.
  */
 final class ErasureDuties(
     service: String,
@@ -48,6 +49,7 @@ final class ErasureDuties(
     outstanding.add(notice.seq): Unit
     val done =
       for
+        _        <- hooks.process(notice)
         redacted <-
           if tables.isEmpty then Future.successful(ViewRedaction.Redacted.none)
           else ViewRedaction.redact(database(), tables, notice.project, notice.subject)
@@ -84,6 +86,14 @@ final class ErasureHooks:
     AtomicReference[KeyringNotice => Future[Long]](_ => Future.successful(0L))
   private val handlerHook =
     AtomicReference[KeyringNotice => Future[Option[HandlerReport]]](_ => Future.successful(None))
+  private val processHook =
+    AtomicReference[KeyringNotice => Future[Unit]](_ => Future.unit)
+
+  /** A process beside the runtime dropping the subject's key: done once every instance has. */
+  def process(notice: KeyringNotice): Future[Unit] = processHook.get()(notice)
+
+  /** Sets what tells the process beside the runtime (protocol 1.23), first of every duty. */
+  def onProcess(f: KeyringNotice => Future[Unit]): Unit = processHook.set(f)
 
   def sessions(notice: KeyringNotice): Future[Long]                 = sessionsHook.get()(notice)
   def handler(notice: KeyringNotice): Future[Option[HandlerReport]] = handlerHook.get()(notice)

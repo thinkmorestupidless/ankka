@@ -93,6 +93,7 @@ final class GrpcConversation(
   private val timedAction  = TimedActionGrpc.stub(channel)
   private val http         = HttpGrpc.stub(channel)
   private val mcp          = ankka.protocol.v1.mcp.McpGrpc.stub(channel)
+  private val erasure      = ankka.protocol.v1.erasure.ErasureGrpc.stub(channel)
   private val agent        = AgentGrpc.stub(channel)
   private val discovery    = DiscoveryGrpc.stub(channel)
 
@@ -523,6 +524,18 @@ final class GrpcConversation(
       call: RemoteMcpCall
   ): Future[Either[ProcessFailure, Either[String, RemoteMcpAnswer]]] =
     mcp.invokeTool(toMcpToolRequest(call)).map(fromMcpToolReply)
+
+  override def invokeErasure(call: RemoteErasureCall): Future[RemoteErasureReport] =
+    erasure
+      .invoke(
+        ankka.protocol.v1.erasure.ErasureCall(
+          call.subject,
+          call.erasureSeq,
+          call.rerun,
+          Some(toMetadata(call.metadata))
+        )
+      )
+      .map(r => RemoteErasureReport(r.objectsErased, r.finality, r.error.map(_.message)))
 
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
     handleHttpEvents(request).collect { case StreamPart.Text(text) => text }

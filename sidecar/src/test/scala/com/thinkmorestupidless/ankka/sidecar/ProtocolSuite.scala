@@ -1329,6 +1329,18 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("discovery 1.23: an erasure handler is declared under 1.23, and refused under 1.22") {
+    assertEquals(Discovery.ErasureSince, 23)
+    val accepted = validateSpec(Spec(protocolVersion = "1.23", erasureHandler = true))
+    assert(accepted.isRight, accepted.toString)
+    assert(accepted.toOption.get.spec.erasureHandler)
+    assertEquals(
+      mcpRefusals(Spec(protocolVersion = "1.22", erasureHandler = true)),
+      Vector("an erasure handler needs protocol 1.23; the SDK speaks 1.22")
+    )
+    assert(validateSpec(Spec(protocolVersion = "1.22")).isRight)
+  }
+
   test("discovery 1.20: an MCP endpoint's path, tools and ACL are refused in the Scala wording") {
     val cases: Vector[(String, Spec, Boolean, String)] = Vector(
       (

@@ -314,6 +314,20 @@ final case class RemoteMcpCall(
 /** What a tool answered: its text, and its structured content when the result is a record. */
 final case class RemoteMcpAnswer(text: String, structuredJson: Option[String])
 
+/** A run of the process's erasure handler for one application of an erasure (protocol 1.23). */
+final case class RemoteErasureCall(
+    subject: String,
+    erasureSeq: Long,
+    rerun: Boolean,
+    metadata: Metadata
+)
+
+/**
+ * What the handler erased, and when that is final: `immediate`, or `after:` and an ISO-8601
+ * duration. `error` is a handler that threw, recorded as failed for this run.
+ */
+final case class RemoteErasureReport(objectsErased: Long, finality: String, error: Option[String])
+
 final case class HttpResult(
     status: Int,
     contentType: String,
@@ -414,6 +428,13 @@ trait Conversation:
       call: RemoteMcpCall
   ): Future[Either[ProcessFailure, Either[String, RemoteMcpAnswer]]] =
     throw UnsupportedOperationException("this conversation cannot run an MCP tool")
+
+  /**
+   * Runs the process's erasure handler (protocol 1.23, feature 042). A conversation whose program
+   * declares no handler need not override it: discovery has registered none.
+   */
+  def invokeErasure(call: RemoteErasureCall): Future[RemoteErasureReport] =
+    throw UnsupportedOperationException("this conversation cannot run an erasure handler")
 
   def reachable(): Boolean
 

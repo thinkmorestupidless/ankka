@@ -687,6 +687,37 @@ final class ClientLogic(
       DeleteSecretReply(Some(e))
     )
 
+  // ── Personal data (protocol 1.23) ──────────────────────────────────────────
+  //
+  // The key, never a value: the process seals and opens its envelopes itself. Asked of the
+  // runtime's keyring client and its cache, as the service's own identity; a read of a subject no
+  // key was made for reads as erased, as it does in the runtime.
+
+  def getSubjectKey(request: SubjectKeyRequest): Future[SubjectKeyReply] =
+    onStore {
+      val keyring = com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(service.system)
+      val subject = com.thinkmorestupidless.ankka.core.DataSubject
+        .from(request.subject)
+        .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
+      val project = if request.project.isEmpty then keyring.project else request.project
+      keyring.key(project, subject, request.create) match
+        case com.thinkmorestupidless.ankka.core.KeyAnswer.Key(bytes) =>
+          SubjectKeyReply(
+            SubjectKeyReply.Reply.Key(
+              ByteString.copyFrom(IArray.genericWrapArray(bytes).toArray)
+            )
+          )
+        case com.thinkmorestupidless.ankka.core.KeyAnswer.Destroyed =>
+          SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        case com.thinkmorestupidless.ankka.core.KeyAnswer.Absent if !request.create =>
+          SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        case com.thinkmorestupidless.ankka.core.KeyAnswer.Absent =>
+          throw CommandError(
+            s"the keyring made no key for '${request.subject}' when asked to; nothing was written",
+            ErrorCode.Unavailable
+          )
+    }(e => SubjectKeyReply(SubjectKeyReply.Reply.Error(e)))
+
   // ── Client keys (protocol 1.20) ─────────────────────────────────────────────
   //
   // The service's client keys, kept by its MCP runtime: what a Scala handler reaches as

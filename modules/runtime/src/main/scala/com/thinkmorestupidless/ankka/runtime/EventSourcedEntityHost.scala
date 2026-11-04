@@ -74,7 +74,13 @@ private[ankka] object EventSourcedEntityHost:
         event: E,
         installation: Option[String] = None,
         attribution: Option[String] = None,
-        forwardedFrom: Option[String] = None
+        forwardedFrom: Option[String] = None,
+        /**
+         * The event as the entity's serializer wrote it, when it was written in the command's
+         * handling (feature 042): a personal field is sealed before anything is persisted, so a
+         * refusal is the command's answer rather than the journal's failure.
+         */
+        encoded: Option[Array[Byte]] = None
     )
     case Deleted
     case Expiry(atEpochMillis: Long)
@@ -111,7 +117,7 @@ private[ankka] object EventSourcedEntityHost:
           com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
         val copy = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
         val host =
-          Host(descriptor, entity, entityId, observability, componentRef, copy, timers)
+          Host(descriptor, entity, entityId, observability, componentRef, copy, timers, keyring)
 
         val base = EventSourcedBehavior
           .withEnforcedReplies[
@@ -155,9 +161,29 @@ private[ankka] object EventSourcedEntityHost:
       observability: Observability,
       componentRef: Int,
       copy: Option[HostReplication],
-      timers: TimerScheduler[EntityProtocol.Command]
+      timers: TimerScheduler[EntityProtocol.Command],
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ):
     private type Effect = ReplyEffect[Journaled[E], Stored[S]]
+
+    /**
+     * Each event as the entity's serializer writes it, under the service's keyring (feature 042). A
+     * personal field the keyring refuses (an erased data subject, the keyring unreachable) is the
+     * command's refusal here, before anything is persisted; any other failure is thrown as before.
+     */
+    private def encodeEvents(events: Seq[E]): Either[CommandError, Vector[Array[Byte]]] =
+      try
+        Right(
+          com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(
+            events.iterator.map(descriptor.eventSerializer.toBytes).toVector
+          )
+        )
+      catch
+        case unavailable: com.thinkmorestupidless.ankka.core.KeyringUnavailable =>
+          Left(unavailable.error)
+        case refused: CommandError
+            if refused.details.contains(com.thinkmorestupidless.ankka.core.Personal.ErrorKey) =>
+          Left(refused)
 
     private def componentId = descriptor.componentId
 
@@ -399,44 +425,57 @@ private[ankka] object EventSourcedEntityHost:
           (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
         case (outcome, Right((before, after))) =>
-          // Each record says who acted and where the command was forwarded from, when it was.
-          val received       = MetaEntry.toMetadata(invoke.metadata)
-          val attribution    = Attribution.from(received)
-          val forwardedFrom  = received.get(HostReplication.ForwardedFrom)
-          val handlerRecords =
-            effect.events.map(Journaled.Domain(_, None, attribution, forwardedFrom)) ++
-              retentionRecord(effect.retention)
-          // A command that asks for nothing creates nothing: a creation's records are written only
-          // with what the handler persists or the replication change it asks for.
-          val writes =
-            if handlerRecords.isEmpty && after.isEmpty && effect.replication.isEmpty then
-              Vector.empty
-            else
-              before.map(Journaled.Replication(_)) ++ handlerRecords ++
-                after.map(Journaled.Replication(_))
-          val handledAt = local match
-            case Local.AtHome(c, _)  => Vector(MetaEntry(HandledAt, c.me))
-            case Local.AtFollower(c) => Vector(MetaEntry(HandledAt, c.me))
-            case Local.Unreplicated  => Vector.empty
-          val persisted =
-            persist(writes).thenRun((stored: Stored[S]) => afterPersist(stored, writes, lastSeq))
-          outcome match
-            case Outcome.NoReply =>
-              (persisted.thenNoReply(), SpanOutcome.Ok)
-            case Outcome.Reply(compute, metadata) =>
-              val reply: Effect =
-                persisted.thenReply(invoke.replyTo) { stored =>
-                  EntityProtocol.Succeeded(
-                    binding.encodeReply(compute(stored.value)),
-                    MetaEntry.from(metadata) ++ handledAt
-                  )
-                }
-              (reply, SpanOutcome.Ok)
-            case Outcome.Fail(error) =>
+          encodeEvents(effect.events) match
+            case Left(error) =>
               (
                 PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)),
                 SpanOutcome.Refused
               )
+            case Right(encoded) =>
+              // Each record says who acted and where the command was forwarded from, when it was.
+              val received       = MetaEntry.toMetadata(invoke.metadata)
+              val attribution    = Attribution.from(received)
+              val forwardedFrom  = received.get(HostReplication.ForwardedFrom)
+              val handlerRecords =
+                effect.events
+                  .zip(encoded)
+                  .map((e, bytes) =>
+                    Journaled.Domain(e, None, attribution, forwardedFrom, Some(bytes))
+                  ) ++
+                  retentionRecord(effect.retention)
+              // A command that asks for nothing creates nothing: a creation's records are written only
+              // with what the handler persists or the replication change it asks for.
+              val writes =
+                if handlerRecords.isEmpty && after.isEmpty && effect.replication.isEmpty then
+                  Vector.empty
+                else
+                  before.map(Journaled.Replication(_)) ++ handlerRecords ++
+                    after.map(Journaled.Replication(_))
+              val handledAt = local match
+                case Local.AtHome(c, _)  => Vector(MetaEntry(HandledAt, c.me))
+                case Local.AtFollower(c) => Vector(MetaEntry(HandledAt, c.me))
+                case Local.Unreplicated  => Vector.empty
+              val persisted =
+                persist(writes).thenRun((stored: Stored[S]) =>
+                  afterPersist(stored, writes, lastSeq)
+                )
+              outcome match
+                case Outcome.NoReply =>
+                  (persisted.thenNoReply(), SpanOutcome.Ok)
+                case Outcome.Reply(compute, metadata) =>
+                  val reply: Effect =
+                    persisted.thenReply(invoke.replyTo) { stored =>
+                      EntityProtocol.Succeeded(
+                        binding.encodeReply(compute(stored.value)),
+                        MetaEntry.from(metadata) ++ handledAt
+                      )
+                    }
+                  (reply, SpanOutcome.Ok)
+                case Outcome.Fail(error) =>
+                  (
+                    PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)),
+                    SpanOutcome.Refused
+                  )
       end match
     end interpret
 
@@ -629,7 +668,7 @@ private[ankka] object EventSourcedEntityHost:
       sequenceNumber: Long
   ): Stored[S] =
     event match
-      case Journaled.Domain(domainEvent, written, attribution, forwardedFrom) =>
+      case Journaled.Domain(domainEvent, written, attribution, forwardedFrom, _) =>
         // `_applyEvent` sets `currentState` before delegating, so a handler written as
         // `currentState.addItem(...)` — the idiom the docs use — works on replay too.
         // After a deletion or an expiry the handler was shown `emptyState` (see `onCommand`),
@@ -736,9 +775,12 @@ private[ankka] object EventSourcedEntityHost:
         com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(encode(event))
 
       private def encode(event: Journaled[E]): JournalRecord = event match
-        case Journaled.Domain(e, _, attribution, forwardedFrom) =>
+        case Journaled.Domain(e, _, attribution, forwardedFrom, encoded) =>
           JournalRecord
-            .domain(descriptor.eventSerializer.manifest, descriptor.eventSerializer.toBytes(e))
+            .domain(
+              descriptor.eventSerializer.manifest,
+              encoded.getOrElse(descriptor.eventSerializer.toBytes(e))
+            )
             .at(self)
             .copy(attribution = attribution, forwardedFrom = forwardedFrom)
         case Journaled.Deleted          => JournalRecord.deleted.at(self)
@@ -747,8 +789,8 @@ private[ankka] object EventSourcedEntityHost:
         case Journaled.Mirrored(record) => record
 
       def manifest(event: Journaled[E]): String = event match
-        case Journaled.Domain(_, _, _, _) => descriptor.eventSerializer.manifest
-        case other                        => manifestOf(toJournal(other))
+        case Journaled.Domain(_, _, _, _, _) => descriptor.eventSerializer.manifest
+        case other                           => manifestOf(toJournal(other))
 
       def fromJournal(record: JournalRecord, manifest: String): EventSeq[Journaled[E]] =
         EventSeq.single(

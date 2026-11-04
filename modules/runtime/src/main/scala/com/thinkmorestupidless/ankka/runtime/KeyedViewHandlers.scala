@@ -129,7 +129,12 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
       descriptor.rowSerializer,
       Database(),
       askTimeout,
-      QueryCheck.checkedAll(descriptor.componentId, descriptor.tableName, descriptor.queries)
+      QueryCheck.checkedAll(
+        descriptor.componentId,
+        descriptor.tableName,
+        descriptor.queries,
+        ViewFields(descriptor.personalFields, descriptor.lookupFields)
+      )
     )
   )
 

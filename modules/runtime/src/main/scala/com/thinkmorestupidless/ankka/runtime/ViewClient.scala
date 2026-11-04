@@ -55,11 +55,12 @@ final class ViewClient private[ankka] (
 
   private def checkedFor(
       view: ComponentId,
-      queries: => Vector[DeclaredQuery]
+      queries: => Vector[DeclaredQuery],
+      fields: => ViewFields
   ): Vector[CheckedQuery] =
     checked.computeIfAbsent(
       view,
-      _ => QueryCheck.checkedAll(view, ViewDescriptor.tableFor(view), queries)
+      _ => QueryCheck.checkedAll(view, ViewDescriptor.tableFor(view), queries, fields)
     )
 
   /** Queries against a keyed view, resolved from its companion so the row type is carried. */
@@ -70,7 +71,11 @@ final class ViewClient private[ankka] (
       companion.rowSerializer,
       database,
       askTimeout,
-      checkedFor(companion.componentId, companion.descriptor.queries),
+      checkedFor(
+        companion.componentId,
+        companion.descriptor.queries,
+        ViewFields(companion.descriptor.personalFields, companion.descriptor.lookupFields)
+      ),
       Some(() => watches)
     )
 
@@ -84,7 +89,11 @@ final class ViewClient private[ankka] (
       companion.rowSerializer,
       database,
       askTimeout,
-      checkedFor(companion.componentId, companion.descriptor.queries),
+      checkedFor(
+        companion.componentId,
+        companion.descriptor.queries,
+        ViewFields(companion.descriptor.personalFields, companion.descriptor.lookupFields)
+      ),
       Some(() => watches)
     )
 

@@ -132,7 +132,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T041 [US2] Wire the control plane in-process for `ErasureFeatures` (the endpoint and the entity against the kit's in-memory keyring through a test `KeyringAdmin`); bind the request, completion and certificate scenarios
 - [X] T042 [US2] An erasure asked twice: the second for an applied data subject answers the applied request and asks for a re-send so every handler runs again (`erasing.feature`'s handler scenario)
 - [X] T043 [US2] `TKT/PersonalRecoveryBenchmark.scala` (SC-007, FR-023): 1,000 events of one data subject against `LocalKeyring`, recovered cold, ratio printed and asserted ≤ 1.3; one fetch per recovery asserted by the keyring's counter
-- [ ] T044 [US2] `TKT/PersonalLeakSuite.scala` (SC-009): runs story 1's and story 2's flows with an appender that fails on any plain value they wrote, including a handler that logs a whole event with string interpolation
+- [X] T044 [US2] `TKT/PersonalLeakSuite.scala` (SC-009): runs story 1's and story 2's flows with an appender that fails on any plain value they wrote, including a handler that logs a whole event with string interpolation
 - [ ] T045 [US2] `ErasureFeatures`: `erasing.feature` green
 
 **Checkpoint**: an erasure works end to end in-process for JVM services.

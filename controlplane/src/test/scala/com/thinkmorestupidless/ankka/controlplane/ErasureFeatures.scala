@@ -323,6 +323,11 @@ class ErasureFeatures(
     logBucket.refuse = false
     handlerRuns.clear()
     objectsHeld.clear()
+    // The control plane's clock, as a scenario that moved it found it.
+    if harnessStarted && moved != java.time.Duration.ZERO then
+      harness.identity.clock.advance(moved.negated())
+    moved = java.time.Duration.ZERO
+    filer = "ada"
 
   override def afterAll(): Unit =
     stopKits()
@@ -342,6 +347,9 @@ class ErasureFeatures(
     )
     h.start()
     h.organization("acme", "ada")
+    // holds.feature's people: ada owns acme, bob is a member, cyd a member who files requests.
+    h.member("bob", "acme", "ada")
+    h.member("cyd", "acme", "ada")
     h.project("brand", "acme", "ada")
     harnessStarted = true
     h
@@ -834,12 +842,21 @@ class ErasureFeatures(
     body
 
   /** A member asks; the answer's request id is kept for `subject`. */
-  private def askErasure(subject: String): (Int, String) =
+  private def askErasure(
+      subject: String,
+      notBefore: Option[String] = None,
+      reason: Option[String] = None,
+      as: String = "ada"
+  ): (Int, String) =
+    filer = as
+    val fields = Vector(s""""subject":"$subject"""") ++
+      notBefore.map(d => s""""notBefore":"${d}T00:00:00Z"""") ++
+      reason.map(r => s""""reason":"$r"""")
     val answer = harness.send(
       "POST",
       s"/projects/$planeProject/erasures",
-      Some(s"""{"subject":"$subject"}"""),
-      "ada"
+      Some(fields.mkString("{", ",", "}")),
+      as
     )
     RequestId.findFirstMatchIn(answer._2).foreach(m => asked += subject -> m.group(1))
     answer
@@ -1289,6 +1306,217 @@ class ErasureFeatures(
       ack.handler.map(h => (h.objectsErased, h.finality, h.error)),
       Some((0L, "immediate", None))
     )
+  }
+
+  // ── holds.feature ──────────────────────────────────────────────────────────
+
+  /** How far this scenario moved the control plane's clock; moved back before the next. */
+  private var moved: java.time.Duration = java.time.Duration.ZERO
+
+  /** Who asked for this scenario's request. */
+  private var filer: String = "ada"
+
+  private var answered: (Int, String) = (0, "")
+
+  private def personOf(who: String): String = who match
+    case "whoever asked for it"                                     => filer
+    case "a member" | "the member" | "a member who is not an owner" => "bob"
+    case "an owner"                                                 => "ada"
+    case other                                                      => fail(s"no one is '$other'")
+
+  /** The control plane's erasure sweep, once, at the control plane's clock (T059). */
+  private def sweepOnce(): Unit = fail("the erasure sweep is not built yet (T059)")
+
+  private def ridPath(subject: String) = s"/projects/$planeProject/erasures/${requestOf(subject)}"
+
+  private def held(subject: String, date: String, reason: Option[String]): Unit =
+    val (status, body) = askErasure(subject, Some(date), reason, as = "cyd")
+    assertEquals(status, 201, body)
+    assert(body.contains(""""state":"held""""), body)
+
+  private def projectHistory: String =
+    val (status, body) = harness.send("GET", s"/projects/$planeProject/history", as = "ada")
+    assertEquals(status, 200, body)
+    body
+
+  Given("{string} has recorded personal fields of the data subject {string}") {
+    (service: String, subject: String) =>
+      eventually(s"the profile of $subject")(rowOf(kitNamed(service), subject)): Unit
+  }
+
+  Given(
+    "an erasure request for {string} in {string} with the not-before date {string} and the reason {string}"
+  ) { (subject: String, in: String, date: String, reason: String) =>
+    assertEquals(in, project)
+    held(subject, date, Some(reason))
+  }
+
+  Given("a held erasure request for {string} in {string} with the not-before date {string}") {
+    (subject: String, in: String, date: String) =>
+      assertEquals(in, project)
+      held(subject, date, None)
+  }
+
+  When("the not-before date has not passed") { () =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    assert(readRequest(subject).contains(""""notBefore":"""), "no not-before date")
+    sweepOnce()
+  }
+
+  When("the not-before date passes") { () =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    val reply   = readRequest(subject)
+    val date    = """"notBefore":"([^"]+)"""".r
+      .findFirstMatchIn(reply)
+      .map(m => java.time.Instant.parse(m.group(1)))
+      .getOrElse(fail(s"no not-before date: $reply"))
+    val by = java.time.Duration.between(harness.identity.clock.instant(), date).plusMinutes(1)
+    harness.identity.clock.advance(by)
+    moved = moved.plus(by)
+    sweepOnce()
+  }
+
+  Then("the keyring still holds the subject key of {string}") { (subject: String) =>
+    assert(holdsKey(project, subject), s"the subject key of $subject was destroyed")
+  }
+
+  Then(
+    "the erasure request is held, with the not-before date {string} and the reason {string}"
+  ) { (date: String, reason: String) =>
+    val reply = readRequest(asked.keys.headOption.getOrElse(fail("nothing was asked")))
+    assert(reply.contains(""""state":"held""""), reply)
+    assert(reply.contains(s""""notBefore":"${date}T00:00:00Z""""), reply)
+    assert(reply.contains(s""""reason":"$reason""""), reply)
+  }
+
+  Then("within 15 minutes and 60 seconds the erasure request is applied without anyone acting") {
+    () =>
+      val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+      val reply   = untilFinal(subject)
+      assert(reply.contains(""""state":"applied""""), reply)
+      assert(reply.contains(""""lapsedAt":"""), reply)
+      assert(
+        !projectHistory.matches("""(?s).*erasure-hold-lapsed","by":"[^"]+.*"""),
+        "someone acted"
+      )
+  }
+
+  Then("every service of {string} reads every personal field of {string} as erased") {
+    (_: String, subject: String) =>
+      kits.foreach { k =>
+        k.restartService()
+        assertEquals(emailOf(k, subject), "erased")
+      }
+  }
+
+  for who <- Seq("whoever asked for it", "a member") do
+    When(s"$who withdraws it before the not-before date") { () =>
+      val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+      answered = harness.send("POST", s"${ridPath(subject)}/withdraw", None, personOf(who))
+      withdrawer = personOf(who)
+    }
+
+  private var withdrawer = ""
+
+  Then("the erasure request is withdrawn") { () =>
+    assertEquals(answered._1, 200, answered._2)
+    val reply = readRequest(asked.keys.headOption.getOrElse(fail("nothing was asked")))
+    assert(reply.contains(""""state":"withdrawn""""), reply)
+  }
+
+  Then("it records who withdrew it") { () =>
+    val history = projectHistory
+    assert(history.contains("erasure-withdrawn"), history)
+    assert(history.contains(withdrawer), history)
+  }
+
+  When(
+    "whoever asked for it asks for an erasure request for {string} in {string} with the not-before date {string}"
+  ) { (subject: String, in: String, date: String) =>
+    assertEquals(in, project)
+    replacedWith = date
+    answered = harness.send(
+      "PUT",
+      ridPath(subject),
+      Some(s"""{"notBefore":"${date}T00:00:00Z"}"""),
+      filer
+    )
+  }
+
+  private var replacedWith = ""
+
+  Then("the new erasure request replaces the held one") { () =>
+    assertEquals(answered._1, 200, answered._2)
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    val reply   = readRequest(subject)
+    assert(reply.contains(""""state":"held""""), reply)
+    assert(reply.contains(s""""notBefore":"${replacedWith}T00:00:00Z""""), reply)
+    val (_, list) =
+      harness.send("GET", s"/projects/$planeProject/erasures?subject=$subject", as = "ada")
+    assertEquals(RequestId.findAllMatchIn(list).size, 1, list)
+  }
+
+  Then("the history of the erasure request keeps both") { () =>
+    val history = projectHistory
+    assert(history.contains("erasure-asked") && history.contains("2031-10-08"), history)
+    assert(history.contains("erasure-replaced") && history.contains(replacedWith), history)
+  }
+
+  When("an owner overrides the hold with the reason {string}") { (reason: String) =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    answered = harness.send(
+      "POST",
+      s"${ridPath(subject)}/override",
+      Some(s"""{"reason":"$reason"}"""),
+      "ada"
+    )
+  }
+
+  When("a member who is not an owner overrides the hold with a reason") { () =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    answered = harness.send(
+      "POST",
+      s"${ridPath(subject)}/override",
+      Some("""{"reason":"I would like it gone"}"""),
+      "bob"
+    )
+  }
+
+  Then("the erasure request is applied at once") { () =>
+    assertEquals(answered._1, 200, answered._2)
+    val reply = untilFinal(asked.keys.headOption.getOrElse(fail("nothing was asked")))
+    assert(reply.contains(""""state":"applied""""), reply)
+  }
+
+  Then("it records the override, the owner and the reason {string}") { (reason: String) =>
+    val reply = readRequest(asked.keys.headOption.getOrElse(fail("nothing was asked")))
+    assert(reply.contains(""""holdOverride":{"""), reply)
+    assert(reply.contains(s""""reason":"$reason""""), reply)
+    assert(projectHistory.contains("erasure-hold-overridden"), projectHistory)
+  }
+
+  Then("the member is refused") { () =>
+    assertEquals(answered._1, 403, answered._2)
+  }
+
+  Then("the erasure request is still held") { () =>
+    val reply = readRequest(asked.keys.headOption.getOrElse(fail("nothing was asked")))
+    assert(reply.contains(""""state":"held""""), reply)
+  }
+
+  for who <- Seq("whoever asked for it", "a member", "an owner") do
+    When(s"$who withdraws the erasure request for {string} in {string}") {
+      (subject: String, in: String) =>
+        assertEquals(in, project)
+        answered = harness.send("POST", s"${ridPath(subject)}/withdraw", None, personOf(who))
+    }
+    Then(s"$who is refused") { () =>
+      assertEquals(answered._1, 409, answered._2)
+    }
+
+  Then("the erasure request is still applied") { () =>
+    val reply = readRequest(asked.keys.headOption.getOrElse(fail("nothing was asked")))
+    assert(reply.contains(""""state":"applied""""), reply)
   }
 
 /**

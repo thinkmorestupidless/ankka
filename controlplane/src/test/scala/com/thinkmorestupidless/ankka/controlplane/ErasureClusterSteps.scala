@@ -281,9 +281,14 @@ abstract class ErasureClusterSteps(feature: String) extends BackupClusterSteps(f
       read("zero-trust.yaml")
     ) ++ Option.when(keyringRoute)(httpRoute).toVector
     applyYaml(files.mkString("\n---\n"), "keyring")
-    waitFor(10.minutes, "two keyring instances ready") {
-      readyKeyringPods().size == 2
-    }
+    try
+      waitFor(10.minutes, "two keyring instances ready") {
+        readyKeyringPods().size == 2
+      }
+    catch
+      case e: munit.FailException =>
+        // The keyring logs plain lines, which the installation's dump filters out: say why here.
+        fail(s"${e.getMessage}\n${keyringLogs()}")
     if keyringBackedUp then
       waitFor(10.minutes, "the keyring database's first base backup") {
         PkiStack
@@ -316,6 +321,22 @@ abstract class ErasureClusterSteps(feature: String) extends BackupClusterSteps(f
       .asScala
       .toVector
       .filter(_.getMetadata.getDeletionTimestamp == null)
+
+  /** The last lines of each keyring instance, the previous container's first: why it stopped. */
+  protected def keyringLogs(): String =
+    keyringPods()
+      .map(_.getMetadata.getName)
+      .take(2)
+      .map { pod =>
+        def logs(previous: Boolean) =
+          val args =
+            Vector("kubectl", "logs", "-n", KeyringNamespace, pod, "-c", "ankka-keyring") ++
+              Option.when(previous)("--previous") ++ Vector("--tail", "60")
+          val r = PkiStack.exec(k3s, 30.seconds, args*)
+          r.getStdout + r.getStderr
+        s"== $pod (previous)\n${logs(true)}\n== $pod\n${logs(false)}"
+      }
+      .mkString("\n")
 
   protected def readyKeyringPods(): Vector[String] =
     keyringPods()

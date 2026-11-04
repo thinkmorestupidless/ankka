@@ -1287,8 +1287,8 @@ final case class Installation(
     /** The longest retention a topic may be given. Absent from an older control plane. */
     retention: Option[InstallationRetention] = None,
     /**
-     * Whether erasure is on, and how many keyring instances hold its keys. Not stated (absent)
-     * until the platform has erasure.
+     * Whether erasure is on, and how many keyring instances hold its keys (feature 042). Absent
+     * from a control plane older than erasure.
      */
     erasure: Option[InstallationErasure] = None
 )

@@ -27,7 +27,10 @@ final class GrantsHarness(
     topology: Option[TopologyReader] = None,
     /** Machines' settings (feature 040): the issuer tokens name, and the token route's rate. */
     val machineSettings: com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings =
-      com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local
+      com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local,
+    /** Whether the installation erases personal data (feature 042), read on every request. */
+    erasure: () => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings = () =>
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off
 ):
 
   val identity       = TestIdentity()
@@ -58,7 +61,8 @@ final class GrantsHarness(
         topics = Some(projector),
         topology = topology,
         machineSettings = machineSettings,
-        machineKeys = Some(machineKeys)
+        machineKeys = Some(machineKeys),
+        erasure = erasure()
       )*
     )
     kit = AnkkaTestKit.start(

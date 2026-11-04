@@ -4,7 +4,11 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.thinkmorestupidless.ankka.controlplane.api.Installation
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
-import com.thinkmorestupidless.ankka.controlplane.tenancy.{BrokerFacts, TopicPolicy}
+import com.thinkmorestupidless.ankka.controlplane.tenancy.{
+  BrokerFacts,
+  ErasureSettings,
+  TopicPolicy
+}
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
@@ -55,7 +59,8 @@ class InstallationFactsFeatures
         DeployConfig.default,
         auth = Some(identity.config()),
         topicPolicy = TopicPolicy.from(config),
-        brokerFacts = BrokerFacts.from(config)
+        brokerFacts = BrokerFacts.from(config),
+        erasure = ErasureSettings.from(config)
       )*
     )
     testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server))
@@ -91,8 +96,16 @@ class InstallationFactsFeatures
     settings -= BrokerFacts.NodesKey
   }
 
-  // Erasure is spec 042's; this installation, like every one today, has none to report.
-  Given("whose erasure the platform does not yet have")(() => ())
+  Given("an installation that runs a keyring of {string} instances") { (instances: String) =>
+    settings ++= Map(
+      ErasureSettings.EnabledKey   -> "on",
+      ErasureSettings.InstancesKey -> instances
+    )
+  }
+
+  Given("an installation that runs no keyring") { () =>
+    settings += ErasureSettings.EnabledKey -> "off"
+  }
 
   When("a caller with a token reads the installation") { () =>
     val response = http.send(
@@ -126,14 +139,24 @@ class InstallationFactsFeatures
     assert(seen.backups.nonEmpty, raw)
   }
 
-  Then(
-    "the installation reports its broker's nodes as not stated and its erasure as not stated"
-  ) { () =>
+  Then("the installation reports its broker's nodes as not stated") { () =>
     val broker = seen.broker.getOrElse(fail(s"no broker reported: $raw"))
     assertEquals(broker.nodes, None, raw)
-    assertEquals(seen.erasure, None, raw)
     assert(!raw.contains("\"nodes\""), raw)
-    assert(!raw.contains("\"erasure\""), raw)
+  }
+
+  Then("the installation reports its erasure as on, with a keyring of {string} instances") {
+    (instances: String) =>
+      val erasure = seen.erasure.getOrElse(fail(s"no erasure reported: $raw"))
+      assert(erasure.enabled, raw)
+      assertEquals(erasure.keyringInstances, instances.toInt, raw)
+  }
+
+  Then("the installation reports its erasure as off") { () =>
+    // Off, said positively: not stated would be absent, which a reader could not tell from off.
+    val erasure = seen.erasure.getOrElse(fail(s"no erasure reported: $raw"))
+    assert(!erasure.enabled, raw)
+    assert(raw.contains("\"enabled\":false"), raw)
   }
 
   Then("every other fact as it is") { () =>
@@ -144,4 +167,5 @@ class InstallationFactsFeatures
     assert(seen.retention.nonEmpty, raw)
     assert(seen.platformVersion.nonEmpty, raw)
     assert(seen.backups.nonEmpty, raw)
+    assertEquals(seen.erasure.map(_.enabled), Some(false), raw)
   }

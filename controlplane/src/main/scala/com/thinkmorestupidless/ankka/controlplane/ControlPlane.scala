@@ -158,6 +158,9 @@ object ControlPlane:
       /** The broker's node count, as `GET /installation` reports it (`ANKKA_BROKER_NODES`). */
       brokerFacts: => com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts =
         com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.unstated,
+      /** Whether the installation erases personal data (feature 042, `ANKKA_ERASURE`). */
+      erasure: => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+        com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off,
       /**
        * How a custom hostname's proof record is read (feature 045). `None` reads DNS through the
        * resolver `deploy` names, or the system's; a suite passes one it scripts.
@@ -212,7 +215,8 @@ object ControlPlane:
               topology = reader,
               projects = topics,
               topicPolicy = topicPolicy,
-              proofs = lookup
+              proofs = lookup,
+              erasure = erasure
             )
           case None =>
             ServiceEndpoint(
@@ -223,7 +227,8 @@ object ControlPlane:
               clock = clock,
               projects = topics,
               topicPolicy = topicPolicy,
-              proofs = lookup
+              proofs = lookup,
+              erasure = erasure
             ),
       clients => WhoamiEndpoint(clients, acl, clock),
       clients =>
@@ -239,7 +244,8 @@ object ControlPlane:
           installationSecrets,
           installationModels,
           topicPolicy,
-          brokerFacts
+          brokerFacts,
+          erasure
         )
     ) ++ {
       val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
@@ -306,6 +312,8 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
     val brokerFacts =
       com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.from(config)
+    val erasure =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.from(config)
     // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
     // naming what is missing, rather than accepted and found out at the first project secret.
     val backend = secrets.SecretBackendConfig.from(config)
@@ -360,7 +368,8 @@ object ControlPlane:
             machineSettings = machines,
             machineKeys = Some(keys),
             topicPolicy = topicPolicy,
-            brokerFacts = brokerFacts
+            brokerFacts = brokerFacts,
+            erasure = erasure
           )*
         )
       case _ =>
@@ -386,7 +395,8 @@ object ControlPlane:
             machineSettings = machines,
             machineKeys = Some(keys),
             topicPolicy = topicPolicy,
-            brokerFacts = brokerFacts
+            brokerFacts = brokerFacts,
+            erasure = erasure
           )*
         )
     val served = Ankka.service

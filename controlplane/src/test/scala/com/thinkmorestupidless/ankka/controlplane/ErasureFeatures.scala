@@ -114,7 +114,34 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     Engagement.handed.clear()
     written = None
 
-  override def afterAll(): Unit = stopKits()
+  override def afterAll(): Unit =
+    stopKits()
+    if harnessStarted then harness.stop()
+
+  // ── the control plane, for what a member applies ──────────────────────────
+
+  private var erasureOn                   = false
+  private var harnessStarted              = false
+  private lazy val harness: GrantsHarness =
+    val h = GrantsHarness(erasure =
+      () => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings(erasureOn, 2)
+    )
+    h.start()
+    h.organization("acme", "ada")
+    h.project("brand", "acme", "ada")
+    harnessStarted = true
+    h
+
+  private var applied: (Int, String) = (0, "")
+
+  private def apply(service: String, personal: Boolean): (Int, String) =
+    val said = if personal then ""","personal":true""" else ""
+    harness.send(
+      "PUT",
+      s"/services/brand/$service",
+      Some(s"""{"name":"$service","service":{"image":"$service:1.0"$said}}"""),
+      "ada"
+    )
 
   private def eventually[A](what: String, within: FiniteDuration = 30.seconds)(
       check: => Option[A]
@@ -437,4 +464,24 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
 
   Then("nothing is written") { () =>
     assert(refusal.exists(_.isInstanceOf[KeyringUnavailable]), String.valueOf(refusal))
+  }
+
+  Given("an installation that runs no keyring") { () =>
+    erasureOn = false
+  }
+
+  When("a member applies a service whose descriptor declares that it holds personal fields") { () =>
+    applied = apply("players", personal = true)
+  }
+
+  Then("the service is refused") { () =>
+    assertEquals(applied._1, 400, applied._2)
+    // The same service declaring none is accepted: it is the personal fields that were refused.
+    val plain = apply("players", personal = false)
+    assert(plain._1 < 300, plain.toString)
+  }
+
+  Then("the refusal says the installation's erasure is off") { () =>
+    assert(applied._2.contains("erasure is off"), applied._2)
+    assert(applied._2.contains("ANKKA_ERASURE"), applied._2)
   }

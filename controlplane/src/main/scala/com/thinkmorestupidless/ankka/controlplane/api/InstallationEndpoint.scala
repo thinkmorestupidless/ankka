@@ -43,7 +43,9 @@ final class InstallationEndpoint(
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
     /** The broker's node count, when the control plane was told it. */
     brokerFacts: => com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts =
-      com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.unstated
+      com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.unstated,
+    erasure: => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off
 ) extends HttpEndpoint("/installation"):
 
   private val authz = com.thinkmorestupidless.ankka.controlplane.auth.Authorization(clients, clock)
@@ -86,9 +88,8 @@ final class InstallationEndpoint(
       models = served,
       broker = Some(brokerNow()),
       retention = Some(retentionNow()),
-      // Erasure, and the keyring that holds its keys, are not built yet (spec 042): the field is
-      // reserved and reported as not stated, never as off, until the platform has erasure.
-      erasure = None
+      // Feature 042: on or off as the keyring's component set it, never left unstated.
+      erasure = Some(InstallationErasure(erasure.enabled, erasure.keyringInstances))
     )
   }
 

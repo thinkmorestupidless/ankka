@@ -200,6 +200,11 @@ func (b *memBucket) List(_ context.Context, prefix string) iter.Seq2[ObjectEntry
 	}
 }
 
+// Erase lists the subject's prefix and deletes each object.
+func (b *memBucket) Erase(ctx context.Context, subject DataSubject) (ErasedObjects, error) {
+	return eraseListed(ctx, b, subject, Immediate)
+}
+
 func (b *memBucket) SignedURL(name string, access SignedAccess, span time.Duration) (string, error) {
 	if err := checkName(name); err != nil {
 		return "", err

@@ -79,8 +79,8 @@ export { type CommandContext, type EventContext, type RequestContext, type Princ
 export { ComponentClient, Calls, TypedCalls, Invocation, AwaitingInvocation, AWAIT_SINCE, awaitPartJson, Views, Timers, Secrets, InMemorySecrets, noSecrets, WatchEnded, VIEW_STREAMS_SINCE, type AwaitPart, type WatchEvent, type WatchOptions, type Overflow, type TimerTarget, type TimedActionTarget, type ComponentRef } from "./client.ts"
 export {
   ObjectRules, StorageRefusals, InMemoryBuckets, DirectoryBuckets, S3Buckets, S3Bucket, noStorage, chooseStorage, declaredBuckets, processStorage, s3Settings,
-  bucketNameOf, bucketVariableSuffix, localAddress, STORAGE_PATH,
-  type Buckets, type Bucket, type BucketExposure, type SignedAccess, type StoredObject, type ObjectInfo, type ObjectEntry, type PutOptions,
+  bucketNameOf, bucketVariableSuffix, localAddress, STORAGE_PATH, subjectPrefix, parseVersions,
+  type ErasedObjects, type VersionsPage, type Buckets, type Bucket, type BucketExposure, type SignedAccess, type StoredObject, type ObjectInfo, type ObjectEntry, type PutOptions,
   type InMemoryBucketsOptions, type DirectoryBucketsOptions, type DeclaredBuckets, type S3Settings, type S3Target, type NamedTarget,
   type StorageBackend, type ChosenStorage, type StorageChoiceOptions,
 } from "./storage.ts"

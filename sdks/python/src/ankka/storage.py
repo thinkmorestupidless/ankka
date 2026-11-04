@@ -49,6 +49,7 @@ from ankka.effects.common import Error, ErrorCode
 
 if TYPE_CHECKING:
     from ankka._proto.ankka.protocol.v1 import discovery_pb2
+    from ankka.personal import DataSubject
 
 Exposure = Literal["private", "signed", "public", "supplied"]
 """How a bucket is reached from outside the installation: ``private`` (inside it only), ``signed``
@@ -150,6 +151,19 @@ class ObjectRules:
             maximum = int(ObjectRules.MAX_SIGNED_URL.total_seconds())
             return f"a signed URL is made for at most 7 days ({maximum} seconds); this one asks for {seconds}"
         return None
+
+    @staticmethod
+    def subject_prefix(subject: DataSubject | str) -> str:
+        """Where a service keeps the objects of ``subject`` (feature 042): ``subjects/``, the data
+        subject with every ``/`` written ``%2F``, and ``/``. A data subject cannot hold ``%``, so no
+        subject prefix holds another's: ``player``'s is ``subjects/player/`` and ``player/8c1f``'s
+        ``subjects/player%2F8c1f/``. A string that is no data subject is refused (``BAD_REQUEST``)."""
+        from ankka.personal import subject_problem  # personal reaches the client, which reaches storage
+
+        problem = subject_problem(subject)
+        if problem is not None:
+            raise _refused(problem, ErrorCode.BAD_REQUEST)
+        return "subjects/" + subject.replace("/", "%2F") + "/"
 
     @staticmethod
     def check_name(name: str) -> None:
@@ -268,6 +282,21 @@ class ObjectEntry:
     name: str
     length: int
     last_kept: datetime
+
+
+@dataclass(frozen=True)
+class ErasedObjects:
+    """What ``Bucket.erase`` removed: how many objects, and when they are gone for good. ``finality``
+    None is at once; a duration is how long the store keeps a deleted object recoverable
+    (``ANKKA_S3_SOFT_DELETE_DAYS``), so it is the ``finality`` an ``ErasureReport`` carries."""
+
+    count: int
+    finality: timedelta | None = None
+
+
+def subject_prefix(subject: DataSubject | str) -> str:
+    """``ObjectRules.subject_prefix``: where a service keeps the objects of ``subject``."""
+    return ObjectRules.subject_prefix(subject)
 
 
 class StoredObject:
@@ -397,6 +426,16 @@ class Bucket(ABC):
     def url(self, name: str) -> str:
         """The address a browser reads the object under ``name`` at, with no signature: a public
         bucket's only. Computed, never fetched."""
+
+    async def erase(self, subject: DataSubject | str) -> ErasedObjects:
+        """Removes every object of ``subject`` (feature 042): those under its prefix
+        (``subject_prefix``), and on a store that keeps versions every version of each. Objects
+        outside it are kept, those of another data subject included. Run again, it erases what was
+        kept since, and answers 0 when nothing was."""
+        names = [entry.name async for entry in self.list(ObjectRules.subject_prefix(subject))]
+        for name in names:
+            await self.delete(name)
+        return ErasedObjects(len(names))
 
 
 class Buckets(ABC):
@@ -952,7 +991,9 @@ class S3Bucket(Bucket):
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         max_signed_url: timedelta = ObjectRules.MAX_SIGNED_URL,
         clock: Callable[[], datetime] = _now,
+        soft_delete: timedelta | None = None,
     ) -> None:
+        self._soft_delete = soft_delete
         self._target = target
         self.name = name
         self.exposure = exposure
@@ -1158,6 +1199,56 @@ class S3Bucket(Bucket):
         ObjectRules.check_prefix(prefix)
         return self._pages(prefix)
 
+    async def erase(self, subject: DataSubject | str) -> ErasedObjects:
+        """Lists every version and delete marker under the subject's prefix (``ListObjectVersions``)
+        and deletes each by its version id; the count is the objects with a version. A store that
+        lists no versions (Garage answers ``NotImplemented``) is listed plainly and each object
+        deleted. The finality is ``ANKKA_S3_SOFT_DELETE_DAYS``'s, or immediate."""
+        prefix = ObjectRules.subject_prefix(subject)
+        _ = self._credentials
+        versions = await self._versions_under(prefix)
+        if versions is None:
+            names = [entry.name async for entry in self._pages(prefix)]
+            for name in names:
+                await self.delete(name)
+            return ErasedObjects(len(names), self._soft_delete)
+        for key, version in versions:
+            await self._delete_version(key, version)
+        objects = {key for key, version in versions if version}
+        return ErasedObjects(len(objects), self._soft_delete)
+
+    async def _versions_under(self, prefix: str) -> Sequence[tuple[str, str]] | None:
+        """Every version and delete marker under ``prefix``, or None when the store lists none."""
+        found: list[tuple[str, str]] = []
+        key_marker: str | None = None
+        version_marker: str | None = None
+        while True:
+            query: tuple[tuple[str, str], ...] = (("prefix", prefix), ("versions", ""))
+            if key_marker is not None:
+                query += (("key-marker", key_marker),)
+            if version_marker is not None:
+                query += (("version-id-marker", version_marker),)
+            status, _headers, body = await asyncio.to_thread(self._call, "GET", f"/{self._target.bucket}", query)
+            if status == 501 or b"<Code>NotImplemented</Code>" in body:
+                return None
+            if status != 200:
+                raise self._refused(status, body)
+            try:
+                page = parse_versions(body)
+            except Exception as e:  # noqa: BLE001 - anything unreadable is the store's answer
+                raise StorageRefusals.unreadable(self._target.endpoint, str(e)) from e
+            found.extend(page.versions)
+            key_marker, version_marker = page.next_key, page.next_version
+            if not page.truncated:
+                return found
+
+    async def _delete_version(self, name: str, version: str) -> None:
+        """One version, or a delete marker; ``version`` empty is the plain delete."""
+        query: tuple[tuple[str, str], ...] = (("versionId", version),) if version else ()
+        status, _headers, body = await asyncio.to_thread(self._call, "DELETE", self._object_path(name), query)
+        if status not in (200, 204, 404):
+            raise self._refused(status, body)
+
     async def _pages(self, prefix: str) -> AsyncIterator[ObjectEntry]:
         token: str | None = None
         while True:
@@ -1249,6 +1340,44 @@ def parse_listing(xml: bytes) -> tuple[list[ObjectEntry], str | None]:
     return entries, token if truncated else None
 
 
+@dataclass(frozen=True)
+class Versions:
+    """One page of a ``ListObjectVersions`` answer: each version and delete marker as its key and
+    version id (empty for the store's ``null``), and the markers for the next page."""
+
+    versions: list[tuple[str, str]]
+    truncated: bool
+    next_key: str | None
+    next_version: str | None
+
+
+def parse_versions(xml: bytes) -> Versions:
+    """A ``ListObjectVersions`` answer: its versions and delete markers, and where the next page
+    starts while it is truncated."""
+    root = ElementTree.fromstring(xml)
+
+    def local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1]
+
+    versions: list[tuple[str, str]] = []
+    truncated = False
+    next_key: str | None = None
+    next_version: str | None = None
+    for child in root:
+        tag = local(child.tag)
+        if tag in ("Version", "DeleteMarker"):
+            fields = {local(c.tag): (c.text or "") for c in child}
+            version = fields.get("VersionId", "").strip()
+            versions.append((fields.get("Key", ""), "" if version == "null" else version))
+        elif tag == "IsTruncated":
+            truncated = (child.text or "").strip() == "true"
+        elif tag == "NextKeyMarker":
+            next_key = child.text or ""
+        elif tag == "NextVersionIdMarker":
+            next_version = child.text or ""
+    return Versions(versions, truncated, next_key, next_version)
+
+
 class S3Buckets(Buckets):
     """The S3 store's buckets, by name: the unnamed one and each named one."""
 
@@ -1335,6 +1464,9 @@ class StorageSettings:
     """The unnamed family's endpoint, region and key; its ``bucket`` empty when only named buckets
     share them."""
     named: tuple[NamedTarget, ...]
+    soft_delete: timedelta | None = None
+    """How long the store keeps a deleted object (feature 042), from ``ANKKA_S3_SOFT_DELETE_DAYS``:
+    a whole number of days from 1, or unset for at once."""
 
     @property
     def any_s3(self) -> bool:
@@ -1343,7 +1475,17 @@ class StorageSettings:
     @staticmethod
     def read(env: Mapping[str, str]) -> StorageSettings:
         unnamed = StorageSettings._unnamed(env)
-        return StorageSettings(unnamed, StorageSettings._named(env, unnamed))
+        return StorageSettings(unnamed, StorageSettings._named(env, unnamed), StorageSettings._soft_delete(env))
+
+    @staticmethod
+    def _soft_delete(env: Mapping[str, str]) -> timedelta | None:
+        variable = PREFIX + "SOFT_DELETE_DAYS"
+        text = env.get(variable, "").strip()
+        if not text:
+            return None
+        if not re.fullmatch(r"[0-9]+", text) or int(text) < 1:
+            raise StorageSettingsError(f"{variable} is '{text}'; it is a whole number of days from 1")
+        return timedelta(days=int(text))
 
     @staticmethod
     def _unnamed(env: Mapping[str, str]) -> S3Target | None:
@@ -1402,9 +1544,10 @@ class StorageSettings:
         unnamed: Bucket | None = None
         if self.unnamed is not None and self.unnamed.bucket:
             exposure: Exposure = "signed" if self.unnamed.public_endpoint else "private"
-            unnamed = S3Bucket(self.unnamed, None, exposure, timeout=timeout)
+            unnamed = S3Bucket(self.unnamed, None, exposure, timeout=timeout, soft_delete=self.soft_delete)
         named: dict[str, Bucket] = {
-            n.name: S3Bucket(n.target, n.name, n.exposure, n.public_url, timeout=timeout) for n in self.named
+            n.name: S3Bucket(n.target, n.name, n.exposure, n.public_url, timeout=timeout, soft_delete=self.soft_delete)
+            for n in self.named
         }
         return S3Buckets(unnamed, named)
 
@@ -1519,6 +1662,7 @@ __all__ = [
     "DeclaredBuckets",
     "DirectoryBuckets",
     "DirectorySigner",
+    "ErasedObjects",
     "Exposure",
     "HasStorage",
     "InMemoryBuckets",
@@ -1534,6 +1678,8 @@ __all__ = [
     "StoredObject",
     "UnavailableBuckets",
     "from_environment",
+    "parse_versions",
     "read_declared",
     "storage_endpoint",
+    "subject_prefix",
 ]

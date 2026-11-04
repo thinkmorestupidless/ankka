@@ -1,6 +1,7 @@
 package ankka
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -41,6 +42,23 @@ type s3Settings struct {
 	unnamed *s3Target
 	named   []s3Named
 	timeout time.Duration
+	// softDelete is how long the store keeps a deleted object (feature 042), from
+	// ANKKA_S3_SOFT_DELETE_DAYS: a whole number of days from 1, or zero for at once.
+	softDelete time.Duration
+}
+
+// readSoftDelete reads ANKKA_S3_SOFT_DELETE_DAYS: a whole number of days from 1, or unset.
+func readSoftDelete(env map[string]string) (time.Duration, error) {
+	variable := s3Prefix + "SOFT_DELETE_DAYS"
+	text := strings.TrimSpace(env[variable])
+	if text == "" {
+		return 0, nil
+	}
+	days, err := strconv.Atoi(text)
+	if err != nil || days < 1 || strings.ContainsAny(text, "+-") {
+		return 0, fmt.Errorf("%s is '%s'; it is a whole number of days from 1", variable, text)
+	}
+	return time.Duration(days) * 24 * time.Hour, nil
 }
 
 const s3Prefix = "ANKKA_S3_"
@@ -63,6 +81,11 @@ func bucketNameOf(suffix string) string { return strings.ReplaceAll(strings.ToLo
 // of its own. An error names the variable of a family that cannot be read.
 func readS3Settings(env map[string]string) (s3Settings, error) {
 	out := s3Settings{timeout: 30 * time.Second}
+	softDelete, err := readSoftDelete(env)
+	if err != nil {
+		return out, err
+	}
+	out.softDelete = softDelete
 	get := func(name string) string { return env[name] }
 	required := func(name string) (string, error) {
 		if v := get(name); v != "" {
@@ -160,10 +183,10 @@ func newS3Storage(s s3Settings) *S3Storage {
 		if s.unnamed.publicEndpoint != nil {
 			exposure = ExposureSigned
 		}
-		out.unnamed = &s3Bucket{target: *s.unnamed, exposure: exposure, client: client, timeout: s.timeout}
+		out.unnamed = &s3Bucket{target: *s.unnamed, exposure: exposure, client: client, timeout: s.timeout, softDelete: s.softDelete}
 	}
 	for _, n := range s.named {
-		out.named[n.name] = &s3Bucket{target: n.target, name: n.name, exposure: n.exposure, publicURL: n.publicURL, client: client, timeout: s.timeout}
+		out.named[n.name] = &s3Bucket{target: n.target, name: n.name, exposure: n.exposure, publicURL: n.publicURL, client: client, timeout: s.timeout, softDelete: s.softDelete}
 	}
 	return out
 }
@@ -200,6 +223,8 @@ type s3Bucket struct {
 	publicURL string
 	client    *http.Client
 	timeout   time.Duration
+	// softDelete is the store's soft-delete window; zero for none.
+	softDelete time.Duration
 }
 
 func (b *s3Bucket) Name() string       { return b.name }
@@ -469,6 +494,143 @@ func (b *s3Bucket) List(ctx context.Context, prefix string) iter.Seq2[ObjectEntr
 			token = next
 		}
 	}
+}
+
+// versionsPage is one page of a ListObjectVersions answer.
+type versionsPage struct {
+	// versions is each version and delete marker as its key and version id, the id empty for the
+	// store's "null".
+	versions    [][2]string
+	truncated   bool
+	nextKey     string
+	nextVersion string
+}
+
+type versionListing struct {
+	IsTruncated         bool   `xml:"IsTruncated"`
+	NextKeyMarker       string `xml:"NextKeyMarker"`
+	NextVersionIDMarker string `xml:"NextVersionIdMarker"`
+	Entries             []struct {
+		XMLName   xml.Name
+		Key       *string `xml:"Key"`
+		VersionID string  `xml:"VersionId"`
+	} `xml:",any"`
+}
+
+// parseVersions reads a ListObjectVersions answer: its versions and delete markers, in order, and
+// where the next page starts while it is truncated.
+func parseVersions(data []byte) (versionsPage, error) {
+	var l versionListing
+	if err := xml.Unmarshal(data, &l); err != nil {
+		return versionsPage{}, err
+	}
+	page := versionsPage{truncated: l.IsTruncated, nextKey: l.NextKeyMarker, nextVersion: l.NextVersionIDMarker}
+	for _, e := range l.Entries {
+		if e.XMLName.Local != "Version" && e.XMLName.Local != "DeleteMarker" {
+			continue
+		}
+		if e.Key == nil {
+			return versionsPage{}, fmt.Errorf("a version listing's %s has no Key", e.XMLName.Local)
+		}
+		id := strings.TrimSpace(e.VersionID)
+		if id == "null" {
+			id = ""
+		}
+		page.versions = append(page.versions, [2]string{*e.Key, id})
+	}
+	return page, nil
+}
+
+// Erase lists every version and delete marker under the subject's prefix (ListObjectVersions) and
+// deletes each by its version id; the count is the objects with a version. A store that lists no
+// versions (Garage answers NotImplemented) is listed plainly and each object deleted. The finality is
+// ANKKA_S3_SOFT_DELETE_DAYS's, or Immediate.
+func (b *s3Bucket) Erase(ctx context.Context, subject DataSubject) (ErasedObjects, error) {
+	finality := Immediate
+	if b.softDelete > 0 {
+		finality = After(b.softDelete)
+	}
+	if subject.IsZero() {
+		return eraseListed(ctx, b, subject, finality)
+	}
+	versions, listed, err := b.versionsUnder(ctx, SubjectPrefix(subject))
+	if err != nil {
+		return ErasedObjects{}, err
+	}
+	if !listed {
+		return eraseListed(ctx, b, subject, finality)
+	}
+	objects := map[string]bool{}
+	for _, v := range versions {
+		if err := b.deleteVersion(ctx, v[0], v[1]); err != nil {
+			return ErasedObjects{}, err
+		}
+		if v[1] != "" {
+			objects[v[0]] = true
+		}
+	}
+	return ErasedObjects{Count: int64(len(objects)), Finality: finality}, nil
+}
+
+// versionsUnder is every version and delete marker under prefix, and false when the store lists none.
+func (b *s3Bucket) versionsUnder(ctx context.Context, prefix string) ([][2]string, bool, error) {
+	var found [][2]string
+	keyMarker, versionMarker := "", ""
+	for {
+		query := [][2]string{{"prefix", prefix}, {"versions", ""}}
+		if keyMarker != "" {
+			query = append(query, [2]string{"key-marker", keyMarker})
+		}
+		if versionMarker != "" {
+			query = append(query, [2]string{"version-id-marker", versionMarker})
+		}
+		res, err := b.send(ctx, http.MethodGet, "/"+b.target.bucket, query, nil, "", nil, 0)
+		if err != nil {
+			return nil, false, err
+		}
+		data, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
+		res.Body.Close()
+		if err != nil {
+			return nil, false, unreachableRefusal(b.endpoint(), err.Error())
+		}
+		if res.StatusCode == http.StatusNotImplemented || bytes.Contains(data, []byte("<Code>NotImplemented</Code>")) {
+			return nil, false, nil
+		}
+		if res.StatusCode != http.StatusOK {
+			detail := ""
+			if m := codePattern.FindSubmatch(data); m != nil {
+				detail = string(m[1])
+			}
+			return nil, false, refusedByStoreRefusal(b.endpoint(), res.StatusCode, detail)
+		}
+		page, err := parseVersions(data)
+		if err != nil {
+			return nil, false, unreadableRefusal(b.endpoint(), err.Error())
+		}
+		found = append(found, page.versions...)
+		if !page.truncated {
+			return found, true, nil
+		}
+		keyMarker, versionMarker = page.nextKey, page.nextVersion
+	}
+}
+
+// deleteVersion deletes one version, or a delete marker; version empty is the plain delete.
+func (b *s3Bucket) deleteVersion(ctx context.Context, name, version string) error {
+	var query [][2]string
+	if version != "" {
+		query = [][2]string{{"versionId", version}}
+	}
+	res, err := b.send(ctx, http.MethodDelete, b.objectPath(name), query, nil, "", nil, 0)
+	if err != nil {
+		return err
+	}
+	switch res.StatusCode {
+	case http.StatusOK, http.StatusNoContent, http.StatusNotFound:
+		_, _ = io.Copy(io.Discard, res.Body)
+		return res.Body.Close()
+	}
+	return b.refused(res)
 }
 
 func (b *s3Bucket) SignedURL(name string, access SignedAccess, span time.Duration) (string, error) {

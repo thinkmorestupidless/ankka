@@ -40,9 +40,11 @@ import {
   noStorage,
   ObjectRules,
   parseListing,
+  parseVersions,
   S3Bucket,
   S3Buckets,
   s3Settings,
+  subjectPrefix,
   type Bucket,
   type Buckets,
 } from "../src/storage.ts"
@@ -195,6 +197,15 @@ describe("the signer, against AWS's vectors", () => {
 })
 
 /** The contract every store keeps, run over each. */
+const SUBJECT = "player"
+
+/** Two objects of `player`, one of `player/x` (whose prefix an unescaped `/` would put under `player`'s) and one outside every subject. */
+async function keepForErasure(bucket: Bucket): Promise<void> {
+  for (const n of ["kyc.pdf", "scans/front.jpg"]) await bucket.put(subjectPrefix(SUBJECT) + n, utf8.encode("x"), { contentType: "text/plain" })
+  await bucket.put(subjectPrefix(`${SUBJECT}/x`) + "note.txt", utf8.encode("x"), { contentType: "text/plain" })
+  await bucket.put("other/player.txt", utf8.encode("x"), { contentType: "text/plain" })
+}
+
 function contract(label: string, make: () => { buckets: Buckets; done?: () => void }) {
   describe(`the contract, over ${label}`, () => {
     let store: Buckets
@@ -286,6 +297,15 @@ function contract(label: string, make: () => { buckets: Buckets; done?: () => vo
       }
     })
 
+    test("erase removes exactly the subject's objects, and again none", async () => {
+      await keepForErasure(store.default)
+      const erased = await store.default.erase(SUBJECT)
+      assert.deepEqual([erased.count, erased.finality.kind], [2, "immediate"])
+      assert.deepEqual(await names(store.default, "other/"), ["other/player.txt"])
+      assert.deepEqual(await names(store.default, "subjects/"), ["subjects/player%2Fx/note.txt"])
+      assert.equal((await store.default.erase(SUBJECT)).count, 0)
+    })
+
     test("a signed URL is made for the unnamed bucket, not for a private or public one, and for at most seven days", async () => {
       const url = new URL(store.default.signedUrl("notes/a.jpg", "read"))
       assert.equal(url.searchParams.get("access"), "read")
@@ -354,7 +374,19 @@ interface Seen {
 class FakeS3 {
   readonly seen: Seen[] = []
   readonly objects = new Map<string, { type: string; body: Buffer }>()
+  /** Every version and delete marker of a path, `[id, marker]`, while the store keeps versions. */
+  readonly history = new Map<string, [string, boolean][]>()
+  /** `kept`: every put is a version and a plain delete leaves a marker; `none`: the store lists no versions (Garage's `NotImplemented`). */
+  versions: "kept" | "none" = "kept"
+  #nextVersion = 0
   refuseWith: number | undefined
+
+  #keep(path: string, marker: boolean): void {
+    if (this.versions !== "kept") return
+    const h = this.history.get(path) ?? []
+    h.push([`v${++this.#nextVersion}`, marker])
+    this.history.set(path, h)
+  }
   #server: HttpServer | undefined
   port = 0
 
@@ -376,7 +408,32 @@ class FakeS3 {
         const path = decodeURIComponent(url.pathname)
         if (req.method === "PUT") {
           this.objects.set(path, { type: String(req.headers["content-type"]), body: record.body })
+          this.#keep(path, false)
           res.writeHead(200).end()
+        } else if (req.method === "GET" && url.searchParams.has("versions")) {
+          if (this.versions === "none") {
+            res.writeHead(501, { "content-type": "application/xml" }).end("<Error><Code>NotImplemented</Code></Error>")
+            return
+          }
+          const bucket = path.slice(1)
+          const prefix = url.searchParams.get("prefix") ?? ""
+          const all = [...this.history.entries()]
+            .filter(([k]) => k.startsWith(`/${bucket}/${prefix}`))
+            .sort(([a], [b]) => (a < b ? -1 : 1))
+            .flatMap(([k, vs]) => vs.map(([id, marker]) => [k.slice(bucket.length + 2), id, marker] as const))
+          const start = Number(url.searchParams.get("key-marker") ?? "0")
+          const page = all.slice(start, start + 2)
+          const more = start + 2 < all.length
+          const body = page.map(([k, id, marker]) => (marker ? `<DeleteMarker><Key>${k}</Key><VersionId>${id}</VersionId></DeleteMarker>` : `<Version><Key>${k}</Key><VersionId>${id}</VersionId></Version>`)).join("")
+          res.writeHead(200, { "content-type": "application/xml" })
+          res.end(`<ListVersionsResult><IsTruncated>${more}</IsTruncated>${more ? `<NextKeyMarker>${start + 2}</NextKeyMarker><NextVersionIdMarker>m</NextVersionIdMarker>` : ""}${body}</ListVersionsResult>`)
+        } else if (req.method === "DELETE" && url.searchParams.has("versionId")) {
+          const id = url.searchParams.get("versionId")
+          const kept = (this.history.get(path) ?? []).filter(([v]) => v !== id)
+          if (kept.length > 0) this.history.set(path, kept)
+          else this.history.delete(path)
+          if (!kept.some(([, marker]) => !marker)) this.objects.delete(path)
+          res.writeHead(204).end()
         } else if (req.method === "GET" && url.searchParams.get("list-type") === "2") {
           const bucket = path.slice(1)
           const prefix = url.searchParams.get("prefix") ?? ""
@@ -398,7 +455,7 @@ class FakeS3 {
           res.writeHead(200, { "content-type": o.type, "content-length": String(o.body.length), "last-modified": "Mon, 19 Oct 2026 10:00:00 GMT" })
           res.end(req.method === "HEAD" ? undefined : o.body)
         } else if (req.method === "DELETE") {
-          this.objects.delete(path)
+          if (this.objects.delete(path)) this.#keep(path, true)
           res.writeHead(204).end()
         } else res.writeHead(405).end()
       })
@@ -512,6 +569,75 @@ describe("the S3 store", () => {
     const e = await refusal(() => keyless.default.get("x"))
     assert.equal(e.code, "UNAVAILABLE")
     assert.match(e.message, /objectStorageCredential/)
+  })
+
+  test("erase deletes every version and delete marker of the subject's objects by its id", async () => {
+    const bucket = new S3Buckets(
+      s3Settings({
+        ANKKA_S3_ENDPOINT: `http://127.0.0.1:${fake.port}`,
+        ANKKA_S3_REGION: "garage",
+        ANKKA_S3_BUCKET: "erased",
+        ANKKA_S3_ACCESS_KEY: "GKtest",
+        ANKKA_S3_SECRET_KEY: "s3cr3t",
+        ANKKA_S3_SOFT_DELETE_DAYS: "7",
+      }),
+    ).default
+    await keepForErasure(bucket)
+    await bucket.put(subjectPrefix(SUBJECT) + "kyc.pdf", utf8.encode("again"), { contentType: "text/plain" })
+    await bucket.put(subjectPrefix(SUBJECT) + "gone.txt", utf8.encode("x"), { contentType: "text/plain" })
+    await bucket.delete(subjectPrefix(SUBJECT) + "gone.txt")
+    fake.seen.length = 0
+    const erased = await bucket.erase(SUBJECT)
+    assert.equal(erased.count, 3)
+    assert.equal(erased.finality.kind === "after" && erased.finality.after.seconds, 7 * 86_400)
+    assert.deepEqual(await names(bucket), ["other/player.txt", "subjects/player%2Fx/note.txt"])
+    assert.deepEqual([...fake.history.keys()].filter((k) => k.startsWith("/erased/")).sort(), ["/erased/other/player.txt", "/erased/subjects/player%2Fx/note.txt"])
+    const listings = fake.seen.filter((s) => s.method === "GET" && s.url.includes("versions="))
+    assert.ok(listings.length >= 2 && listings.every((s) => s.url.includes("prefix=subjects%2Fplayer%2F&")), JSON.stringify(listings.map((s) => s.url)))
+    assert.ok(fake.seen.some((s) => s.method === "DELETE" && s.url.includes("versionId=")))
+    assert.equal((await bucket.erase(SUBJECT)).count, 0)
+  })
+
+  test("a store that lists no versions is listed plainly and each object deleted", async () => {
+    fake.versions = "none"
+    try {
+      const bucket = buckets.bucket("photos")
+      await keepForErasure(bucket)
+      const erased = await bucket.erase(SUBJECT)
+      assert.deepEqual([erased.count, erased.finality.kind], [2, "immediate"])
+      assert.deepEqual(await names(bucket), ["other/player.txt", "subjects/player%2Fx/note.txt"])
+      assert.equal((await bucket.erase(SUBJECT)).count, 0)
+    } finally {
+      fake.versions = "kept"
+    }
+  })
+
+  test("a version listing is read with its markers and entities", () => {
+    const page = parseVersions(
+      "<ListVersionsResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextVersionIdMarker>v9</NextVersionIdMarker>" +
+        "<Version><Key>subjects/p/a &amp; b</Key><VersionId>v1</VersionId><IsLatest>true</IsLatest></Version>" +
+        "<DeleteMarker><Key>subjects/p/b</Key><VersionId>v2</VersionId></DeleteMarker>" +
+        "<Version><Key>subjects/p/c</Key><VersionId>null</VersionId></Version></ListVersionsResult>",
+    )
+    assert.deepEqual(page.versions, [["subjects/p/a & b", "v1"], ["subjects/p/b", "v2"], ["subjects/p/c", ""]])
+    assert.deepEqual([page.truncated, page.nextKey, page.nextVersion], [true, "subjects/p/b", "v9"])
+    assert.deepEqual(parseVersions("<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>").versions, [])
+  })
+
+  test("a subject's prefix writes each slash, and a string that is no data subject is refused", async () => {
+    assert.equal(subjectPrefix("player"), "subjects/player/")
+    assert.equal(subjectPrefix("player/x"), "subjects/player%2Fx/")
+    assert.equal(ObjectRules.subjectPrefix("org:acme/user_1.a"), "subjects/org:acme%2Fuser_1.a/")
+    const e = await refusal(() => subjectPrefix("player%2Fx"))
+    assert.equal(e.code, "BAD_REQUEST")
+    assert.match(e.message, /is not a data subject/)
+  })
+
+  test("the soft-delete window is read in whole days from one", () => {
+    const env = { ANKKA_S3_ENDPOINT: "http://garage:3900", ANKKA_S3_REGION: "garage", ANKKA_S3_BUCKET: "b" }
+    assert.equal(s3Settings(env).softDelete, undefined)
+    assert.equal(s3Settings({ ...env, ANKKA_S3_SOFT_DELETE_DAYS: "7" }).softDelete?.seconds, 7 * 86_400)
+    for (const t of ["0", "seven", "1.5"]) assert.throws(() => s3Settings({ ...env, ANKKA_S3_SOFT_DELETE_DAYS: t }), /ANKKA_S3_SOFT_DELETE_DAYS/)
   })
 
   test("a listing's XML is read with its entities", () => {

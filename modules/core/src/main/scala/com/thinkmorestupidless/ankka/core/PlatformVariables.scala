@@ -189,6 +189,32 @@ private[ankka] object PlatformVariables:
   val ModelsAddress: String = "ANKKA_MODELS_ADDRESS"
 
   /**
+   * Whether the installation erases personal data (feature 042): `on` when it runs the keyring,
+   * `off` (the default) otherwise. Read by the control plane, which reports it on
+   * `GET /installation` and refuses a service that declares personal fields while it is off, and by
+   * the operator. Set by the keyring's component, never by a service.
+   */
+  val Erasure: String = "ANKKA_ERASURE"
+
+  /**
+   * How many instances of the keyring run (feature 042): 2 by default. Reported beside `Erasure`.
+   */
+  val KeyringInstances: String = "ANKKA_KEYRING_INSTANCES"
+
+  /**
+   * How long after an erasure is applied the control plane keeps asking each service to run its
+   * erasure handler again (feature 042), as a duration such as `30d`: 30 days by default.
+   */
+  val ErasureRerunWindow: String = "ANKKA_ERASURE_RERUN_WINDOW"
+
+  /**
+   * Where the installation's keyring is (feature 042): rendered by the operator for a service that
+   * declares personal fields, which the platform's program reaches with the service's own
+   * certificate. A descriptor never gives it.
+   */
+  val KeyringAddress: String = "ANKKA_KEYRING_ADDRESS"
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */
@@ -232,7 +258,9 @@ private[ankka] object PlatformVariables:
     Installation,
     Installations,
     // Where the installation's model server is (feature 053).
-    ModelsAddress
+    ModelsAddress,
+    // Where the installation's keyring is (feature 042).
+    KeyringAddress
   ) ++ SecretStoreSettings
 
   /**

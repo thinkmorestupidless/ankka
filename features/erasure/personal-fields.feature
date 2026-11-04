@@ -60,3 +60,9 @@ Feature: A personal field is held only encrypted
       | where                                                      |
       | the routes of "players" listed by the command line         |
       | a test of a component of "players" with no test kit        |
+
+  Scenario: a service whose descriptor declares personal fields is refused by an installation that runs no keyring
+    Given an installation that runs no keyring
+    When a member applies a service whose descriptor declares that it holds personal fields
+    Then the service is refused
+    And the refusal says the installation's erasure is off

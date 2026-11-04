@@ -104,6 +104,31 @@ transcripts and object storage, and a restored backup must not bring an erased s
   its view schema), and a service switched under 041 is not ready until it has.
 - Q: Subject-key rotation that is not an erasure? → A: Out of scope.
 
+### Session 2026-11-03
+
+- Q: A replicated entity (051) is replayed at follower installations from the home's journal, whose
+  envelopes are under the home's subject keys. How does erasure reach every installation of it? → A:
+  Followers ask the home's keyring. A follower's services fetch subject keys from the home
+  installation's keyring over the peer link, admitted as that installation, into the same bounded
+  cache with the same destroyed notices, so one erasure at the home reaches every copy within the
+  60-second bound. Keys enter a peer's service processes as they enter any service; they are never
+  stored in another keyring. 042 defines the keyring's side of this; ankka-replication carries the
+  call over its peer link.
+- Q: Java and Kotlin (058) and Go (059) shipped after this spec. Which SDKs does it cover? → A: All
+  seven. Java and Kotlin reuse the Scala codec through the facade (a `Personal` record component the
+  record codec reads); Go has its own `Personal` type, codec and key cache over the same sidecar rpc
+  as Python and TypeScript. SC-008's same-envelope proof covers every language.
+- Q: Spec 057 reserved "whether erasure is on" as an installation fact. Is erasure an installation
+  setting? → A: Yes, off by default. An installation turns erasure on, which deploys the keyring;
+  `GET /installation` reports erasure on or off and the keyring's instance count. A service whose
+  descriptor declares that it holds personal fields is refused at apply by an installation with
+  erasure off, naming the setting. The local runtime and the test kit always have a keyring.
+- Q: How is the build cut? → A: One pull request with every story, requirement and SDK. There is no
+  release in which personal fields exist but cross-project, agent or object erasure does not.
+- Q: Where else does a member work with erasure requests than the API and the CLI? → A: The console
+  and the `ankka mcp` server too, in full: ask for, list, read, withdraw, override (an owner) and fetch
+  certificates. The MCP server acts as the member who is logged in.
+
 ## Context
 
 A service's payloads are bytes its own serializer makes. `Serializer[A]` in `core` turns a value into
@@ -111,8 +136,9 @@ bytes under a manifest, and almost every serializer in practice is `Codecs.seria
 with a `type` discriminator. The runtime never looks inside: an event becomes a `JournalRecord(kind = 0,
 manifest, payload)`, a snapshot a `StateRecord`, a key value state a durable state row, a view row the
 `payload` text of `row_key | payload | updated_at`, a topic message the bytes the publisher handed over.
-A Python, TypeScript or Rust service encodes in its own SDK (`json_codec`, `jsonCodec`, the crate's
-codec) and the sidecar journals the bytes as they arrive, under a contract that it never inspects them.
+A Java or Kotlin service encodes through the same JVM codecs behind its facade (058). A Python,
+TypeScript, Go or Rust service encodes in its own SDK (`json_codec`, `jsonCodec`, the Go module's
+codec, the crate's codec) and the sidecar journals the bytes as they arrive, under a contract that it never inspects them.
 So the one place a personal field exists as a typed value, on its way to every store, is inside the
 codec that serializes it.
 
@@ -179,7 +205,9 @@ Five decisions shape this feature.
 What this feature is not: physical deletion of journal events or topic records (the ciphertext stays,
 unreadable, until the topic's retention (043) or a backup's age removes it); a classifier that finds
 personal data a service did not mark (marking is the service's responsibility, and the docs say so);
-erasure across installations; re-encryption of events written before the feature (see Assumptions);
+erasure across installations, except that a replicated entity's follower installations (051) read
+their subject keys from the home's keyring and so are reached by the home's erasure (FR-032);
+re-encryption of events written before the feature (see Assumptions);
 rotation of a subject key that is not an erasure; and the domain's retention rules, which decide when
 a hold lapses.
 
@@ -211,8 +239,13 @@ plain values.
 - added `features/erasure/personal-fields.feature`: a view's row holds a personal field encrypted and is read as the value
 - added `features/erasure/personal-fields.feature`: a message on a topic holds a personal field encrypted and a consumer is handed the value
 - added `features/erasure/languages.feature`: an SDK writes the same personal envelope and reads it back into its own personal type
+- added `features/erasure/languages.feature`: a service written in a language of the JVM writes the personal envelope a service written in Scala writes
 - added `features/erasure/personal-fields.feature`: a data subject's subject key is made on its first write, once, whichever instance writes first
 - added `features/erasure/personal-fields.feature`: a personal field cannot be written where no service runs
+- added `features/erasure/personal-fields.feature`: a service whose descriptor declares personal fields is refused by an installation that runs no keyring
+- added `features/installation/facts.feature`: an installation that runs a keyring reports its erasure as on and how many instances its keyring has
+- added `features/installation/facts.feature`: an installation that runs no keyring reports its erasure as off
+- changed `features/installation/facts.feature`: a fact the control plane cannot read is reported as not stated
 
 ---
 
@@ -329,6 +362,9 @@ in B. Revoke the grant and assert B's next key request is refused.
 - added `features/erasure/other-projects.feature`: a machine outside the installation with a grant that does not allow decryption reads every personal field as erased
 - added `features/erasure/other-projects.feature`: a machine outside the installation with a grant that allows decryption asks the keyring to decrypt each field
 - added `features/erasure/other-projects.feature`: the keyring refuses to decrypt for a machine outside the installation once its grant is revoked or the data subject is erased
+- added `features/erasure/replication.feature`: a follower of a replicated entity reads a personal field with the subject key the home's keyring gives it
+- added `features/erasure/replication.feature`: an erasure at the home reaches a follower of a replicated entity within a minute
+- added `features/erasure/replication.feature`: a follower that cannot reach the home's keyring and has no subject key retries the recovery of the entity
 
 ---
 
@@ -403,6 +439,10 @@ and a listing by correlation id returns both; assert a service without the grant
 - added `features/erasure/asking.feature`: a service granted the right by another project asks for an erasure request there
 - added `features/erasure/asking.feature`: a service without the right is refused and the refusal is recorded
 - added `features/erasure/asking.feature`: a member lists the erasure requests of two projects by their correlation id in either project
+- added `features/erasure/places.feature`: a member asks for an erasure request in every place the platform offers
+- added `features/erasure/places.feature`: the console shows the erasure requests of a project with where each one stands and each service's completion
+- added `features/erasure/places.feature`: a member fetches the erasure certificate of an applied erasure request in every place the platform offers
+- added `features/erasure/places.feature`: only an owner overrides a hold, in every place the platform offers
 
 ---
 
@@ -453,8 +493,9 @@ and a listing by correlation id returns both; assert a service without the grant
 
 **Marking and encryption**
 
-- **FR-001**: Every SDK MUST offer a personal type — `Personal[A]` in Scala, and the equivalent in
-  Python, TypeScript and the Rust crate — whose value is either present with a subject or erased, and
+- **FR-001**: Every SDK MUST offer a personal type — `Personal[A]` in Scala, `Personal<A>` in Java
+  and Kotlin through the facade and the record codec (058), and the equivalent in Python, TypeScript,
+  Go (059) and the Rust crate — whose value is either present with a subject or erased, and
   whose codec writes the **personal envelope** on encode: a JSON object carrying the subject in the
   clear and the field's own encoding as ciphertext under the subject's key; and on decode restores the
   value, or yields the erased value when the keyring reports the key destroyed. A derived codec for a
@@ -481,7 +522,10 @@ and a listing by correlation id returns both; assert a service without the grant
 - **FR-007**: A member MUST be able to file an erasure request for one subject in one project, through
   the control plane's API and the CLI (`ankka projects erasures file <subject> [--not-before <date>]
   [--reason <text>] [--correlation <id>]`), and to list and read requests by subject, by state and by
-  correlation id.
+  correlation id. The console MUST list a project's erasure requests with each one's state, hold and
+  per-service completions, and offer filing, withdrawal, an owner's override and the certificate's
+  download; the `ankka mcp` server MUST offer the same as tools, acting as the member who is logged
+  in, with no right beyond theirs.
 - **FR-008**: A service MUST be able to file an erasure request through its service client in its own
   project when the project grants it the erasure right, and in another project when that project
   grants it (spec 040); a request names its filer. The platform MUST NOT fan a request out beyond its
@@ -534,6 +578,13 @@ and a listing by correlation id returns both; assert a service without the grant
   keyring. A refused fetch MUST be recorded. The control plane's identity MUST NOT be able to read a key.
 - **FR-019**: The keyring MUST run with the number of instances the installation sets (default 2 in
   Kubernetes, 1 locally), and a request MUST be answered by any instance.
+- **FR-033**: Erasure MUST be an installation setting, off by default; turning it on deploys the
+  keyring. The read of the installation (057's FR-013) MUST report erasure as on or off and, when on,
+  the keyring's number of instances, no longer as not stated. A service descriptor MUST be able to
+  declare that the service holds personal fields, and an installation with erasure off MUST refuse
+  such a descriptor at apply, naming the setting. A service that writes a personal field without
+  declaring it, on an installation with erasure off, MUST be refused by the codec as unavailable
+  (FR-003). The local runtime and the test kit MUST always provide a keyring.
 - **FR-020**: A service instance MAY cache subject keys. The cache MUST be bounded (default 10,000 keys,
   a platform setting), MUST expire a key at most 5 minutes after it was fetched while the keyring
   answers, MUST keep serving reads from cached keys while the keyring does not answer for at most the
@@ -565,8 +616,8 @@ and a listing by correlation id returns both; assert a service without the grant
   an empty history; an autonomous agent instance tagged with the subject MUST be stopped and its state
   read as erased. The documentation MUST say that what a session sent to its model provider is beyond
   the installation's edge and this feature.
-- **FR-026**: Every SDK MUST offer one object storage call, `erase(subject)`, that deletes every object
-  under the subject's prefix in the service's bucket — every version on GCS, the one version on Garage
+- **FR-026**: Every SDK's storage client (055) MUST offer one more call, `context.storage.erase(subject)`,
+  reachable from the erasure handler, that deletes every object under the subject's prefix in the service's bucket — every version on GCS, the one version on Garage
   — using the service's own credential (034), and reports the count; a process-hosted service reaches
   it through the sidecar. The documentation MUST give the prefix convention (`subjects/<subject>/`) and
   say that an object stored outside it is not erased by this call. The request MUST show the time the
@@ -593,6 +644,17 @@ and a listing by correlation id returns both; assert a service without the grant
   Every decryption MUST be recorded against the machine and the grant, a revoked grant or an erased
   subject MUST be refused on the next request, and the documentation MUST say plainly that erasure
   reaches the partner's later reads, not copies it has already stored.
+
+**Replicated entities**
+
+- **FR-032**: A subject key of a replicated entity (051) MUST be kept only by the keyring of the
+  entity's home installation. A service at a follower installation MUST fetch it from the home's
+  keyring over the peer link, admitted as its installation, hold it in the cache of FR-020, and be
+  sent destroyed notices as FR-022 sends them to the home's own services, so an erasure filed at the
+  home reaches every installation of the entity within the same 60 seconds. No keyring MUST store
+  another installation's subject key. The keyring MUST expose this as a seam the replication layer
+  calls over its peer link; a follower that cannot reach the home's keyring and has no cached key
+  fails the entity's recovery and retries, as FR-020's outage does.
 
 ### Key Entities
 
@@ -640,8 +702,9 @@ and a listing by correlation id returns both; assert a service without the grant
 - **SC-006**: A held erasure is applied within 15 minutes of its date with no one acting.
 - **SC-007**: Recovering an entity of 1,000 events with personal fields takes at most 1.3 times as long
   as without them (FR-023).
-- **SC-008**: The same event with personal fields, persisted by a Scala, a Python, a TypeScript and a
-  Rust module service, is stored in the same envelope and decodes in each; the sidecar's conformance
+- **SC-008**: The same event with personal fields, persisted by a Scala, a Java, a Kotlin, a Python,
+  a TypeScript, a Go and a Rust module service, is stored in the same envelope and decodes in each;
+  the sidecar's conformance
   suite proves it read none of them.
 - **SC-009**: No log line, span or recorder entry from a full run of the feature's suites contains a
   personal value written by them, including runs that interpolate whole events into log lines.
@@ -680,9 +743,9 @@ and a listing by correlation id returns both; assert a service without the grant
 - **One subject key per subject per project**, not per field or per service: one erasure, one key.
 - **The persist path pays for encryption.** A cached key costs microseconds beside the journal write
   that is already there; a miss costs one round trip to the keyring; FR-023 bounds the total.
-- **`erase(subject)` is the first storage call the SDK carries.** 034 chose no SDK storage client so
-  any S3 client would do; this one call is the exception, because the two backends differ in exactly
-  the way an erasure cares about (versions) and the service should not have to know.
+- **`erase(subject)` joins 055's storage client.** It is the one call there that knows the backends
+  differ in exactly the way an erasure cares about (versions), so the service need not know; a
+  service that writes its bucket with another S3 client still erases through it.
 - **The keyring's root key on a Postgres installation** is only as safe as 038's store; a real-money
   installation on Google Cloud uses 044's wrapping key.
 
@@ -698,12 +761,17 @@ and a listing by correlation id returns both; assert a service without the grant
   switched service replays the erasure log before it is ready; the control plane reconciles its copy of
   the log from the bucket after its own restore.
 - **043 (topic retention)**: physical removal of encrypted topic records.
+- **055 (storage client)**: `context.storage`, which `erase(subject)` joins.
 - **044 (cloud provider)**: the `wrapping-key` request for the keyring's identity on Google Cloud.
 - **030 (wasm request and clock)**: the host import module the `keyring` import joins.
+- **051 (replicated entities)**: the home and followers of an entity, and the peer link over which a
+  follower's services fetch subject keys from the home's keyring (FR-032); the `ReplicationTransport`
+  seam ankka-replication fills.
 
-## Glossary terms proposed
+## Glossary terms
 
-*Proposed* in `GLOSSARY.md` under *Erasure*, to settle in `/speckit-clarify`: data subject, personal
+Settled in `/speckit-clarify` on 2026-11-04, under *Erasure* in `GLOSSARY.md`, with `keyring` widened
+for FR-032 and FR-033: data subject, personal
 field, personal envelope, subject key, keyring, lookup token, lookup key, erasure, erased, erasure
 request, not-before date, withdrawn, completion, erasure handler, erasure log, erasure certificate,
 correlation id, grant, decryption, subject prefix, soft-delete window, restore, switched, journal.

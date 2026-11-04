@@ -13,7 +13,16 @@ Feature: What the installation reports about itself
 
   Scenario: a fact the control plane cannot read is reported as not stated
     Given an installation whose number of broker nodes is not known to the control plane
-    And whose erasure the platform does not yet have
     When a caller with a token reads the installation
-    Then the installation reports its broker's nodes as not stated and its erasure as not stated
+    Then the installation reports its broker's nodes as not stated
     And every other fact as it is
+
+  Scenario: an installation that runs a keyring reports its erasure as on and how many instances its keyring has
+    Given an installation that runs a keyring of "2" instances
+    When a caller with a token reads the installation
+    Then the installation reports its erasure as on, with a keyring of "2" instances
+
+  Scenario: an installation that runs no keyring reports its erasure as off
+    Given an installation that runs no keyring
+    When a caller with a token reads the installation
+    Then the installation reports its erasure as off

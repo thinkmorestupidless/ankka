@@ -59,6 +59,7 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_KEYRING_ADDRESS` | `ankka.keyring.address` | `""` | every service |
 | `ANKKA_STORAGE_BACKEND` | `ankka.storage.backend` | `""` | every service |
 | `ANKKA_STORAGE_DIR` | `ankka.storage.directory` | `".ankka/storage"` | every service |
+| `ANKKA_OBSERVABILITY_ADDRESS` | `ankka.observability.local-address` | `""` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
 | `ANKKA_DB_NAME` | `pekko.persistence.r2dbc.connection-factory.database` | `"ankka"` | every service |
@@ -615,6 +616,10 @@ loopback. The platform sets these variables on the two containers, and a descrip
 - `ANKKA_SIDECAR_BIND` is the address the sidecar's client API binds, `127.0.0.1` by default. It differs
   only when the sidecar runs in a container and the process on the host, as in local development with
   Docker Compose.
+- `ANKKA_OBSERVABILITY_ADDRESS` (`ankka.observability.local-address`) is the `host:port` a service run
+  outside Kubernetes binds its local observability endpoint to, loopback on an ephemeral port by default.
+  The Python, TypeScript and Go integration kits set it on their sidecar container so the test can reach
+  the endpoint's keyring routes through a published port. A descriptor may not set it.
 - `ANKKA_SIDECAR_DISCOVERY_TIMEOUT` is how long the sidecar waits for the process to answer the discovery
   handshake before giving up, `60s` by default. It accepts `ms`, `s` and `m` suffixes; a bare number is
   seconds.

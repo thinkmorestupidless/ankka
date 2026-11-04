@@ -9,8 +9,11 @@ import com.thinkmorestupidless.ankka.runtime.{
 }
 import com.thinkmorestupidless.ankka.runtime.keyring.{KeyringHandle, LocalKeyring}
 
-import java.net.URI
+import com.typesafe.config.ConfigFactory
+
+import java.net.{ServerSocket, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import scala.util.{Try, Using}
 import scala.concurrent.Await
 import scala.concurrent.duration.*
 
@@ -30,12 +33,13 @@ final class LocalKeyringSuite extends munit.FunSuite with LogCapturing:
     case KeyAnswer.Key(k) => IArray.genericWrapArray(k).toVector
     case other            => fail(s"no key: $other")
 
-  private def localKit() =
+  private def localKit(settings: com.typesafe.config.Config = ConfigFactory.empty()) =
     AnkkaTestKit.start(
       Seq(MemberEntity.descriptor, Members.descriptor),
       Seq(ProjectionRuntime()),
       configure = _.withLocalKeyring(),
-      serviceIdentity = ServiceIdentity.deployed("brand", "members")
+      serviceIdentity = ServiceIdentity.deployed("brand", "members"),
+      settings = settings
     )
 
   private def localOf(kit: AnkkaTestKit): LocalKeyring =
@@ -46,12 +50,17 @@ final class LocalKeyringSuite extends munit.FunSuite with LogCapturing:
           case other           => fail(s"the service's keyring is $other")
       case other => fail(s"the service's keyring is $other")
 
-  private def post(address: String, contentType: String, body: String) =
+  private def post(
+      address: String,
+      contentType: String,
+      body: String,
+      path: String = "/_ankka/erasures"
+  ) =
     HttpClient
       .newHttpClient()
       .send(
         HttpRequest
-          .newBuilder(URI.create(s"$address/_ankka/erasures"))
+          .newBuilder(URI.create(s"$address$path"))
           .header("Content-Type", contentType)
           .POST(HttpRequest.BodyPublishers.ofString(body))
           .build(),
@@ -120,5 +129,75 @@ final class LocalKeyringSuite extends munit.FunSuite with LogCapturing:
       assert(filed.body.contains(""""service":"members""""), filed.body)
       assert(rows.get("8c1f").exists(_.email.isErased))
       kit.assertNoPersonalValue("ada@example.com")
+    finally kit.stop()
+  }
+
+  test(
+    "an outage asked on the local console refuses every request, erasures included, until it ends"
+  ) {
+    // The address a test kit's sidecar container names, here on loopback: the endpoint listens
+    // where it is told.
+    val port = Using(ServerSocket(0))(_.getLocalPort).get
+    val kit  = localKit(
+      ConfigFactory.parseString(s"""ankka.observability.local-address = "127.0.0.1:$port"""")
+    )
+    try
+      val address = kit.service.observabilityAddress.getOrElse(fail("no local console endpoint"))
+      assertEquals(address, s"http://127.0.0.1:$port")
+      val outage = "/_ankka/keyring/outage"
+      kit.componentClient
+        .forEventSourcedEntity(EntityId("8c1f"))
+        .call(MemberEntity.join)
+        .invoke("ada@example.com"): Unit
+
+      assertEquals(post(address, "text/plain", """{"seconds":600}""", outage).statusCode, 415)
+      assertEquals(post(address, "application/json", """{"seconds":-1}""", outage).statusCode, 400)
+      val started = post(address, "application/json", """{"seconds":600}""", outage)
+      assertEquals(started.statusCode, 200, started.body)
+      assert(started.body.startsWith("""{"until":""""), started.body)
+
+      // A key not held is refused as unavailable, by the keyring and through a component.
+      val refused = Try(localOf(kit).key("brand", DataSubject("member/9d2e"), create = true))
+      assert(
+        refused.failed.toOption.exists {
+          case e: CommandError =>
+            e.code == ErrorCode.Unavailable &&
+            e.details.get(Personal.ErrorKey).contains(Personal.Unavailable)
+          case _ => false
+        },
+        refused.toString
+      )
+      val write = Try(
+        kit.componentClient
+          .forEventSourcedEntity(EntityId("9d2e"))
+          .call(MemberEntity.join)
+          .invoke("grace@example.com")
+      )
+      assert(
+        write.failed.toOption.exists {
+          case e: CommandError => e.code == ErrorCode.Unavailable; case _ => false
+        },
+        write.toString
+      )
+      // An erasure destroys nothing in an outage.
+      val erasure = post(address, "application/json", """{"subject":"member/8c1f"}""")
+      assertEquals(erasure.statusCode, 503, erasure.body)
+      assert(erasure.body.contains("keyring is unavailable"), erasure.body)
+
+      val ended = post(address, "application/json", """{"seconds":0}""", outage)
+      assertEquals(ended.body, """{"until":null}""")
+      assert(
+        localOf(kit)
+          .key("brand", DataSubject("member/8c1f"), create = false)
+          .isInstanceOf[KeyAnswer.Key]
+      )
+      assertEquals(
+        post(address, "application/json", """{"subject":"member/8c1f"}""").statusCode,
+        200
+      )
+      assertEquals(
+        localOf(kit).key("brand", DataSubject("member/8c1f"), create = false),
+        KeyAnswer.Destroyed
+      )
     finally kit.stop()
   }

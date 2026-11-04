@@ -215,6 +215,15 @@ private[ankka] object PlatformVariables:
   val KeyringAddress: String = "ANKKA_KEYRING_ADDRESS"
 
   /**
+   * Where a locally run service's console endpoint listens, as `host:port` (feature 042): loopback
+   * on an ephemeral port when unset. Set only by a test kit that runs the sidecar in a container
+   * and reaches the endpoint from the host (`0.0.0.0:9012`, which Docker publishes), as it sets
+   * `ANKKA_SIDECAR_BIND`. The endpoint is never started on the platform, and a descriptor that
+   * gives the variable is refused.
+   */
+  val LocalEndpointAddress: String = "ANKKA_OBSERVABILITY_ADDRESS"
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */
@@ -234,6 +243,8 @@ private[ankka] object PlatformVariables:
     "ANKKA_SIDECAR_PORT",
     "ANKKA_SIDECAR_ADDRESS",
     "ANKKA_SIDECAR_BIND",
+    // Where a local service's console endpoint listens, for a test kit's container.
+    LocalEndpointAddress,
     // How the runtime finds and sizes a module.
     "ANKKA_WASM_MODULE",
     "ANKKA_WASM_INSTANCES",

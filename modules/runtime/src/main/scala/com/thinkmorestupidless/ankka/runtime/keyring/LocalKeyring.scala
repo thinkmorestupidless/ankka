@@ -54,6 +54,32 @@ final class LocalKeyring(
       t
     }
 
+  /** Until when the keyring refuses everything, as a test kit asked (`outage`); `None` when up. */
+  private val down = AtomicReference[Option[Instant]](None)
+
+  /** The end of the outage in force now, if there is one. */
+  def outageUntil: Option[Instant] =
+    down.get.filter(Instant.now().isBefore)
+
+  /**
+   * Refuses every request as unavailable for `duration`, erasures included, and confirms no notices
+   * while it lasts: what a test kit's sidecar is told by `POST /_ankka/keyring/outage`, as the
+   * kit's keyring in memory is told by `outage`. Kept by this instance only.
+   */
+  def outage(duration: FiniteDuration): Unit =
+    down.set(Some(Instant.now().plusMillis(duration.toMillis)))
+
+  /** Ends an outage now. */
+  def recover(): Unit = down.set(None)
+
+  private def checkUp(): Unit =
+    if outageUntil.isDefined then
+      throw CommandError(
+        "the keyring is unavailable: the local keyring is in an outage a test asked for",
+        ErrorCode.Unavailable,
+        Map(Personal.ErrorKey -> Personal.Unavailable)
+      )
+
   private def await[A](what: String)(f: => Future[A]): A =
     try Await.result(f, timeout)
     catch
@@ -83,6 +109,7 @@ final class LocalKeyring(
     bytes
 
   def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
+    checkUp()
     ensure()
     val s = subject.value
     if create then
@@ -110,6 +137,7 @@ final class LocalKeyring(
         if gone.isDefined then KeyAnswer.Destroyed else KeyAnswer.Absent
 
   def lookupKey(project: String): IArray[Byte] =
+    checkUp()
     ensure()
     val k = fresh()
     await("make a lookup key")(
@@ -129,9 +157,11 @@ final class LocalKeyring(
   /**
    * Destroys `subject`'s key: the key deleted and its tombstone written in one transaction, and a
    * notice for every instance. Answers the notice's sequence. Erasing a subject already erased
-   * writes nothing but a new notice, so the duties and the handler run again.
+   * writes nothing but a new notice, so the duties and the handler run again. Refused as
+   * unavailable in an outage: a keyring that cannot be reached destroys nothing.
    */
   def erase(subject: DataSubject, rerun: Boolean = false): Long =
+    checkUp()
     ensure()
     val s   = subject.value
     val seq = await("destroy a key")(database.inTransaction { tx =>
@@ -161,7 +191,9 @@ final class LocalKeyring(
     val cursor = AtomicReference[Long](after)
     val task   = polling.scheduleWithFixedDelay(
       () =>
+        // In an outage the channel is down: nothing is read and nothing confirmed.
         try
+          if outageUntil.isDefined then throw IllegalStateException("in an outage")
           val exists = Await.result(
             database.queryOne(
               SqlFragment.raw("SELECT to_regclass('ankka_keyring.notice') IS NOT NULL AS here")

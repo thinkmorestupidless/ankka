@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly these thirty") {
+  test("the variables the platform alone sets are exactly these") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -27,6 +27,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_SIDECAR_PORT",
         "ANKKA_SIDECAR_ADDRESS",
         "ANKKA_SIDECAR_BIND",
+        // Where a local service's console endpoint listens, for a test kit's container (feature 042).
+        "ANKKA_OBSERVABILITY_ADDRESS",
         "ANKKA_WASM_MODULE",
         "ANKKA_WASM_INSTANCES",
         "ANKKA_WASM_MAX_MEMORY_PAGES",

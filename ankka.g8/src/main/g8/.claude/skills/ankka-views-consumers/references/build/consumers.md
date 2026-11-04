@@ -937,13 +937,14 @@ fun main() {
 func Service() *ankka.Service {
 	s := ankka.NewService(
 		cart.Entity, cart.Rows, cart.API,
-		Entity, Profile, CheckoutFlow, ReplicatedVehicle, TreeNode, JoinedLeft, JoinedRight,
+		Entity, PersonalContact, Profile, CheckoutFlow, ReplicatedVehicle, TreeNode, JoinedLeft, JoinedRight,
 		CheckoutRows, TopicRows, TreeRows, JoinedRows,
 		CheckoutEnds, CheckoutRecorder, CheckoutFanout, TopicRelay, ContractRelay, PartnerRelay, VehicleFeed,
 		CartGraph, ProfileGraph,
 		Reminder, Assistant, Approver, Answerer,
 		Tree, Vehicles, Joined, API, Private, Callers, AutonomousAPI, McpKeys, CartMcp,
 	)
+	s.ErasureHandler(eraseNothing)
 	reference.Store(s)
 	return s
 }

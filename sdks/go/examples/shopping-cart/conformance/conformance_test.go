@@ -7,7 +7,7 @@ import (
 
 // The ids every reference declares, by exact comparison (discovery.lists-every-component).
 var componentIDs = []string{
-	"shopping-cart", "conformance", "profile", "checkout", "checkout-rows", "checkout-ends", "cart-rows",
+	"shopping-cart", "conformance", "personal-contact", "profile", "checkout", "checkout-rows", "checkout-ends", "cart-rows",
 	"checkout-recorder", "checkout-fanout", "topic-rows", "topic-relay", "contract-relay", "partner-relay",
 	"tree-node", "tree-rows", "replicated-vehicle", "vehicle-feed", "joined-left", "joined-right", "joined-rows",
 	"cart-graph", "profile-graph", "reminder", "assistant", "answerer", "approver",
@@ -41,6 +41,7 @@ func TestTheReferenceDeclaresTheRoutesTheSuiteNames(t *testing.T) {
 	}
 	for _, r := range []string{
 		"POST /carts/{cartId}/items", "GET /carts/awkward", "GET /conformance/echo", "GET /private/",
+		"POST /conformance/personal/{id}", "GET /conformance/personal/{id}",
 		"GET /callers/whoami", "GET /callers/granted", "POST /autonomous/tasks/{taskType}", "GET /autonomous/tasks/{id}",
 	} {
 		if !routes[r] {

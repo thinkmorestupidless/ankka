@@ -61,6 +61,9 @@ import {
   McpEndpoint,
   tools,
   type Bucket,
+  personal,
+  subject,
+  Present,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
@@ -106,6 +109,62 @@ export class Conformance extends EventSourcedEntity<Recordings, Recorded> {
     return { items: [...state.items, event.input] }
   }
 }
+
+// ── personal-contact: an entity whose event has a personal field (feature 042) ──
+
+/** What `record` is asked: the data subject and the email kept as a personal field of it. */
+export const RecordContact = s.record("RecordContact", { subject: s.string, email: s.string })
+/** The email, a personal field: sealed under the data subject's key in the journal. */
+export const ContactRecorded = s.record("ContactRecorded", { email: s.personal(s.string) })
+export const Contact = s.record("Contact", { email: s.option(s.personal(s.string)) })
+type ContactRecorded = Infer<typeof ContactRecorded>
+type Contact = Infer<typeof Contact>
+
+export class PersonalContact extends EventSourcedEntity<Contact, ContactRecorded> {
+  static readonly componentId = "personal-contact"
+  static readonly state = jsonCodec(Contact, "personal-contact-state")
+  static readonly events = jsonCodec(ContactRecorded, "personal-contact-event")
+
+  static readonly handlers = {
+    record: command("record", RecordContact, s.string, (c: PersonalContact, ask) =>
+      c.effects.persist({ email: personal(subject(ask.subject), ask.email) }).thenReply(() => "done"),
+    ),
+    email: query("email", Contact, (c: PersonalContact) => c.effects.reply(c.state)),
+  }
+
+  emptyState(): Contact {
+    return { email: null }
+  }
+
+  applyEvent(_state: Contact, event: ContactRecorded): Contact {
+    return { email: event.email }
+  }
+}
+
+/**
+ * What a `/conformance/personal/{id}` call did, the same in every language: `outcome` is `ok` (with the
+ * `email` read back), `erased` (the data subject's key is destroyed), `absent` (nothing was recorded) or
+ * `refused`, with the protocol's `code` word and the `message`.
+ */
+const PersonalRecord = s.record("personal-record", { outcome: s.string, email: s.string, code: s.string, message: s.string })
+type PersonalRecordValue = Infer<typeof PersonalRecord>
+
+const personalRecord = (outcome: string, fields: Partial<PersonalRecordValue> = {}): PersonalRecordValue => ({
+  outcome, email: "", code: "", message: "", ...fields,
+})
+
+/** Every refusal as a record rather than a status. */
+async function personalCall(f: () => Promise<PersonalRecordValue>): Promise<PersonalRecordValue> {
+  try {
+    return await f()
+  } catch (e) {
+    if (e instanceof CommandError) return personalRecord("refused", { code: e.code, message: e.message })
+    throw e
+  }
+}
+
+/** Every reference's erasure handler: it keeps no objects, and reports one erased all the same. */
+export const eraseNothing = () => ({ objectsErased: 1 })
 
 // ── profile: a key value entity ──
 
@@ -843,6 +902,23 @@ export class ConformanceEndpoint extends Endpoint {
       }),
     ),
     // docs:end storage
+    // docs:start personal-routes
+    // An entity whose event has a personal field: a post records `{"subject", "email"}`, a get reads the
+    // email back. Each answer is a record, a refusal included, as the storage routes' are.
+    recordContact: post("/personal/{id}", RecordContact, PersonalRecord, (ep: ConformanceEndpoint, req, ask) =>
+      personalCall(async () => {
+        await ep.client.of(PersonalContact, req.params.id).call(PersonalContact.handlers.record).invoke(ask)
+        return personalRecord("ok")
+      }),
+    ),
+    readContact: get("/personal/{id}", PersonalRecord, (ep: ConformanceEndpoint, req) =>
+      personalCall(async () => {
+        const { email } = await ep.client.of(PersonalContact, req.params.id).call(PersonalContact.handlers.email).invoke()
+        if (email === null) return personalRecord("absent")
+        return email instanceof Present ? personalRecord("ok", { email: email.value }) : personalRecord("erased")
+      }),
+    ),
+    // docs:end personal-routes
     // docs:start service-call
     // A call to another service, as the case asks for it: the body and every `X-Conformance-*` header
     // sent on, and two headers no handler may send added, to show they never arrive.
@@ -1203,6 +1279,7 @@ export function referenceService() {
     .register(CheckoutRows)
     .register(CheckoutEnds)
     .register(Conformance)
+    .register(PersonalContact)
     .register(Profile)
     .register(CheckoutRecorder)
     .register(CheckoutFanout)
@@ -1233,4 +1310,5 @@ export function referenceService() {
     .register(AutonomousEndpoint)
     .register(McpKeysEndpoint)
     .register(CartMcp)
+    .erasureHandler(eraseNothing)
 }

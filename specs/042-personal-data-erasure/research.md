@@ -336,3 +336,5 @@ None yet.
   that holds no value. The route is in `KeyringServer` and `KeyringService.decrypt`, not a
   `DecryptRoute.scala` of its own; machine tokens reach it through the gateway's certificate and a
   bearer (`MachineTokens`), as `Main` wires them.
+- **A process drops its whole key cache when its notice stream ends or opens again** (2026-11-04, T069, T070): the sidecar counts an instance whose stream closed as having acked (`ProcessNotices.close`), and a notice handed while an instance held no stream is never handed again, so the Python, TypeScript and Go keyrings clear their cache both when the stream ends and when it is opened. Found by the conformance case that erases, restarts the sidecar and reads at once: the process still held the key and read the value.
+- **A process SDK's calls to its sidecar wait for ready** (2026-11-04, T069, T070): Python and Go bound gRPC's reconnect backoff to a second and make every call wait for the connection (`waitForReady`), since a sidecar restarted under a running process otherwise refuses every call made before the channel's next attempt.

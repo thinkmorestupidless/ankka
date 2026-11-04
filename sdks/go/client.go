@@ -13,6 +13,7 @@ import (
 
 	"github.com/thinkmorestupidless/ankka-go/internal/pb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
@@ -62,12 +63,30 @@ func (c *Client) stub() (pb.ClientClient, error) {
 	if c.rpc != nil {
 		return c.rpc, nil
 	}
-	conn, err := grpc.NewClient(c.address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := c.dial()
 	if err != nil {
-		return nil, fmt.Errorf("the sidecar's client at %s cannot be reached: %w", c.address, err)
+		return nil, err
 	}
 	c.conn, c.rpc = conn, pb.NewClientClient(conn)
 	return c.rpc, nil
+}
+
+// dial opens a connection to the sidecar. The sidecar is on this machine and may start after the
+// process, or restart. A call waits for the connection to be ready rather than failing at once while it
+// reconnects (WaitForReady), and the reconnect backoff is bounded to a second rather than gRPC's two
+// minutes, so a call made the moment a restarted sidecar listens reaches it.
+func (c *Client) dial() (*grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(c.address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff:           backoff.Config{BaseDelay: 100 * time.Millisecond, Multiplier: 1.6, Jitter: 0.2, MaxDelay: time.Second},
+			MinConnectTimeout: time.Second,
+		}),
+		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
+	if err != nil {
+		return nil, fmt.Errorf("the sidecar's client at %s cannot be reached: %w", c.address, err)
+	}
+	return conn, nil
 }
 
 // WithClient is ctx carrying c, so the calls below can be made from outside a handler.

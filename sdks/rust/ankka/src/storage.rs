@@ -61,6 +61,13 @@ pub fn prefix_problem(prefix: &str) -> Option<String> {
     }
 }
 
+/// Where a service keeps the objects of `subject` (feature 042): `subjects/`, the data subject
+/// with every `/` written `%2F`, and `/`. A data subject cannot hold `%`, so no subject's prefix
+/// holds another's: `player`'s is `subjects/player/` and `player/8c1f`'s `subjects/player%2F8c1f/`.
+pub fn subject_prefix(subject: &crate::personal::DataSubject) -> String {
+    format!("subjects/{}/", subject.as_str().replace('/', "%2F"))
+}
+
 /// What is wrong with a bucket's name, if anything, in the descriptor's words.
 pub fn bucket_name_problem(name: &str) -> Option<String> {
     let valid = (1..=MAX_BUCKET_NAME).contains(&name.chars().count())
@@ -453,9 +460,9 @@ impl Bucket {
         }
     }
 
-    /// Removes every object, and on a store that keeps them every version, under
-    /// `subjects/<subject>/` (protocol 1.23): what an erasure handler does for a data subject's
-    /// objects. Answers how many were removed and when they are gone for good.
+    /// Removes every object, and on a store that keeps them every version, under the subject's
+    /// prefix, [`subject_prefix`] (`subjects/`, the subject with every `/` written `%2F`, and `/`;
+    /// protocol 1.23): what an erasure handler does for a data subject's objects. Answers how many were removed and when they are gone for good.
     pub fn erase(
         &self,
         subject: &crate::personal::DataSubject,

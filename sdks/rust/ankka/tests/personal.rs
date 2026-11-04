@@ -561,14 +561,14 @@ fn ankka1_erase_runs_the_handler_and_answers_its_count_and_finality() {
     assert!(discovered(&service).erasure_handler);
     let store = InMemoryStorage::new().declare("kyc", ankka::BucketExposure::Private);
     for name in [
-        "subjects/player/8c1f/passport.jpg",
-        "subjects/player/8c1f/bill.pdf",
+        "subjects/player%2F8c1f/passport.jpg",
+        "subjects/player%2F8c1f/bill.pdf",
     ] {
         store.seed(Some("kyc"), name, b"x", "application/octet-stream");
     }
     store.seed(
         Some("kyc"),
-        "subjects/player/41d2/passport.jpg",
+        "subjects/player%2F41d2/passport.jpg",
         b"x",
         "image/jpeg",
     );
@@ -579,7 +579,7 @@ fn ankka1_erase_runs_the_handler_and_answers_its_count_and_finality() {
     assert_eq!(reply.finality, "immediate");
     assert_eq!(
         store.names(Some("kyc")),
-        vec!["subjects/player/41d2/passport.jpg"]
+        vec!["subjects/player%2F41d2/passport.jpg"]
     );
 
     let again = with_storage(&store, || erase_call(&service, "player/8c1f"));

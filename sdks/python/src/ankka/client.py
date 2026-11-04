@@ -709,7 +709,19 @@ class ComponentClient:
     @property
     def _stub(self) -> client_pb2_grpc.ClientStub:
         if self._stub_cache is None:
-            self._channel = grpc.aio.insecure_channel(self.address)
+            # The sidecar is on this machine and may start after the process, or restart. A call
+            # waits for the channel to be ready rather than failing at once while it reconnects
+            # (`waitForReady`), and the reconnect backoff is bounded to a second rather than gRPC's
+            # two minutes, so a call made the moment a restarted sidecar listens reaches it.
+            self._channel = grpc.aio.insecure_channel(
+                self.address,
+                options=[
+                    ("grpc.initial_reconnect_backoff_ms", 100),
+                    ("grpc.min_reconnect_backoff_ms", 100),
+                    ("grpc.max_reconnect_backoff_ms", 1000),
+                    ("grpc.service_config", '{"methodConfig":[{"name":[{}],"waitForReady":true}]}'),
+                ],
+            )
             self._stub_cache = client_pb2_grpc.ClientStub(self._channel)  # type: ignore[no-untyped-call]
         return self._stub_cache
 
@@ -794,7 +806,6 @@ class _Scoped(ComponentClient):
     @property
     def _stub(self) -> client_pb2_grpc.ClientStub:
         return self._parent._stub
-
     def with_metadata(self, metadata: Metadata) -> ComponentClient:
         return _Scoped(self._parent, metadata)
 

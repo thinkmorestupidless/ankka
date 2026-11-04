@@ -962,10 +962,11 @@ impl InMemoryStorage {
                 )))
             }
             Op::Erase => {
-                if let Err(e) = crate::personal::DataSubject::new(r.name.clone()) {
-                    return Err(bad(e.0));
-                }
-                let prefix = format!("subjects/{}/", r.name);
+                let subject = match crate::personal::DataSubject::new(r.name.clone()) {
+                    Ok(subject) => subject,
+                    Err(e) => return Err(bad(e.0)),
+                };
+                let prefix = crate::storage::subject_prefix(&subject);
                 let mut buckets = self.buckets.borrow_mut();
                 let before = buckets.objects.len();
                 buckets

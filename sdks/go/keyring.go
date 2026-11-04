@@ -127,6 +127,14 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 	return out, nil
 }
 
+// dropAll forgets every key: what the process does when its notice stream ends or opens again, since
+// the sidecar counts a closed stream as acked and hands a notice sent while none was held never again.
+func (k *keyring) dropAll() {
+	k.mu.Lock()
+	clear(k.cache)
+	k.mu.Unlock()
+}
+
 // drop forgets the key of (project, subject): its subject was erased.
 func (k *keyring) drop(project, subject string) {
 	k.mu.Lock()
@@ -247,6 +255,10 @@ func noticesOnce(ctx context.Context, client *Client, k *keyring, instance strin
 	if err != nil {
 		return err
 	}
+	// A key fetched while no stream was held may have been erased since, and so may one held when
+	// this stream ends: either way the sidecar hands that notice never again.
+	k.dropAll()
+	defer k.dropAll()
 	for {
 		n, err := stream.Recv()
 		if err != nil {

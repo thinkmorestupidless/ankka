@@ -118,6 +118,14 @@ export class Keyring {
     throw PersonalError.unavailable(entry?.kind === "failed" ? entry.why : `no key for '${subject}' of '${project}' was fetched before the read`)
   }
 
+  /**
+   * Forgets every key: what the process does when its notice stream ends or opens again, since the
+   * sidecar counts a closed stream as acked and hands a notice sent while none was held never again.
+   */
+  dropAll(): void {
+    this.#cache.clear()
+  }
+
   /** Forgets `subject`'s key: what a notice from the sidecar does. */
   drop(project: string, subject: string): void {
     this.#cache.delete(cacheKey(project, subject))
@@ -254,13 +262,17 @@ export async function followNotices(
 ): Promise<void> {
   while (!signal.aborted) {
     try {
-      for await (const notice of open(signal)) {
+      const stream = open(signal)
+      keyring.dropAll()
+      for await (const notice of stream) {
         keyring.drop(notice.project, notice.subject)
         await ack(notice.seq)
       }
     } catch (e) {
       if (signal.aborted) return
       log(`ankka: the subject notice stream failed: ${e instanceof Error ? e.message : String(e)}; reopening`)
+    } finally {
+      keyring.dropAll()
     }
     if (signal.aborted) return
     await new Promise<void>((resolve) => {

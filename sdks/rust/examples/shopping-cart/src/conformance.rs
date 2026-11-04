@@ -114,6 +114,104 @@ impl EventSourcedEntity for Conformance {
     }
 }
 
+// ── personal-contact: an entity whose event has a personal field (feature 042) ──
+
+/// What `record` is asked: the data subject and the email kept as a personal field of it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordContact {
+    pub subject: String,
+    pub email: String,
+}
+
+/// The email, a personal field: sealed under the data subject's key in the journal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContactRecorded {
+    pub email: Personal<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Contact {
+    pub email: Option<Personal<String>>,
+}
+
+pub struct PersonalContact;
+
+impl PersonalContact {
+    fn record(_: &Contact, ask: RecordContact, _: &Context) -> Effect<ContactRecorded, String> {
+        let subject = match DataSubject::new(ask.subject) {
+            Ok(subject) => subject,
+            Err(e) => return effects::error(ErrorCode::BadRequest, e.0).into(),
+        };
+        effects::persist(ContactRecorded {
+            email: Personal::present(subject, ask.email),
+        })
+        .then_reply_value("done".to_string())
+    }
+
+    fn email(contact: &Contact, _: (), _: &Context) -> ReadOnlyEffect<Contact> {
+        effects::reply(contact.clone())
+    }
+}
+
+impl EventSourcedEntity for PersonalContact {
+    type State = Contact;
+    type Event = ContactRecorded;
+    const COMPONENT_ID: &'static str = "personal-contact";
+    const STATE_MANIFEST: Option<&'static str> = Some("personal-contact-state");
+    const EVENT_MANIFEST: Option<&'static str> = Some("personal-contact-event");
+
+    fn empty_state(_: &str) -> Contact {
+        Contact::default()
+    }
+
+    fn apply(_: Contact, event: &ContactRecorded) -> Contact {
+        Contact {
+            email: Some(event.email.clone()),
+        }
+    }
+
+    fn handlers() -> Handlers<PersonalContact> {
+        Handlers::new()
+            .command("record", PersonalContact::record)
+            .query("email", PersonalContact::email)
+    }
+}
+
+/// What a `/conformance/personal/{id}` call did, the same in every language: `outcome` is `ok`
+/// (with the `email` read back), `erased` (the data subject's key is destroyed), `absent` (nothing
+/// was recorded) or `refused`, with the protocol's `code` word and the `message`.
+#[derive(Debug, Default, Serialize)]
+pub struct PersonalRecord {
+    pub outcome: String,
+    pub email: String,
+    pub code: String,
+    pub message: String,
+}
+
+impl PersonalRecord {
+    fn outcome(outcome: &str) -> PersonalRecord {
+        PersonalRecord {
+            outcome: outcome.into(),
+            ..Default::default()
+        }
+    }
+
+    /// The record either way: every refusal is a record, not a status.
+    fn of(answered: Result<PersonalRecord, CommandError>) -> PersonalRecord {
+        answered.unwrap_or_else(|error| PersonalRecord {
+            outcome: "refused".into(),
+            code: code_word(error.code),
+            message: error.message,
+            ..Default::default()
+        })
+    }
+}
+
+/// Every reference's erasure handler: it keeps no objects, and reports one erased all the same.
+fn erase_nothing(_: &Context, _: &DataSubject) -> Result<ErasureReport, CommandError> {
+    Ok(ErasureReport::immediate(1))
+}
+
 // ── profile: a key value entity ──
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1504,6 +1602,40 @@ impl ConformanceEndpoint {
     }
     // docs:end storage
 
+    // docs:start personal-routes
+    // An entity whose event has a personal field: a post records `{"subject", "email"}`, a get
+    // reads the email back. Each answer is a record, a refusal included, as the storage routes' are.
+    fn record_contact(
+        request: &Request,
+        ask: RecordContact,
+    ) -> Result<PersonalRecord, HttpProblem> {
+        let recorded: Result<String, CommandError> =
+            request
+                .client()
+                .invoke(PersonalContact, request.path("id"), "record", ask);
+        Ok(PersonalRecord::of(
+            recorded.map(|_| PersonalRecord::outcome("ok")),
+        ))
+    }
+
+    fn read_contact(request: &Request) -> Result<PersonalRecord, HttpProblem> {
+        let read: Result<Contact, CommandError> =
+            request
+                .client()
+                .invoke(PersonalContact, request.path("id"), "email", ());
+        Ok(PersonalRecord::of(read.map(
+            |contact| match contact.email {
+                None => PersonalRecord::outcome("absent"),
+                Some(Personal::Present { value, .. }) => PersonalRecord {
+                    email: value,
+                    ..PersonalRecord::outcome("ok")
+                },
+                Some(Personal::Erased { .. }) => PersonalRecord::outcome("erased"),
+            },
+        )))
+    }
+    // docs:end personal-routes
+
     fn set_profile(request: &Request, name: String) -> Result<String, HttpProblem> {
         Ok(request
             .client()
@@ -1704,6 +1836,8 @@ impl Endpoint for ConformanceEndpoint {
             .post("/storage", ConformanceEndpoint::keep_object)
             .get("/storage", ConformanceEndpoint::read_object)
             .delete("/storage", ConformanceEndpoint::remove_object)
+            .post("/personal/{id}", ConformanceEndpoint::record_contact)
+            .get("/personal/{id}", ConformanceEndpoint::read_contact)
             .get("/echo", ConformanceEndpoint::echo)
             .get("/status/{code}", ConformanceEndpoint::status)
             .get("/boom", ConformanceEndpoint::boom)
@@ -2104,6 +2238,7 @@ pub fn build() -> Service {
         .register(CartRows)
         .register_as(CheckoutWorkflow, shape)
         .register_as(Conformance, shape)
+        .register_as(PersonalContact, shape)
         .register_as(Profile, shape)
         .register_as(TreeNode, shape)
         .register(TreeRows)
@@ -2142,7 +2277,8 @@ pub fn build() -> Service {
         .endpoint(CallersEndpoint)
         .endpoint(AutonomousEndpoint)
         .endpoint(McpKeysEndpoint)
-        .mcp_endpoint(CartMcp);
+        .mcp_endpoint(CartMcp)
+        .erasure_handler(erase_nothing);
     // What a suite drives to see a module call another service from a consumer and a step, and
     // read the time and random bytes. Rust's alone, so they are registered only where the module
     // is told to: every reference declares the same components to the conformance suite.

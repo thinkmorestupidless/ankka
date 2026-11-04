@@ -43,6 +43,51 @@ var Profile = ankka.KeyValue[ProfileState]("profile", func(string) ProfileState 
 
 // docs:end key-value
 
+// ── personal-contact: an entity whose event has a personal field (feature 042) ──
+
+// RecordContact is what record is asked: the data subject and the email kept as a personal field
+// of it.
+type RecordContact struct {
+	Subject string `json:"subject"`
+	Email   string `json:"email"`
+}
+
+// ContactRecorded holds the email as a personal field: sealed under the data subject's key in the
+// journal.
+type ContactRecorded struct {
+	Email ankka.Personal[string] `json:"email"`
+}
+
+// Contact is a contact's state: the email, once one is recorded.
+type Contact struct {
+	Email *ankka.Personal[string] `json:"email"`
+}
+
+// PersonalContact is the entity whose event has a personal field.
+var PersonalContact = ankka.EventSourced[Contact, ContactRecorded]("personal-contact", nil,
+	func(string) Contact { return Contact{} },
+	func(_ Contact, e ContactRecorded) Contact { return Contact{Email: &e.Email} },
+	ankka.Command("record", func(_ context.Context, _ Contact, ask RecordContact) (ankka.Effect[Contact, ContactRecorded, string], error) {
+		subject, err := ankka.Subject(ask.Subject)
+		if err != nil {
+			return ankka.Effect[Contact, ContactRecorded, string]{}, ankka.Refuse(ankka.BadRequest, err.Error())
+		}
+		recorded := ContactRecorded{Email: ankka.PersonalOf(subject, ask.Email)}
+		return ankka.Persist[Contact, ContactRecorded, string](recorded).ThenReply(func(Contact) string { return "done" }), nil
+	}),
+	ankka.Query("email", func(_ context.Context, s Contact, _ ankka.Unit) (ankka.ReadOnlyEffect[Contact], error) {
+		return ankka.Reply(s), nil
+	}),
+	ankka.StateCodec(ankka.CodecFor[Contact](ankka.Manifest("personal-contact-state"))),
+	ankka.EventCodec(ankka.CodecFor[ContactRecorded](ankka.Manifest("personal-contact-event"))),
+)
+
+// eraseNothing is every reference's erasure handler: it keeps no objects, and reports one erased
+// all the same.
+func eraseNothing(context.Context, ankka.DataSubject) (ankka.ErasureReport, error) {
+	return ankka.ErasureReport{ObjectsErased: 1}, nil
+}
+
 // ── checkout: a workflow ──
 
 // docs:start workflow

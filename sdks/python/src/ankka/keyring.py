@@ -167,6 +167,11 @@ class Keyring:
 
     # ── notices ──────────────────────────────────────────────────────────────
 
+    def drop_all(self) -> None:
+        """Forgets every key: what the process does when its notice stream ends or opens again, since
+        a notice sent while it held no stream is never sent again."""
+        self._cache.clear()
+
     def drop(self, project: str, subject: str) -> None:
         """Forgets the subject's key, as a notice of its erasure asks."""
         self._cache.pop((project, subject), None)
@@ -259,18 +264,25 @@ class SidecarKeyring(Keyring):
         while True:
             try:
                 stream = self.client._stub.SubjectNotices(client_pb2.SubjectNoticesRequest(instance=self.instance))
+                # A key fetched while no stream was held may have been erased since: the sidecar
+                # counts a closed stream as acked and hands nothing again.
+                self.drop_all()
                 async for notice in stream:
                     backoff = 0.2
                     await self.notice(notice.seq, notice.project, notice.subject)
             except asyncio.CancelledError:
                 raise
             except grpc.aio.AioRpcError as failure:
+                self.drop_all()
                 if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
                     log.warning("the runtime sends no erasure notices (protocol 1.23): %s", failure.details())
                     return
                 log.debug("the notice stream ended: %s", failure.details())
             except Exception as e:  # keep following: a missed notice is a key kept past erasure
+                self.drop_all()
                 log.warning("the notice stream failed: %s", e)
+            else:
+                self.drop_all()
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 5.0)
 

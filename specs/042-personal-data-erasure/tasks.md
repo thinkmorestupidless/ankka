@@ -180,7 +180,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T058 [US4] Bind `FEAT/holds.feature` with the control plane's clock injected; red
 - [X] T059 [US4] `ER/ErasureSweep.scala`: a cluster-singleton sweep every 5 minutes (as `RetentionSweeper`): apply lapsed holds, retry `Applying`, and every 15 minutes ask the keyring to re-send each erasure applied within `ANKKA_ERASURE_RERUN_WINDOW` (default 30 days, declared in `PlatformVariables`) so handlers run again, and none older (FR-015); a quiet run sets `lastRunAt`, a run that erased or failed records `HandlerRan` (FR-016); wired in `CP/ControlPlane.scala` after `hold`; `ErasureSweepSuite` with a manual clock (SC-006, the window's edge both sides)
 - [X] T060 [US4] The routes `PUT …/erasures/{rid}` (replace), `POST …/withdraw` (filer or member) and `POST …/override` (owner, `Authorization.projectOwner`, reason required) with 409 on an applied request and 403 for a member; cases in `ErasureEndpointSuite`
-- [ ] T061 [US4] `ErasureFeatures`: `holds.feature` green
+- [X] T061 [US4] `ErasureFeatures`: `holds.feature` green
 
 **Checkpoint**: the P1 stories are complete for JVM services.
 

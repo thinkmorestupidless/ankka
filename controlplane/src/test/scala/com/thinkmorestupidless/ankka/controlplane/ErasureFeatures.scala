@@ -1355,6 +1355,12 @@ class ErasureFeatures(
     assertEquals(status, 201, body)
     assert(body.contains(""""state":"held""""), body)
 
+  /** The project's history once it holds a line of `kind`: the view follows the request. */
+  private def historyWith(kind: String): String =
+    eventually(s"$kind in the project's history")(
+      Some(projectHistory).filter(_.contains(s""""kind":"$kind""""))
+    )
+
   private def projectHistory: String =
     val (status, body) = harness.send("GET", s"/projects/$planeProject/history", as = "ada")
     assertEquals(status, 200, body)
@@ -1449,8 +1455,7 @@ class ErasureFeatures(
   }
 
   Then("it records who withdrew it") { () =>
-    val history = projectHistory
-    assert(history.contains("erasure-withdrawn"), history)
+    val history = historyWith("erasure-withdrawn")
     assert(history.contains(withdrawer), history)
   }
 
@@ -1475,13 +1480,17 @@ class ErasureFeatures(
     val reply   = readRequest(subject)
     assert(reply.contains(""""state":"held""""), reply)
     assert(reply.contains(s""""notBefore":"${replacedWith}T00:00:00Z""""), reply)
-    val (_, list) =
-      harness.send("GET", s"/projects/$planeProject/erasures?subject=$subject", as = "ada")
+    // One request, listed with its new date: replaced in place, not asked again.
+    val list = eventually("the list shows the new date") {
+      val (_, l) =
+        harness.send("GET", s"/projects/$planeProject/erasures?subject=$subject", as = "ada")
+      Option.when(l.contains(s"${replacedWith}T00:00:00Z"))(l)
+    }
     assertEquals(RequestId.findAllMatchIn(list).size, 1, list)
   }
 
   Then("the history of the erasure request keeps both") { () =>
-    val history = projectHistory
+    val history = historyWith("erasure-replaced")
     assert(history.contains("erasure-asked") && history.contains("2031-10-08"), history)
     assert(history.contains("erasure-replaced") && history.contains(replacedWith), history)
   }
@@ -1516,7 +1525,7 @@ class ErasureFeatures(
     val reply = readRequest(asked.keys.headOption.getOrElse(fail("nothing was asked")))
     assert(reply.contains(""""holdOverride":{"""), reply)
     assert(reply.contains(s""""reason":"$reason""""), reply)
-    assert(projectHistory.contains("erasure-hold-overridden"), projectHistory)
+    historyWith("erasure-hold-overridden"): Unit
   }
 
   Then("the member is refused") { () =>

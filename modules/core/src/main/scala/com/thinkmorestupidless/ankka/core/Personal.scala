@@ -78,6 +78,14 @@ object Personal:
   /** The envelope's version; a reader refuses one it does not know. */
   val Version: Int = 1
 
+  private val EnvelopeKey = "\"$personal\""
+
+  /**
+   * Whether `text` holds a personal envelope, anywhere in it: what telemetry drops rather than
+   * export (R24). Deliberately loose: a false positive costs an attribute, a false negative a leak.
+   */
+  def holdsEnvelope(text: String): Boolean = text != null && text.contains(EnvelopeKey)
+
   /**
    * The codec of a personal field of `A`: `A`'s own codec where one is in scope, else one derived
    * with `JsonCodecMaker` (for `String`, `Int` and the rest, which jsoniter gives no `given` for).

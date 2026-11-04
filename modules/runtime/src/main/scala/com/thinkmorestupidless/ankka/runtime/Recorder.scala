@@ -172,10 +172,13 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       subjects(slot) = subject
       Recorder.Sequences.setRelease(sequences, slot, -span.sequence)
 
-  /** Adds an attribute to a span in flight; a span reused or completed is left alone. */
+  /**
+   * Adds an attribute to a span in flight; a span reused or completed is left alone, and so is a
+   * value holding a personal envelope (feature 042), which telemetry never carries.
+   */
   def withAttribute(span: Span, name: String, value: String): Unit =
     val slot = span.slot
-    if slot >= 0 &&
+    if slot >= 0 && !com.thinkmorestupidless.ankka.core.Personal.holdsEnvelope(value) &&
       Recorder.Sequences.compareAndSet(sequences, slot, -span.sequence, Recorder.Writing)
     then
       attributes(slot) = Option(attributes(slot)).getOrElse(Map.empty).updated(name, value)

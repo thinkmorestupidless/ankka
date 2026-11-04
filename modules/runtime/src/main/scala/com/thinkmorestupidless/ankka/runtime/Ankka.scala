@@ -385,7 +385,11 @@ final class ServiceBuilder private[ankka] (
       case Some(client) =>
         com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(
           serviceIdentity.toOption.flatMap(_.project).getOrElse("local"),
-          client
+          client,
+          com.thinkmorestupidless.ankka.runtime.keyring.KeyCache(
+            com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings
+              .from(system.settings.config)
+          )
         )
       case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
     com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)

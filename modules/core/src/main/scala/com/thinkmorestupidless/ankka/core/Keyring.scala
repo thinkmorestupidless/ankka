@@ -8,6 +8,12 @@ enum KeyAnswer:
   /** The subject key was destroyed, by an erasure: the data subject reads as erased. */
   case Destroyed
 
+  /**
+   * No key was ever made for the subject, which only a read is told: nothing was sealed under one,
+   * so the field reads as erased. Unlike `Destroyed` it is not final: a later write makes the key.
+   */
+  case Absent
+
 /**
  * Where a service's personal fields get their keys (feature 042): the runtime's client of the
  * installation's keyring, a test kit's in-memory one, or `Keyring.unavailable`.
@@ -26,7 +32,7 @@ trait Keyring:
 
   /**
    * The key of `subject` in `project`. `create` makes it when it does not exist yet, which only a
-   * write asks for; a read of a subject with no key is told `Destroyed`. Throws `CommandError` with
+   * write asks for; a read of a subject with no key is told `Absent`. Throws `CommandError` with
    * `ErrorCode.Unavailable` when the keyring cannot be reached.
    */
   def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer

@@ -60,7 +60,7 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
             keys(at) = k
             KeyAnswer.Key(k)
           // A subject never written has no key, and nothing sealed under one: it reads as erased.
-          case None => KeyAnswer.Destroyed
+          case None => KeyAnswer.Absent
     }
 
   def lookupKey(project: String): IArray[Byte] =

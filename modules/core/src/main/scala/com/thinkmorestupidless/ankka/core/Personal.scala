@@ -234,6 +234,12 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
       case Erased(_)            => None
       case Present(subj, value) =>
         keyring.key(project, subj, create = true) match
+          case KeyAnswer.Absent =>
+            throw CommandError(
+              s"the keyring made no key for '${subj.value}' when asked to; nothing was written",
+              ErrorCode.Unavailable,
+              Map(Personal.ErrorKey -> Personal.Unavailable)
+            )
           case KeyAnswer.Destroyed =>
             throw CommandError(
               s"the data subject '${subj.value}' is erased; nothing was written",
@@ -283,8 +289,8 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
     if boxed == null then Erased(s)
     else
       Keyring.current.key(project, s, create = false) match
-        case KeyAnswer.Destroyed => Erased(s)
-        case KeyAnswer.Key(key)  =>
+        case KeyAnswer.Destroyed | KeyAnswer.Absent => Erased(s)
+        case KeyAnswer.Key(key)                     =>
           val bytes =
             try Base64.getDecoder.decode(boxed)
             catch case _: IllegalArgumentException => throw corrupt(subject, "it is not base64")

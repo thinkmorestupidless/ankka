@@ -124,6 +124,14 @@ final class KeyStore(database: Database)(using ExecutionContext):
         log.warn(s"the keyring could not vacuum its keys after a destroy: ${e.getMessage}")
       }
 
+  /** The project and data subject of applied erasure `seq`, when this database applied it. */
+  def applied(seq: Long): Future[Option[(String, String)]] =
+    ensure().flatMap(_ =>
+      database.queryOne(
+        sql"SELECT project, subject FROM keyring.applied_log WHERE erasure_seq = $seq"
+      )(r => r.get("project", classOf[String]) -> r.get("subject", classOf[String]))
+    )
+
   /** The last erasure log entry this database applied; 0 before the first. */
   def lastApplied(): Future[Long] =
     ensure().flatMap(_ =>

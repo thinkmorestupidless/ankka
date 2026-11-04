@@ -699,7 +699,16 @@ final class ProjectEndpoint(
           asked.collect { case (service, Right(entries)) => service -> entries }
         ),
         notAsked = asked.collect { case (service, Left(_)) => service },
-        note = Some(com.thinkmorestupidless.ankka.controlplane.api.BackupPhrases.Republished)
+        note = Some(com.thinkmorestupidless.ankka.controlplane.api.BackupPhrases.Republished),
+        // Feature 042: a service on the restore's line says when it applied the erasure log there.
+        erasureReplayedAt = view.services
+          .filter(_.present)
+          .flatMap(v =>
+            divergenceReader.erasureReplay(projectId, v.name).toOption.collect {
+              case r if r.line == view.name && r.replayedAt.isDefined => v.name -> r.replayedAt.get
+            }
+          )
+          .toMap
       )
   }
 

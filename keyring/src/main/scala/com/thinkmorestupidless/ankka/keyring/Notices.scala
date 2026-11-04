@@ -42,6 +42,9 @@ final class Notices(
       val hello: NoticeFrame.Hello,
       send: NoticeFrame => Unit
   ):
+    /** Its backlog sent: from here it hears heartbeats, the first of which ends the backlog. */
+    @volatile private[Notices] var opened: Boolean = false
+
     private[Notices] def deliver(frame: NoticeFrame): Unit =
       try send(frame)
       catch
@@ -102,13 +105,21 @@ final class Notices(
           .get("subject", classOf[String])
       )
       .flatMap { backlog =>
-        Future
-          .traverse(backlog.toVector) { (seq, subject) =>
-            expect(seq, hello.project, Vector(hello)).map(_ =>
-              connection.deliver(NoticeFrame.Notice(seq, hello.project, subject, rerun = false))
+        // In order, and then a heartbeat: an instance has its backlog once it hears the first one,
+        // which is what a service switched to a restored database waits for (`ErasureReplay`).
+        backlog.toVector
+          .foldLeft(Future.unit) { case (done, (seq, subject)) =>
+            done.flatMap(_ =>
+              expect(seq, hello.project, Vector(hello)).map(_ =>
+                connection.deliver(NoticeFrame.Notice(seq, hello.project, subject, rerun = false))
+              )
             )
           }
-          .map(_ => connection)
+          .map { _ =>
+            connection.opened = true
+            connection.deliver(NoticeFrame.Heartbeat(clock.instant()))
+            connection
+          }
       }
 
   private def seen(hellos: Vector[NoticeFrame.Hello]): Future[Unit] =
@@ -195,7 +206,8 @@ final class Notices(
   def heartbeat(): Future[Unit] =
     val beat = NoticeFrame.Heartbeat(clock.instant())
     val now  = connected.values.asScala.toVector
-    now.foreach(_.deliver(beat))
+    // Not to a channel still sending its backlog: its first heartbeat says the backlog is done.
+    now.filter(_.opened).foreach(_.deliver(beat))
     seen(now.map(_.hello))
 
   private def expect(

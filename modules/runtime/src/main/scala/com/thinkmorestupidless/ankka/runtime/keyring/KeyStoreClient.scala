@@ -33,6 +33,13 @@ trait KeyStoreClient:
    */
   def confirmedAt(): Option[java.time.Instant]
 
+  /**
+   * Completes once every notice the keyring held for the project when the channel first opened has
+   * been handed to the listener: at the keyring's first heartbeat on the channel, which it sends
+   * after the backlog. What a service switched to a restored database waits for (`ErasureReplay`).
+   */
+  def caughtUp: scala.concurrent.Future[Unit]
+
   /** Tells the keyring this instance carried out a notice. */
   def ack(ack: KeyringAck): Unit
 

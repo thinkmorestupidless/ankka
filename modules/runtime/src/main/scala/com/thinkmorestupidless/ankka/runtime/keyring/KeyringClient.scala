@@ -89,9 +89,30 @@ final class KeyringClient(
       key
     }
 
+  // Notices handed before any handler was set: the channel opens before the views exist, so its
+  // backlog may arrive before the duties do, and is handed to the first handler set.
+  private val early = scala.collection.mutable.ArrayBuffer.empty[KeyringNotice]
+
   /** Hands every notice to `handler` too, after the cache has dropped its key. */
   def onNotice(handler: KeyringNotice => Unit): Unit =
-    handlers.updateAndGet(_ :+ handler): Unit
+    val missed = synchronized {
+      val first = handlers.get.isEmpty
+      handlers.updateAndGet(_ :+ handler)
+      if first then
+        val held = early.toVector
+        early.clear()
+        held
+      else Vector.empty
+    }
+    missed.foreach(n => dispatch(handler, n))
+
+  private val opened = scala.concurrent.Promise[Unit]()
+
+  /**
+   * Completes once the channel is open and the keyring's backlog for the project has been handed
+   * on: the store's `caughtUp`, after this client subscribed.
+   */
+  def caughtUp: scala.concurrent.Future[Unit] = opened.future
 
   /** The last notice this instance was handed. */
   def lastNotice: Long = lastSeq
@@ -100,6 +121,7 @@ final class KeyringClient(
   def start(): Unit =
     if channel.get.isEmpty then
       channel.set(Some(store.subscribe(lastSeq)(handle)))
+      opened.completeWith(store.caughtUp)
       val every     = math.max(settings.noticeBound.toMillis / 4, 50L)
       val scheduler = Executors.newSingleThreadScheduledExecutor(r =>
         Thread.ofVirtual().name("ankka-keyring-notices").unstarted(r)
@@ -110,12 +132,18 @@ final class KeyringClient(
   private def handle(notice: KeyringNotice): Unit =
     cache.drop(notice.project, DataSubject(notice.subject))
     lastSeq = math.max(lastSeq, notice.seq)
-    handlers.get.foreach { h =>
-      try h(notice)
-      catch
-        case NonFatal(e) =>
-          log.warn(s"an erasure notice's duty failed: notice ${notice.seq} of ${notice.subject}", e)
+    val now = synchronized {
+      val hs = handlers.get
+      if hs.isEmpty then early += notice
+      hs
     }
+    now.foreach(dispatch(_, notice))
+
+  private def dispatch(h: KeyringNotice => Unit, notice: KeyringNotice): Unit =
+    try h(notice)
+    catch
+      case NonFatal(e) =>
+        log.warn(s"an erasure notice's duty failed: notice ${notice.seq} of ${notice.subject}", e)
 
   /**
    * Drops every key held when the channel has not been confirmed within `notice-bound`; answers

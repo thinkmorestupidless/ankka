@@ -130,6 +130,9 @@ final class RemoteKeyStoreClient(
 
   def confirmedAt(): Option[Instant] = confirmed.get
 
+  private val firstBeat                       = scala.concurrent.Promise[Unit]()
+  def caughtUp: scala.concurrent.Future[Unit] = firstBeat.future
+
   def subscribe(after: Long)(listener: KeyringNotice => Unit): AutoCloseable =
     acked.accumulateAndGet(after, math.max): Unit
     open(listener)
@@ -205,8 +208,11 @@ final class RemoteKeyStoreClient(
             confirmed.set(Some(clock.instant()))
             try listener(n.notice)
             catch case NonFatal(e) => log.warn(s"notice ${n.seq} was not handled: ${e.getMessage}")
-          case Some(_: NoticeFrame.Heartbeat) => confirmed.set(Some(clock.instant()))
-          case _                              => ()
+          case Some(_: NoticeFrame.Heartbeat) =>
+            // The keyring's first heartbeat on a channel follows the channel's backlog.
+            confirmed.set(Some(clock.instant()))
+            firstBeat.trySuccess(()): Unit
+          case _ => ()
       ws.request(1)
       null
 

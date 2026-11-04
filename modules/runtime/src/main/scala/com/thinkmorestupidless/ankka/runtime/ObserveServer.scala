@@ -60,6 +60,13 @@ object ObserveServer:
       val _ = since
       "[]"
 
+    /**
+     * When this instance's database line had the erasure log applied (feature 042), as
+     * `{"line":…,"replayedAt":…}`; `{}` for a service that carries out no erasures, and no
+     * `replayedAt` while it is applying it.
+     */
+    def erasureReplay(): String = "{}"
+
   /**
    * Starts the listener if the configuration says to, which the Kubernetes overlay does. Returns
    * none, after logging why, when it is off or cannot start — a failure here must never take a
@@ -135,6 +142,11 @@ object ObserveServer:
             ObservabilityEndpoint.respondError(exchange, 400, "since=<an instant> is required")
           case Some(at) =>
             serve(exchange, "/observability/divergence", documents.divergence(at))
+    )
+    // Feature 042: what a restore's status reads as `erasureReplayedAt`.
+    server.createContext(
+      "/observability/erasure-replay",
+      exchange => serve(exchange, "/observability/erasure-replay", documents.erasureReplay())
     )
     server.setExecutor(null)
     server.start()

@@ -84,6 +84,11 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
       )
     )
 
+  override def erasureReplay(): String =
+    com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay
+      .of(running.system)
+      .fold("{}")(r => r.json)
+
   /**
    * The handlers a component declares, whatever kind of entity it is.
    *

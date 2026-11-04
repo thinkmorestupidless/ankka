@@ -35,7 +35,10 @@ The `local` overlay keeps the component out; the `cloud` overlay documents addin
 
 - A service switched to a restore: `ExtensionsReadiness` holds `erasure-replay` until every log entry
   of its project has had R14's redaction applied to its views and its agent sessions marked; the
-  restore's status reports `erasureReplayedAt`.
+  restore's status reports `erasureReplayedAt` (`{service: instant}`, read from each service's
+  observe port at `/observability/erasure-replay`, naming only services on the restore's line).
+  "Switched to a restore" is a database line with no row in `ankka_erasure_replay`: a restore is
+  a new line, and so is a service's first start on its database.
 - The keyring's database restored: the keyring's startup order (`keyring-and-protocol.md`).
 - The control plane's database restored: `RestoreHold` reconciles `erasure_log` from the bucket
   before release.

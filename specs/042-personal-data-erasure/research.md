@@ -207,6 +207,20 @@ None yet.
 
 ## Found during implementation
 
+- **A service knows it is on a restored database by its line, not by being told** (T055, decided
+  2026-11-04). Each instance carries out the project's whole backlog of notices on every start
+  already (it subscribes after 0, and every duty is safe twice); what was missing was knowing
+  when the backlog ends. The keyring now sends a heartbeat after a channel's backlog, and no
+  periodic one before it, so `KeyStoreClient.caughtUp` completes at the first heartbeat.
+  `ErasureReplay` holds readiness as `erasure-replay` until then and until the duties have carried
+  out every notice handed before it, then records the database line (`ANKKA_DB_LINE`) in
+  `ankka_erasure_replay`. A restore is a new line with no record, so it waits; a restart does not.
+  The first start of a service on a new database waits once, for one heartbeat.
+- **The channel opened before the duties listened** (T055): `KeyringClient.start` subscribes as the
+  service is built and the duties register after the views exist, so a backlog handed at once
+  (the in-memory and local keyrings) reached no duty. The client keeps notices handed before any
+  handler and gives them to the first.
+
 - **A request that could not be applied says why** (T054, decided 2026-11-04): `restores.feature`
   asks it, and the design had no place for it. The request gains `lastFailure: {reason, at}`
   through an `ApplyFailed` event, the step named in the reason ("the erasure log could not be

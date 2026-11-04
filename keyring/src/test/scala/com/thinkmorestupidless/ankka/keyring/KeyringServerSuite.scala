@@ -226,6 +226,11 @@ class KeyringServerSuite extends munit.FunSuite with LogCapturing:
       """{"seq":7,"project":"brand","subject":"player/9d2e"}"""
     )
     assertEquals(destroyed, 200, db)
+    // The channel's backlog was empty, and ends with a heartbeat: the first frame, before any notice.
+    assert(
+      Wire.frame(frames.poll(10, TimeUnit.SECONDS)).exists(_.isInstanceOf[NoticeFrame.Heartbeat]),
+      "the backlog did not end with a heartbeat"
+    )
     val notice = Wire.frame(frames.poll(10, TimeUnit.SECONDS)).toOption.getOrElse(fail("no notice"))
     assertEquals(notice, NoticeFrame.Notice(7, "brand", "player/9d2e", rerun = false))
     assertEquals(

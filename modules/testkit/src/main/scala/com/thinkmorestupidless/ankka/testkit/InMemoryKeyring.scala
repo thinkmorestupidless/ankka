@@ -76,7 +76,13 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
       notices.filter(_.seq > after).toVector
     }
     backlog.foreach(listener)
+    subscribed.trySuccess(()): Unit
     () => listeners.remove(entry): Unit
+
+  private val subscribed = scala.concurrent.Promise[Unit]()
+
+  /** At once after the first subscription, which hands its backlog before it returns. */
+  def caughtUp: scala.concurrent.Future[Unit] = subscribed.future
 
   def ack(ack: KeyringAck): Unit = acked.add(ack): Unit
 

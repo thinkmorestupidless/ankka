@@ -23,7 +23,9 @@ token through the gateway (decrypt only). Bodies are JSON; keys are standard bas
 ```
 
 On connect, the instance's first frame is `{"type":"hello","project":"brand","service":"players","instance":"…","after":<last seq acked>}`;
-the keyring answers the backlog after `after`, then live notices.
+the keyring answers the backlog after `after`, in order, then a heartbeat, then live notices. The
+first heartbeat on a channel therefore says its backlog is done (decided 2026-11-04, T055); no
+periodic heartbeat reaches a channel still sending its backlog.
 
 - `create = true` on a write: makes the key if absent (FR-005); refused for a tombstoned subject.
 - A fetch from another project's consumer is admitted only when `grants.json` holds a consume grant

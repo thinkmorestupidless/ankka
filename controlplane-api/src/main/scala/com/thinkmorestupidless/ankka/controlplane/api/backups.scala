@@ -122,7 +122,12 @@ final case class RestoreView(
      */
     broker: Vector[TopicDivergence] = Vector.empty,
     notAsked: Vector[String] = Vector.empty,
-    note: Option[String] = None
+    note: Option[String] = None,
+    /**
+     * When each service switched to the restore finished applying the erasure log to its own tables
+     * (feature 042): a service still applying it, or not on the restore, is not named.
+     */
+    erasureReplayedAt: Map[String, Instant] = Map.empty
 )
 
 /**

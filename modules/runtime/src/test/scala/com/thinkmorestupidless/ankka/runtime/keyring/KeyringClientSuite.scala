@@ -34,6 +34,7 @@ final class KeyringClientSuite extends munit.FunSuite:
       listener = Some(l)
       () => listener = None
     def confirmedAt(): Option[Instant] = confirmed
+    def caughtUp                       = scala.concurrent.Future.unit
     def ack(ack: KeyringAck): Unit     = ()
     def send(n: KeyringNotice): Unit   = listener.getOrElse(fail("not subscribed"))(n)
 

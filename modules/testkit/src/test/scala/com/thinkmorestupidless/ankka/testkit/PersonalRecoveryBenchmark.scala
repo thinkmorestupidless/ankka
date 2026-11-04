@@ -79,6 +79,7 @@ class PersonalRecoveryBenchmark extends munit.FunSuite with LogCapturing:
     def subscribe(after: Long)(listener: keyring.KeyringNotice => Unit) =
       inner.subscribe(after)(listener)
     def confirmedAt()                      = inner.confirmedAt()
+    def caughtUp                           = inner.caughtUp
     def ack(ack: keyring.KeyringAck): Unit = inner.ack(ack)
     override def close(): Unit             = inner.close()
 

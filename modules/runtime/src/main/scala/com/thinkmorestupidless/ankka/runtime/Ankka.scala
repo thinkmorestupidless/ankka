@@ -678,14 +678,33 @@ final class ServiceBuilder private[ankka] (
           case v: KeyedViewDescriptor[?, ?] if v.personalFields.nonEmpty =>
             ViewRedaction.Table(v.tableName, v.lookupFields.nonEmpty)
         }
-        ErasureDuties(
+        val duties = ErasureDuties(
           keyringService,
           keyringInstance,
           handle.client,
           () => Database()(using system),
           tables,
           ErasureHooks.of(system)
-        )(using system.executionContext).start()
+        )(using system.executionContext)
+        duties.start()
+        // A database line the erasure log has not been applied to (a restore's, or a new one):
+        // not ready until every erasure of the project is carried out here (R22).
+        if !NoDatabase.declared(system.settings.config) then
+          val replay = com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay(
+            () => Database()(using system),
+            HistoryLines(system).current,
+            keyringProject,
+            handle.client,
+            duties
+          )(using system.executionContext)
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay.register(system, replay)
+          ExtensionsReadiness(system).registerExplained(replay.readiness)
+          replay
+            .start()
+            .failed
+            .foreach(e =>
+              system.log.warn(s"the erasure log was not applied; this instance stays not ready: $e")
+            )(using system.executionContext)
         erasureHandler.foreach(handler =>
           com.thinkmorestupidless.ankka.runtime.keyring.ErasureHandlerHost
             .start(handler, service, ErasureHooks.of(system))(using system)

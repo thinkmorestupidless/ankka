@@ -34,11 +34,18 @@ final class ErasureDuties(
 
   private val log = LoggerFactory.getLogger(classOf[ErasureDuties])
 
+  // The notices handed here and not yet carried out; one that failed stays until it is carried out.
+  private val outstanding = java.util.concurrent.ConcurrentSkipListSet[java.lang.Long]()
+
+  /** Whether every notice up to `seq` handed here has been carried out. */
+  def doneThrough(seq: Long): Boolean = outstanding.headSet(seq, true).isEmpty
+
   /** Carries out every notice from now on. */
   def start(): Unit = client.onNotice(notice => run(notice): Unit)
 
   /** Carries out one notice; its acknowledgement once it is done. */
   def run(notice: KeyringNotice): Future[KeyringAck] =
+    outstanding.add(notice.seq): Unit
     val done =
       for
         redacted <-
@@ -54,6 +61,7 @@ final class ErasureDuties(
       )
     done.andThen {
       case Success(ack) =>
+        outstanding.remove(notice.seq): Unit
         client.store.ack(ack)
         log.info(
           s"erasure notice ${notice.seq} carried out: ${ack.completion.rowsRedacted} rows " +

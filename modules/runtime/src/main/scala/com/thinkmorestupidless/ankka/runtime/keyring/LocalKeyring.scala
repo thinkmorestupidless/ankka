@@ -154,6 +154,9 @@ final class LocalKeyring(
     catch case NonFatal(e) => log.debug("the local keyring's vacuum did not run: {}", e.getMessage)
     seq
 
+  private val read                            = scala.concurrent.Promise[Unit]()
+  def caughtUp: scala.concurrent.Future[Unit] = read.future
+
   def subscribe(after: Long)(listener: KeyringNotice => Unit): AutoCloseable =
     val cursor = AtomicReference[Long](after)
     val task   = polling.scheduleWithFixedDelay(
@@ -187,6 +190,7 @@ final class LocalKeyring(
               cursor.set(n.seq)
             }
           confirmed.set(Some(Instant.now()))
+          read.trySuccess(()): Unit
         catch
           case NonFatal(e) =>
             log.debug("the local keyring's notices were not read: {}", e.getMessage),

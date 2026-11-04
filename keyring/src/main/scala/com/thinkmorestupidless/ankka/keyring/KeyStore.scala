@@ -236,6 +236,14 @@ object KeyStore:
     """CREATE TABLE IF NOT EXISTS keyring.notice_expect (
       |  erasure_seq BIGINT NOT NULL, project TEXT NOT NULL, service TEXT NOT NULL,
       |  instance TEXT NOT NULL, PRIMARY KEY (erasure_seq, instance))""".stripMargin,
+    // Every notice to send, read by each replica of the keyring for the instances connected to it.
+    """CREATE TABLE IF NOT EXISTS keyring.notice_outbox (
+      |  id BIGSERIAL PRIMARY KEY, erasure_seq BIGINT NOT NULL, project TEXT NOT NULL,
+      |  subject TEXT NOT NULL, rerun BOOLEAN NOT NULL, at TIMESTAMPTZ NOT NULL DEFAULT now())""".stripMargin,
+    // Each instance connected to some replica, and when that replica last saw it.
+    """CREATE TABLE IF NOT EXISTS keyring.notice_connection (
+      |  instance TEXT PRIMARY KEY, project TEXT NOT NULL, service TEXT NOT NULL,
+      |  replica TEXT NOT NULL, seen_at TIMESTAMPTZ NOT NULL)""".stripMargin,
     """CREATE TABLE IF NOT EXISTS keyring.fetch_refusal (
       |  at TIMESTAMPTZ NOT NULL DEFAULT now(), caller TEXT NOT NULL, project TEXT NOT NULL,
       |  subject TEXT NOT NULL, reason TEXT NOT NULL)""".stripMargin,

@@ -17,14 +17,23 @@ import scala.util.control.NonFatal
  * every applied erasure of its project after that, then each one as it is applied. A re-send goes
  * to the instances connected then.
  *
+ * The keyring runs as several replicas, and an instance is connected to one of them. So a notice is
+ * written to an outbox in the database and each replica, polling it, sends it to the instances
+ * connected to it; and which instances are connected is a table each replica refreshes with every
+ * heartbeat, so the status, asked of any replica, knows them all.
+ *
  * A service is complete for an erasure when at least one instance of it has acknowledged and every
  * instance of it connected when the notice was sent has acknowledged or is gone (replaced by a
  * rolling deploy, say); an instance that connects later is handed the backlog, and its views are
  * shared and already redacted.
  */
-final class Notices(database: Database, store: KeyStore, clock: Clock = Clock.systemUTC())(using
-    ExecutionContext
-):
+final class Notices(
+    database: Database,
+    store: KeyStore,
+    /** This replica of the keyring's name: every replica serves its own connections. */
+    replica: String = java.util.UUID.randomUUID().toString,
+    clock: Clock = Clock.systemUTC()
+)(using ExecutionContext):
 
   private val log = LoggerFactory.getLogger(classOf[Notices])
 
@@ -50,9 +59,23 @@ final class Notices(database: Database, store: KeyStore, clock: Clock = Clock.sy
         )
       case _ => Future.unit
 
-    def close(): Unit = connected.remove(hello.instance, this): Unit
+    /** Ends the channel; the instance is gone at once for every replica's status. */
+    def close(): Future[Unit] =
+      if !connected.remove(hello.instance, this) then Future.unit
+      else
+        database
+          .execute(
+            sql"DELETE FROM keyring.notice_connection WHERE instance = ${hello.instance} AND replica = $replica"
+          )
+          .map(_ => ())
+          .recover { case NonFatal(e) =>
+            log.warn(s"${hello.instance}'s connection was not removed: ${e.getMessage}")
+          }
 
   private val connected = ConcurrentHashMap[String, Connection]()
+
+  /** The outbox's last row this replica has sent; read once, at the first need. */
+  @volatile private var cursor: Option[Long] = None
 
   /** The instances connected now, of every project. */
   def connections: Vector[NoticeFrame.Hello] = connected.values.asScala.toVector.map(_.hello)
@@ -67,37 +90,113 @@ final class Notices(database: Database, store: KeyStore, clock: Clock = Clock.sy
       // Registered before the backlog is read, so a notice applied in between is sent, perhaps
       // twice, never not at all: every duty is safe to run twice.
       connected.put(hello.instance, connection)
-      database
-        .query(
-          sql"SELECT erasure_seq, subject FROM keyring.applied_log WHERE project = ${hello.project} AND erasure_seq > ${hello.after} ORDER BY erasure_seq"
-        )(r =>
-          r.get("erasure_seq", classOf[java.lang.Long]).longValue -> r
-            .get("subject", classOf[String])
-        )
-        .flatMap { backlog =>
-          Future
-            .traverse(backlog.toVector) { (seq, subject) =>
-              expect(seq, hello.project, Vector(hello)).map(_ =>
-                connection.deliver(NoticeFrame.Notice(seq, hello.project, subject, rerun = false))
-              )
-            }
-            .map(_ => connection)
-        }
+      seen(Vector(hello)).flatMap(_ => cursorNow()).flatMap(_ => backlog(hello, connection))
     }
 
+  private def backlog(hello: NoticeFrame.Hello, connection: Connection): Future[Connection] =
+    database
+      .query(
+        sql"SELECT erasure_seq, subject FROM keyring.applied_log WHERE project = ${hello.project} AND erasure_seq > ${hello.after} ORDER BY erasure_seq"
+      )(r =>
+        r.get("erasure_seq", classOf[java.lang.Long]).longValue -> r
+          .get("subject", classOf[String])
+      )
+      .flatMap { backlog =>
+        Future
+          .traverse(backlog.toVector) { (seq, subject) =>
+            expect(seq, hello.project, Vector(hello)).map(_ =>
+              connection.deliver(NoticeFrame.Notice(seq, hello.project, subject, rerun = false))
+            )
+          }
+          .map(_ => connection)
+      }
+
+  private def seen(hellos: Vector[NoticeFrame.Hello]): Future[Unit] =
+    val at = clock.instant()
+    Future
+      .traverse(hellos)(h =>
+        database.execute(
+          sql"INSERT INTO keyring.notice_connection (instance, project, service, replica, seen_at) VALUES (${h.instance}, ${h.project}, ${h.service}, $replica, $at) " ++
+            SqlFragment.raw(
+              "ON CONFLICT (instance) DO UPDATE SET project = EXCLUDED.project, " +
+                "service = EXCLUDED.service, replica = EXCLUDED.replica, seen_at = EXCLUDED.seen_at"
+            )
+        )
+      )
+      .map(_ => ())
+
+  /** Where this replica's sending starts: the outbox as it was at the first need. */
+  private def cursorNow(): Future[Long] = cursor match
+    case Some(c) => Future.successful(c)
+    case None    =>
+      store
+        .ensure()
+        .flatMap(_ =>
+          database.queryOne(
+            SqlFragment.raw("SELECT coalesce(max(id), 0) AS last FROM keyring.notice_outbox")
+          )(_.get("last", classOf[java.lang.Long]).longValue)
+        )
+        .map { found =>
+          synchronized { if cursor.isEmpty then cursor = Some(found.getOrElse(0L)) }
+          cursor.get
+        }
+
   /**
-   * Sends erasure `seq` to every instance of `project` connected now, remembering which they were.
+   * Sends erasure `seq` to every instance of `project` connected now, whichever replica it is
+   * connected to: it is written to the outbox, and this replica sends it to its own at once.
    */
   def publish(seq: Long, project: String, subject: String, rerun: Boolean): Future[Unit] =
-    val to = connected.values.asScala.toVector.filter(_.hello.project == project)
-    expect(seq, project, to.map(_.hello)).map { _ =>
-      to.foreach(_.deliver(NoticeFrame.Notice(seq, project, subject, rerun)))
+    cursorNow()
+      .flatMap(_ =>
+        database.execute(
+          sql"INSERT INTO keyring.notice_outbox (erasure_seq, project, subject, rerun) VALUES ($seq, $project, $subject, $rerun)"
+        )
+      )
+      .flatMap(_ => poll())
+
+  /** Sends what the outbox holds past this replica's cursor to the instances connected to it. */
+  def poll(): Future[Unit] = synchronized {
+    polling = polling.recover { case NonFatal(_) => () }.flatMap(_ => pollOnce())
+    polling
+  }
+
+  @volatile private var polling: Future[Unit] = Future.unit
+
+  private def pollOnce(): Future[Unit] =
+    cursorNow().flatMap { from =>
+      database
+        .query(
+          sql"SELECT id, erasure_seq, project, subject, rerun FROM keyring.notice_outbox WHERE id > $from ORDER BY id"
+        )(r =>
+          (
+            r.get("id", classOf[java.lang.Long]).longValue,
+            NoticeFrame.Notice(
+              r.get("erasure_seq", classOf[java.lang.Long]).longValue,
+              r.get("project", classOf[String]),
+              r.get("subject", classOf[String]),
+              r.get("rerun", classOf[java.lang.Boolean]).booleanValue
+            )
+          )
+        )
+        .flatMap(rows =>
+          rows.foldLeft(Future.unit) { case (done, (id, notice)) =>
+            done.flatMap { _ =>
+              val to = connected.values.asScala.toVector.filter(_.hello.project == notice.project)
+              expect(notice.seq, notice.project, to.map(_.hello)).map { _ =>
+                to.foreach(_.deliver(notice))
+                cursor = Some(id)
+              }
+            }
+          }
+        )
     }
 
   /** A heartbeat to every connection, so an instance knows the channel is open (FR-022). */
-  def heartbeat(): Unit =
+  def heartbeat(): Future[Unit] =
     val beat = NoticeFrame.Heartbeat(clock.instant())
-    connected.values.asScala.foreach(_.deliver(beat))
+    val now  = connected.values.asScala.toVector
+    now.foreach(_.deliver(beat))
+    seen(now.map(_.hello))
 
   private def expect(
       seq: Long,
@@ -170,11 +269,16 @@ final class Notices(database: Database, store: KeyStore, clock: Clock = Clock.sy
           )
         )
       }
+      val since = clock.instant().minusMillis(Notices.GoneAfter.toMillis)
+      val alive = database.query(
+        sql"SELECT instance FROM keyring.notice_connection WHERE seen_at > $since"
+      )(_.get("instance", classOf[String]))
       for
         e <- expected
         a <- acked
+        l <- alive
       yield
-        val live     = connected.keySet.asScala.toSet
+        val live     = l.toSet
         val services = (e.map(_._1) ++ a.map(_._1)).distinct.sorted
         ErasureStatus(services.map { service =>
           val acks    = a.filter(_._1 == service)
@@ -197,6 +301,13 @@ final class Notices(database: Database, store: KeyStore, clock: Clock = Clock.sy
     }
 
 object Notices:
+  import scala.concurrent.duration.*
+
   /** How often a connection is told the channel is open with nothing to send. */
-  val HeartbeatEvery: scala.concurrent.duration.FiniteDuration =
-    scala.concurrent.duration.FiniteDuration(15, java.util.concurrent.TimeUnit.SECONDS)
+  val HeartbeatEvery: FiniteDuration = 15.seconds
+
+  /** An instance no replica has seen for this long is gone: three heartbeats missed. */
+  val GoneAfter: FiniteDuration = HeartbeatEvery * 3
+
+  /** How often a replica reads the outbox for notices another replica wrote. */
+  val PollEvery: FiniteDuration = 1.second

@@ -50,7 +50,7 @@ class NoticesSuite extends munit.FunSuite with LogCapturing:
     await(notices.publish(101, "p1", "player/1", rerun = false))
     assertEquals(a.notices.map(_.seq), Vector(101L))
     ack(first, 101)
-    first.close()
+    await(first.close())
     // Two erasures while it was away; it comes back saying it acknowledged 101.
     await(store.destroy(102, "p1", "player/2", at)): Unit
     await(notices.publish(102, "p1", "player/2", rerun = false))
@@ -80,7 +80,7 @@ class NoticesSuite extends munit.FunSuite with LogCapturing:
     assertEquals(await(notices.status(201)).services.map(_.service), Vector("players", "wallet"))
     ack(a, 201, Completion(2, 1, 0, Some(HandlerReport(3, "immediate"))))
     assertEquals(of("players").completedAt, None, "players-b has not acknowledged")
-    b.close() // replaced by a rolling deploy
+    await(b.close()) // replaced by a rolling deploy
     val players = of("players")
     assert(players.completedAt.nonEmpty)
     assertEquals(players.completion, Some(Completion(2, 1, 0, Some(HandlerReport(3, "immediate")))))
@@ -107,6 +107,27 @@ class NoticesSuite extends munit.FunSuite with LogCapturing:
     intercept[IllegalArgumentException](
       await(c.received(NoticeFrame.Ack(301, "wallet", "wallet-a", Completion.nothing)))
     )
-    notices.heartbeat()
+    await(notices.heartbeat())
     assert(i.heard.asScala.exists(_.isInstanceOf[NoticeFrame.Heartbeat]))
+  }
+
+  test(
+    "a notice published by one replica of the keyring reaches an instance connected to another"
+  ) {
+    val store = KeyStore(database)
+    val a     = Notices(database, store, replica = "keyring-0")
+    val b     = Notices(database, store, replica = "keyring-1")
+    val i     = Instance("p5", "players", "players-a")
+    val c     = i.connect(b)
+    await(store.destroy(401, "p5", "player/1", at)): Unit
+    await(a.publish(401, "p5", "player/1", rerun = false))
+    assertEquals(i.notices, Vector.empty, "b has not polled yet")
+    await(b.poll())
+    assertEquals(i.notices.map(_.seq), Vector(401L))
+    // Asked of the replica it is not connected to, the status still waits for it.
+    assertEquals(await(a.status(401)).services.head.completedAt, None)
+    ack(c, 401)
+    assert(await(a.status(401)).services.head.completedAt.nonEmpty)
+    await(b.poll())
+    assertEquals(i.notices.size, 1, "a notice is sent once by each poll")
   }

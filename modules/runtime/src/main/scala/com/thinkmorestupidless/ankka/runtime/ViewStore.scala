@@ -109,6 +109,53 @@ private[ankka] object ViewStore:
         )
     )
 
+  /**
+   * The function that reduces a data subject's personal envelopes in a row's JSON to the subject
+   * alone (feature 042, R14), at any depth, leaving every other value, and every other subject's
+   * envelope, as it was. Made at start beside the view tables, under the schema lock.
+   */
+  val createRedaction: SqlFragment = SqlFragment.raw(
+    """CREATE OR REPLACE FUNCTION ankka_redact_personal(j jsonb, p text, s text) RETURNS jsonb
+      |LANGUAGE sql IMMUTABLE AS $$
+      |  SELECT CASE jsonb_typeof(j)
+      |    WHEN 'object' THEN
+      |      CASE WHEN j ? '$personal' AND j->>'project' = p AND j->>'subject' = s THEN j - 'c'
+      |      ELSE (SELECT coalesce(jsonb_object_agg(k, ankka_redact_personal(v, p, s)), '{}'::jsonb)
+      |            FROM jsonb_each(j) AS e(k, v)) END
+      |    WHEN 'array' THEN
+      |      (SELECT coalesce(jsonb_agg(ankka_redact_personal(v, p, s) ORDER BY i), '[]'::jsonb)
+      |       FROM jsonb_array_elements(j) WITH ORDINALITY AS a(v, i))
+      |    ELSE j END
+      |$$""".stripMargin
+  )
+
+  /**
+   * Redacts `subject` of `project` from every row of `table` that holds a sealed value of it, and
+   * drops those rows' lookup tokens when the view keeps any; each rewritten row announced. Answers
+   * one row of two counts: rows rewritten, and how many of them held tokens.
+   */
+  def redact(table: String, project: String, subject: String, lookup: Boolean): SqlFragment =
+    val holds =
+      SqlFragment.raw(
+        "jsonb_path_exists(payload::jsonb, " +
+          "'$.** ? (@.\"$personal\" == 1 && @.project == $p && @.subject == $s && exists(@.c))', " +
+          "jsonb_build_object('p', "
+      ) ++ sql"$project" ++ SqlFragment.raw(", 's', ") ++ sql"$subject" ++ SqlFragment.raw("))")
+    val had  = if lookup then "lookup IS NOT NULL" else "false"
+    val drop = if lookup then ", lookup = NULL" else ""
+    SqlFragment.raw(
+      s"WITH target AS (SELECT row_key, $had AS had FROM $table WHERE "
+    ) ++ holds ++ SqlFragment.raw(
+      s" FOR UPDATE), written AS (UPDATE $table t SET payload = " +
+        "ankka_redact_personal(t.payload::jsonb, "
+    ) ++ sql"$project" ++ SqlFragment.raw(", ") ++ sql"$subject" ++ SqlFragment.raw(
+      s")::text$drop, updated_at = now() FROM target WHERE t.row_key = target.row_key " +
+        "RETURNING t.row_key, target.had) " +
+        "SELECT count(*) AS rows, count(*) FILTER (WHERE had) AS tokens, " +
+        s"count(pg_notify('$Channel', '$table|' || row_key)) " +
+        s"FILTER (WHERE octet_length(row_key) < $AnnouncedKeyBytes) AS announced FROM written"
+    )
+
   /** Removes a row, announced when there was one to remove. */
   def delete(table: String, key: String): SqlFragment =
     announcing(

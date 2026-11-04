@@ -227,7 +227,7 @@ final class ProjectionRuntime private (
         Await.result(
           database.executeAllInTransaction(
             (ViewStore.schemaLock +: tables.map(ViewStore.createTable)) ++ lookupColumns ++
-              versions
+              (ViewStore.createRedaction +: versions)
           ),
           30.seconds
         )

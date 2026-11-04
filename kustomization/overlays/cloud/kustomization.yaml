@@ -320,6 +320,21 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+      # The keyring, when the installation lists it (feature 042): its route for machines, and the
+      # base domain it derives their tokens' issuer from.
+      - select:
+          kind: HTTPRoute
+          name: ankka-keyring
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_BASE_DOMAIN].value
       - select:
           kind: HTTPRoute
           name: ankka-console
@@ -443,6 +458,11 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_HTTPS_PORT].value
   # Where every workload exports its telemetry: the operator renders it onto each service, and the
   # control plane exports there itself. Empty, as this example ships, names no collector.
   - source:

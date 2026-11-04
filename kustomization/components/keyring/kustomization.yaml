@@ -7,6 +7,10 @@
 # `ankka://platform/keyring`, the policy that decides who may connect, the grant to read every
 # project's `ankka-project` ConfigMap (the grants a consumer's decryption is admitted by), and the
 # patches that tell the control plane and the operator that erasure is on and where the keyring is.
+# A machine outside the installation reaches its decryption, and only that, at
+# https://keyring.<base domain> through the Gateway; the overlay copies the base domain into that
+# route and into the keyring's own ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT, from which it derives
+# the machine tokens' issuer as the control plane does.
 #
 # The operator makes what holds a credential, as it does for the control plane's own database: the
 # keyring's secret key (`ankka-keyring-secret-key`, which keeps the root key on Postgres), the two
@@ -32,6 +36,7 @@ resources:
   - database.yaml
   - deployment.yaml
   - service.yaml
+  - httproute.yaml
   - zero-trust.yaml
 patches:
   - path: operator-patch.yaml

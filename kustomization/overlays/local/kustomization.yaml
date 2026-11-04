@@ -112,6 +112,21 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+      # The keyring, when the installation lists it (feature 042): its route for machines, and the
+      # base domain it derives their tokens' issuer from.
+      - select:
+          kind: HTTPRoute
+          name: ankka-keyring
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_BASE_DOMAIN].value
       - select:
           kind: HTTPRoute
           name: ankka-console
@@ -173,6 +188,11 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_HTTPS_PORT].value
       # The in-cluster gateway's HTTPS port, so a pod calls https://<name>.<base>:<port> with the
       # same port a browser on the host uses. deploy-local.sh patches it when kind publishes
       # another port, as it rewrites the redirect's. Anchored: kustomize matches the name as an

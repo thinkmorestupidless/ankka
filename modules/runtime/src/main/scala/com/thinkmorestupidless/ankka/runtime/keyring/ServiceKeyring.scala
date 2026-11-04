@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.runtime.keyring
 import com.thinkmorestupidless.ankka.core.Keyring
 import org.apache.pekko.actor.typed.ActorSystem
 
-import java.util.concurrent.ConcurrentHashMap
+import java.util.{Collections, IdentityHashMap}
 
 /**
  * Which keyring each running service's hosts bind (feature 042), by the service's actor system: two
@@ -12,11 +12,16 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object ServiceKeyring:
 
-  private val bySystem = ConcurrentHashMap[ActorSystem[?], Keyring]()
+  // By identity: two systems of one name compare equal, and a service stopping late must not take
+  // away the keyring of the one that started after it.
+  private val bySystem =
+    Collections.synchronizedMap(IdentityHashMap[ActorSystem[?], Keyring]())
 
   def register(system: ActorSystem[?], keyring: Keyring): Unit = bySystem.put(system, keyring): Unit
 
-  def unregister(system: ActorSystem[?]): Unit = bySystem.remove(system): Unit
+  /** Forgets `system`'s keyring, if it is still `keyring`. */
+  def unregister(system: ActorSystem[?], keyring: Keyring): Unit =
+    bySystem.remove(system, keyring): Unit
 
   /** The keyring of the service on `system`; a system no service registered has none. */
   def of(system: ActorSystem[?]): Keyring = bySystem.getOrDefault(system, Keyring.unavailable)

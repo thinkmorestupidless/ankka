@@ -549,7 +549,7 @@ final class ServiceBuilder private[ankka] (
     started.set(service)
     system.whenTerminated.foreach { _ =>
       com.thinkmorestupidless.ankka.core.Keyring.uninstall(keyringHandle)
-      com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.unregister(system)
+      com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.unregister(system, keyringHandle)
     }(using scala.concurrent.ExecutionContext.parasitic)
 
     // Extensions need a cluster member to bind to and a client to call through, so they

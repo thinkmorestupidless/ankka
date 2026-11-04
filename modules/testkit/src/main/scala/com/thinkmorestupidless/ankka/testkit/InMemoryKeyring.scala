@@ -33,6 +33,7 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
   private val listeners             = CopyOnWriteArrayList[(Long, KeyringNotice => Unit)]()
   private val acked                 = CopyOnWriteArrayList[KeyringAck]()
   private val fetched               = mutable.Map.empty[(String, String), Int]
+  private val made                  = mutable.Map.empty[(String, String), Int]
   private var down: Option[Instant] = None
 
   private def unavailable(): Nothing =
@@ -58,6 +59,7 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
           case None if create =>
             val k = fresh()
             keys(at) = k
+            made(at) = made.getOrElse(at, 0) + 1
             KeyAnswer.Key(k)
           // A subject never written has no key, and nothing sealed under one: it reads as erased.
           case None => KeyAnswer.Absent
@@ -115,6 +117,12 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
     synchronized(fetched.getOrElse((project, subject.value), 0))
 
   /** Whether `subject` has a key in `project` now. */
+  /**
+   * How many subject keys were ever made for `subject`: one, however many instances wrote first.
+   */
+  def keysMade(project: String, subject: DataSubject): Int =
+    synchronized(made.getOrElse((project, subject.value), 0))
+
   def holdsKey(project: String, subject: DataSubject): Boolean =
     synchronized(keys.contains((project, subject.value)))
 

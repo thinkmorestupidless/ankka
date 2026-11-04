@@ -98,12 +98,31 @@ final class ProjectEndpoint(
      * The installation's topic defaults and bounds (feature 043), asked for on each request: the
      * control plane reads them once at start, and a suite may vary them between scenarios.
      */
-    policy: => TopicPolicy = TopicPolicy.default
+    policy: => TopicPolicy = TopicPolicy.default,
+    /** Whether the installation erases personal data (feature 042), asked on each request. */
+    erasure: => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off,
+    /** Where an erasure request is applied, once the service has started (feature 042). */
+    erasures: () => Option[com.thinkmorestupidless.ankka.controlplane.erasure.ErasureApplication] =
+      () => None
 ) extends HttpEndpoint("/projects")
-    with Attributing:
+    with Attributing
+    with com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRoutes:
 
-  private val projects = clients.viewClient.forView(ProjectRows)
-  private val services = clients.viewClient.forView(ServiceRows)
+  protected def erasureClients: EndpointClients = clients
+  protected def erasureAuthz: Authorization     = authz
+  protected def erasureSettings
+      : com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+    erasure
+  protected def erasureApplication
+      : Option[com.thinkmorestupidless.ankka.controlplane.erasure.ErasureApplication] = erasures()
+
+  private val projects    = clients.viewClient.forView(ProjectRows)
+  private val services    = clients.viewClient.forView(ServiceRows)
+  private val erasureRows =
+    clients.viewClient.forView(
+      com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestsView
+    )
 
   /**
    * What a grant's effect is read from (feature 040): the scripted reader a suite hands in, else
@@ -726,7 +745,7 @@ final class ProjectEndpoint(
   /** Who did what to the project's database and its topics, newest first. */
   get("/{projectId}/history") { (projectId: String) =>
     authz.project(principal, projectId, write = false): Unit
-    entity(projectId)
+    val own = entity(projectId)
       .call(ProjectEntity.history)
       .invoke()
       .reverse
@@ -740,6 +759,20 @@ final class ProjectEndpoint(
           e.changes
         )
       )
+    // Feature 042 (FR-016): every event of the project's erasure requests, with who and when,
+    // from the newest requests. Merged by time; the project's own order is kept between them.
+    val erasures = erasureRows
+      .ask(
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestsView.byProject,
+        "project" -> projectId
+      )
+      .take(ProjectEndpoint.ErasuresInHistory)
+      .flatMap(_.history)
+      .map(l => ProjectHistoryView(l.kind, l.by, l.at, l.detail))
+    if erasures.isEmpty then own
+    else
+      (own ++ erasures)
+        .sortBy(_.at.map(_.toEpochMilli).getOrElse(Long.MinValue))(using Ordering[Long].reverse)
   }
 
   /** What the operator last reported of the project; nothing when the cluster cannot be read. */
@@ -986,6 +1019,9 @@ final class ProjectEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(projectId))
 
 object ProjectEndpoint:
+
+  /** How many of a project's newest erasure requests its history shows the events of. */
+  val ErasuresInHistory: Int = 200
 
   private val random = java.security.SecureRandom()
 

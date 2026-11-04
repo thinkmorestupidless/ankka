@@ -22,7 +22,17 @@ final case class ErasureRequestRow(
     askedBy: Option[String] = None,
     askedAt: Option[Instant] = None,
     appliedAt: Option[Instant] = None,
-    finalAt: Option[Instant] = None
+    finalAt: Option[Instant] = None,
+    /** Every event of the request, for the project's history (FR-016). */
+    history: Vector[ErasureHistoryLine] = Vector.empty
+)
+
+/** One event of a request as the project's history shows it: what, who, when. */
+final case class ErasureHistoryLine(
+    kind: String,
+    by: Option[String] = None,
+    at: Option[Instant] = None,
+    detail: Option[String] = None
 )
 
 final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureRequestRow]:
@@ -33,7 +43,12 @@ final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureReq
       ErasureRequestRow(id, rid = id.substring(id.indexOf('/') + 1))
     }
 
-  def onChange(event: ErasureRequestEvent): Effect = event match
+  def onChange(event: ErasureRequestEvent): Effect =
+    val current = row
+    val line    = ErasureRequestsView.lineOf(current, event)
+    rowOf(current.copy(history = current.history :+ line), event)
+
+  private def rowOf(row: ErasureRequestRow, event: ErasureRequestEvent): Effect = event match
     case Asked(project, subject, notBefore, _, correlation, actor, at) =>
       val held = notBefore.exists(nb => at.forall(nb.isAfter))
       effects.updateRow(
@@ -54,7 +69,8 @@ final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureReq
     case KeyDestroyed(when, _, _) =>
       effects.updateRow(row.copy(state = ErasureState.Applied.wire, appliedAt = Some(when)))
     case Finalised(_, at) => effects.updateRow(row.copy(finalAt = at))
-    case _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal => effects.ignore()
+    case _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal =>
+      effects.updateRow(row)
 
 object ErasureRequestsView
     extends View.Companion[ErasureRequestsRowsView, ErasureRequestEvent, ErasureRequestRow](
@@ -63,6 +79,68 @@ object ErasureRequestsView
       rowSerializer = Codecs.serializer[ErasureRequestRow]("erasure-request-row")
     ):
   def create(ctx: ViewComponentContext) = new ErasureRequestsRowsView
+
+  /** The history line of `event` on request `row`. */
+  def lineOf(row: ErasureRequestRow, event: ErasureRequestEvent): ErasureHistoryLine =
+    def who(actor: Option[com.thinkmorestupidless.ankka.controlplane.domain.Actor]) =
+      actor.map(a => a.display.getOrElse(a.subject))
+    val subject = event match
+      case a: Asked => a.subject
+      case _        => row.subject
+    val of = s"erasure ${row.rid} of $subject"
+    event match
+      case Asked(_, _, notBefore, reason, correlation, actor, at) =>
+        val held = notBefore.fold("")(nb => s", held until $nb") + reason.fold("")(r => s" ($r)")
+        ErasureHistoryLine(
+          "erasure-asked",
+          who(actor),
+          at,
+          Some(of + held + correlation.fold("")(c => s", correlation $c"))
+        )
+      case Replaced(notBefore, reason, actor, at) =>
+        ErasureHistoryLine(
+          "erasure-replaced",
+          who(actor),
+          at,
+          Some(of + notBefore.fold("")(nb => s", held until $nb") + reason.fold("")(r => s" ($r)"))
+        )
+      case Withdrawn(actor, at) => ErasureHistoryLine("erasure-withdrawn", who(actor), at, Some(of))
+      case HoldOverridden(reason, actor, at) =>
+        ErasureHistoryLine("erasure-hold-overridden", who(actor), at, Some(s"$of: $reason"))
+      case HoldLapsed(actor, at) =>
+        ErasureHistoryLine("erasure-hold-lapsed", who(actor), at, Some(of))
+      case LogWritten(seq, actor, at) =>
+        ErasureHistoryLine("erasure-logged", who(actor), at, Some(s"$of, log entry $seq"))
+      case KeyDestroyed(when, actor, at) =>
+        ErasureHistoryLine(
+          "erasure-key-destroyed",
+          who(actor),
+          at,
+          Some(s"$of, key destroyed at $when")
+        )
+      case ServiceCompleted(service, c, actor, at) =>
+        ErasureHistoryLine(
+          "erasure-service-completed",
+          who(actor),
+          at,
+          Some(s"$of, $service: ${c.rowsRedacted} rows redacted, ${c.sessionsEnded} sessions ended")
+        )
+      case HandlerRan(service, report, actor, at) =>
+        val what = report.error.fold(s"${report.objectsErased} objects erased")(e => s"failed: $e")
+        ErasureHistoryLine(
+          "erasure-handler-ran",
+          who(actor),
+          at,
+          Some(s"$of, $service's handler $what")
+        )
+      case ObjectsFinal(when, actor, at) =>
+        ErasureHistoryLine(
+          "erasure-objects-final",
+          who(actor),
+          at,
+          Some(s"$of, objects final at $when")
+        )
+      case Finalised(actor, at) => ErasureHistoryLine("erasure-final", who(actor), at, Some(of))
 
   val byProject = query("by-project")(
     s"SELECT payload FROM $table WHERE payload::jsonb->>'project' = :project " +

@@ -30,7 +30,12 @@ final class GrantsHarness(
       com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local,
     /** Whether the installation erases personal data (feature 042), read on every request. */
     erasure: () => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings = () =>
-      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off,
+    /** Where erasure requests are applied (feature 042): a test keyring's, or none. */
+    erasurePlane: Option[com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane] = None,
+    /** The keyring the control plane's own service is handed; a fresh one by default. */
+    keyring: com.thinkmorestupidless.ankka.testkit.InMemoryKeyring =
+      com.thinkmorestupidless.ankka.testkit.InMemoryKeyring()
 ):
 
   val identity       = TestIdentity()
@@ -62,12 +67,14 @@ final class GrantsHarness(
         topology = topology,
         machineSettings = machineSettings,
         machineKeys = Some(machineKeys),
-        erasure = erasure()
+        erasure = erasure(),
+        erasures = erasurePlane
       )*
     )
     kit = AnkkaTestKit.start(
       ControlPlane.componentsWith(projector),
-      Seq(ProjectionRuntime(), projector, server, tokens)
+      Seq(ProjectionRuntime(), projector) ++ erasurePlane.toSeq ++ Seq(server, tokens),
+      keyring = keyring
     )
     url = s"http://127.0.0.1:${server.boundPort.getOrElse(sys.error("server did not bind"))}"
 

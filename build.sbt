@@ -629,6 +629,8 @@ lazy val controlPlane = project
           (storageMover / Docker / publishLocal).value
           // The keeper beside the installation's model server (feature 053).
           (modelKeeper / Docker / publishLocal).value
+          // The installation's keyring (feature 042).
+          (keyring / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built   = scala.sys.process
@@ -886,6 +888,29 @@ lazy val modelKeeper = project
     Test / javaOptions += "-Dlogback.configurationFile=logback-keeper-test.xml",
     // One processor, as the image has: one carrier for every virtual thread (MainSuite).
     Test / javaOptions += "-XX:ActiveProcessorCount=1"
+  )
+
+/**
+ * The installation's keyring (feature 042): every data subject's key, wrapped by its project's key
+ * and the installation's root key, in a database of its own where destroying a key leaves nothing
+ * behind. Not an ankka application, as the operator is not: an application's journal is
+ * append-only, the one store a destroyed key must never be in. It serves the platform's programs
+ * over mutual TLS as `ankka://platform/keyring`, by pekko-http (routes, and one WebSocket per
+ * instance for notices).
+ */
+lazy val keyring = project
+  .in(file("keyring"))
+  .dependsOn(http, authOidc, telemetryOtlp, testPki % Test, testkit % Test)
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                 := "ankka-keyring",
+    publish / skip       := true,
+    Docker / packageName := "ankka-keyring",
+    Compile / mainClass  := Some("com.thinkmorestupidless.ankka.keyring.Main"),
+    dockerExposedPorts   := Seq(8443, 7627),
+    libraryDependencies ++= Seq(logback, r2dbcPostgres, testcontainers % Test)
   )
 
 /**
@@ -1328,6 +1353,7 @@ lazy val root = project
     proxy,
     storageMover,
     modelKeeper,
+    keyring,
     testOllama,
     shoppingCart,
     shoppingCartApi,

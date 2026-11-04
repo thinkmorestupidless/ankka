@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   ClusterModels,
   Installation,
   InstallationBroker,
+  InstallationErasure,
   InstallationModels,
   InstallationRetention,
   ModelLine
@@ -205,7 +206,8 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
     val seen = installation(stated, stranger)
     assertEquals(seen.broker, Some(InstallationBroker(Some(3), 3, 2)))
     assertEquals(seen.retention, Some(InstallationRetention(Some("30d"), unbounded = false)))
-    assertEquals(seen.erasure, None)
+    // Feature 042: stated whether on or off (contracts/control-plane-and-cli.md).
+    assertEquals(seen.erasure, Some(InstallationErasure(enabled = false, keyringInstances = 2)))
     assert(seen.backups.nonEmpty, "beside its backups")
   }
 
@@ -215,7 +217,7 @@ class InstallationRouteSuite extends munit.FunSuite with LogCapturing:
     assertEquals(seen.retention, Some(InstallationRetention(None, unbounded = true)))
     val raw = send(withoutCloud, "GET", "/installation", Some(stranger)).body
     assert(!raw.contains("\"nodes\""), raw)
-    assert(!raw.contains("\"erasure\""), raw)
+    assert(raw.contains("\"erasure\""), raw)
   }
 
   test("the broker's node count: unset is not stated, a count is read, anything else refuses") {

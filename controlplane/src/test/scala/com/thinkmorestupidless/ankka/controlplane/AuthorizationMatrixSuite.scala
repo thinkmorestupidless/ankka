@@ -731,7 +731,10 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
     ("POST", "/projects/{projectId}/rehearsals")      -> "{}",
     ("PUT", "/projects/{projectId}/database")         -> """{"cluster":"nothing"}""",
     ("POST", "/services/{projectId}/{name}/switch")   -> """{"cluster":"nothing"}""",
-    ("POST", "/services/{projectId}/{name}/rollback") -> "{}"
+    ("POST", "/services/{projectId}/{name}/rollback") -> "{}",
+    ("POST", "/projects/{projectId}/erasures")        -> """{"subject":"player/walker"}""",
+    ("PUT", "/projects/{projectId}/erasures/{rid}")   -> "{}",
+    ("POST", "/projects/{projectId}/erasures/{rid}/override") -> """{"reason":"walking"}"""
   )
 
   private def walk(token: String, project: String): Vector[(String, String, Int, String)] =

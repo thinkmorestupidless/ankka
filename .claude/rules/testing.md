@@ -113,3 +113,8 @@ appenders.
 - **`ProcessDouble`'s `record-raw` handler persists its input verbatim** (2026-11-04), for the one
   case the conformance suite cannot make from a process: an event the sidecar could not parse as JSON,
   which `RemoteEntitySuite` proves is journaled unchanged.
+- **Run the build on JDK 21, the family's pin; a newer default JDK fails timeout cases** (2026-11-04).
+  On JDK 25 four HTTP cases fail every run and pass on 21: proxy-core's `ProxyEngineSuite` (a
+  streamed response loses its last chunk) and `CallingAddressEngineSuite`, `ServiceClientSuite`'s
+  at-most-once case and `ServingFeatures`' idle timeout. A machine whose `java` is newer runs sbt with
+  `sbt -java-home <a JDK 21 home>`; read a red there as the JDK's before the branch's.

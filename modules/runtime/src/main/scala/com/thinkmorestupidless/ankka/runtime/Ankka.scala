@@ -104,7 +104,7 @@ final class ServiceBuilder private[ankka] (
     private val transportFactory: Option[replication.ReplicationTransportFactory] = None,
     private val storageOverride: Option[ObjectStorage] = None,
     private val keyringOverride: Option[
-      com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+      (ActorSystem[?], String) => com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
     ] = None,
     private val erasureHandler: Option[com.thinkmorestupidless.ankka.sdk.ErasureHandler] = None
 ):
@@ -256,7 +256,28 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      Some(client),
+      Some((_, _) => client),
+      erasureHandler
+    )
+
+  /**
+   * The local keyring, in the service's own database (feature 042, R20), whatever the settings
+   * would choose. A locally run service with a database has it already; this is for a test kit that
+   * hands every service a keyring in memory and a suite that wants the local one instead.
+   */
+  def withLocalKeyring(): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      storageOverride,
+      Some((system, project) =>
+        com.thinkmorestupidless.ankka.runtime.keyring
+          .LocalKeyring(project, Database()(using system))(using system.executionContext)
+      ),
       erasureHandler
     )
 
@@ -410,7 +431,21 @@ final class ServiceBuilder private[ankka] (
     // The keyring this service's personal fields are sealed with (feature 042), installed before any
     // component can recover, and bound by each host around its serializer calls. A service that
     // reaches no keyring is handed the one that refuses every personal field, naming it.
-    val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringOverride match
+    val keyringProject = serviceIdentity.toOption.flatMap(_.project).getOrElse("local")
+    // A service run on a developer's machine with a database keeps its keys there (R20); one in a
+    // cluster reaches the installation's keyring, or none.
+    val keyringStore = keyringOverride
+      .map(make => make(system, keyringProject))
+      .orElse(
+        Option.when(
+          !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap") &&
+            !NoDatabase.declared(system.settings.config)
+        )(
+          com.thinkmorestupidless.ankka.runtime.keyring
+            .LocalKeyring(keyringProject, Database()(using system))(using system.executionContext)
+        )
+      )
+    val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringStore match
       case Some(client) =>
         val keyringClient = com.thinkmorestupidless.ankka.runtime.keyring.KeyringClient(
           client,
@@ -420,10 +455,7 @@ final class ServiceBuilder private[ankka] (
         // The notices are heard from the start, before any component recovers: a key dropped by
         // an erasure is never served from the cache after its notice.
         keyringClient.start()
-        com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(
-          serviceIdentity.toOption.flatMap(_.project).getOrElse("local"),
-          keyringClient
-        )
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(keyringProject, keyringClient)
       case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
     com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)
     com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.register(system, keyringHandle)

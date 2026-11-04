@@ -85,6 +85,8 @@ object ObservabilityEndpoint:
         server.createContext("/replication/forward", exchange => loopback.forward(exchange))
         server.createContext("/replication/report", exchange => loopback.report(exchange))
       }
+      // Feature 042 (R20): an erasure filed on this machine, against the local keyring.
+      server.createContext("/_ankka/erasures", exchange => LocalErasures.file(service, exchange))
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
@@ -333,3 +335,76 @@ private[runtime] object Json:
       case c                   => c.toString
     }
     s""""$escaped""""
+
+/**
+ * `POST /_ankka/erasures` on a locally run service (feature 042, R20): `{"subject": "...", "rerun":
+ * false}` destroys the data subject's key in the local keyring, and the answer is the notice's
+ * sequence and, once this instance has carried it out, what it did. Loopback only, as the endpoint
+ * is; and JSON only, so a page in a browser cannot send one without a preflight it would be
+ * refused.
+ */
+private[runtime] object LocalErasures:
+  import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, readFromArray}
+  import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+  import com.thinkmorestupidless.ankka.core.DataSubject
+  import com.thinkmorestupidless.ankka.runtime.keyring.{KeyringHandle, LocalKeyring}
+
+  private final case class Filing(subject: String, rerun: Boolean = false)
+  private given JsonValueCodec[Filing] = JsonCodecMaker.make
+
+  def file(service: AnkkaService, exchange: HttpExchange): Unit =
+    val local = service.keyring match
+      case h: KeyringHandle =>
+        h.client.store match
+          case l: LocalKeyring => Some(l)
+          case _               => None
+      case _ => None
+    val json = Option(exchange.getRequestHeaders.getFirst("Content-Type"))
+      .exists(_.toLowerCase.startsWith("application/json"))
+    if exchange.getRequestMethod != "POST" then
+      ObservabilityEndpoint.respondError(exchange, 405, "an erasure is filed with POST")
+    else if !json then
+      ObservabilityEndpoint.respondError(exchange, 415, "an erasure is filed as application/json")
+    else if local.isEmpty then
+      ObservabilityEndpoint.respondError(
+        exchange,
+        409,
+        "this service has no local keyring: erasures are filed with it only for a service run on " +
+          "this machine with a database"
+      )
+    else
+      val keyring = local.get
+      val parsed  =
+        try Right(readFromArray[Filing](exchange.getRequestBody.readAllBytes()))
+        catch case e: Exception => Left(s"the body is not {\"subject\": ...}: ${e.getMessage}")
+      parsed.flatMap(f =>
+        try Right(DataSubject(f.subject) -> f.rerun)
+        catch case e: IllegalArgumentException => Left(e.getMessage)
+      ) match
+        case Left(problem)           => ObservabilityEndpoint.respondError(exchange, 400, problem)
+        case Right((subject, rerun)) =>
+          val seq = keyring.erase(subject, rerun)
+          // The duties run on a notice this instance hears within a poll; a short wait reports
+          // them in the answer, and an answer without them says only that the key is gone.
+          val acks = Iterator
+            .continually { Thread.sleep(100); keyring.acks(seq) }
+            .take(100)
+            .find(_.nonEmpty)
+            .getOrElse(Vector.empty)
+          val done = acks.map { a =>
+            val c       = a.completion
+            val handler = c.handler.fold("") { h =>
+              s""","handler":{"objectsErased":${h.objectsErased},"finality":${Json.str(
+                  h.finality
+                )}""" +
+                h.error.fold("")(e => s""","error":${Json.str(e)}""") + "}"
+            }
+            s"""{"service":${Json.str(a.service)},"instance":${Json.str(a.instance)},""" +
+              s""""rowsRedacted":${c.rowsRedacted},"tokensDropped":${c.tokensDropped},""" +
+              s""""sessionsEnded":${c.sessionsEnded}$handler}"""
+          }
+          ObservabilityEndpoint.respond(
+            exchange,
+            s"""{"seq":$seq,"subject":${Json
+                .str(subject.value)},"completions":${done.mkString("[", ",", "]")}}"""
+          )

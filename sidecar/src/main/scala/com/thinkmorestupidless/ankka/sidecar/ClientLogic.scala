@@ -700,7 +700,7 @@ final class ClientLogic(
         .from(request.subject)
         .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
       val project = if request.project.isEmpty then keyring.project else request.project
-      keyring.key(project, subject, request.create) match
+      val answer  = keyring.key(project, subject, request.create) match
         case com.thinkmorestupidless.ankka.core.KeyAnswer.Key(bytes) =>
           SubjectKeyReply(
             SubjectKeyReply.Reply.Key(
@@ -716,6 +716,7 @@ final class ClientLogic(
             s"the keyring made no key for '${request.subject}' when asked to; nothing was written",
             ErrorCode.Unavailable
           )
+      answer.withProject(project)
     }(e => SubjectKeyReply(SubjectKeyReply.Reply.Error(e)))
 
   /**

@@ -81,7 +81,9 @@ message ErasureReply { int64 objects_erased = 1; string finality = 2; Error erro
 - `Discovery` refuses `erasure_handler` from a `Spec` below 1.23; every SDK refuses discovery from a
   runtime below 1.23 when the service uses `Personal` or a handler.
 - The sidecar answers `GetSubjectKey` from the runtime's `KeyringClient` (the sidecar is the
-  service's identity); `SubjectNotices` relays the runtime's notices through `ClientService.drain`.
+  service's identity), and names the project the answer is for in `SubjectKeyReply.project` (the
+  service's own when the request left it empty): a process learns its project there, never from
+  configuration, and writes it in every envelope it seals; `SubjectNotices` relays the runtime's notices through `ClientService.drain`.
 - The process acks; the sidecar acks the keyring when every process instance it fronts has.
 
 ## The Wasm ABI (`ankka1`)

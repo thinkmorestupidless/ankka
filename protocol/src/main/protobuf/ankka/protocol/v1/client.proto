@@ -404,6 +404,10 @@ message SubjectKeyReply {
     bool erased = 2;                          // 1.23: the subject's key is destroyed
     Error error = 3;                          // 1.23: UNAVAILABLE, FORBIDDEN, or the subject refused
   }
+  string project = 4;                         // 1.23: the project the answer is for; the service's
+                                              // own when the request left it empty. A process
+                                              // learns its project here, and writes it in every
+                                              // envelope it seals
 }
 
 // 1.23: the process instance holding the stream, which acks under the same name.

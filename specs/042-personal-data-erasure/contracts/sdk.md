@@ -87,7 +87,7 @@ Ankka.service("players")
 
 Java/Kotlin: `.erasureHandler((ctx, subject) -> …)`. Python: `@service.erasure_handler`. TypeScript:
 `service.erasureHandler(async (ctx, subject) => …)`. Go: `svc.ErasureHandler(func(ctx, subject) …)`.
-Rust: `#[ankka::erasure_handler]` exporting `erase`. One per service; run on every application,
+Rust: `Service::erasure_handler(|ctx, subject| …)`, which `service!` exports as `ankka1_erase`. One per service; run on every application,
 including re-runs; must be idempotent. A handler that throws is recorded as failed for that run and
 run again on the next pass (FR-015); the platform's own duties do not wait for it.
 

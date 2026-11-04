@@ -45,6 +45,14 @@ class ClientPersonalSuite extends munit.FunSuite with LogCapturing:
     assertEquals(key("player/8c1f", create = false).key, written.key)
   }
 
+  test("an answer names its project, the service's own when the request names none") {
+    val own = await(logic.getSubjectKey(SubjectKeyRequest("player/p1", create = true)))
+    assertEquals(own.project, testKit.project)
+    val named =
+      await(logic.getSubjectKey(SubjectKeyRequest("player/p1", project = testKit.project)))
+    assertEquals(named.project, testKit.project)
+  }
+
   test("a read of a subject no key was made for, or of an erased one, reads as erased") {
     assertEquals(key("player/never", create = false).erased, Some(true))
     key("player/41d2", create = true).key.getOrElse(fail("no key")): Unit

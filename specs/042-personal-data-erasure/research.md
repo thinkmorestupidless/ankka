@@ -207,6 +207,19 @@ None yet.
 
 ## Found during implementation
 
+- **A process learns its project from the key it is answered** (T065 to T067, decided 2026-11-04).
+  Protocol 1.23 as designed told a process nothing about its project, yet every envelope names it in
+  the clear and in its associated data. `SubjectKeyReply.project` names the project an answer is for,
+  the service's own when the request left it empty; a write always fetches its key first, so an SDK
+  learns its project from that answer. Rejected: the project on `SidecarInfo` (the sidecar would
+  need its identity before discovery, and a module does not need it, since the host seals) and an
+  environment variable (identity from configuration the service could write).
+- **A Rust module registers its erasure handler on the builder** (T068, decided 2026-11-04). The
+  crate has no proc-macro crate; every export comes from `service!`. `Service::erasure_handler`
+  registers it and `service!` always exports `ankka1_erase`, answering an error when none is
+  registered. Rejected: a new `ankka-macros` crate for one attribute, a second crates.io
+  publication and release job.
+
 - **A service knows it is on a restored database by its line, not by being told** (T055, decided
   2026-11-04). Each instance carries out the project's whole backlog of notices on every start
   already (it subscribes after 0, and every duty is safe twice); what was missing was knowing

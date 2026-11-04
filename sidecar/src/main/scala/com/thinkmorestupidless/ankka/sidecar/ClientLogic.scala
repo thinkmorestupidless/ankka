@@ -732,7 +732,7 @@ final class ClientLogic(
       if subject != null then throw CommandError(subject, ErrorCode.BadRequest)
       val envelope = com.thinkmorestupidless.ankka.core.PersonalScope.within(request.manifest)(
         com.thinkmorestupidless.ankka.core.PersonalJson
-          .write(request.subject, request.value.toByteArray)
+          .write(request.subject, if request.erased then null else request.value.toByteArray)
       )
       ankka.protocol.v1.wasm.KeyringSealReply(Reply.Envelope(ByteString.copyFrom(envelope)))
     }

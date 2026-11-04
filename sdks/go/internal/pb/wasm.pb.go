@@ -820,6 +820,7 @@ type KeyringSealRequest struct {
 	Subject       string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
 	Manifest      string                 `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
 	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	Erased        bool                   `protobuf:"varint,4,opt,name=erased,proto3" json:"erased,omitempty"` // the field written erased: the envelope without
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -873,6 +874,13 @@ func (x *KeyringSealRequest) GetValue() []byte {
 		return x.Value
 	}
 	return nil
+}
+
+func (x *KeyringSealRequest) GetErased() bool {
+	if x != nil {
+		return x.Erased
+	}
+	return false
 }
 
 type KeyringSealReply struct {
@@ -1180,11 +1188,12 @@ const file_ankka_protocol_v1_wasm_proto_rawDesc = "" +
 	"\x05value\x18\x01 \x01(\tH\x00R\x05value\x88\x01\x01B\b\n" +
 	"\x06_value\"F\n" +
 	"\fStreamTokens\x126\n" +
-	"\x06tokens\x18\x01 \x03(\v2\x1e.ankka.protocol.v1.StreamTokenR\x06tokens\"`\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x1e.ankka.protocol.v1.StreamTokenR\x06tokens\"x\n" +
 	"\x12KeyringSealRequest\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x1a\n" +
 	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\fR\x05value\"k\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\x12\x16\n" +
+	"\x06erased\x18\x04 \x01(\bR\x06erased\"k\n" +
 	"\x10KeyringSealReply\x12\x1c\n" +
 	"\benvelope\x18\x01 \x01(\fH\x00R\benvelope\x120\n" +
 	"\x05error\x18\x02 \x01(\v2\x18.ankka.protocol.v1.ErrorH\x00R\x05errorB\a\n" +

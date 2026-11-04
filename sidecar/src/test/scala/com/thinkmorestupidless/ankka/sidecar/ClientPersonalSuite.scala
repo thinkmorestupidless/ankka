@@ -157,6 +157,16 @@ class ClientPersonalSuite extends munit.FunSuite with LogCapturing:
     assertEquals(seal("player m2", "1").error.map(_.code), Some(pb.ErrorCode.BAD_REQUEST))
   }
 
+  test("a module's erased field is written by the host, under the host's project") {
+    val reply = logic
+      .keyringSeal(
+        KeyringSealRequest("player/m4", "player-registered", ByteString.EMPTY, erased = true)
+      )
+      .reply
+    val text = reply.envelope.map(_.toStringUtf8).getOrElse(fail(reply.toString))
+    assertEquals(text, s"""{"$$personal":1,"project":"${testKit.project}","subject":"player/m4"}""")
+  }
+
   test("a module's keyring imports are refused outside a call into the module") {
     val host = com.thinkmorestupidless.ankka.sidecar.wasm.HostImports(5.seconds, 5.seconds)
     val e    = intercept[com.thinkmorestupidless.ankka.sidecar.wasm.ImportRefused](

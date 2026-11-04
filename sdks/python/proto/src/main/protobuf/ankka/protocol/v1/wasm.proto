@@ -98,6 +98,9 @@ message KeyringSealRequest {
   string subject = 1;
   string manifest = 2;
   bytes value = 3;
+  bool erased = 4;                            // the field written erased: the envelope without
+                                              // `c`, under the project the runtime holds; `value`
+                                              // is not read
 }
 
 message KeyringSealReply {

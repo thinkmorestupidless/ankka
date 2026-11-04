@@ -232,6 +232,10 @@ object KeyStore:
       |  instance TEXT NOT NULL, rows_redacted BIGINT NOT NULL, tokens_dropped BIGINT NOT NULL,
       |  sessions_ended BIGINT NOT NULL, objects_erased BIGINT, finality TEXT, error TEXT,
       |  acked_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (erasure_seq, instance))""".stripMargin,
+    // The instances connected when a notice was sent: the ones its service's completion waits for.
+    """CREATE TABLE IF NOT EXISTS keyring.notice_expect (
+      |  erasure_seq BIGINT NOT NULL, project TEXT NOT NULL, service TEXT NOT NULL,
+      |  instance TEXT NOT NULL, PRIMARY KEY (erasure_seq, instance))""".stripMargin,
     """CREATE TABLE IF NOT EXISTS keyring.fetch_refusal (
       |  at TIMESTAMPTZ NOT NULL DEFAULT now(), caller TEXT NOT NULL, project TEXT NOT NULL,
       |  subject TEXT NOT NULL, reason TEXT NOT NULL)""".stripMargin,

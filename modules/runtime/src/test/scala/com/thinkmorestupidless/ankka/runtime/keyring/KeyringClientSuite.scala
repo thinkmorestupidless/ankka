@@ -123,3 +123,44 @@ final class KeyringClientSuite extends munit.FunSuite:
     intercept[CommandError](c.key("brand", ada, create = false))
     c.close()
   }
+
+  private def foreignClient(clock: Manual) =
+    val store = Store(clock)
+    val c     = new KeyringClient(
+      store,
+      new KeyCache(100, 5.minutes, 15.minutes, clock),
+      settings,
+      clock,
+      ownProject = Some("payments")
+    )
+    (store, c)
+
+  test("another project's key is held for foreign-ttl and no longer; the own project's for ttl") {
+    val clock      = Manual()
+    val (store, c) = foreignClient(clock)
+    c.key("brand", ada, create = false)
+    c.key("payments", ada, create = false)
+    assertEquals(store.fetches, 2)
+    clock.move(20.seconds)
+    c.key("brand", ada, create = false)
+    c.key("payments", ada, create = false)
+    assertEquals(store.fetches, 2, "both were held within 30 seconds")
+    clock.move(20.seconds)
+    c.key("brand", ada, create = false)
+    c.key("payments", ada, create = false)
+    assertEquals(store.fetches, 3, "only another project's key is asked for again past 30 seconds")
+    c.close()
+  }
+
+  test(
+    "a refusal of another project's key is answered and never held, so a grant made later counts"
+  ) {
+    val clock      = Manual()
+    val (store, c) = foreignClient(clock)
+    store.answer = KeyAnswer.Refused("no grant")
+    assertEquals(c.key("brand", ada, create = false), KeyAnswer.Refused("no grant"))
+    store.answer = KeyAnswer.Key(IArray.fill[Byte](32)(9))
+    assert(c.key("brand", ada, create = false).isInstanceOf[KeyAnswer.Key])
+    assertEquals(store.fetches, 2)
+    c.close()
+  }

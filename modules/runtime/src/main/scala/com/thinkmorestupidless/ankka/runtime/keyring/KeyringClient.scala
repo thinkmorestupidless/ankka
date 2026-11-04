@@ -29,7 +29,9 @@ final class KeyringClient(
     val store: KeyStoreClient,
     val cache: KeyCache,
     settings: KeyringSettings,
-    clock: Clock = Clock.systemUTC()
+    clock: Clock = Clock.systemUTC(),
+    /** The service's own project: a key of any other is held for `foreign-ttl` at most. */
+    ownProject: Option[String] = None
 ):
 
   private val log      = LoggerFactory.getLogger(classOf[KeyringClient])
@@ -42,6 +44,10 @@ final class KeyringClient(
 
   /** The key of `subject`: a fresh one held, else asked for; a held one in an outage's bound. */
   def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
+    if ownProject.exists(_ != project) then foreignKey(project, subject, create)
+    else ownKey(project, subject, create)
+
+  private def ownKey(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
     cache.fresh(project, subject).getOrElse {
       try
         val answer = fetch(project, subject, create)
@@ -50,6 +56,21 @@ final class KeyringClient(
       catch
         case unavailable: CommandError if unavailable.code == ErrorCode.Unavailable =>
           cache.stale(project, subject).getOrElse(throw unavailable)
+    }
+
+  // Keys of another project's data subjects, read under a grant with decryption: no notice of
+  // that project reaches this instance, so each is held for `foreign-ttl` and no longer, and a
+  // refusal (no grant, or a revoked one) is never held at all (decided 2026-11-04, T073).
+  private val foreign =
+    new KeyCache(settings.maxKeys, settings.foreignTtl, settings.foreignTtl, clock)
+
+  private def foreignKey(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
+    foreign.fresh(project, subject).getOrElse {
+      fetch(project, subject, create) match
+        case refused: KeyAnswer.Refused => refused
+        case answer                     =>
+          foreign.put(project, subject, answer)
+          answer
     }
 
   private def fetch(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
@@ -170,5 +191,9 @@ final class KeyringClient(
     store.close()
 
 object KeyringClient:
-  def apply(store: KeyStoreClient, settings: KeyringSettings): KeyringClient =
-    new KeyringClient(store, KeyCache(settings), settings)
+  def apply(
+      store: KeyStoreClient,
+      settings: KeyringSettings,
+      ownProject: Option[String] = None
+  ): KeyringClient =
+    new KeyringClient(store, KeyCache(settings), settings, ownProject = ownProject)

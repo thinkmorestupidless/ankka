@@ -14,6 +14,13 @@ enum KeyAnswer:
    */
   case Absent
 
+  /**
+   * The keyring refused this service another project's key, and said why: it holds no grant to read
+   * that project's data subjects with decryption, or no longer does. The field reads as erased for
+   * this read only; the answer is never held, so a grant made later is honoured at once.
+   */
+  case Refused(why: String)
+
 object KeyAnswer:
 
   /** A key, for a caller on the JVM that cannot construct a Scala enum's case (Java, Kotlin). */

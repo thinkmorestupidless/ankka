@@ -277,6 +277,12 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
               ErrorCode.Conflict,
               Map(Personal.ErrorKey -> Personal.ErasedRefusal)
             )
+          case KeyAnswer.Refused(why) =>
+            throw CommandError(
+              s"the keyring refused the key of '${subj.value}': $why; nothing was written",
+              ErrorCode.Forbidden,
+              Map(Personal.ErrorKey -> Personal.Unavailable)
+            )
           case KeyAnswer.Key(key) =>
             val plaintext = writeToArrayReentrant(value)(using inner)
             PersonalScope.sealedField(Some(plaintext))
@@ -321,8 +327,8 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
     if boxed == null then Erased(s)
     else
       PersonalCodec.ask(Keyring.current.key(project, s, create = false)) match
-        case KeyAnswer.Destroyed | KeyAnswer.Absent => Erased(s)
-        case KeyAnswer.Key(key)                     =>
+        case KeyAnswer.Destroyed | KeyAnswer.Absent | KeyAnswer.Refused(_) => Erased(s)
+        case KeyAnswer.Key(key)                                            =>
           val bytes =
             try Base64.getDecoder.decode(boxed)
             catch case _: IllegalArgumentException => throw corrupt(subject, "it is not base64")

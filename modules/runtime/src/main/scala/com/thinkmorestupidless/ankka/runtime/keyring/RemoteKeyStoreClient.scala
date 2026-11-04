@@ -41,6 +41,7 @@ final class RemoteKeyStoreClient(
   import RemoteKeyStoreClient.*
 
   private val log  = LoggerFactory.getLogger(classOf[RemoteKeyStoreClient])
+  private val own  = project
   private val base = address.stripSuffix("/")
 
   @volatile private var secured: Option[(Int, HttpClient)] = None
@@ -103,10 +104,14 @@ final class RemoteKeyStoreClient(
       case (403, body) =>
         val why =
           scala.util.Try(readFromString[KeyReply](body).refused).toOption.flatten.getOrElse(body)
-        throw CommandError(
-          s"the keyring refused this service the key of '${subject.value}': $why",
-          ErrorCode.Forbidden
-        )
+        // Another project's key is refused without a grant to read it with decryption: the field
+        // reads as erased. The service's own is never refused but by a fault, which is an error.
+        if project != own then KeyAnswer.Refused(why)
+        else
+          throw CommandError(
+            s"the keyring refused this service the key of '${subject.value}': $why",
+            ErrorCode.Forbidden
+          )
       case (status, body) => throw unavailable(s"$status ${body.take(200)}")
 
   def lookupKey(project: String): IArray[Byte] =

@@ -481,7 +481,8 @@ final class ServiceBuilder private[ankka] (
     val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringStore match
       case Some(client) =>
         val keyringClient =
-          com.thinkmorestupidless.ankka.runtime.keyring.KeyringClient(client, keyringSettings)
+          com.thinkmorestupidless.ankka.runtime.keyring
+            .KeyringClient(client, keyringSettings, Some(keyringProject))
         // The notices are heard from the start, before any component recovers: a key dropped by
         // an erasure is never served from the cache after its notice.
         keyringClient.start()

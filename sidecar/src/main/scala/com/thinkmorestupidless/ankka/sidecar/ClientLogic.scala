@@ -737,6 +737,15 @@ final class ClientLogic(
           )
         case com.thinkmorestupidless.ankka.core.KeyAnswer.Destroyed =>
           SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        // Another project's key, refused without a grant to read it with decryption: erased to a
+        // read, and a write under it is refused.
+        case com.thinkmorestupidless.ankka.core.KeyAnswer.Refused(_) if !request.create =>
+          SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        case com.thinkmorestupidless.ankka.core.KeyAnswer.Refused(why) =>
+          throw CommandError(
+            s"the keyring refused the key of '${request.subject}': $why; nothing was written",
+            ErrorCode.Forbidden
+          )
         case com.thinkmorestupidless.ankka.core.KeyAnswer.Absent if !request.create =>
           SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
         case com.thinkmorestupidless.ankka.core.KeyAnswer.Absent =>

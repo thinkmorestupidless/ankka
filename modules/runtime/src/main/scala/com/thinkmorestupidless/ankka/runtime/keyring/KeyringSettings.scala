@@ -19,7 +19,9 @@ final case class KeyringSettings(
     ttl: FiniteDuration,
     outageBound: FiniteDuration,
     noticeBound: FiniteDuration,
-    fetchTimeout: FiniteDuration
+    fetchTimeout: FiniteDuration,
+    /** How long a key of another project is held: no notice of that project reaches this one. */
+    foreignTtl: FiniteDuration = FiniteDuration(30, java.util.concurrent.TimeUnit.SECONDS)
 )
 
 object KeyringSettings:
@@ -47,7 +49,8 @@ object KeyringSettings:
       ttl = positive("cache.ttl"),
       outageBound = positive("cache.outage-bound"),
       noticeBound = positive("notice-bound"),
-      fetchTimeout = positive("fetch-timeout")
+      fetchTimeout = positive("fetch-timeout"),
+      foreignTtl = positive("cache.foreign-ttl")
     )
     if settings.outageBound < settings.ttl then
       throw IllegalArgumentException(

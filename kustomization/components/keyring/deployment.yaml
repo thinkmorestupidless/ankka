@@ -73,6 +73,13 @@ spec:
             # under the secret key below.
             - name: ANKKA_KEYRING_KMS_KEY
               value: ""
+            # The installation's base domain and HTTPS port, replaced by the overlay: the issuer of
+            # a machine's token is https://api.<base>[:port], its keys read on the control plane's
+            # `keys` port. Empty admits no machine to the decryption.
+            - name: ANKKA_BASE_DOMAIN
+              value: ""
+            - name: ANKKA_HTTPS_PORT
+              value: "443"
             # Made by the operator once, never read back by anything but this pod.
             - name: ANKKA_SECRET_KEY
               valueFrom:

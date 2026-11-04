@@ -1,0 +1,49 @@
+# The keyring's one door for a machine outside the installation: https://keyring.<base domain>,
+# routed to the keyring's decryption and nothing else. A machine holding a grant that allows
+# decryption posts the envelopes it read with its token; the keyring verifies the token, checks
+# the grant and answers the values, so no subject key leaves the installation. Every other path
+# (a key fetch, the control plane's erasures, the notices channel) has no route and the gateway
+# answers 404 for it. `keyring` can never collide with a service's hostname: every one of those is
+# <service>-<project>, which always contains a hyphen.
+#
+# The gateway reaches the keyring over mutual TLS as `ankka://gateway`, verifying the keyring's
+# certificate against the service authority (the policy below), as it reaches the control plane.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ankka
+      namespace: ankka-gateway
+      sectionName: https
+  hostnames:
+    - keyring.BASE_DOMAIN
+  rules:
+    - matches:
+        - path: { type: Exact, value: /v1/decrypt }
+          method: POST
+      backendRefs:
+        - name: keyring
+          port: 8443
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: keyring
+      sectionName: keyring
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: ankka-service-ca
+    hostname: keyring.ankka-keyring.svc.cluster.local

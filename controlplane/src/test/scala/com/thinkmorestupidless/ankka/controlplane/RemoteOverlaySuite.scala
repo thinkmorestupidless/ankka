@@ -1616,7 +1616,9 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       val distinct = Map(
         "erasure"          -> "on",
         "keyringInstances" -> "3",
-        "cloudKmsKey"      -> "probe-wrapping-key"
+        "cloudKmsKey"      -> "probe-wrapping-key",
+        "baseDomain"       -> "keyring-probe.test",
+        "httpsPort"        -> "9443"
       )
       val configMap = probe.resolve("platform-configmap.yaml")
       val lines     = Files.readString(configMap).linesIterator.toVector
@@ -1723,6 +1725,53 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assertEquals(rules.head.getResources.asScala.toVector, Vector("configmaps"))
     assertEquals(rules.head.getResourceNames.asScala.toVector, Vector("ankka-project"))
     assertEquals(rules.head.getVerbs.asScala.toVector, Vector("list"))
+  }
+
+  test("a machine reaches the keyring's decryption alone, at keyring.<base>, through the gateway") {
+    val route = yamlOf(named(withKeyring, "HTTPRoute", "ankka-keyring"))
+    assertEquals(at(route, "metadata", "namespace"), "ankka-keyring")
+    assertEquals(at(route, "spec", "hostnames").toString, "[keyring.keyring-probe.test]")
+    val parent = at(route, "spec", "parentRefs")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .get(0)
+    assertEquals(parent.get("name"), "ankka")
+    assertEquals(parent.get("namespace"), "ankka-gateway")
+    assertEquals(parent.get("sectionName"), "https")
+    val rules = at(route, "spec", "rules").asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+    assertEquals(rules.size, 1)
+    val matches =
+      rules.get(0).get("matches").asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+    assertEquals(matches.size, 1, "one path is routed")
+    val path = matches.get(0).get("path").asInstanceOf[java.util.Map[String, Any]]
+    assertEquals((path.get("type"), path.get("value")), ("Exact", "/v1/decrypt"))
+    assertEquals(matches.get(0).get("method"), "POST")
+    val backend = rules
+      .get(0)
+      .get("backendRefs")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .get(0)
+    assertEquals((backend.get("name"), backend.get("port")), ("keyring", 8443))
+    // The gateway verifies the keyring's own certificate, from the service authority.
+    val policy = yamlOf(named(withKeyring, "BackendTLSPolicy", "ankka-keyring"))
+    assertEquals(
+      at(policy, "spec", "validation", "hostname"),
+      "keyring.ankka-keyring.svc.cluster.local"
+    )
+    val certificate = yamlOf(named(withKeyring, "Certificate", "ankka-keyring"))
+    assert(
+      at(certificate, "spec", "dnsNames").toString
+        .contains("keyring.ankka-keyring.svc.cluster.local"),
+      "the keyring's certificate does not name the host the gateway checks"
+    )
+    // The issuer of a machine's token, derived by the keyring from the same two keys.
+    assertEquals(
+      variablesNamed(withKeyring, "ankka-keyring", "ANKKA_BASE_DOMAIN").map(_.getValue),
+      Vector("keyring-probe.test")
+    )
+    assertEquals(
+      variablesNamed(withKeyring, "ankka-keyring", "ANKKA_HTTPS_PORT").map(_.getValue),
+      Vector("9443")
+    )
   }
 
   test("the keyring's door admits personal namespaces, the control plane and the gateway") {

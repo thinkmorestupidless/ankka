@@ -35,6 +35,12 @@ object KeyringSettings:
   val GrantsDir     = "ANKKA_KEYRING_GRANTS_DIR"
   val MachineIssuer = "ANKKA_MACHINE_ISSUER"
   val MachineJwks   = "ANKKA_MACHINE_JWKS_URL"
+  val BaseDomain    = "ANKKA_BASE_DOMAIN"
+  val HttpsPort     = "ANKKA_HTTPS_PORT"
+
+  /** Where the control plane serves its machine keys inside the cluster: its `keys` port. */
+  val DefaultMachineJwks =
+    "https://ankka-controlplane.ankka-controlplane.svc:7629/.well-known/jwks.json"
 
   def fromEnvironment(env: String => Option[String]): Either[Vector[String], KeyringSettings] =
     def port(name: String, default: Int): Either[String, Int] =
@@ -62,10 +68,22 @@ object KeyringSettings:
             s"${com.thinkmorestupidless.ankka.core.PlatformVariables.SecretKey} keeps the root key " +
               s"when $KmsKey names no KMS key"
           )
-    val machines = (env(MachineIssuer), env(MachineJwks)) match
-      case (Some(i), Some(j)) => uri(MachineJwks, j).map(u => Some(i -> u))
-      case (None, None)       => Right(None)
-      case _ => Left(s"$MachineIssuer and $MachineJwks are set together or not at all")
+    val machines =
+      (env(MachineIssuer).filter(_.nonEmpty), env(MachineJwks).filter(_.nonEmpty)) match
+        case (Some(i), Some(j)) => uri(MachineJwks, j).map(u => Some(i -> u))
+        case (None, None)       =>
+          // The issuer the control plane derives from the installation's base domain and port,
+          // its keys read on the control plane's `keys` port, as the operator tells services.
+          env(BaseDomain).filter(_.nonEmpty) match
+            case None       => Right(None)
+            case Some(base) =>
+              port(HttpsPort, 443).map(p =>
+                Some(
+                  s"https://api.$base${if p == 443 then "" else s":$p"}" ->
+                    URI.create(DefaultMachineJwks)
+                )
+              )
+        case _ => Left(s"$MachineIssuer and $MachineJwks are set together or not at all")
     val problems = Vector(main, probe, cp, root, machines).collect { case Left(p) => p }
     if problems.nonEmpty then Left(problems)
     else

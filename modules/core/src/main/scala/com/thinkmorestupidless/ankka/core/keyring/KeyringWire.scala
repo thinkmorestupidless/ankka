@@ -37,3 +37,19 @@ object Completion:
 
 /** An instance's acknowledgement that it carried out notice `seq`. */
 final case class KeyringAck(seq: Long, service: String, instance: String, completion: Completion)
+
+/** The control plane's order to destroy a data subject's key, for erasure log entry `seq`. */
+final case class ErasureOrder(seq: Long, project: String, subject: String)
+
+/** The keyring's answer to an order: when the key was destroyed (or already had been). */
+final case class ErasureDestroyed(destroyedAt: java.time.Instant)
+
+/** One service's completion of an erasure, as the keyring knows it. */
+final case class ServiceErasureStatus(
+    service: String,
+    completedAt: Option[java.time.Instant] = None,
+    completion: Option[Completion] = None
+)
+
+/** Every service of the project the keyring told of erasure `seq`, and which have completed. */
+final case class ErasureStatus(services: Vector[ServiceErasureStatus] = Vector.empty)

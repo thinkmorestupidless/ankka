@@ -36,4 +36,25 @@ object PlatformBackups:
         // Its schedule is the `backups` component's, so its first base backup runs the moment the
         // database exists. Run before the credential above, it fails, and the next is a day away.
         Action.RetryBaseBackup(ControlPlaneNamespace, ControlPlaneCluster)
+      ) ++ keyring(settings)
+
+  /**
+   * The keyring's database (feature 042), archived as the control plane's is into a bucket of its
+   * own, while erasure is on: its component lists the database, so without it there is nothing to
+   * archive.
+   */
+  private def keyring(settings: Settings): Vector[Action] =
+    if settings.erasure.isEmpty then Vector.empty
+    else
+      val bucket = Buckets.platformBackup(KeyringSettings.Component)
+      Vector(
+        Action.EnsureBucket(bucket),
+        Action.EnsureBackupCredential(
+          KeyringSettings.Namespace,
+          bucket,
+          bucket,
+          BucketPermission.ReadWrite,
+          0
+        ),
+        Action.RetryBaseBackup(KeyringSettings.Namespace, PlatformErasure.KeyringCluster)
       )

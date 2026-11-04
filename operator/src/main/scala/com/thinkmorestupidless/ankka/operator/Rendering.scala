@@ -287,6 +287,7 @@ object Rendering:
           cloudRequests.map(Action.EnsureCloudResource(_)) ++
           moveActions ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
+          ZeroTrust.personalNamespace(spec, namespace, settings.erasure) ++
           brokerActions(spec, broker, granted) ++
           // Not while a cloud bucket waits on its provider: its endpoint and region are the
           // provider's to say, and an instance started without them would be started wrong. Nor
@@ -333,7 +334,12 @@ object Rendering:
                       // The model server's door (feature 053), on every platform container while
                       // the installation has one, so a service can name a model with no second
                       // rollout for the variable.
-                      settings.models.map(m => PlatformVariables.ModelsAddress -> m.address)
+                      settings.models.map(m => PlatformVariables.ModelsAddress -> m.address) ++
+                      // The keyring's door (feature 042), only to a service that declares personal
+                      // fields, so no other service rolls when the keyring is added.
+                      settings.erasure
+                        .filter(_ => spec.personal)
+                        .map(k => PlatformVariables.KeyringAddress -> k.address)
                   ),
                   deployed,
                   declaredBrokers

@@ -39,6 +39,13 @@ enum Action:
   /** Idempotent. The per-project container has to exist before anything in it. */
   case EnsureNamespace(name: String)
 
+  /**
+   * Adds labels to a namespace under a field manager of their own (feature 042), so the namespace's
+   * own apply, which sets only `managed-by`, never removes them, and these never touch it.
+   * Idempotent.
+   */
+  case LabelNamespace(name: String, labels: Map[String, String])
+
   /** Server-side apply, taking ownership of the fields it sets. Idempotent. */
   case ApplyDeployment(deployment: Deployment)
 
@@ -324,6 +331,20 @@ enum Action:
   )
 
   /**
+   * Feature 042: a platform workload's key on a platform bucket, `keyName` with `permission` on
+   * `bucket`, in the Secret `secretName` of `namespace` under the storage credential's entries
+   * (`ANKKA_S3_ACCESS_KEY`, `ANKKA_S3_SECRET_KEY`). Issued once, as a storage credential is.
+   * Carries no key: this value is printed and logged.
+   */
+  case EnsurePlatformCredential(
+      namespace: String,
+      secretName: String,
+      bucket: String,
+      keyName: String,
+      permission: BucketPermission
+  )
+
+  /**
    * An exposed service's listener set (feature 045): a listener per custom hostname, attached to
    * the installation's Gateway, in the service's namespace. Server-side applied whole, so a
    * hostname dropped from the spec is dropped from the set.
@@ -340,8 +361,10 @@ enum Action:
   case PruneHostnameCertificates(namespace: String, ownerUid: String, keep: Vector[String])
 
   def describe: String = this match
-    case EnsureNamespace(name) => s"ensure namespace $name"
-    case ApplyDeployment(d)    =>
+    case EnsureNamespace(name)        => s"ensure namespace $name"
+    case LabelNamespace(name, labels) =>
+      s"label namespace $name ${labels.toVector.sorted.map((k, v) => s"$k=$v").mkString(",")}"
+    case ApplyDeployment(d) =>
       s"apply deployment ${d.getMetadata.getNamespace}/${d.getMetadata.getName}"
     case DeleteDeployment(ns, name) => s"delete deployment $ns/$name"
     case EnsureService(svc)         =>
@@ -421,6 +444,8 @@ enum Action:
       s"ensure scheduledbackup ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
     case RetryBaseBackup(ns, cluster) =>
       s"take a base backup of $ns/$cluster again if every one failed"
+    case EnsurePlatformCredential(ns, name, bucket, key, permission) =>
+      s"ensure platform credential $ns/$name for key $key ($permission) on bucket $bucket"
     case EnsureBackupCredential(ns, bucket, key, permission, generation) =>
       s"ensure backup credential $ns/${com.thinkmorestupidless.ankka.crd.Buckets.BackupSecret} " +
         s"for key $key ($permission) on bucket $bucket at generation $generation"

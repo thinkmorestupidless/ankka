@@ -128,6 +128,11 @@ final case class Settings(
      */
     models: Option[ModelServerSettings] = None,
     /**
+     * The installation's keyring, when erasure is on (feature 042). `None` renders nothing for it:
+     * no service is given its address and no namespace is labelled personal.
+     */
+    erasure: Option[KeyringSettings] = None,
+    /**
      * The port of the operator's own health check, `GET /healthz`, which the Deployment's probes
      * ask. Plain HTTP on the pod, read by the kubelet alone; 0 serves none.
      */
@@ -296,6 +301,7 @@ object Settings:
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
       broker = BrokerSettings.read(raw),
       models = ModelServerSettings.read(raw),
+      erasure = KeyringSettings.read(raw),
       objectStore = store,
       backups = BackupSettings.read(raw, store),
       secretStore = SecretStore(

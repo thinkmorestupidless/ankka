@@ -43,6 +43,12 @@ trait EmbeddedReference:
    */
   def relay(n: Int): Option[Int]
 
+  /** The service's erasure handler, when the reference declares one (feature 042). */
+  def erasureHandler: Option[com.thinkmorestupidless.ankka.sdk.ErasureHandler] = None
+
+  /** Whether it declares `personal-contact` and the personal routes (feature 042). */
+  def declaresPersonal: Boolean = erasureHandler.isDefined
+
   /** Cases this reference cannot run yet, by name, each with the reason the suite reports. */
   def ranOutside: Map[String, String] = Map.empty
 

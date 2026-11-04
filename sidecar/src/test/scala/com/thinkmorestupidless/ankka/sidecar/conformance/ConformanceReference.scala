@@ -127,6 +127,55 @@ object ConformanceReference:
     val count                                      = query("count")(_.count)
     val misbehave                                  = command("misbehave")(_.misbehave)
 
+  // ── personal-contact: an entity whose event has a personal field (feature 042) ──
+
+  // docs:start personal-entity
+  /** What `record` is asked: the data subject and the email kept as a personal field of it. */
+  final case class RecordContact(subject: String, email: String)
+
+  /** The email, a personal field: sealed under the data subject's key in the journal. */
+  final case class ContactRecorded(email: Personal[String])
+
+  final case class Contact(email: Option[Personal[String]])
+
+  final class PersonalContact extends EventSourcedEntity[Contact, ContactRecorded]:
+    def emptyState: Contact                         = Contact(None)
+    def applyEvent(event: ContactRecorded): Contact = Contact(Some(event.email))
+    def record(ask: RecordContact): Effect[String]  =
+      effects
+        .persist(ContactRecorded(Personal(DataSubject(ask.subject), ask.email)))
+        .thenReply(_ => "done")
+    def email: ReadOnlyEffect[Contact] = effects.reply(currentState)
+
+  object PersonalContact
+      extends EventSourcedEntity.Companion[PersonalContact, Contact, ContactRecorded](
+        componentId = ComponentId("personal-contact"),
+        stateSerializer = Codecs.serializer[Contact]("personal-contact-state"),
+        eventSerializer = Codecs.serializer[ContactRecorded]("personal-contact-event")
+      ):
+    given Serializer[RecordContact] = Codecs.serializer[RecordContact]("record-contact")
+    def create(context: EventSourcedEntityContext) = new PersonalContact
+    val record                                     = command("record")(_.record)
+    val email                                      = query("email")(_.email)
+  // docs:end personal-entity
+
+  /**
+   * What a `/conformance/personal/{id}` call did, the same in every language: `outcome` is `ok`
+   * (with the `email` read back), `erased` (the data subject's key is destroyed), `absent` (nothing
+   * was recorded) or `refused`, with the protocol's `code` word and the `message`.
+   */
+  final case class PersonalRecord(
+      outcome: String,
+      email: String = "",
+      code: String = "",
+      message: String = ""
+  )
+
+  /**
+   * Every reference's erasure handler: it keeps no objects, and reports one erased all the same.
+   */
+  val ErasureHandlerReport: ErasureReport = ErasureReport(objectsErased = 1)
+
   // ── profile: a key value entity ──
 
   final case class ProfileState(name: String)
@@ -1056,7 +1105,9 @@ object ConformanceReference:
       names: Vector[String] = Vector.empty,
       url: String = ""
   )
-  given JsonValueCodec[StorageRecord] = Codecs.make[StorageRecord]
+  given JsonValueCodec[StorageRecord]  = Codecs.make[StorageRecord]
+  given JsonValueCodec[PersonalRecord] = Codecs.make[PersonalRecord]
+  given JsonValueCodec[RecordContact]  = Codecs.make[RecordContact]
 
   /** `BadRequest` as the protocol says it: `BAD_REQUEST`. */
   def codeWord(code: ErrorCode): String =
@@ -1338,6 +1389,39 @@ object ConformanceReference:
       agent(session).stream(Assistant.streamAsk)(query.raw("q").getOrElse(""))
     }
     get("/{id}/count")((id: String) => entity(id).call(Conformance.count).invoke())
+
+    // docs:start personal-routes
+    // An entity whose event has a personal field: a post records `{"subject", "email"}`, a get reads
+    // the email back. Each answer is a record, a refusal included, as the storage routes' are.
+    postBody("/personal/{id}") { (id: String, body: String) =>
+      personalCall {
+        val ask = com.github.plokhotnyuk.jsoniter_scala.core.readFromString[RecordContact](body)
+        clients.componentClient
+          .forEventSourcedEntity(EntityId(id))
+          .call(PersonalContact.record)
+          .invoke(ask): Unit
+        PersonalRecord("ok")
+      }
+    }
+    get("/personal/{id}") { (id: String) =>
+      personalCall {
+        clients.componentClient
+          .forEventSourcedEntity(EntityId(id))
+          .call(PersonalContact.email)
+          .invoke()
+          .email match
+          case None                            => PersonalRecord("absent")
+          case Some(Personal.Present(_, mail)) => PersonalRecord("ok", email = mail)
+          case Some(Personal.Erased(_))        => PersonalRecord("erased")
+      }
+    }
+    // docs:end personal-routes
+
+    private def personalCall(f: => PersonalRecord): PersonalRecord =
+      try f
+      catch
+        case e: CommandError =>
+          PersonalRecord("refused", code = codeWord(e.code), message = e.message)
     post[String, Done]("/{id}/no-reply") { (id: String) =>
       // A handler that answers nothing: the ask is never awaited, and the route says so with 204.
       val _ = transport.ask(
@@ -1505,7 +1589,8 @@ object ConformanceReference:
     "reminder",
     "assistant",
     "answerer",
-    "approver"
+    "approver",
+    "personal-contact"
   )
 
   def descriptors: Seq[ComponentDescriptor] = Seq(
@@ -1518,6 +1603,7 @@ object ConformanceReference:
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
     CheckoutFanout.descriptor,
+    PersonalContact.descriptor,
     TopicRows.descriptor,
     TopicRelay.descriptor,
     ContractRelay.descriptor,
@@ -1649,8 +1735,11 @@ object ConformanceReference:
         ("conformance", "count"),
         ("profile", "get"),
         ("checkout", "status"),
-        ("replicated-vehicle", "get")
+        ("replicated-vehicle", "get"),
+        ("personal-contact", "email")
       )
+    override def erasureHandler: Option[ErasureHandler] =
+      Some(ErasureHandler(_ => _ => ErasureHandlerReport))
     def relay(n: Int): Option[Int] =
       ContractRelay().onMessage(Fanned(n)) match
         case com.thinkmorestupidless.ankka.core.effect.ConsumerEffect.Produce(payload, _) =>

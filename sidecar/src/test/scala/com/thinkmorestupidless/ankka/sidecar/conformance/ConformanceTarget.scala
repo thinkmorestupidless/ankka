@@ -152,6 +152,15 @@ trait ConformanceTarget:
   /** True for a WebAssembly module, which answers every call whole and so cannot stream. */
   def isModule: Boolean = false
 
+  /** The keyring the target's service holds its data subjects' keys in (feature 042). */
+  def keyring: com.thinkmorestupidless.ankka.testkit.InMemoryKeyring
+
+  /** The project the target's service runs in, which its keys are made for. */
+  def project: String
+
+  /** Whether the reference declares `personal-contact`, its routes and an erasure handler. */
+  def declaresPersonal: Boolean = true
+
   /** Cases this target's reference cannot run yet, by name, each with the reason it says. */
   def ranOutside: Map[String, String] = Map.empty
 
@@ -432,6 +441,21 @@ object ConformanceTarget:
       .validate(swapped, Discovery.ProtocolVersion, authConfigured = true)
       .fold(identity, _ => Vector.empty)
 
+  /** `builder` with a process's erasure handler, when its discovery declared one. */
+  private[conformance] def handled(
+      declared: Boolean,
+      conversation: com.thinkmorestupidless.ankka.runtime.remote.Conversation,
+      settings: Settings
+  )(
+      builder: com.thinkmorestupidless.ankka.runtime.ServiceBuilder
+  ): com.thinkmorestupidless.ankka.runtime.ServiceBuilder =
+    if declared then
+      builder.withErasureHandler(
+        com.thinkmorestupidless.ankka.sidecar
+          .RemoteErasureHandler(conversation, settings.commandTimeout)
+      )
+    else builder
+
   /** An embedded reference service, the Scala one or one in Java, on `AnkkaTestKit`. */
   final class InProcess(val reference: EmbeddedReference, val model: TestModelProvider)
       extends ConformanceTarget:
@@ -453,7 +477,7 @@ object ConformanceTarget:
           .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
-      ConformanceTarget.withImpostor,
+      b => ConformanceTarget.withImpostor(reference.erasureHandler.fold(b)(b.withErasureHandler)),
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend,
       storage = ConformanceTarget.storageBackend,
@@ -462,10 +486,13 @@ object ConformanceTarget:
     def name: String           = s"in-process, ${reference.language}"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
     def system: ActorSystem[?] = kit.service.system
-    def recordedReads: Vector[ReadRecord] = kit.recordedReads
-    def restart(): Unit                   = kit.restartService()
-    def isProcess: Boolean                = false
-    def problems: Vector[String]          = Vector.empty
+    def recordedReads: Vector[ReadRecord]  = kit.recordedReads
+    def restart(): Unit                    = kit.restartService()
+    def isProcess: Boolean                 = false
+    def keyring                            = kit.keyring
+    def project: String                    = kit.project
+    override def declaresPersonal: Boolean = reference.declaresPersonal
+    def problems: Vector[String]           = Vector.empty
     // Minus the agent and MCP runtimes' own components, which a process target never declares.
     def componentIds: Set[String] =
       kit.service.registry.components.map(_.componentId.toString).toSet --
@@ -590,7 +617,13 @@ object ConformanceTarget:
           .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
-      b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
+      b =>
+        ConformanceTarget.withImpostor(
+          // The process's or the module's erasure handler, run as Main runs it.
+          ConformanceTarget.handled(discovered.spec.erasureHandler, conversation, settings)(
+            b.withConversation(conversation)
+          )
+        ),
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend,
       storage = ConformanceTarget.storageBackend,
@@ -602,6 +635,8 @@ object ConformanceTarget:
     def recordedReads: Vector[ReadRecord] = kit.recordedReads
     def restart(): Unit                   = kit.restartService()
     def isProcess: Boolean                = true
+    def keyring                           = kit.keyring
+    def project: String                   = kit.project
     def problems: Vector[String]          =
       val client = HttpClient.newHttpClient()
       val r      = client.send(
@@ -791,7 +826,13 @@ object ConformanceTarget:
           .withGrants(ConformanceTarget.grants)
       ),
       60.seconds,
-      b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
+      b =>
+        ConformanceTarget.withImpostor(
+          // The process's or the module's erasure handler, run as Main runs it.
+          ConformanceTarget.handled(discovered.spec.erasureHandler, conversation, settings)(
+            b.withConversation(conversation)
+          )
+        ),
       localServices = ConformanceTarget.localServices(scripted),
       secretBackend = ConformanceTarget.secretBackend,
       storage = ConformanceTarget.storageBackend,
@@ -802,6 +843,8 @@ object ConformanceTarget:
     def system: ActorSystem[?]     = kit.service.system
     def restart(): Unit            = kit.restartService()
     def isProcess: Boolean         = true
+    def keyring                    = kit.keyring
+    def project: String            = kit.project
     override def isModule: Boolean = true
     def problems: Vector[String]   = lastProblems
     def componentIds: Set[String]  = discovered.spec.components.map(_.id).toSet

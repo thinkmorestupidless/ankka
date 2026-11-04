@@ -1951,6 +1951,125 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  // ── Personal fields and erasure (feature 042, features/erasure/languages.feature) ──
+
+  private def onlyWherePersonal(): Unit =
+    assume(target.declaresPersonal, "the reference declares no personal field")
+
+  private def personal(reply: Reply): (String, String) =
+    assertEquals(reply.status, 200, reply.body)
+    (word(reply.json, "outcome"), word(reply.json, "email"))
+
+  private def recordContact(id: String, subject: String, email: String): Reply =
+    postJson(s"/conformance/personal/$id", s"""{"subject":"$subject","email":"$email"}""")
+
+  private def readContact(id: String): (String, String) = personal(
+    get(s"/conformance/personal/$id")
+  )
+
+  /** A data subject of this run alone: the keyring outlives the cases and an erasure is final. */
+  private def freshSubject(): com.thinkmorestupidless.ankka.core.DataSubject =
+    com.thinkmorestupidless.ankka.core
+      .DataSubject(s"player/${java.util.UUID.randomUUID().toString.take(8)}")
+
+  /**
+   * The personal envelope of the one event journaled for `id`: the row is the journal's own record
+   * around the event's JSON, and an envelope holds no object of its own, so it is its braces.
+   */
+  private def envelopeOf(id: String): Json =
+    val kept = journal(s"personal-contact|$id")
+    assertEquals(kept.size, 1, kept.toString)
+    val text = """\{"\$personal"[^{}]*\}""".r
+      .findFirstIn(kept.head._3)
+      .getOrElse(fail(s"no personal envelope in ${kept.head._3}"))
+    Json.parse(text).fold(p => fail(s"not JSON ($p): $text"), identity)
+
+  test(
+    "personal.envelope-written: the journal holds the personal envelope Scala opens, never the value"
+  ) {
+    onlyWherePersonal()
+    val subject = freshSubject()
+    val email   = s"${subject.value.drop(7)}@example.com"
+    assertEquals(personal(recordContact("pw1", subject.value, email))._1, "ok")
+    val raw = journal("personal-contact|pw1").head._3
+    assert(!raw.contains(email), s"the value is in the journal: $raw")
+    val envelope = envelopeOf("pw1")
+    assertEquals(envelope("$personal").flatMap(_.asDouble), Some(1.0), envelope.render)
+    assertEquals(word(envelope, "subject"), subject.value)
+    assertEquals(word(envelope, "project"), target.project)
+    // Opened as the platform's own code opens one: the key the keyring holds for the subject, and
+    // the associated data of subject, project and the event's manifest.
+    val key = target.keyring.key(target.project, subject, create = false) match
+      case com.thinkmorestupidless.ankka.core.KeyAnswer.Key(k) => k
+      case other => fail(s"no key for ${subject.value}: $other")
+    val opened = com.thinkmorestupidless.ankka.core.PersonalCipher.open(
+      key,
+      java.util.Base64.getDecoder.decode(word(envelope, "c")),
+      com.thinkmorestupidless.ankka.core.PersonalCipher
+        .associatedData(subject.value, target.project, "personal-contact-event")
+    )
+    assertEquals(opened.map(String(_, "UTF-8")), Some(s"\"$email\""))
+  }
+
+  test(
+    "personal.envelope-read: an entity recovered from its journal reads the value in its own type"
+  ) {
+    onlyWherePersonal()
+    val subject = freshSubject()
+    assertEquals(personal(recordContact("pr1", subject.value, "ada@example.com"))._1, "ok")
+    target.restart()
+    assertEquals(readContact("pr1"), ("ok", "ada@example.com"))
+  }
+
+  test(
+    "personal.erased-decodes: once the subject is erased, the field reads as erased and never fails"
+  ) {
+    onlyWherePersonal()
+    val subject = freshSubject()
+    assertEquals(personal(recordContact("pe1", subject.value, "ada@example.com"))._1, "ok")
+    target.keyring.erase(target.project, subject): Unit
+    target.restart()
+    assertEquals(readContact("pe1")._1, "erased")
+  }
+
+  test(
+    "personal.erased-write-refused: a write for an erased data subject is refused, and nothing written"
+  ) {
+    onlyWherePersonal()
+    val subject = freshSubject()
+    target.keyring.erase(target.project, subject): Unit
+    val reply = recordContact("pw2", subject.value, "ada@example.com")
+    assertEquals(personal(reply)._1, "refused", reply.body)
+    assert(
+      word(reply.json, "message").contains(s"the data subject '${subject.value}' is erased"),
+      reply.body
+    )
+    assertEquals(journal("personal-contact|pw2"), Vector.empty)
+  }
+
+  test("personal.sidecar-reads-nothing") {
+    onlyForProcesses()
+    assume(
+      false,
+      "proven by RemoteEntitySuite, whose process double can send bytes that are not JSON"
+    )
+  }
+
+  test(
+    "erasure.handler-runs: the service's erasure handler runs on a notice and its report is acked"
+  ) {
+    onlyWherePersonal()
+    val subject = freshSubject()
+    val seq     = target.keyring.erase(target.project, subject)
+    val handler = eventually(30.seconds)(
+      target.keyring.acks.filter(_.seq == seq).flatMap(_.completion.handler).headOption
+    )
+    assertEquals(
+      handler,
+      com.thinkmorestupidless.ankka.core.keyring.HandlerReport(1, "immediate")
+    )
+  }
+
   // ── Approvals and MCP servers (protocol 1.11) ───────────────────────────────
   //
   // `features/agents/approvals.feature`, `autonomous-approvals.feature` and `mcp-servers.feature`,

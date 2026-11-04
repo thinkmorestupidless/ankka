@@ -88,3 +88,33 @@ class PersonalJavaSuite extends munit.FunSuite with LogCapturing:
       )
     finally kit.close()
   }
+
+  test("a Java test erases through the kit's keyring, and an outage refuses a key not held") {
+    val kit = AnkkaTestKit.start(Ankka.service("players").register(classOf[Players]))
+    try
+      val players = kit.componentClient
+      players.forEventSourcedEntity("a1").call(PlayerRefs.register).invoke("ada@example.com")
+      kit.keyring().outage(java.time.Duration.ofMinutes(10))
+      // The service holds a1's key: it is read in an outage. b2's it never fetched.
+      assertEquals(
+        players.forEventSourcedEntity("a1").call(PlayerRefs.email).invoke(),
+        "ada@example.com"
+      )
+      val refused = scala.util.Try(
+        players.forEventSourcedEntity("b2").call(PlayerRefs.register).invoke("grace@example.com")
+      )
+      assert(
+        refused.failed.toOption.exists(_.getMessage.contains("keyring is unavailable")),
+        refused.toString
+      )
+      assert(scala.util.Try(kit.keyring().erase("player/a1")).isFailure, "erased in an outage")
+      kit.keyring().recover()
+      kit.keyring().erase("player/a1"): Unit
+      kit.restartService()
+      assertEquals(
+        kit.componentClient.forEventSourcedEntity("a1").call(PlayerRefs.email).invoke(),
+        "erased"
+      )
+      kit.assertNoPersonalValue("ada@example.com", "grace@example.com")
+    finally kit.close()
+  }

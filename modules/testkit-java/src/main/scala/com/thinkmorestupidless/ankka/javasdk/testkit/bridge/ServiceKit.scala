@@ -147,6 +147,13 @@ final class ServiceKit private (
   def erase(subject: String): Long =
     kit.erase(com.thinkmorestupidless.ankka.core.DataSubject(subject))
 
+  /** The kit's keyring refuses every request as unavailable for `duration`. */
+  def outage(duration: java.time.Duration): Unit =
+    kit.keyring.outage(scala.concurrent.duration.FiniteDuration(duration.toNanos, "nanos"))
+
+  /** Ends an outage of the kit's keyring now. */
+  def recover(): Unit = kit.keyring.recover()
+
   /** Fails, naming the table and column, when any of `values` is held in plain, base64 or hex. */
   def assertNoPersonalValue(values: java.util.List[String]): Unit =
     kit.assertNoPersonalValue(scala.jdk.CollectionConverters.ListHasAsScala(values).asScala.toSeq*)

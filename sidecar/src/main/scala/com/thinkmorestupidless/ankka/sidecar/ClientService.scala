@@ -78,6 +78,19 @@ final class ClientService(
     logic.listClientKeys(request)
   def revokeClientKey(request: RevokeClientKeyRequest): Future[RevokeClientKeyReply] =
     logic.revokeClientKey(request)
+
+  // Personal data (1.23): answered by T063 of feature 042; until then as an older runtime would.
+  private def unimplemented[A]: Future[A] =
+    Future.failed(
+      Status.UNIMPLEMENTED.withDescription("personal data is not served yet").asException()
+    )
+  def getSubjectKey(request: SubjectKeyRequest): Future[SubjectKeyReply] = unimplemented
+  def subjectNotices(request: SubjectNoticesRequest, out: StreamObserver[SubjectNotice]): Unit =
+    out.onError(
+      Status.UNIMPLEMENTED.withDescription("personal data is not served yet").asException()
+    )
+  def ackSubjectNotice(request: SubjectNoticeAck): Future[SubjectNoticeAckReply] = unimplemented
+  def askErasure(request: AskErasureRequest): Future[AskErasureReply]            = unimplemented
   def decide(request: DecideRequest): Future[InvokeReply] = logic.decide(request)
 
   // A wait's end, a failure included, travels in the reply; this never fails the gRPC call.

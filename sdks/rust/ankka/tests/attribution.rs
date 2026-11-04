@@ -96,7 +96,7 @@ fn inspect(attribution: &str, forwarded_from: &str) -> (Seen, Inspections) {
 
 #[test]
 fn the_protocol_version_is_1_22() {
-    assert_eq!(ankka::service::PROTOCOL_VERSION, "1.22");
+    assert_eq!(ankka::service::PROTOCOL_VERSION, "1.23");
 }
 
 #[test]

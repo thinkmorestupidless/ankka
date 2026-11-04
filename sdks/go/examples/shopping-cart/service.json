@@ -3,7 +3,7 @@
   "service": {
     "image": "sample-shopping-cart-go:latest",
     "hosting": "process",
-    "protocol": "1.22",
+    "protocol": "1.23",
     "provisionObjectStorage": true,
     "buckets": [
       { "name": "photos", "exposure": "public" }

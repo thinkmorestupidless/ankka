@@ -63,6 +63,17 @@ service Client {
   rpc IssueClientKey  (IssueClientKeyRequest)  returns (IssueClientKeyReply);
   rpc ListClientKeys  (ListClientKeysRequest)  returns (ListClientKeysReply);
   rpc RevokeClientKey (RevokeClientKeyRequest) returns (RevokeClientKeyReply);
+
+  // Personal data (protocol 1.23, feature 042). A data subject's key, from the runtime's keyring
+  // client and its cache; the process seals and opens envelopes itself, so the sidecar never reads
+  // a personal value. The notices of erased data subjects, held open for the process's life: the
+  // process drops each subject's key and acks; the sidecar acks the keyring once every instance it
+  // fronts has. A request to erase, as the service, under the `erasure` grant. A refusal or a fault
+  // is an Error in the reply, never a gRPC status; a runtime older than 1.23 answers UNIMPLEMENTED.
+  rpc GetSubjectKey    (SubjectKeyRequest)     returns (SubjectKeyReply);
+  rpc SubjectNotices   (SubjectNoticesRequest) returns (stream SubjectNotice);
+  rpc AckSubjectNotice (SubjectNoticeAck)      returns (SubjectNoticeAckReply);
+  rpc AskErasure       (AskErasureRequest)     returns (AskErasureReply);
 }
 
 // 1.20: a client key for `subject`. Exactly one expiry is set.
@@ -368,4 +379,64 @@ message ObjectEntry {
   string name = 1;                            // 1.21
   uint64 length = 2;                          // 1.21
   string last_kept = 3;                       // 1.21: ISO-8601
+}
+
+// 1.23: a data subject's key. `create` on a write: made when absent, refused for an erased subject.
+// `project` empty: the service's own; another project's only under a consume grant with `decrypt`.
+message SubjectKeyRequest {
+  string subject = 1;                         // 1.23
+  bool create = 2;                            // 1.23
+  string project = 3;                         // 1.23
+  Metadata metadata = 4;                      // 1.23: the trace
+}
+
+message SubjectKeyReply {
+  oneof reply {
+    bytes key = 1;                            // 1.23: 32 bytes, AES-256
+    bool erased = 2;                          // 1.23: the subject's key is destroyed
+    Error error = 3;                          // 1.23: UNAVAILABLE, FORBIDDEN, or the subject refused
+  }
+}
+
+// 1.23: the process instance holding the stream, which acks under the same name.
+message SubjectNoticesRequest {
+  string instance = 1;                        // 1.23
+}
+
+message SubjectNotice {
+  int64 seq = 1;                              // 1.23: the keyring's, in order
+  string project = 2;                         // 1.23
+  string subject = 3;                         // 1.23
+  bool rerun = 4;                             // 1.23: sent again so every handler runs again
+}
+
+message SubjectNoticeAck {
+  int64 seq = 1;                              // 1.23
+  string instance = 2;                        // 1.23: as on SubjectNoticesRequest
+}
+
+message SubjectNoticeAckReply {
+  optional Error error = 1;                   // 1.23
+}
+
+// 1.23: a request to erase a data subject, filed by the service. `project` empty: its own.
+message AskErasureRequest {
+  string project = 1;                         // 1.23
+  string subject = 2;                         // 1.23
+  optional string not_before = 3;             // 1.23: ISO-8601
+  optional string reason = 4;                 // 1.23
+  optional string correlation = 5;            // 1.23
+  Metadata metadata = 6;                      // 1.23: the trace
+}
+
+message AskErasureReply {
+  oneof reply {
+    ErasureAsked ok = 1;                      // 1.23
+    Error error = 2;                          // 1.23: FORBIDDEN without the `erasure` grant
+  }
+}
+
+message ErasureAsked {
+  string id = 1;                              // 1.23: the request's id in its project
+  string state = 2;                           // 1.23: held, applying or applied
 }

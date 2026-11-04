@@ -69,7 +69,9 @@ object Discovery:
    * process that declares an earlier minor. 1.21: the storage client on `Client` (spec 055). 1.22:
    * who acted and the installation a command was forwarded from, on an event sourced entity's
    * command and event (spec 057); empty when there is nothing to say, so a process that ignores
-   * them reads 1.22 as 1.21.
+   * them reads 1.22 as 1.21. 1.23: personal data, the keyring rpcs on `Client`, `AskErasure` and
+   * `Spec.erasure_handler` (feature 042); a handler is refused from a process that declares an
+   * earlier minor.
    */
   val ProtocolVersion: String = WireProtocol.Version
 

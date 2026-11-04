@@ -23,7 +23,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.22";
+pub const PROTOCOL_VERSION: &str = "1.23";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -291,6 +291,8 @@ impl Service {
                 components,
                 endpoints,
                 mcp_endpoints,
+                // 1.23: set once a module declares an erasure handler (feature 042, T068).
+                erasure_handler: false,
             }),
             stateful,
             abi_version: ABI_VERSION.to_string(),

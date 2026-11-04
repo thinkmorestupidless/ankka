@@ -65,8 +65,8 @@ function replied(out: EventSourcedOut, codec: ReturnType<typeof codecFor>): unkn
 const init = create(EventSourcedInSchema, { message: { case: "init", value: { componentId: "vehicle", entityId: "v1" } } })
 const get = create(EventSourcedInSchema, { message: { case: "command", value: { id: 2n, name: "get" } } })
 
-test("the protocol version is 1.22", () => {
-  assert.equal(PROTOCOL_VERSION, "1.22")
+test("the protocol version is 1.23", () => {
+  assert.equal(PROTOCOL_VERSION, "1.23")
 })
 
 test("a command tells its handler and its events who acted and where it was forwarded from", async () => {

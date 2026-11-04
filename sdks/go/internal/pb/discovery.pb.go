@@ -249,9 +249,12 @@ type Spec struct {
 	Endpoints       []*Endpoint            `protobuf:"bytes,4,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
 	// 1.20: MCP endpoints, each served by the sidecar over Streamable HTTP. A sidecar refuses one from
 	// an SDK declaring an earlier minor.
-	McpEndpoints  []*McpEndpoint `protobuf:"bytes,5,rep,name=mcp_endpoints,json=mcpEndpoints,proto3" json:"mcp_endpoints,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	McpEndpoints []*McpEndpoint `protobuf:"bytes,5,rep,name=mcp_endpoints,json=mcpEndpoints,proto3" json:"mcp_endpoints,omitempty"`
+	// 1.23: the process serves `Erasure` and runs a handler for each erased data subject. A sidecar
+	// refuses it from an SDK declaring an earlier minor.
+	ErasureHandler bool `protobuf:"varint,6,opt,name=erasure_handler,json=erasureHandler,proto3" json:"erasure_handler,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Spec) Reset() {
@@ -317,6 +320,13 @@ func (x *Spec) GetMcpEndpoints() []*McpEndpoint {
 		return x.McpEndpoints
 	}
 	return nil
+}
+
+func (x *Spec) GetErasureHandler() bool {
+	if x != nil {
+		return x.ErasureHandler
+	}
+	return false
 }
 
 // 1.20: an MCP endpoint. The sidecar answers the protocol, applies the ACL and checks a call's
@@ -2996,7 +3006,7 @@ const file_ankka_protocol_v1_discovery_proto_rawDesc = "" +
 	"!ankka/protocol/v1/discovery.proto\x12\x11ankka.protocol.v1\x1a\x1fankka/protocol/v1/payload.proto\"a\n" +
 	"\vSidecarInfo\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12'\n" +
-	"\x0fruntime_version\x18\x02 \x01(\tR\x0eruntimeVersion\"\x9d\x02\n" +
+	"\x0fruntime_version\x18\x02 \x01(\tR\x0eruntimeVersion\"\xc6\x02\n" +
 	"\x04Spec\x12)\n" +
 	"\x10protocol_version\x18\x01 \x01(\tR\x0fprotocolVersion\x12,\n" +
 	"\x03sdk\x18\x02 \x01(\v2\x1a.ankka.protocol.v1.SdkInfoR\x03sdk\x12<\n" +
@@ -3004,7 +3014,8 @@ const file_ankka_protocol_v1_discovery_proto_rawDesc = "" +
 	"components\x18\x03 \x03(\v2\x1c.ankka.protocol.v1.ComponentR\n" +
 	"components\x129\n" +
 	"\tendpoints\x18\x04 \x03(\v2\x1b.ankka.protocol.v1.EndpointR\tendpoints\x12C\n" +
-	"\rmcp_endpoints\x18\x05 \x03(\v2\x1e.ankka.protocol.v1.McpEndpointR\fmcpEndpoints\"\xda\x01\n" +
+	"\rmcp_endpoints\x18\x05 \x03(\v2\x1e.ankka.protocol.v1.McpEndpointR\fmcpEndpoints\x12'\n" +
+	"\x0ferasure_handler\x18\x06 \x01(\bR\x0eerasureHandler\"\xda\x01\n" +
 	"\vMcpEndpoint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x12\n" +

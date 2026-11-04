@@ -1,0 +1,26 @@
+// The service's erasure handler (protocol 1.23, feature 042): what the platform cannot erase for it,
+// such as objects in a bucket. The sidecar calls it on one instance for each erased data subject,
+// and again on each re-run within the window; it must be idempotent. A handler that fails is
+// recorded as failed for that run and run again on the next.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Erasure {
+  rpc Invoke (ErasureCall) returns (ErasureReply);
+}
+
+message ErasureCall {
+  string subject = 1;
+  int64 erasure_seq = 2;
+  bool rerun = 3;
+  Metadata metadata = 4;
+}
+
+message ErasureReply {
+  int64 objects_erased = 1;
+  string finality = 2;                        // "immediate", or "after:" and an ISO-8601 duration
+  optional Error error = 3;                   // the handler threw: recorded as failed for this run
+}

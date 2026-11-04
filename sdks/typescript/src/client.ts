@@ -15,7 +15,7 @@ import { decodeJsonValue, reviver } from "./json.ts"
 import { errorCodeFromProto, kindToProto, type ComponentKind } from "./kinds.ts"
 import { metadataToProto } from "./context.ts"
 import { encodePayload, decodePayload, EMPTY_PAYLOAD, prefetchPayload, prefetchValue } from "./server/payloads.ts"
-import { withinScope } from "./personal.ts"
+import { subject as checkedSubject, withinScope, type DataSubject } from "./personal.ts"
 import type { Schema } from "./schema.ts"
 import { Duration } from "./time.ts"
 import { PROTOCOL_VERSION } from "./spec.ts"
@@ -276,6 +276,14 @@ const awaitTooOld = (failure: unknown): never => {
 }
 
 /** Calls on one component instance, by wire name. */
+/** The metadata key a call to an agent names its data subject under (feature 042). */
+export const DATA_SUBJECT_KEY = "ankka-data-subject"
+
+/** `metadata` naming `subject` under `ankka-data-subject`, or unchanged without one; a `TypeError` when it breaks the rule. */
+function withSubject(metadata: Metadata, subject: DataSubject | string | undefined): Metadata {
+  return subject === undefined ? metadata : { ...metadata, [DATA_SUBJECT_KEY]: checkedSubject(subject) }
+}
+
 export class Calls {
   readonly #connection: Connection
   readonly #metadata: Metadata
@@ -818,8 +826,14 @@ export class ComponentClient {
     return new Calls(this.#connection, this.#metadata, "workflow", componentId, workflowId)
   }
 
-  forAgent(componentId: string, sessionId: string): Calls {
-    return new Calls(this.#connection, this.#metadata, "agent", componentId, sessionId)
+  /**
+   * Calls to one session of an agent. A session started with `subject` (feature 042) keeps its
+   * conversation sealed under that data subject's key, and reads as erased once the subject is erased.
+   * The subject is fixed at the session's first call: a later call naming another is refused. An id that
+   * breaks the data subject rule throws a `TypeError` before anything is sent.
+   */
+  forAgent(componentId: string, sessionId: string, options: { subject?: DataSubject | string } = {}): Calls {
+    return new Calls(this.#connection, withSubject(this.#metadata, options.subject), "agent", componentId, sessionId)
   }
 
   /** Creates tasks for autonomous agents. */
@@ -832,9 +846,14 @@ export class ComponentClient {
     return new TaskCalls(this, taskId)
   }
 
-  /** One instance of an autonomous agent, by the id the caller chose; without one, only `runSingleTask`, on an instance the platform names. */
-  forAutonomousAgent(agent: { readonly componentId: string } | string, instanceId?: string): AutonomousAgentCalls {
-    return new AutonomousAgentCalls(this, typeof agent === "string" ? agent : agent.componentId, instanceId)
+  /**
+   * One instance of an autonomous agent, by the id the caller chose; without one, only `runSingleTask`,
+   * on an instance the platform names. An instance started with `subject` (feature 042), by its first
+   * assignment, keeps what it records of its work sealed under that data subject's key and is terminated
+   * once the subject is erased; a later call naming another data subject is refused.
+   */
+  forAutonomousAgent(agent: { readonly componentId: string } | string, instanceId?: string, options: { subject?: DataSubject | string } = {}): AutonomousAgentCalls {
+    return new AutonomousAgentCalls(this, typeof agent === "string" ? agent : agent.componentId, instanceId, options.subject)
   }
 
   /** @internal A call with a JSON body and a JSON reply, as the platform's own components take them. */

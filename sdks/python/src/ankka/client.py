@@ -27,6 +27,7 @@ from ankka.effects.common import Error, ErrorCode
 
 if TYPE_CHECKING:
     from ankka.autonomous import AutonomousAgent, AutonomousAgentCalls, TaskCalls, Tasks
+    from ankka.personal import DataSubject
 
 R = TypeVar("R")
 
@@ -674,6 +675,25 @@ class Timers:
         await self._stub.Cancel(client_pb2.CancelRequest(timer_id=timer_id))
 
 
+DATA_SUBJECT_KEY = "ankka-data-subject"
+"""The metadata key a call to an agent names its data subject under (feature 042)."""
+
+
+def data_subject(subject: DataSubject | str | None) -> DataSubject | None:
+    """``subject`` checked against the data subject rule; ``ValueError`` when it breaks it."""
+    from ankka.personal import DataSubject
+
+    if subject is None:
+        return None
+    return subject if isinstance(subject, DataSubject) else DataSubject(subject)
+
+
+def with_subject(metadata: Metadata, subject: DataSubject | str | None) -> Metadata:
+    """``metadata`` naming ``subject`` under ``ankka-data-subject``, or unchanged without one."""
+    checked = data_subject(subject)
+    return metadata if checked is None else metadata.set(DATA_SUBJECT_KEY, checked)
+
+
 class ComponentClient:
     """Calls into the platform from this process. One per process, shared by every handler; the
     metadata varies per call and is supplied by the context a handler received."""
@@ -720,8 +740,13 @@ class ComponentClient:
     def for_workflow(self, component_id: str, workflow_id: str) -> Calls:
         return Calls(self._stub, discovery_pb2.WORKFLOW, component_id, workflow_id, self._metadata)
 
-    def for_agent(self, component_id: str, session_id: str) -> Calls:
-        return Calls(self._stub, discovery_pb2.AGENT, component_id, session_id, self._metadata)
+    def for_agent(self, component_id: str, session_id: str, subject: DataSubject | str | None = None) -> Calls:
+        """Calls to one session of an agent. A session started with ``subject`` (feature 042) keeps
+        its conversation sealed under that data subject's key, and reads as erased once the subject
+        is erased. The subject is fixed at the session's first call: a later call naming another is
+        refused. An id that breaks the data subject rule raises ``ValueError`` before anything is
+        sent."""
+        return Calls(self._stub, discovery_pb2.AGENT, component_id, session_id, with_subject(self._metadata, subject))
 
     @property
     def tasks(self) -> Tasks:
@@ -735,13 +760,18 @@ class ComponentClient:
 
         return TaskCalls(self, task_id)
 
-    def for_autonomous_agent(self, agent: type[AutonomousAgent] | str, instance_id: str | None = None) -> AutonomousAgentCalls:
+    def for_autonomous_agent(
+        self, agent: type[AutonomousAgent] | str, instance_id: str | None = None, subject: DataSubject | str | None = None
+    ) -> AutonomousAgentCalls:
         """One instance of an autonomous agent, by the id the caller chose; without an id, only
-        ``run_single_task``, on an instance the platform names."""
+        ``run_single_task``, on an instance the platform names. An instance started with
+        ``subject`` (feature 042), by its first assignment, keeps what it records of its work sealed
+        under that data subject's key and is terminated once the subject is erased; a later call
+        naming another data subject is refused."""
         from ankka.autonomous import AutonomousAgentCalls
 
         component_id = agent if isinstance(agent, str) else agent.component_id
-        return AutonomousAgentCalls(self, component_id, instance_id)
+        return AutonomousAgentCalls(self, component_id, instance_id, subject)
 
     async def close(self) -> None:
         if self._channel is not None:

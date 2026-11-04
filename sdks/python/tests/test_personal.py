@@ -20,6 +20,7 @@ from ankka import keyring as keyrings
 from ankka import personal
 from ankka._proto.ankka.protocol.v1 import client_pb2, erasure_pb2, event_sourced_pb2, payload_pb2
 from ankka.codec import from_json_value, to_json_value, write_json
+from ankka.context import Metadata
 from ankka.erasure import ErasureContext, ErasureReport, ErasureServicer
 from ankka.keyring import InMemoryKeyring, Keyring, SidecarKeyring
 from ankka.personal import (
@@ -483,3 +484,71 @@ def test_a_runtime_before_1_23_is_refused_naming_it() -> None:
     assert refusal is not None and "erasure handler" in refusal
 
     assert personal_refusal(Registry(), "1.22") is None
+
+
+# ── Agents carry the data subject ───────────────────────────────────────────
+
+
+class _InvokeStub:
+    """A sidecar's ``Invoke``: keeps every request and answers an empty JSON object."""
+
+    def __init__(self) -> None:
+        self.sent: list[client_pb2.InvokeRequest] = []
+
+    async def Invoke(self, request: client_pb2.InvokeRequest) -> client_pb2.InvokeReply:  # noqa: N802
+        self.sent.append(request)
+        data = b"{}" if request.name in ("assign", "create") else b"hello"
+        return client_pb2.InvokeReply(
+            reply=payload_pb2.Outcome.Reply(payload=payload_pb2.Payload(content_type="text/plain", manifest="string", data=data))
+        )
+
+
+def _subject_of(request: client_pb2.InvokeRequest) -> list[str]:
+    return [e.value for e in request.metadata.entries if e.key == "ankka-data-subject"]
+
+
+def test_an_agent_session_names_its_data_subject_on_every_call() -> None:
+    from ankka.autonomous import TaskType
+    from ankka.client import ComponentClient
+
+    stub = _InvokeStub()
+    client = ComponentClient(metadata=Metadata().set("traceparent", "00-t-s-01"))
+    client._stub_cache = stub  # type: ignore[assignment]
+
+    async def run() -> None:
+        session = client.for_agent("support", "s-1", subject=DataSubject("player/8c1f"))
+        await session.call("ask").invoke("hi", reply=str)
+        await session.call("ask").invoke("again", reply=str)
+        await client.for_agent("support", "s-2").call("ask").invoke("hi", reply=str)
+        await client.tasks.create(TaskType("answer", "An answer."), "How many?", id="t-1", subject="player/8c1f")
+        await client.tasks.create(TaskType("answer", "An answer."), "How many?", id="t-2")
+        await client.for_autonomous_agent("operator", "i-1", subject="player/8c1f").assign("t-1")
+        await client.for_autonomous_agent("operator", "i-2").assign("t-2")
+
+    asyncio.run(run())
+    with_subject, again, without, created, created_plain, assigned, assigned_plain = stub.sent
+    assert _subject_of(with_subject) == _subject_of(again) == ["player/8c1f"]
+    # The handler's own metadata goes on beside it.
+    assert ("traceparent", "00-t-s-01") in [(e.key, e.value) for e in with_subject.metadata.entries]
+    assert _subject_of(without) == []
+    # A task and an instance carry theirs in the body, which is what their hosts read.
+    assert json.loads(created.payload.data)["subject"] == "player/8c1f"
+    assert "subject" not in json.loads(created_plain.payload.data)
+    assert json.loads(assigned.payload.data) == {"taskIds": ["t-1"], "subject": "player/8c1f"}
+    assert json.loads(assigned_plain.payload.data) == {"taskIds": ["t-2"]}
+
+
+def test_an_invalid_data_subject_is_refused_before_anything_is_sent() -> None:
+    from ankka.autonomous import TaskType
+    from ankka.client import ComponentClient
+
+    stub = _InvokeStub()
+    client = ComponentClient()
+    client._stub_cache = stub  # type: ignore[assignment]
+    with pytest.raises(ValueError, match="is not a data subject"):
+        client.for_agent("support", "s-1", subject="player 8c1f")
+    with pytest.raises(ValueError, match="is not a data subject"):
+        client.for_autonomous_agent("operator", "i-1", subject="")
+    with pytest.raises(ValueError, match="is not a data subject"):
+        asyncio.run(client.tasks.create(TaskType("answer", "An answer."), "How many?", subject="a b"))
+    assert stub.sent == []

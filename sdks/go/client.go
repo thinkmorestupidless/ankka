@@ -217,7 +217,11 @@ func (c *Client) invokeRequest(ctx context.Context, componentID, entityID, wire 
 	if err != nil {
 		return nil, fmt.Errorf("the input to %s %s cannot be encoded: %w", componentID, wire, err)
 	}
-	return &pb.InvokeRequest{Kind: kind, ComponentId: componentID, EntityId: entityID, Name: wire, Payload: payload, Metadata: metadataToPb(MetadataFrom(ctx))}, nil
+	md := MetadataFrom(ctx)
+	if kind == pb.Kind_AGENT {
+		md = agentMetadata(ctx)
+	}
+	return &pb.InvokeRequest{Kind: kind, ComponentId: componentID, EntityId: entityID, Name: wire, Payload: payload, Metadata: metadataToPb(md)}, nil
 }
 
 // InvokeStream calls a streaming agent handler and yields its tokens as they come. The sequence

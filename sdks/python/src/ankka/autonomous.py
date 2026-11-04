@@ -39,6 +39,7 @@ from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
+    from ankka.personal import DataSubject
 
 R = TypeVar("R")
 
@@ -401,23 +402,31 @@ class Tasks:
         id: str | None = None,
         attachments: list[Attachment] | None = None,
         depends_on: list[str] | None = None,
+        subject: DataSubject | str | None = None,
     ) -> str:
         """A dependency that does not exist is refused before anything is written. One that has
-        already failed or been cancelled cancels the new task at once, naming it."""
+        already failed or been cancelled cancels the new task at once, naming it.
+
+        With ``subject`` (feature 042) the task's instructions, attachments, result and the
+        conversation an agent has working on it are kept sealed under that data subject's key, and
+        read as erased once it is erased; an instance made for the task alone takes it too. An id
+        that breaks the data subject rule raises ``ValueError`` before anything is sent."""
+        from ankka.client import data_subject
+
+        checked = data_subject(subject)
         task_id = id or str(uuid.uuid4())
         dependencies = list(dict.fromkeys(depends_on or []))
         for dep in dependencies:
             await self._raw.task(dep, "get")
-        await self._raw.task(
-            task_id,
-            "create",
-            {
-                "typeName": task_type.name,
-                "instructions": instructions,
-                "attachments": [a.to_json() for a in attachments or []],
-                "dependencies": dependencies,
-            },
-        )
+        body: dict[str, Any] = {
+            "typeName": task_type.name,
+            "instructions": instructions,
+            "attachments": [a.to_json() for a in attachments or []],
+            "dependencies": dependencies,
+        }
+        if checked is not None:
+            body["subject"] = str(checked)
+        await self._raw.task(task_id, "create", body)
         for dep in dependencies:
             answer = await self._raw.task(dep, "add-dependent", {"taskId": task_id})
             ended = answer.get("alreadyEnded") if answer else None
@@ -488,11 +497,16 @@ class AutonomousAgentCalls:
     """Calls to one instance of an autonomous agent, by the id the caller chose; or, with no id,
     ``run_single_task`` on an instance the platform names."""
 
-    def __init__(self, client: ComponentClient, component_id: str, instance_id: str | None) -> None:
+    def __init__(
+        self, client: ComponentClient, component_id: str, instance_id: str | None, subject: DataSubject | str | None = None
+    ) -> None:
+        from ankka.client import data_subject
+
         self._client = client
         self._raw = _Raw(client)
         self.component_id = component_id
         self.instance_id = instance_id
+        self.subject = data_subject(subject)
 
     def _instance(self) -> str:
         if not self.instance_id:
@@ -512,7 +526,11 @@ class AutonomousAgentCalls:
 
     async def assign(self, *task_ids: str) -> dict[str, Any]:
         """Queues pending tasks on this instance; answers ``{"accepted": [...], "refused": {...}}``."""
-        answer: dict[str, Any] = await self._op("assign", {"taskIds": list(task_ids)})
+        body: dict[str, Any] = {"taskIds": list(task_ids)}
+        if self.subject is not None:
+            # The instance's data subject travels in the assignment, which is what its host reads.
+            body["subject"] = str(self.subject)
+        answer: dict[str, Any] = await self._op("assign", body)
         return answer
 
     async def suspend(self) -> None:

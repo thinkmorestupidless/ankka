@@ -2,6 +2,7 @@ package ankka
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"strings"
@@ -243,5 +244,81 @@ func TestAWatchGivesRowsThenCaughtUpThenEnds(t *testing.T) {
 func TestNoClientOutsideAHandler(t *testing.T) {
 	if _, err := Invoke[int](context.Background(), "shopping-cart", "c1", "add-item", nil); err == nil {
 		t.Fatal("a call without a client")
+	}
+}
+
+func TestAnAgentSessionATaskAndAnInstanceCarryTheirDataSubject(t *testing.T) {
+	f := &fakeSidecar{reply: &pb.InvokeReply{Result: &pb.InvokeReply_Reply{Reply: &pb.Outcome_Reply{Payload: &pb.Payload{ContentType: JSONContent, Data: []byte(`{}`)}}}}}
+	d := cartDecls()
+	d.components = append(d.components, &pb.Component{Kind: pb.Kind_AGENT, Id: "support"})
+	ctx := startFake(t, f, d)
+	subjectOf := func(r *pb.InvokeRequest) (string, bool) {
+		v, ok := metadataFromPb(r.GetMetadata())[DataSubjectKey]
+		return v, ok
+	}
+	body := func(r *pb.InvokeRequest) map[string]any {
+		var m map[string]any
+		if err := json.Unmarshal(r.GetPayload().GetData(), &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	about := WithDataSubject(ctx, MustSubject("player/8c1f"))
+	if _, err := Invoke[Unit](about, "support", "s-1", "ask", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Invoke[Unit](ctx, "support", "s-2", "ask", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	// A call to anything but an agent is unchanged.
+	if _, err := Invoke[Unit](about, "checkout", "w-1", "start", nil); err != nil {
+		t.Fatal(err)
+	}
+	answer := NewTaskType[string]("answer", "An answer.")
+	if _, err := CreateTask(ctx, answer, "How many?", TaskOptions{ID: "t-1", Subject: MustSubject("player/8c1f")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateTask(ctx, answer, "How many?", TaskOptions{ID: "t-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Instance("operator", "i-1").WithSubject(MustSubject("player/8c1f")).Assign(ctx, "t-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Instance("operator", "i-2").Assign(ctx, "t-2"); err != nil {
+		t.Fatal(err)
+	}
+
+	sent := f.invokes
+	if len(sent) != 7 {
+		t.Fatalf("sent %d calls", len(sent))
+	}
+	if s, ok := subjectOf(sent[0]); !ok || s != "player/8c1f" {
+		t.Fatalf("the session's call named %q", s)
+	}
+	if metadataFromPb(sent[0].GetMetadata())["traceparent"] != "00-abc-def-01" {
+		t.Fatal("the handler's metadata did not travel beside the subject")
+	}
+	if _, ok := subjectOf(sent[1]); ok {
+		t.Fatal("a session with no subject named one")
+	}
+	if _, ok := subjectOf(sent[2]); ok {
+		t.Fatal("a call to a workflow named a data subject")
+	}
+	// A task and an instance carry theirs in the body, which is what their hosts read.
+	if body(sent[3])["subject"] != "player/8c1f" {
+		t.Fatalf("the task was created with %v", body(sent[3]))
+	}
+	if _, ok := body(sent[4])["subject"]; ok {
+		t.Fatalf("a task with no subject named one: %v", body(sent[4]))
+	}
+	if b := body(sent[5]); b["subject"] != "player/8c1f" {
+		t.Fatalf("the instance was assigned with %v", b)
+	}
+	if _, ok := body(sent[6])["subject"]; ok {
+		t.Fatalf("an instance with no subject named one: %v", body(sent[6]))
+	}
+	if _, err := Subject("player 8c1f"); err == nil || !strings.Contains(err.Error(), "is not a data subject") {
+		t.Fatalf("an invalid subject: %v", err)
 	}
 }

@@ -2566,7 +2566,8 @@ key destroyed, so that no personal field can be written for it again.
 ### erasure request
 Asking the platform for the erasure of one data subject in one project: who asked, a
 not-before date and a reason if it is held, a correlation id if one was given, and where it
-stands: held, withdrawn, applied. An applied erasure request records when the subject key was
+stands: held, applying (its erasure log written or being written, its subject key not yet destroyed),
+withdrawn, applied. An applied erasure request records when the subject key was
 destroyed, each service's completion and when the erasure became final. The platform never carries
 one beyond its project.
 

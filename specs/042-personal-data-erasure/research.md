@@ -38,7 +38,7 @@ spec as a planning amendment:
 
 **Decision**: `CORE/Keyring.scala` defines the handle trait (`seal(subject, plaintext, ad)`, `open(subject, ciphertext, ad)`, returning `Opened.Value | Opened.Erased`) and `Keyring.unavailable`, which refuses as `Unavailable` naming the keyring (FR-003). `Keyring.current` is a `@volatile` holder set by `Ankka` when the service starts and cleared when it stops, following `GrpcClients`' `setting`/`current` (`modules/grpc/.../GrpcClients.scala:65,99-102`). `AnkkaTestKit` installs an in-memory keyring before the service and swaps it on `restartService` (the runtime.md:282-285 trap: nothing may cache the dead system's handle; the codec reads `current` on every call).
 
-**Evidence**: there is no `current` for stores today (`SecretStore` is passed explicitly, `RT/Ankka.scala:339-378`), but a codec is reached from derivation, never from a host, so it cannot be passed one. The spec names this "the one piece of global state the SDK gains". Two services in one JVM (a test kit with two kits) need two handles: `current` is therefore a map from the running `ActorSystem`'s service to its handle, chosen by a thread-local the host sets around its serializer calls, falling back to the only one when there is one. `MultiProjectKeyringSuite` proves the two-kit case.
+**Evidence**: there is no `current` for stores today (`SecretStore` is passed explicitly, `RT/Ankka.scala:339-378`), but a codec is reached from derivation, never from a host, so it cannot be passed one. The spec names this "the one piece of global state the SDK gains". Two services in one JVM (a test kit with two kits) need two handles: `current` is therefore a `@volatile` default plus a thread-local override that each host binds around its serializer calls, and the override wins. `MultiProjectKeyringSuite` proves the two-kit case.
 
 ## R4. Entity hosts gain one supervision: restart with backoff on `KeyringUnavailable`
 
@@ -156,7 +156,7 @@ trip per payload with personal fields.
 
 ## R21. Erasure requests are their own entity in the control plane, not a field of the project
 
-**Decision**: `ErasureRequestEntity` (event sourced, id `<project>/<request-id>`), events `Asked`, `Replaced`, `Withdrawn`, `HoldOverridden`, `Applied`, `ServiceCompleted`, `ObjectsFinal`, `HandlerRan`, each with `actor`/`at` defaulted per control-plane.md. A view `erasure_requests` lists by project, subject, state and correlation id. `ErasureSweep`, a cluster-singleton sweep every 5 minutes like `RetentionSweeper` (`SecretRecords.scala:107-119`), applies lapsed holds and re-runs handlers every 15 minutes (FR-015) by asking the keyring to re-send the notice. The routes are `/projects/{id}/erasures[/{rid}[/withdraw|/override|/certificate]]`, members by `Authorization.project`, overrides by `projectOwner`, and a service with the erasure grant by its certificate (`GrantsFile` reads the `erasure` entries the operator already renders, `ProjectConfig.scala:86`). The audit is the entity's events, readable through the project history.
+**Decision**: `ErasureRequestEntity` (event sourced, id `<project>/<request-id>`), events `Asked`, `Replaced`, `Withdrawn`, `HoldOverridden`, `LogWritten`, `KeyDestroyed`, `ServiceCompleted`, `HandlerRan`, `ObjectsFinal`, `Finalised` (as `data-model.md` lists them), each with `actor`/`at` defaulted per control-plane.md. A view `erasure_requests` lists by project, subject, state and correlation id. `ErasureSweep`, a cluster-singleton sweep every 5 minutes like `RetentionSweeper` (`SecretRecords.scala:107-119`), applies lapsed holds and re-runs handlers every 15 minutes for the re-run window after application (`ANKKA_ERASURE_RERUN_WINDOW`, default 30 days; FR-015) by asking the keyring to re-send the notice. A quiet run (nothing erased, no failure) sets `lastRunAt` instead of an event, so the journal grows only by what happened. The routes are `/projects/{id}/erasures[/{rid}[/withdraw|/override|/certificate]]`, members by `Authorization.project`, overrides by `projectOwner`, and a service with the erasure grant by its certificate (`GrantsFile` reads the `erasure` entries the operator already renders, `ProjectConfig.scala:86`). The audit is the entity's events, readable through the project history.
 
 **Evidence**: grants live on `ProjectEntity` (`ProjectEntity.scala:89-104`), but a casino may hold hundreds of thousands of erasure requests, which a project's state must not grow by.
 
@@ -190,3 +190,7 @@ trip per payload with personal fields.
 ## Declined remediations
 
 None yet.
+
+## Design finished
+
+2026-11-04: analyze reported nothing above LOW.

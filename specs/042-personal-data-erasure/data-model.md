@@ -66,6 +66,7 @@ After a `DELETE` from `subject_key`, the keyring runs `VACUUM subject_key` (R10)
 | `completions` | `Map[service, Completion]` | `Completion(at, rowsRedacted, tokensDropped, sessionsEnded, handler: Option[HandlerReport])` |
 | `objectsFinalAt` | `Option[Instant]` | the latest finality any handler reported |
 | `finalAt` | `Option[Instant]` | when every service has completed and objects are final |
+| `lastRunAt` | `Option[Instant]` | the last re-run of the handlers; a quiet run sets only this (a state-only update, not an audited event) |
 
 ```text
             ask (notBefore in future)          date passes / owner override
@@ -136,6 +137,7 @@ start DDL as `payload` is. Redaction and token removal are in R13, R14.
 |---|---|---|
 | `ANKKA_ERASURE` | `ankka-platform`, `PlatformVariables` | `off` |
 | `ANKKA_KEYRING_INSTANCES` | `ankka-platform` | `2` |
+| `ANKKA_ERASURE_RERUN_WINDOW` | `ankka-platform`, control plane | `30d` |
 | `ANKKA_KEYRING_ADDRESS` | rendered per personal service | the keyring's service |
 | `ankka.keyring.cache.max-keys` | runtime `reference.conf` | 10000 |
 | `ankka.keyring.cache.ttl` | runtime | 5 minutes |

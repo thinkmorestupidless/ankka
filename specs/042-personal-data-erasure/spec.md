@@ -128,6 +128,10 @@ transcripts and object storage, and a restored backup must not bring an erased s
 - Q: Where else does a member work with erasure requests than the API and the CLI? → A: The console
   and the `ankka mcp` server too, in full: ask for, list, read, withdraw, override (an owner) and fetch
   certificates. The MCP server acts as the member who is logged in.
+- Q: (analyze) Re-running every applied erasure's handlers every 15 minutes forever grows without
+  bound. Bound it? → A: For 30 days after application, a platform setting, then stop; asking for the
+  same data subject again runs them once more. Only a run that erased something or failed is audited;
+  a quiet run updates the request's last run time.
 
 ## Context
 
@@ -507,7 +511,7 @@ and a listing by correlation id returns both; assert a service without the grant
   `Unavailable`, naming the keyring, as `SecretStore.unavailable` does. For a process-hosted service the
   handle is the SDK's own, speaking to the sidecar over one new rpc that fetches a subject's key and
   carries destroyed notices; for a module it is a `keyring` host import beside 030's `request` and
-  `clock`.
+  `now`.
 - **FR-004**: The ciphertext MUST be authenticated encryption under a key used for no other subject,
   with the subject, the project and the serializer's manifest as associated data, so an envelope moved
   between subjects or payload types fails to decrypt and is reported as corrupt, never as erased.
@@ -555,10 +559,13 @@ and a listing by correlation id returns both; assert a service without the grant
   applied by the platform when the date passes. A held request MUST be withdrawable and replaceable by
   its filer or a member; an applied one MUST NOT be. An owner MUST be able to override a hold with a
   recorded reason, applying the erasure at once; a member MUST NOT.
-- **FR-015**: The platform MUST check held requests, and MUST re-run every applied erasure's service
-  handlers, at least every 15 minutes.
-- **FR-016**: Every request, hold, replacement, withdrawal, override, application, handler run and
-  per-service completion MUST be recorded in the control plane's audit with who did it and when, MUST be
+- **FR-015**: The platform MUST check held requests at least every 15 minutes, and MUST re-run an
+  applied erasure's service handlers at least every 15 minutes for the re-run window after it was
+  applied (default 30 days, a platform setting), and not after. A later request for the same data
+  subject runs them once more.
+- **FR-016**: Every request, hold, replacement, withdrawal, override, application, handler run that
+  erased something or failed, and per-service completion MUST be recorded (a run that erased nothing
+  updates the request's last run time instead) in the control plane's audit with who did it and when, MUST be
   readable by members of the project, and an applied request MUST yield an **erasure certificate** — the
   request, the subject, the filer, each service's completion time and the time of finality, holding
   nothing personal — that a member can fetch.
@@ -630,8 +637,8 @@ and a listing by correlation id returns both; assert a service without the grant
   life, destroyed once.
 - **FR-029**: No personal value MUST appear in a log line, a span attribute, an error message, the
   recorder, or the local console. `Personal`'s textual form in every SDK MUST be `Personal(<subject>)`
-  and nothing else, so an interpolated event prints no value; the recorder and the log bridge MUST drop
-  any attribute whose value is a personal envelope.
+  and nothing else, so an interpolated event prints no value; the recorder and the telemetry export
+  MUST drop any attribute whose value is a personal envelope.
 - **FR-030**: The test kit MUST install an in-memory keyring, offer a way to erase a subject and to
   simulate a keyring outage in a test, and offer an assertion that a database dump holds no personal
   value.
@@ -713,7 +720,7 @@ and a listing by correlation id returns both; assert a service without the grant
   recovery that failed during the outage is lost.
 - **SC-011**: After an erasure, every object under the subject's prefix in the service's bucket is gone
   on Garage at once and unlisted on GCS with finality at the soft-delete window; an object written under
-  the prefix afterwards is gone within 15 minutes.
+  the prefix afterwards, within the re-run window, is gone within 15 minutes.
 
 ## Assumptions
 

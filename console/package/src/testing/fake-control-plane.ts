@@ -1687,17 +1687,17 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       .map((r) => erasureSummary(r, true));
   });
 
-  route("GET", "/projects/{projectId}/erasures/{requestId}", (c, p) => {
+  route("GET", "/projects/{projectId}/erasures/{rid}", (c, p) => {
     const { project } = requireProject(c, p.projectId);
     settleErasures(project);
-    return erasureView(requireErasure404(project, p.requestId));
+    return erasureView(requireErasure404(project, p.rid));
   });
 
-  route("PUT", "/projects/{projectId}/erasures/{requestId}", (c, p, body) => {
+  route("PUT", "/projects/{projectId}/erasures/{rid}", (c, p, body) => {
     const { project, org } = requireProject(c, p.projectId);
     requireWrite(org);
     requireErasure();
-    const r = requireErasure404(project, p.requestId);
+    const r = requireErasure404(project, p.rid);
     notHeld(r, "replaced");
     const b = (body ?? {}) as { notBefore?: string; reason?: string };
     if (b.reason && b.reason.length > 500) throw new HttpError(400, "a reason is at most 500 characters");
@@ -1706,22 +1706,22 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     return erasureView(r);
   });
 
-  route("POST", "/projects/{projectId}/erasures/{requestId}/withdraw", (c, p) => {
+  route("POST", "/projects/{projectId}/erasures/{rid}/withdraw", (c, p) => {
     const { project, org } = requireProject(c, p.projectId);
     requireWrite(org);
     requireErasure();
-    const r = requireErasure404(project, p.requestId);
+    const r = requireErasure404(project, p.rid);
     notHeld(r, "withdrawn");
     r.state = "withdrawn";
     return erasureView(r);
   });
 
-  route("POST", "/projects/{projectId}/erasures/{requestId}/override", (c, p, body) => {
+  route("POST", "/projects/{projectId}/erasures/{rid}/override", (c, p, body) => {
     const { project } = requireProject(c, p.projectId);
     const org = requireOwner(c, project.organizationId);
     requireWrite(org);
     requireErasure();
-    const r = requireErasure404(project, p.requestId);
+    const r = requireErasure404(project, p.rid);
     notHeld(r, "overridden");
     const reason = String((body as { reason?: unknown } | undefined)?.reason ?? "");
     if (reason.trim() === "") throw new HttpError(400, "an override needs a reason");
@@ -1731,10 +1731,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     return erasureView(r);
   });
 
-  route("GET", "/projects/{projectId}/erasures/{requestId}/certificate", (c, p) => {
+  route("GET", "/projects/{projectId}/erasures/{rid}/certificate", (c, p) => {
     const { project } = requireProject(c, p.projectId);
     settleErasures(project);
-    const r = requireErasure404(project, p.requestId);
+    const r = requireErasure404(project, p.rid);
     if (r.state !== "applied") throw new HttpError(409, `erasure request '${r.id}' is ${r.state}; a certificate is issued once it is applied`);
     return {
       request: r.id,

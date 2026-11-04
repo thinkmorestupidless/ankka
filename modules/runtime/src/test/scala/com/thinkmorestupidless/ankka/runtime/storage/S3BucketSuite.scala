@@ -443,6 +443,37 @@ class S3BucketSuite extends BucketContract:
   }
 
 /** An `HttpClient` that counts the listings it sends, and sends everything through `underlying`. */
+/** `ListObjectVersions` read back, as Google Cloud Storage answers it (feature 042). */
+class S3VersionsListingSuite extends munit.FunSuite:
+
+  test("every version and delete marker is read with its id, and the page's markers") {
+    val xml =
+      """<?xml version="1.0" encoding="UTF-8"?>
+        |<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+        |  <Name>kyc</Name><Prefix>subjects/player%2F8c1f/</Prefix>
+        |  <IsTruncated>true</IsTruncated>
+        |  <NextKeyMarker>subjects/player%2F8c1f/b.pdf</NextKeyMarker>
+        |  <NextVersionIdMarker>3</NextVersionIdMarker>
+        |  <Version><Key>subjects/player%2F8c1f/a.jpg</Key><VersionId>1</VersionId></Version>
+        |  <Version><Key>subjects/player%2F8c1f/a.jpg</Key><VersionId>2</VersionId></Version>
+        |  <DeleteMarker><Key>subjects/player%2F8c1f/b.pdf</Key><VersionId>3</VersionId></DeleteMarker>
+        |  <Version><Key>subjects/player%2F8c1f/c.txt</Key><VersionId>null</VersionId></Version>
+        |</ListVersionsResult>""".stripMargin
+    val page = S3Bucket.parseVersions(xml.getBytes("UTF-8"))
+    assertEquals(
+      page.versions,
+      Vector(
+        "subjects/player%2F8c1f/a.jpg" -> "1",
+        "subjects/player%2F8c1f/a.jpg" -> "2",
+        "subjects/player%2F8c1f/b.pdf" -> "3",
+        "subjects/player%2F8c1f/c.txt" -> ""
+      )
+    )
+    assert(page.truncated)
+    assertEquals(page.nextKey, Some("subjects/player%2F8c1f/b.pdf"))
+    assertEquals(page.nextVersion, Some("3"))
+  }
+
 final class CountingClient(underlying: HttpClient) extends HttpClient:
   val listings                              = new java.util.concurrent.atomic.AtomicInteger()
   val requests                              = new java.util.concurrent.atomic.AtomicInteger()

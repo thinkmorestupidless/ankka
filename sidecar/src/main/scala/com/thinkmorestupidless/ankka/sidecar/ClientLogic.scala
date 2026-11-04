@@ -909,11 +909,11 @@ final class ClientLogic(
       case StorageRequest.Op.URL =>
         StorageReply(Reply.Url(bucket.url(r.name).toString))
       case StorageRequest.Op.ERASE =>
-        // A data subject's objects (feature 042): the bucket's erase lands with objects.feature.
-        throw CommandError(
-          "erasing a data subject's objects is not served by this runtime yet",
-          ErrorCode.Unavailable
-        )
+        val subject = com.thinkmorestupidless.ankka.core.DataSubject
+          .from(r.name)
+          .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
+        val erased = bucket.erase(subject)
+        StorageReply(Reply.Erased(ErasedObjects(erased.count, erased.finality.wire)))
       case StorageRequest.Op.Unrecognized(n) =>
         throw CommandError(
           s"storage operation $n is not one this runtime knows",

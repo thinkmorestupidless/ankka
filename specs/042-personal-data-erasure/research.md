@@ -214,6 +214,17 @@ None yet.
   learns its project from that answer. Rejected: the project on `SidecarInfo` (the sidecar would
   need its identity before discovery, and a module does not need it, since the host seals) and an
   environment variable (identity from configuration the service could write).
+- **A subject prefix escapes the data subject's `/`** (T085, decided 2026-11-04). The prefix was
+  `subjects/<subject>/`, and a data subject may hold `/`, so erasing `player` would have erased
+  every `player/8c1f`'s objects too. It is `subjects/` + the subject with each `/` written `%2F` +
+  `/`; `%` is not allowed in a subject, so no prefix holds another's. Every SDK's bucket offers
+  `subjectPrefix(subject)`, so no one builds it by hand. Rejected: keeping the prefix and refusing
+  nested subjects (undecidable: the store cannot tell a nested subject from a service's own folder),
+  and documenting the over-erasure as a limitation.
+- **A bucket's soft-delete window reaches the service as `ANKKA_S3_SOFT_DELETE_DAYS`** (T085). The
+  task named the control plane's `ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS`; the service reads its store
+  only from the `ANKKA_S3_` family, which the operator renders with the bucket (T088), so the window
+  travels with it. Garage leaves it unset: finality immediate.
 - **A Rust module registers its erasure handler on the builder** (T068, decided 2026-11-04). The
   crate has no proc-macro crate; every export comes from `service!`. `Service::erasure_handler`
   registers it and `service!` always exports `ankka1_erase`, answering an error when none is

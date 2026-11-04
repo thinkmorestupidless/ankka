@@ -54,6 +54,16 @@ class StorageSettingsSuite extends munit.FunSuite:
     )
   }
 
+  test("the store's soft-delete window is read in whole days, and anything else is refused") {
+    assertEquals(read(Map.empty).map(_.softDelete), Right(None))
+    assertEquals(
+      read(Map("ANKKA_S3_SOFT_DELETE_DAYS" -> "7")).map(_.softDelete),
+      Right(Some(scala.concurrent.duration.DurationInt(7).days))
+    )
+    val refused = read(Map("ANKKA_S3_SOFT_DELETE_DAYS" -> "0"))
+    assert(refused.left.exists(_.contains("ANKKA_S3_SOFT_DELETE_DAYS")), refused.toString)
+  }
+
   test("a deployed service with no variables has no store") {
     assertEquals(read(Map.empty, locally = false).map(_.backend), Right(StorageBackend.Unavailable))
   }

@@ -2618,7 +2618,8 @@ topic is read as erased.
 
 ### subject prefix
 Where a service keeps the objects of one data subject in its bucket: under the name
-"subjects/", the data subject and "/". An erasure handler asks the platform to erase every object
+"subjects/", the data subject with every "/" in it written "%2F", and "/", so no data subject's
+subject prefix holds another's. An erasure handler asks the platform to erase every object
 under it, every version where the object store keeps versions; an object kept outside it is not
 erased.
 

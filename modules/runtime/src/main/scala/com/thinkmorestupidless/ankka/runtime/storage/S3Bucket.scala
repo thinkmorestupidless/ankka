@@ -35,7 +35,8 @@ final class S3Bucket(
     timeout: FiniteDuration,
     maxSignedUrl: FiniteDuration,
     client: HttpClient,
-    clock: () => Instant = () => Instant.now()
+    clock: () => Instant = () => Instant.now(),
+    softDelete: Option[FiniteDuration] = None
 ) extends Bucket:
 
   private val endpoint = target.endpoint.toString
@@ -137,6 +138,63 @@ final class S3Bucket(
         if !hasNext then throw new NoSuchElementException("no more objects")
         page.next()
 
+  /**
+   * Every version of every object under the subject prefix, where the store keeps versions (Google
+   * Cloud Storage), each deleted by its version id; where the store does not list versions (Garage
+   * answers `NotImplemented`), each object as `delete` removes it. The count is of objects, not
+   * versions; the finality is the store's soft-delete window, when it has one.
+   */
+  override def erase(subject: com.thinkmorestupidless.ankka.core.DataSubject): ErasedObjects =
+    val prefix   = ObjectRules.subjectPrefix(subject)
+    val finality = softDelete.fold(Finality.Immediate)(Finality.After(_))
+    versionsUnder(prefix) match
+      case None =>
+        val names = list(prefix).map(_.name).toVector
+        names.foreach(delete)
+        ErasedObjects(names.size.toLong, finality)
+      case Some(versions) =>
+        versions.foreach((key, version) => deleteVersion(key, version))
+        val objects = versions.filter(_._2.nonEmpty).map(_._1).distinct
+        ErasedObjects(objects.size.toLong, finality)
+
+  /** Every version and delete marker under `prefix`, or `None` when the store lists no versions. */
+  private def versionsUnder(prefix: String): Option[Vector[(String, String)]] =
+    val found                  = Vector.newBuilder[(String, String)]
+    var marker: Option[String] = None
+    var versionMarker          = Option.empty[String]
+    var more                   = true
+    var listed                 = true
+    while more && listed do
+      val query = Vector("prefix" -> prefix, "versions" -> "") ++
+        marker.map("key-marker" -> _) ++ versionMarker.map("version-id-marker" -> _)
+      val response = send(
+        signed("GET", s"/${target.bucket}", query).GET().build(),
+        HttpResponse.BodyHandlers.ofByteArray()
+      )
+      val body = new String(response.body, "UTF-8")
+      if response.statusCode == 501 || body.contains("<Code>NotImplemented</Code>") then
+        listed = false
+      else if response.statusCode != 200 then throw refused(response.statusCode, body)
+      else
+        val page =
+          try S3Bucket.parseVersions(response.body)
+          catch case e: Exception => throw StorageRefusals.unreadable(endpoint, e.getMessage)
+        found ++= page.versions
+        marker = page.nextKey
+        versionMarker = page.nextVersion
+        more = page.truncated
+    Option.when(listed)(found.result())
+
+  /** One version, or a delete marker (`version` empty: the plain `delete`). */
+  private def deleteVersion(objectName: String, version: String): Unit =
+    val query    = if version.isEmpty then Vector.empty else Vector("versionId" -> version)
+    val response = send(
+      signed("DELETE", objectPath(objectName), query).DELETE().build(),
+      HttpResponse.BodyHandlers.ofString()
+    )
+    if !Set(200, 204, 404).contains(response.statusCode) then
+      throw refused(response.statusCode, response.body)
+
   def signedUrl(objectName: String, access: SignedAccess, span: FiniteDuration): URI =
     ObjectRules.checkName(objectName)
     val base = (name, exposure) match
@@ -235,6 +293,54 @@ final class S3Bucket(
     StorageRefusals.refusedByStore(endpoint, status, code)
 
 object S3Bucket:
+
+  /** A page of `ListObjectVersions`. */
+  private[storage] final case class Versions(
+      versions: Vector[(String, String)],
+      truncated: Boolean,
+      nextKey: Option[String],
+      nextVersion: Option[String]
+  )
+
+  /**
+   * A `ListObjectVersions` answer: each `Version` and `DeleteMarker` as its key and version id. A
+   * delete marker's id is kept too, since a marker is itself a version to remove. A `Version` with
+   * an id of `null` (a store that has never kept versions) is read with an empty id.
+   */
+  private[storage] def parseVersions(xml: Array[Byte]): Versions =
+    val factory = XMLInputFactory.newFactory()
+    factory.setProperty(XMLInputFactory.SUPPORT_DTD, false)
+    factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false)
+    val reader    = factory.createXMLStreamReader(new ByteArrayInputStream(xml))
+    val versions  = Vector.newBuilder[(String, String)]
+    var truncated = false
+    var nextKey   = Option.empty[String]
+    var nextVer   = Option.empty[String]
+    var inEntry   = false
+    var key       = ""
+    var version   = ""
+    try
+      while reader.hasNext do
+        reader.next() match
+          case XMLStreamConstants.START_ELEMENT =>
+            reader.getLocalName match
+              case "Version" | "DeleteMarker" => inEntry = true; key = ""; version = ""
+              case "Key" if inEntry           => key = reader.getElementText
+              case "VersionId" if inEntry     =>
+                version = reader.getElementText.trim match
+                  case "null" => ""
+                  case v      => v
+              case "IsTruncated"         => truncated = reader.getElementText.trim == "true"
+              case "NextKeyMarker"       => nextKey = Some(reader.getElementText)
+              case "NextVersionIdMarker" => nextVer = Some(reader.getElementText)
+              case _                     => ()
+          case XMLStreamConstants.END_ELEMENT
+              if reader.getLocalName == "Version" || reader.getLocalName == "DeleteMarker" =>
+            inEntry = false
+            versions += key -> version
+          case _ => ()
+    finally reader.close()
+    Versions(versions.result(), truncated, nextKey, nextVer)
 
   /**
    * A `ListObjectsV2` answer: its entries, and the token for the next page while it is truncated.

@@ -29,6 +29,32 @@ trait BucketContract extends munit.FunSuite:
     assertEquals(e.code, expected, e.getMessage)
     e
 
+  test(
+    s"$storeName: erasing a data subject removes what is under its subject prefix and nothing else"
+  ) {
+    import com.thinkmorestupidless.ankka.core.DataSubject
+    import com.thinkmorestupidless.ankka.sdk.{Finality, ObjectRules}
+    val subject = DataSubject(s"player${System.nanoTime()}")
+    val nested  = DataSubject(subject.value + "/8c1f")
+    val mine    = ObjectRules.subjectPrefix(subject)
+    val theirs  = ObjectRules.subjectPrefix(nested)
+    val outside = area() + "terms.pdf"
+    contractBucket.putBytes(mine + "passport.jpg", "p".getBytes(UTF_8), "image/jpeg")
+    contractBucket.putBytes(mine + "kyc/proof.pdf", "a".getBytes(UTF_8), "application/pdf")
+    contractBucket.putBytes(theirs + "passport.jpg", "n".getBytes(UTF_8), "image/jpeg")
+    contractBucket.putBytes(outside, "t".getBytes(UTF_8), "application/pdf")
+    val erased = contractBucket.erase(subject)
+    assertEquals(erased.count, 2L)
+    assert(erased.finality == Finality.Immediate || erased.finality.isInstanceOf[Finality.After])
+    assertEquals(contractBucket.list(mine).toVector, Vector.empty)
+    assert(contractBucket.stat(theirs + "passport.jpg").nonEmpty, "another data subject's object")
+    assert(contractBucket.stat(outside).nonEmpty, "an object outside any subject prefix")
+    assertEquals(contractBucket.erase(subject).count, 0L)
+    contractBucket.putBytes(mine + "late-scan.jpg", "l".getBytes(UTF_8), "image/jpeg")
+    assertEquals(contractBucket.erase(subject).count, 1L)
+    contractBucket.erase(nested): Unit
+  }
+
   test(s"$storeName: an object is read back whole with its content type") {
     val at = area() + "photos/front.jpg"
     contractBucket.putBytes(at, "front".getBytes(UTF_8), "image/jpeg")

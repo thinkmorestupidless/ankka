@@ -41,6 +41,86 @@ from ankka.storage import STORAGE_BACKEND, Buckets, from_environment
 POSTGRES_IMAGE = "postgres:17-alpine"
 HTTP_PORT = 9000
 CALLBACK_PORT = 9011
+# The sidecar's local console endpoint, where ``kit.keyring`` files erasures and outages: named with
+# ANKKA_OBSERVABILITY_ADDRESS so Docker can publish it, where a service run on a machine binds it to
+# loopback on an ephemeral port.
+LOCAL_ENDPOINT_PORT = 9012
+
+
+def personal_value_query(values: tuple[str, ...]) -> str:
+    """One statement that searches every column of every table of the service's database, cast to
+    text, for each value as written, as base64 (standard and URL-safe, unpadded) and as lower-case
+    hex in the lower-cased text: the rules of the JVM kit's ``PersonalAssertions``, the same forms.
+    Each row is ``<index of the value> <form> <schema>.<table>.<column>``."""
+    rows = []
+    for i, value in enumerate(values):
+        data = value.encode("utf-8")
+        forms = {
+            "plain": value,
+            "base64": base64.b64encode(data).decode("ascii").rstrip("="),
+            "base64url": base64.urlsafe_b64encode(data).decode("ascii").rstrip("="),
+            "hex": data.hex(),
+        }
+        for name, form in forms.items():
+            rows.append(f"({i}, '{name}', '{form.replace(chr(39), chr(39) * 2)}')")
+    return (
+        "SELECT f.i || ' ' || f.form_name || ' ' || c.table_schema || '.' || c.table_name || '.' || c.column_name "
+        "FROM information_schema.columns c CROSS JOIN (VALUES " + ", ".join(rows) + ") AS f(i, form_name, form) "
+        "WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema') "
+        "AND (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM %I.%I WHERE strpos(%s, %L) > 0', "
+        "c.table_schema, c.table_name, "
+        "CASE WHEN f.form_name = 'hex' THEN format('lower(%I::text)', c.column_name) ELSE format('%I::text', c.column_name) END, "
+        "f.form), false, true, '')))[1]::text::int > 0 "
+        "ORDER BY c.table_schema, c.table_name, c.ordinal_position, f.i"
+    )
+
+
+def personal_value_failure(values: tuple[str, ...], output: str) -> str | None:
+    """The JVM kit's failure message for what ``personal_value_query`` found, or None for nothing."""
+    found = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        i, form, where = line.split(" ", 2)
+        found.append(f"  '{values[int(i)]}' as {form} in {where}")
+    if not found:
+        return None
+    return "a personal value can be read back from what the service kept:\n" + "\n".join(found)
+
+
+class KitKeyring:
+    """The keyring of the kit's sidecar (feature 042): the runtime's local keyring, kept in the kit's
+    database, which these reach through the sidecar's local console endpoint. ``erase`` destroys a
+    data subject's key at once and sends the notice, as an applied erasure request does; ``outage``
+    makes the keyring refuse every request as unavailable, erasures included, until it ends or
+    ``recover`` ends it. An outage is the sidecar's: ``kit.restart()`` ends it."""
+
+    def __init__(self, kit: AnkkaTestKit) -> None:
+        self._kit = kit
+
+    async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self._kit._local_url, timeout=30.0) as http:
+            answer = await http.post(path, json=body)
+        if answer.status_code != 200:
+            raise RuntimeError(f"{path} answered {answer.status_code}: {answer.text}")
+        result: dict[str, Any] = answer.json()
+        return result
+
+    async def erase(self, subject: str, rerun: bool = False) -> int:
+        """Erases ``subject`` in the service's project now; answers the notice's sequence once the
+        sidecar has carried it out (or after ten seconds). Raises in an outage."""
+        return int((await self._post("/_ankka/erasures", {"subject": subject, "rerun": rerun}))["seq"])
+
+    async def outage(self, seconds: float) -> None:
+        """Refuses every request as unavailable for ``seconds``: a subject whose key the sidecar
+        holds is still read and written; one it does not hold is refused, ``ErrorCode.UNAVAILABLE``."""
+        if seconds <= 0:
+            raise ValueError("an outage lasts more than 0 seconds; recover() ends one")
+        await self._post("/_ankka/keyring/outage", {"seconds": seconds})
+
+    async def recover(self) -> None:
+        """Ends an outage now."""
+        await self._post("/_ankka/keyring/outage", {"seconds": 0})
 
 
 PUBLISHED_SIDECAR = "ghcr.io/thinkmorestupidless/ankka-sidecar"
@@ -106,6 +186,9 @@ class AnkkaTestKit:
         self.client = ComponentClient(address="127.0.0.1:0")
         self.http: httpx.AsyncClient = httpx.AsyncClient()
         self.process_port = 0
+        self._local_url = ""
+        # The sidecar's keyring: erase a data subject, start or end an outage (feature 042).
+        self.keyring = KitKeyring(self)
 
     @classmethod
     async def start(
@@ -178,7 +261,8 @@ class AnkkaTestKit:
             # A fresh secret key per kit, so the secret store works with no setup; a caller's
             # `env` replaces it, and `{"ANKKA_SECRET_KEY": ""}` starts a service with none.
             .with_env("ANKKA_SECRET_KEY", base64.b64encode(os.urandom(32)).decode("ascii"))
-            .with_exposed_ports(HTTP_PORT, CALLBACK_PORT)
+            .with_env("ANKKA_OBSERVABILITY_ADDRESS", f"0.0.0.0:{LOCAL_ENDPOINT_PORT}")
+            .with_exposed_ports(HTTP_PORT, CALLBACK_PORT, LOCAL_ENDPOINT_PORT)
             .with_kwargs(extra_hosts={"host.docker.internal": "host-gateway"})
         )
         for key, value in self.env.items():
@@ -187,6 +271,7 @@ class AnkkaTestKit:
         self._sidecar = sidecar
         http_port = int(sidecar.get_exposed_port(HTTP_PORT))
         callback_port = int(sidecar.get_exposed_port(CALLBACK_PORT))
+        self._local_url = f"http://127.0.0.1:{sidecar.get_exposed_port(LOCAL_ENDPOINT_PORT)}"
         self.client.reconnect(f"127.0.0.1:{callback_port}")
         self.http = httpx.AsyncClient(base_url=f"http://127.0.0.1:{http_port}", timeout=30.0)
         await self._wait_ready(ready_timeout, f"127.0.0.1:{callback_port}")
@@ -305,6 +390,24 @@ class AnkkaTestKit:
     def notifications(self, component_id: str, instance_id: str) -> AsyncIterator[Notification]:
         """What an autonomous agent instance does from now on, as it happens."""
         return self.client.for_autonomous_agent(component_id, instance_id).notifications()
+
+    async def assert_no_personal_value(self, *values: str) -> None:
+        """Fails, naming each table and column, when any of ``values`` can be read back from the
+        service's database as written, as base64 (standard and URL-safe) or as hex: what a personal
+        field must never be (feature 042, FR-030). Every column of every table, cast to text, searched
+        by the kit's Postgres itself with the JVM kit's rules (``personal_value_query``)."""
+        if not values:
+            return
+        assert self._postgres is not None, "the testkit is not started"
+        postgres = self._postgres
+        command = ["psql", "-U", "ankka", "-d", "ankka", "-v", "ON_ERROR_STOP=1", "-At", "-c", personal_value_query(values)]
+        code, output = await asyncio.to_thread(lambda: postgres.exec(command))
+        text = output.decode(errors="replace") if isinstance(output, bytes) else str(output)
+        if code != 0:
+            raise RuntimeError(f"the database could not be searched: {text}")
+        failure = personal_value_failure(values, text)
+        if failure is not None:
+            raise AssertionError(failure)
 
     def sidecar_logs(self) -> str:
         if self._sidecar is None:

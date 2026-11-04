@@ -73,6 +73,9 @@ final class Planner {
       Class<?> raw = rawClass(p.getRawType());
       Type[] args = p.getActualTypeArguments();
       if (raw == Optional.class) return new Plan.Opt(plan(args[0], path));
+      if (raw == com.thinkmorestupidless.ankka.javasdk.Personal.class) {
+        return new Plan.Personal(plan(args[0], path));
+      }
       if (raw == List.class || raw == java.util.Collection.class || raw == Iterable.class) {
         return new Plan.Seq(plan(args[0], path + "[]"), Plan.SeqKind.LIST, null);
       }
@@ -100,7 +103,11 @@ final class Planner {
         return new Plan.Seq(
             plan(c.getComponentType(), path + "[]"), Plan.SeqKind.ARRAY, c.getComponentType());
       }
-      if (c == Optional.class || c == List.class || c == Set.class || c == Map.class) {
+      if (c == Optional.class
+          || c == List.class
+          || c == Set.class
+          || c == Map.class
+          || c == com.thinkmorestupidless.ankka.javasdk.Personal.class) {
         throw new EncodingException(path, c.getSimpleName() + " needs its type argument");
       }
       if (c.isEnum()) return enumeration(c);

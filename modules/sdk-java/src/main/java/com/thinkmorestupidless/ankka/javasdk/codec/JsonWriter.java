@@ -114,10 +114,26 @@ final class JsonWriter {
         out.append('}');
       }
       case Plan.Leaf leaf -> leaf(leaf.kind(), value);
+      case Plan.Personal personal -> personal(personal, value, path);
       case Plan.Ref ref -> value(ref.target(), value, path);
       case Plan.Opt opt -> value(opt, value, path);
       case Plan.OrNull orNull -> value(orNull.inner(), value, path);
     }
+  }
+
+  /** The inner value's JSON, handed to {@code core} to seal (or to write in the edge form). */
+  private void personal(Plan.Personal plan, Object value, String path) {
+    com.thinkmorestupidless.ankka.javasdk.Personal<?> field =
+        (com.thinkmorestupidless.ankka.javasdk.Personal<?>) value;
+    byte[] inner =
+        switch (field) {
+          case com.thinkmorestupidless.ankka.javasdk.Personal.Present<?> present ->
+              write(plan.inner(), present.value(), path);
+          case com.thinkmorestupidless.ankka.javasdk.Personal.Erased<?> erased -> null;
+        };
+    byte[] written =
+        com.thinkmorestupidless.ankka.core.PersonalJson.write(field.subject().value(), inner);
+    out.append(new String(written, StandardCharsets.UTF_8));
   }
 
   private void fields(Plan.Record record, Object value, String path, boolean afterType) {

@@ -320,3 +320,36 @@ object PersonalCodec:
   private[core] inline def ask(answer: => KeyAnswer): KeyAnswer =
     try answer
     catch case e: CommandError if e.code == ErrorCode.Unavailable => throw KeyringUnavailable(e)
+
+/**
+ * The personal codec over a field's own JSON, for an SDK whose encoder is not jsoniter (the Java
+ * and Kotlin SDKs): it hands over the value's bytes and is handed back the envelope or the edge
+ * form, sealed and opened by the same code as a Scala field, so the two cannot write different
+ * bytes.
+ */
+object PersonalJson:
+
+  /** A field read back: `value` is the field's own JSON, or `null` when the subject is erased. */
+  final class Read(val subject: String, val value: Array[Byte])
+
+  private val Raw: JsonValueCodec[Array[Byte]] = new JsonValueCodec[Array[Byte]]:
+    def nullValue: Array[Byte]                                         = null
+    def encodeValue(x: Array[Byte], out: JsonWriter): Unit             = out.writeRawVal(x)
+    def decodeValue(in: JsonReader, default: Array[Byte]): Array[Byte] = in.readRawValAsBytes()
+
+  private val codec: JsonValueCodec[Personal[Array[Byte]]] = PersonalCodec(Raw)
+
+  /** Why `subject` is not a data subject, or `null` when it is one. */
+  def subjectProblem(subject: String): String = DataSubject.from(subject).left.toOption.orNull
+
+  /** The field holding `value` (its own JSON), or the erased field when `value` is `null`. */
+  def write(subject: String, value: Array[Byte]): Array[Byte] =
+    val s = DataSubject(subject)
+    val p = if value == null then Personal.Erased(s) else Personal.Present(s, value)
+    writeToArrayReentrant(p)(using codec)
+
+  /** The field `json` holds. */
+  def read(json: Array[Byte]): Read =
+    readFromArrayReentrant(json)(using codec) match
+      case Personal.Present(s, value) => Read(s.value, value)
+      case Personal.Erased(s)         => Read(s.value, null)

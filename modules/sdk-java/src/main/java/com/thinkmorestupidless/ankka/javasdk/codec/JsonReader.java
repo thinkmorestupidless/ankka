@@ -76,6 +76,7 @@ final class JsonReader {
       case Plan.Seq seq -> seq(seq, path);
       case Plan.Dictionary dictionary -> dictionary(dictionary, path);
       case Plan.Leaf leaf -> leaf(leaf.kind(), path);
+      case Plan.Personal personal -> personal(personal, path);
       case Plan.Ref ref -> nonNull(ref.target(), path);
       case Plan.Opt opt -> Optional.of(nonNull(opt.inner(), path));
       case Plan.OrNull orNull -> nonNull(orNull.inner(), path);
@@ -164,6 +165,26 @@ final class JsonReader {
       if (c == '}') throw new EncodingException(path, "has no \"type\"");
       if (c != ',') throw fail(path, "expected ',' or '}'");
     }
+  }
+
+  /** The field's JSON, handed whole to {@code core} to open; the value it holds is read here. */
+  private Object personal(Plan.Personal plan, String path) {
+    int start = pos;
+    skipValue(path);
+    byte[] field = in.substring(start, pos).getBytes(StandardCharsets.UTF_8);
+    com.thinkmorestupidless.ankka.core.PersonalJson.Read read;
+    try {
+      read = com.thinkmorestupidless.ankka.core.PersonalJson.read(field);
+    } catch (com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException e) {
+      throw new EncodingException(path, "is not a personal field: " + e.getMessage());
+    }
+    com.thinkmorestupidless.ankka.javasdk.DataSubject subject =
+        new com.thinkmorestupidless.ankka.javasdk.DataSubject(read.subject());
+    if (read.value() == null) {
+      return new com.thinkmorestupidless.ankka.javasdk.Personal.Erased<>(subject);
+    }
+    return new com.thinkmorestupidless.ankka.javasdk.Personal.Present<>(
+        subject, read(plan.inner(), read.value(), path));
   }
 
   private Object enumeration(Plan.Enumeration enumeration, String path) {

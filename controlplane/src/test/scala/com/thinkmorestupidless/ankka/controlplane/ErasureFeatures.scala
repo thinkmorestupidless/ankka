@@ -280,7 +280,22 @@ class ErasureFeatures(
       )
     else keyring.acks.find(a => a.seq == seq && a.service == service).map(_.completion)
 
-  private def startKit(name: String = "players"): AnkkaTestKit =
+  /** Each run of a bucket's handler (`objects.feature`): the service, the subject, the count. */
+  private val bucketRuns = java.util.concurrent.ConcurrentLinkedQueue[(String, String, Long)]()
+
+  /** The handler of every service but `players`: it erases its unnamed bucket's objects. */
+  private def bucketHandler(service: String) =
+    com.thinkmorestupidless.ankka.sdk.ErasureHandler { ctx => subject =>
+      val removed = ctx.storage.default.erase(subject)
+      bucketRuns.add((service, subject.value, removed.count))
+      com.thinkmorestupidless.ankka.sdk.ErasureReport(removed.count, removed.finality)
+    }
+
+  private def startKit(
+      name: String = "players",
+      storage: com.thinkmorestupidless.ankka.testkit.StorageBackendChoice =
+        com.thinkmorestupidless.ankka.testkit.StorageBackendChoice.Memory()
+  ): AnkkaTestKit =
     val http = com.thinkmorestupidless.ankka.http.HttpServer.at("127.0.0.1", 0)(clients =>
       PlayersEndpoint(clients)
     )
@@ -289,11 +304,14 @@ class ErasureFeatures(
       descriptors,
       Seq(ProjectionRuntime.withBroker(broker, broker), http),
       configure = b =>
-        val handled = if name == "players" then b.withErasureHandler(handler) else b
+        val handled =
+          if name == "players" then b.withErasureHandler(handler)
+          else b.withErasureHandler(bucketHandler(name))
         if onKeyring then handled.withKeyStore((_, in) => remoteAs(in, name)) else handled
       ,
       serviceIdentity = ServiceIdentity.deployed(project, name),
-      keyring = keyring
+      keyring = keyring,
+      storage = storage
     )
     kits :+= started
     names :+= name
@@ -314,6 +332,7 @@ class ErasureFeatures(
     broker = InMemoryBroker()
     keyring = InMemoryKeyring()
     Engagement.handed.clear()
+    bucketRuns.clear()
     written = None
     admin = TestKeyringAdmin(keyring, () => names)
     if onKeyring then restartKeyring()
@@ -1318,6 +1337,168 @@ class ErasureFeatures(
       ack.handler.map(h => (h.objectsErased, h.finality, h.error)),
       Some((0L, "immediate", None))
     )
+  }
+
+  // ── objects.feature ────────────────────────────────────────────────────────
+
+  private def storeOf(
+      service: String
+  ): com.thinkmorestupidless.ankka.runtime.storage.MemoryObjectStorage =
+    kitNamed(service).storage match
+      case m: com.thinkmorestupidless.ankka.runtime.storage.MemoryObjectStorage => m
+      case other => fail(s"$service keeps its objects in $other, not in memory")
+
+  private def prefixOf(subject: String): String =
+    com.thinkmorestupidless.ankka.sdk.ObjectRules.subjectPrefix(DataSubject(subject))
+
+  private def keep(service: String, name: String): Unit =
+    storeOf(service).default.putBytes(name, name.getBytes("UTF-8"), "application/octet-stream")
+
+  /** What a member reads of the request for `subject`. */
+  private def viewOf(
+      subject: String
+  ): com.thinkmorestupidless.ankka.controlplane.api.ErasureRequestView =
+    com.github.plokhotnyuk.jsoniter_scala.core.readFromString(readRequest(subject))(using
+      com.thinkmorestupidless.ankka.controlplane.api.ErasureWire.erasureRequestViewCodec
+    )
+
+  /**
+   * Applies the request for `subject` until every service has completed it, as the sweep does, and
+   * answers the request then. Not `untilFinal`: a request whose handler failed is not final.
+   */
+  private def appliedToEveryone(
+      subject: String
+  ): com.thinkmorestupidless.ankka.controlplane.api.ErasureRequestView =
+    val id = s"$planeProject/${requestOf(subject)}"
+    eventually("every service completed the erasure", 60.seconds) {
+      Await.result(application.apply(id), 30.seconds): Unit
+      val view = viewOf(subject)
+      Option.when(
+        names.forall(n => view.completions.exists(c => c.service == n && c.handler.nonEmpty))
+      )(view)
+    }
+
+  private def completionOf(service: String) =
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    appliedToEveryone(subject).completions
+      .find(_.service == service)
+      .flatMap(_.handler)
+      .getOrElse(fail(s"no completion of $service with its handler's report"))
+
+  Given("a service {string} in the project {string} with a bucket") {
+    (service: String, in: String) =>
+      project = in
+      erasureOn = true
+      scenarios += 1
+      planeProject = s"$in-$scenarios"
+      harness.project(planeProject, "acme", "ada")
+      startKit(service): Unit
+  }
+
+  Given("a service {string} in the project {string} whose descriptor asks for no bucket") {
+    (service: String, in: String) =>
+      assertEquals(in, project)
+      startKit(
+        service,
+        com.thinkmorestupidless.ankka.testkit.StorageBackendChoice.Memory(unnamed = false)
+      ): Unit
+  }
+
+  Given("{string} has an erasure handler that erases the objects of the data subject") {
+    (service: String) => kitNamed(service): Unit
+  }
+
+  Given(
+    "{string} has kept the objects {string} and {string} under the subject prefix of {string}"
+  ) { (service: String, a: String, b: String, subject: String) =>
+    keep(service, prefixOf(subject) + a)
+    keep(service, prefixOf(subject) + b)
+  }
+
+  Given("{string} has kept the object {string} outside any subject prefix") {
+    (service: String, name: String) => keep(service, name)
+  }
+
+  Given("the object store of the installation keeps every version of an object") { () =>
+    names.filter(_ != "players").foreach { service =>
+      val store = storeOf(service)
+      store.keepsVersions = true
+      // A second version of each object kept so far, so a noncurrent one exists to erase.
+      store.default.list("").toVector.foreach(e => keep(service, e.name))
+    }
+  }
+
+  Given("the object store of the installation keeps one version of an object") { () =>
+    names.filter(_ != "players").foreach(service => storeOf(service).keepsVersions = false)
+  }
+
+  Given("{string} has since kept the object {string} under the subject prefix of {string}") {
+    (service: String, name: String, subject: String) => keep(service, prefixOf(subject) + name)
+  }
+
+  When("{string} is erased in {string}") { (subject: String, in: String) =>
+    assertEquals(in, project)
+    val (status, body) = askErasure(subject)
+    assertEquals(status, 201, body)
+    appliedToEveryone(subject): Unit
+  }
+
+  When("the erasure request for {string} is applied again") { (subject: String) =>
+    // The re-run the sweep sends once its cadence is due; sent here, since an earlier scenario's
+    // sweep may have reset the cadence.
+    val id      = s"$planeProject/${requestOf(subject)}"
+    val current = plane.componentClient
+      .getOrElse(fail("the erasure plane has not started"))
+      .forEventSourcedEntity(EntityId(id))
+      .call(com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestEntity.get)
+      .invoke()
+    Await.result(application.resend(current), 30.seconds)
+  }
+
+  Then(
+    "the bucket of {string} holds no version of {string} or of {string} under the subject prefix of {string}"
+  ) { (service: String, a: String, b: String, subject: String) =>
+    Vector(a, b).foreach(name =>
+      assertEquals(storeOf(service).versions(None, prefixOf(subject) + name), 0, name)
+    )
+  }
+
+  Then("the bucket of {string} still holds {string}") { (service: String, name: String) =>
+    assert(storeOf(service).default.stat(name).nonEmpty, s"$name is gone")
+  }
+
+  Then("the completion of {string} records that {int} objects were erased") {
+    (service: String, count: Int) =>
+      val report = completionOf(service)
+      assertEquals(report.objectsErased, count.toLong, report.toString)
+      assertEquals(report.error, None)
+  }
+
+  Then("the erasure handler of {string} ran again") { (service: String) =>
+    eventually("the handler ran again")(
+      Option.when(bucketRuns.asScala.count(_._1 == service) >= 2)(())
+    )
+  }
+
+  Then("the bucket of {string} holds no {string} under the subject prefix of {string}") {
+    (service: String, name: String, subject: String) =>
+      eventually(s"$name erased")(
+        Option.when(storeOf(service).versions(None, prefixOf(subject) + name) == 0)(())
+      )
+  }
+
+  Then("the erasure handler of {string} is refused") { (service: String) =>
+    assert(completionOf(service).error.nonEmpty, completionOf(service).toString)
+  }
+
+  Then("the refusal names the missing bucket") { () =>
+    val refused = completionOf("ledger").error.getOrElse("")
+    assert(refused.contains("no bucket"), refused)
+  }
+
+  Then("the completion of {string} says so") { (service: String) =>
+    val report = completionOf(service)
+    assertEquals((report.objectsErased, report.finality), (0L, "failed"), report.toString)
   }
 
   // ── holds.feature ──────────────────────────────────────────────────────────

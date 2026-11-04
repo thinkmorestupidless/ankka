@@ -243,10 +243,10 @@ and every scenario bound to a suite and red before a line of the feature exists.
 
 **Independent test**: `ErasureFeatures` over `objects.feature` against Garage by testcontainers; the soft-delete case in `ObjectStorageGcsClusterFeatures`.
 
-- [ ] T084 [US7] Bind `FEAT/objects.feature`; red
+- [X] T084 [US7] Bind `FEAT/objects.feature`; red
 - [X] T085 [US7] `erase(subject)` on `SDK`'s `Bucket`: `RT/storage/S3Bucket.scala` lists `subjects/<subject>/` and deletes each object, with `versions` listing and deletion by version id on GCS; `DirectoryBucket` and `MemoryBucket`; finality `Immediate` or `After(soft-delete days)` from `ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS`; `S3BucketEraseSuite` against Garage
 - [ ] T086 [P] [US7] `erase` in Python's, TypeScript's and Go's storage clients and the module's `storage` import; one case each
-- [ ] T087 [US7] The completion records the handler's count; the request's `objectsFinalAt` is the latest finality reported; a service with no bucket is refused (`storage.erase` on `ObjectStorage.unavailable`)
+- [X] T087 [US7] The completion records the handler's count; the request's `objectsFinalAt` is the latest finality reported; a service with no bucket is refused (`storage.erase` on `ObjectStorage.unavailable`)
 - [ ] T088 [US7] `ObjectStorageGcsClusterFeatures`: the soft-delete finality case (`ranOutside` for the Google-only listing); `ErasureFeatures`: `objects.feature` green
 
 ---

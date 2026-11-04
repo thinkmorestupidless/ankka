@@ -32,6 +32,10 @@ type declarations struct {
 	problems   []Problem
 	needs      []need
 
+	// personal is whether a declared codec holds a personal field; erasure the erasure handler.
+	personal bool
+	erasure  ErasureHandlerFunc
+
 	eventSourced map[string]func(entityID string) server.EventSourcedInstance
 	keyValue     map[string]func(entityID string) server.KeyValueInstance
 	workflows    map[string]func(workflowID string) server.WorkflowInstance
@@ -168,6 +172,7 @@ func (d *declarations) spec() *pb.Spec {
 		Components:      d.components,
 		Endpoints:       d.endpoints,
 		McpEndpoints:    d.mcp,
+		ErasureHandler:  d.erasure != nil,
 	}
 }
 

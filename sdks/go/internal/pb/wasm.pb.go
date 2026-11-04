@@ -811,6 +811,305 @@ func (x *StreamTokens) GetTokens() []*StreamToken {
 	return nil
 }
 
+// keyring_seal (1.23, feature 042): a personal field sealed into its envelope by the runtime, with
+// the keyring the runtime holds and the same code a Scala field is sealed with. `value` is the
+// field's own JSON; `manifest` the manifest of the record the field is in, which the envelope is
+// bound to. A write for an erased data subject is the reply's Error (CONFLICT), never a trap.
+type KeyringSealRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Subject       string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
+	Manifest      string                 `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
+	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeyringSealRequest) Reset() {
+	*x = KeyringSealRequest{}
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeyringSealRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyringSealRequest) ProtoMessage() {}
+
+func (x *KeyringSealRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyringSealRequest.ProtoReflect.Descriptor instead.
+func (*KeyringSealRequest) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_wasm_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *KeyringSealRequest) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *KeyringSealRequest) GetManifest() string {
+	if x != nil {
+		return x.Manifest
+	}
+	return ""
+}
+
+func (x *KeyringSealRequest) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+type KeyringSealReply struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Reply:
+	//
+	//	*KeyringSealReply_Envelope
+	//	*KeyringSealReply_Error
+	Reply         isKeyringSealReply_Reply `protobuf_oneof:"reply"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeyringSealReply) Reset() {
+	*x = KeyringSealReply{}
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeyringSealReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyringSealReply) ProtoMessage() {}
+
+func (x *KeyringSealReply) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyringSealReply.ProtoReflect.Descriptor instead.
+func (*KeyringSealReply) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_wasm_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *KeyringSealReply) GetReply() isKeyringSealReply_Reply {
+	if x != nil {
+		return x.Reply
+	}
+	return nil
+}
+
+func (x *KeyringSealReply) GetEnvelope() []byte {
+	if x != nil {
+		if x, ok := x.Reply.(*KeyringSealReply_Envelope); ok {
+			return x.Envelope
+		}
+	}
+	return nil
+}
+
+func (x *KeyringSealReply) GetError() *Error {
+	if x != nil {
+		if x, ok := x.Reply.(*KeyringSealReply_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+type isKeyringSealReply_Reply interface {
+	isKeyringSealReply_Reply()
+}
+
+type KeyringSealReply_Envelope struct {
+	Envelope []byte `protobuf:"bytes,1,opt,name=envelope,proto3,oneof"` // the field as it is written: the envelope's JSON
+}
+
+type KeyringSealReply_Error struct {
+	Error *Error `protobuf:"bytes,2,opt,name=error,proto3,oneof"`
+}
+
+func (*KeyringSealReply_Envelope) isKeyringSealReply_Reply() {}
+
+func (*KeyringSealReply_Error) isKeyringSealReply_Reply() {}
+
+// keyring_open (1.23): an envelope read back. Erased when the subject's key is destroyed; an
+// envelope whose authentication fails is the reply's Error (INTERNAL, details `personal` =
+// `corrupt`).
+type KeyringOpenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Envelope      []byte                 `protobuf:"bytes,1,opt,name=envelope,proto3" json:"envelope,omitempty"` // the field as it was written
+	Manifest      string                 `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeyringOpenRequest) Reset() {
+	*x = KeyringOpenRequest{}
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeyringOpenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyringOpenRequest) ProtoMessage() {}
+
+func (x *KeyringOpenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyringOpenRequest.ProtoReflect.Descriptor instead.
+func (*KeyringOpenRequest) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_wasm_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *KeyringOpenRequest) GetEnvelope() []byte {
+	if x != nil {
+		return x.Envelope
+	}
+	return nil
+}
+
+func (x *KeyringOpenRequest) GetManifest() string {
+	if x != nil {
+		return x.Manifest
+	}
+	return ""
+}
+
+type KeyringOpenReply struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Reply:
+	//
+	//	*KeyringOpenReply_Value
+	//	*KeyringOpenReply_Erased
+	//	*KeyringOpenReply_Error
+	Reply         isKeyringOpenReply_Reply `protobuf_oneof:"reply"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *KeyringOpenReply) Reset() {
+	*x = KeyringOpenReply{}
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *KeyringOpenReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*KeyringOpenReply) ProtoMessage() {}
+
+func (x *KeyringOpenReply) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_wasm_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use KeyringOpenReply.ProtoReflect.Descriptor instead.
+func (*KeyringOpenReply) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_wasm_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *KeyringOpenReply) GetReply() isKeyringOpenReply_Reply {
+	if x != nil {
+		return x.Reply
+	}
+	return nil
+}
+
+func (x *KeyringOpenReply) GetValue() []byte {
+	if x != nil {
+		if x, ok := x.Reply.(*KeyringOpenReply_Value); ok {
+			return x.Value
+		}
+	}
+	return nil
+}
+
+func (x *KeyringOpenReply) GetErased() bool {
+	if x != nil {
+		if x, ok := x.Reply.(*KeyringOpenReply_Erased); ok {
+			return x.Erased
+		}
+	}
+	return false
+}
+
+func (x *KeyringOpenReply) GetError() *Error {
+	if x != nil {
+		if x, ok := x.Reply.(*KeyringOpenReply_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+type isKeyringOpenReply_Reply interface {
+	isKeyringOpenReply_Reply()
+}
+
+type KeyringOpenReply_Value struct {
+	Value []byte `protobuf:"bytes,1,opt,name=value,proto3,oneof"` // the field's own JSON
+}
+
+type KeyringOpenReply_Erased struct {
+	Erased bool `protobuf:"varint,2,opt,name=erased,proto3,oneof"`
+}
+
+type KeyringOpenReply_Error struct {
+	Error *Error `protobuf:"bytes,3,opt,name=error,proto3,oneof"`
+}
+
+func (*KeyringOpenReply_Value) isKeyringOpenReply_Reply() {}
+
+func (*KeyringOpenReply_Erased) isKeyringOpenReply_Reply() {}
+
+func (*KeyringOpenReply_Error) isKeyringOpenReply_Reply() {}
+
 var File_ankka_protocol_v1_wasm_proto protoreflect.FileDescriptor
 
 const file_ankka_protocol_v1_wasm_proto_rawDesc = "" +
@@ -881,7 +1180,23 @@ const file_ankka_protocol_v1_wasm_proto_rawDesc = "" +
 	"\x05value\x18\x01 \x01(\tH\x00R\x05value\x88\x01\x01B\b\n" +
 	"\x06_value\"F\n" +
 	"\fStreamTokens\x126\n" +
-	"\x06tokens\x18\x01 \x03(\v2\x1e.ankka.protocol.v1.StreamTokenR\x06tokensB\xbd\x01\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x1e.ankka.protocol.v1.StreamTokenR\x06tokens\"`\n" +
+	"\x12KeyringSealRequest\x12\x18\n" +
+	"\asubject\x18\x01 \x01(\tR\asubject\x12\x1a\n" +
+	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\"k\n" +
+	"\x10KeyringSealReply\x12\x1c\n" +
+	"\benvelope\x18\x01 \x01(\fH\x00R\benvelope\x120\n" +
+	"\x05error\x18\x02 \x01(\v2\x18.ankka.protocol.v1.ErrorH\x00R\x05errorB\a\n" +
+	"\x05reply\"L\n" +
+	"\x12KeyringOpenRequest\x12\x1a\n" +
+	"\benvelope\x18\x01 \x01(\fR\benvelope\x12\x1a\n" +
+	"\bmanifest\x18\x02 \x01(\tR\bmanifest\"\x7f\n" +
+	"\x10KeyringOpenReply\x12\x16\n" +
+	"\x05value\x18\x01 \x01(\fH\x00R\x05value\x12\x18\n" +
+	"\x06erased\x18\x02 \x01(\bH\x00R\x06erased\x120\n" +
+	"\x05error\x18\x03 \x01(\v2\x18.ankka.protocol.v1.ErrorH\x00R\x05errorB\a\n" +
+	"\x05replyB\xbd\x01\n" +
 	"\x15com.ankka.protocol.v1B\tWasmProtoP\x01Z3github.com/thinkmorestupidless/ankka-go/internal/pb\xa2\x02\x03APX\xaa\x02\x11Ankka.Protocol.V1\xca\x02\x11Ankka\\Protocol\\V1\xe2\x02\x1dAnkka\\Protocol\\V1\\GPBMetadata\xea\x02\x13Ankka::Protocol::V1b\x06proto3"
 
 var (
@@ -896,7 +1211,7 @@ func file_ankka_protocol_v1_wasm_proto_rawDescGZIP() []byte {
 	return file_ankka_protocol_v1_wasm_proto_rawDescData
 }
 
-var file_ankka_protocol_v1_wasm_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_ankka_protocol_v1_wasm_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_ankka_protocol_v1_wasm_proto_goTypes = []any{
 	(*WasmSpec)(nil),               // 0: ankka.protocol.v1.WasmSpec
 	(*HandleRequest)(nil),          // 1: ankka.protocol.v1.HandleRequest
@@ -909,47 +1224,54 @@ var file_ankka_protocol_v1_wasm_proto_goTypes = []any{
 	(*ConfigRequest)(nil),          // 8: ankka.protocol.v1.ConfigRequest
 	(*ConfigReply)(nil),            // 9: ankka.protocol.v1.ConfigReply
 	(*StreamTokens)(nil),           // 10: ankka.protocol.v1.StreamTokens
-	(*Spec)(nil),                   // 11: ankka.protocol.v1.Spec
-	(Kind)(0),                      // 12: ankka.protocol.v1.Kind
-	(*Payload)(nil),                // 13: ankka.protocol.v1.Payload
-	(*EventSourcedIn_Command)(nil), // 14: ankka.protocol.v1.EventSourcedIn.Command
-	(*KeyValueIn_Command)(nil),     // 15: ankka.protocol.v1.KeyValueIn.Command
-	(*WorkflowIn_Command)(nil),     // 16: ankka.protocol.v1.WorkflowIn.Command
-	(*EventSourcedOut_Reply)(nil),  // 17: ankka.protocol.v1.EventSourcedOut.Reply
-	(*KeyValueOut_Reply)(nil),      // 18: ankka.protocol.v1.KeyValueOut.Reply
-	(*WorkflowOut_Reply)(nil),      // 19: ankka.protocol.v1.WorkflowOut.Reply
-	(*Failure)(nil),                // 20: ankka.protocol.v1.Failure
-	(*WorkflowIn_RunStep)(nil),     // 21: ankka.protocol.v1.WorkflowIn.RunStep
-	(*WorkflowOut_StepReply)(nil),  // 22: ankka.protocol.v1.WorkflowOut.StepReply
-	(*StreamToken)(nil),            // 23: ankka.protocol.v1.StreamToken
+	(*KeyringSealRequest)(nil),     // 11: ankka.protocol.v1.KeyringSealRequest
+	(*KeyringSealReply)(nil),       // 12: ankka.protocol.v1.KeyringSealReply
+	(*KeyringOpenRequest)(nil),     // 13: ankka.protocol.v1.KeyringOpenRequest
+	(*KeyringOpenReply)(nil),       // 14: ankka.protocol.v1.KeyringOpenReply
+	(*Spec)(nil),                   // 15: ankka.protocol.v1.Spec
+	(Kind)(0),                      // 16: ankka.protocol.v1.Kind
+	(*Payload)(nil),                // 17: ankka.protocol.v1.Payload
+	(*EventSourcedIn_Command)(nil), // 18: ankka.protocol.v1.EventSourcedIn.Command
+	(*KeyValueIn_Command)(nil),     // 19: ankka.protocol.v1.KeyValueIn.Command
+	(*WorkflowIn_Command)(nil),     // 20: ankka.protocol.v1.WorkflowIn.Command
+	(*EventSourcedOut_Reply)(nil),  // 21: ankka.protocol.v1.EventSourcedOut.Reply
+	(*KeyValueOut_Reply)(nil),      // 22: ankka.protocol.v1.KeyValueOut.Reply
+	(*WorkflowOut_Reply)(nil),      // 23: ankka.protocol.v1.WorkflowOut.Reply
+	(*Failure)(nil),                // 24: ankka.protocol.v1.Failure
+	(*WorkflowIn_RunStep)(nil),     // 25: ankka.protocol.v1.WorkflowIn.RunStep
+	(*WorkflowOut_StepReply)(nil),  // 26: ankka.protocol.v1.WorkflowOut.StepReply
+	(*StreamToken)(nil),            // 27: ankka.protocol.v1.StreamToken
+	(*Error)(nil),                  // 28: ankka.protocol.v1.Error
 }
 var file_ankka_protocol_v1_wasm_proto_depIdxs = []int32{
-	11, // 0: ankka.protocol.v1.WasmSpec.spec:type_name -> ankka.protocol.v1.Spec
-	12, // 1: ankka.protocol.v1.HandleRequest.kind:type_name -> ankka.protocol.v1.Kind
-	13, // 2: ankka.protocol.v1.HandleRequest.state:type_name -> ankka.protocol.v1.Payload
-	14, // 3: ankka.protocol.v1.HandleRequest.event_sourced:type_name -> ankka.protocol.v1.EventSourcedIn.Command
-	15, // 4: ankka.protocol.v1.HandleRequest.key_value:type_name -> ankka.protocol.v1.KeyValueIn.Command
-	16, // 5: ankka.protocol.v1.HandleRequest.workflow:type_name -> ankka.protocol.v1.WorkflowIn.Command
-	17, // 6: ankka.protocol.v1.HandleReply.event_sourced:type_name -> ankka.protocol.v1.EventSourcedOut.Reply
-	18, // 7: ankka.protocol.v1.HandleReply.key_value:type_name -> ankka.protocol.v1.KeyValueOut.Reply
-	19, // 8: ankka.protocol.v1.HandleReply.workflow:type_name -> ankka.protocol.v1.WorkflowOut.Reply
-	13, // 9: ankka.protocol.v1.HandleReply.state:type_name -> ankka.protocol.v1.Payload
-	20, // 10: ankka.protocol.v1.HandleReply.failure:type_name -> ankka.protocol.v1.Failure
-	13, // 11: ankka.protocol.v1.FoldRequest.state:type_name -> ankka.protocol.v1.Payload
-	13, // 12: ankka.protocol.v1.FoldRequest.event:type_name -> ankka.protocol.v1.Payload
-	13, // 13: ankka.protocol.v1.FoldReply.state:type_name -> ankka.protocol.v1.Payload
-	20, // 14: ankka.protocol.v1.FoldReply.failure:type_name -> ankka.protocol.v1.Failure
-	13, // 15: ankka.protocol.v1.StepRequest.state:type_name -> ankka.protocol.v1.Payload
-	21, // 16: ankka.protocol.v1.StepRequest.run_step:type_name -> ankka.protocol.v1.WorkflowIn.RunStep
-	22, // 17: ankka.protocol.v1.StepReply.reply:type_name -> ankka.protocol.v1.WorkflowOut.StepReply
-	13, // 18: ankka.protocol.v1.StepReply.state:type_name -> ankka.protocol.v1.Payload
-	20, // 19: ankka.protocol.v1.StepReply.failure:type_name -> ankka.protocol.v1.Failure
-	23, // 20: ankka.protocol.v1.StreamTokens.tokens:type_name -> ankka.protocol.v1.StreamToken
-	21, // [21:21] is the sub-list for method output_type
-	21, // [21:21] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	15, // 0: ankka.protocol.v1.WasmSpec.spec:type_name -> ankka.protocol.v1.Spec
+	16, // 1: ankka.protocol.v1.HandleRequest.kind:type_name -> ankka.protocol.v1.Kind
+	17, // 2: ankka.protocol.v1.HandleRequest.state:type_name -> ankka.protocol.v1.Payload
+	18, // 3: ankka.protocol.v1.HandleRequest.event_sourced:type_name -> ankka.protocol.v1.EventSourcedIn.Command
+	19, // 4: ankka.protocol.v1.HandleRequest.key_value:type_name -> ankka.protocol.v1.KeyValueIn.Command
+	20, // 5: ankka.protocol.v1.HandleRequest.workflow:type_name -> ankka.protocol.v1.WorkflowIn.Command
+	21, // 6: ankka.protocol.v1.HandleReply.event_sourced:type_name -> ankka.protocol.v1.EventSourcedOut.Reply
+	22, // 7: ankka.protocol.v1.HandleReply.key_value:type_name -> ankka.protocol.v1.KeyValueOut.Reply
+	23, // 8: ankka.protocol.v1.HandleReply.workflow:type_name -> ankka.protocol.v1.WorkflowOut.Reply
+	17, // 9: ankka.protocol.v1.HandleReply.state:type_name -> ankka.protocol.v1.Payload
+	24, // 10: ankka.protocol.v1.HandleReply.failure:type_name -> ankka.protocol.v1.Failure
+	17, // 11: ankka.protocol.v1.FoldRequest.state:type_name -> ankka.protocol.v1.Payload
+	17, // 12: ankka.protocol.v1.FoldRequest.event:type_name -> ankka.protocol.v1.Payload
+	17, // 13: ankka.protocol.v1.FoldReply.state:type_name -> ankka.protocol.v1.Payload
+	24, // 14: ankka.protocol.v1.FoldReply.failure:type_name -> ankka.protocol.v1.Failure
+	17, // 15: ankka.protocol.v1.StepRequest.state:type_name -> ankka.protocol.v1.Payload
+	25, // 16: ankka.protocol.v1.StepRequest.run_step:type_name -> ankka.protocol.v1.WorkflowIn.RunStep
+	26, // 17: ankka.protocol.v1.StepReply.reply:type_name -> ankka.protocol.v1.WorkflowOut.StepReply
+	17, // 18: ankka.protocol.v1.StepReply.state:type_name -> ankka.protocol.v1.Payload
+	24, // 19: ankka.protocol.v1.StepReply.failure:type_name -> ankka.protocol.v1.Failure
+	27, // 20: ankka.protocol.v1.StreamTokens.tokens:type_name -> ankka.protocol.v1.StreamToken
+	28, // 21: ankka.protocol.v1.KeyringSealReply.error:type_name -> ankka.protocol.v1.Error
+	28, // 22: ankka.protocol.v1.KeyringOpenReply.error:type_name -> ankka.protocol.v1.Error
+	23, // [23:23] is the sub-list for method output_type
+	23, // [23:23] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_ankka_protocol_v1_wasm_proto_init() }
@@ -978,13 +1300,22 @@ func file_ankka_protocol_v1_wasm_proto_init() {
 	file_ankka_protocol_v1_wasm_proto_msgTypes[5].OneofWrappers = []any{}
 	file_ankka_protocol_v1_wasm_proto_msgTypes[6].OneofWrappers = []any{}
 	file_ankka_protocol_v1_wasm_proto_msgTypes[9].OneofWrappers = []any{}
+	file_ankka_protocol_v1_wasm_proto_msgTypes[12].OneofWrappers = []any{
+		(*KeyringSealReply_Envelope)(nil),
+		(*KeyringSealReply_Error)(nil),
+	}
+	file_ankka_protocol_v1_wasm_proto_msgTypes[14].OneofWrappers = []any{
+		(*KeyringOpenReply_Value)(nil),
+		(*KeyringOpenReply_Erased)(nil),
+		(*KeyringOpenReply_Error)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ankka_protocol_v1_wasm_proto_rawDesc), len(file_ankka_protocol_v1_wasm_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

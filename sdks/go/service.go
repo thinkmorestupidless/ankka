@@ -202,7 +202,16 @@ func (s *Service) serve(ctx context.Context, lis net.Listener, st startSettings)
 	if s.client == nil {
 		s.client = &Client{address: st.sidecar, decls: s.decls}
 	}
+	client := s.client
 	s.mu.Unlock()
+	// The process's keyring: keys asked of the sidecar, cached, dropped on its notices.
+	keys := newKeyring(&sidecarKeys{client: client})
+	defer useKeyring(keys)()
+	if s.decls.personal {
+		noticesCtx, stopNotices := context.WithCancel(ctx)
+		defer stopNotices()
+		go followNotices(noticesCtx, client, keys, instanceName(), s.log)
+	}
 	g := s.grpcServer()
 	done := make(chan error, 1)
 	go func() { done <- g.Serve(lis) }()
@@ -295,6 +304,9 @@ func (s *Service) grpcServer() *grpc.Server {
 	}
 	if len(s.decls.mcpTools) > 0 {
 		server.RegisterMcp(g, s.decls.mcpTools, s.serverOptions())
+	}
+	if s.decls.erasure != nil {
+		server.RegisterErasure(g, s.decls.runErasure, s.serverOptions())
 	}
 	return g
 }

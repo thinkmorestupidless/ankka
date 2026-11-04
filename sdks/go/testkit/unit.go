@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	ankka "github.com/thinkmorestupidless/ankka-go"
@@ -91,8 +92,16 @@ func view(service *ankka.Service) *kit.Service {
 	if len(v.Problems) > 0 {
 		panic("testkit: the service would not start:\n  - " + strings.Join(v.Problems, "\n  - "))
 	}
+	baseKeyring.Do(func() {
+		// Every unit kit seals and opens personal fields with the stand-in's keys, a kit with no
+		// stand-in of its own included; a kit that serves one puts it first while it runs.
+		client, _ := serveKeysOnly(v)
+		v.UseKeyring(client)
+	})
 	return v
 }
+
+var baseKeyring sync.Once
 
 // EntityKit drives one instance of an event sourced entity.
 type EntityKit[S, E any] struct {

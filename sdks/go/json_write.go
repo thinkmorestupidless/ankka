@@ -32,7 +32,7 @@ func (e *EncodingError) Error() string {
 
 func encodeJSON(p *plan, v reflect.Value) ([]byte, error) {
 	var buf bytes.Buffer
-	if err := writeValue(p, v, &buf, ""); err != nil {
+	if err := writeValue(p, v, &buf, "", nil); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -42,7 +42,7 @@ func fail(path, format string, args ...any) error {
 	return &EncodingError{Path: path, Message: fmt.Sprintf(format, args...)}
 }
 
-func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string) error {
+func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string, sc *sealScope) error {
 	switch p.kind {
 	case kindString:
 		return writeString(buf, v.String(), path)
@@ -107,7 +107,7 @@ func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string) error 
 			buf.WriteString("null")
 			return nil
 		}
-		return writeValue(p.elem, v.Elem(), buf, path)
+		return writeValue(p.elem, v.Elem(), buf, path, sc)
 	case kindSequence:
 		if p.length < 0 && v.IsNil() {
 			buf.WriteString("[]")
@@ -118,7 +118,7 @@ func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string) error 
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			if err := writeValue(p.elem, v.Index(i), buf, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+			if err := writeValue(p.elem, v.Index(i), buf, fmt.Sprintf("%s[%d]", path, i), sc); err != nil {
 				return err
 			}
 		}
@@ -141,14 +141,14 @@ func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string) error 
 				return err
 			}
 			buf.WriteByte(':')
-			if err := writeValue(p.elem, values[k], buf, join(path, k)); err != nil {
+			if err := writeValue(p.elem, values[k], buf, join(path, k), sc); err != nil {
 				return err
 			}
 		}
 		buf.WriteByte('}')
 	case kindRecord:
 		buf.WriteByte('{')
-		if err := writeFields(p, v, buf, path, false); err != nil {
+		if err := writeFields(p, v, buf, path, false, sc); err != nil {
 			return err
 		}
 		buf.WriteByte('}')
@@ -170,7 +170,7 @@ func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string) error 
 		}
 		buf.WriteString(`{"type":`)
 		_ = writeString(buf, c.discriminator, path)
-		if err := writeFields(c.record, dyn, buf, path, true); err != nil {
+		if err := writeFields(c.record, dyn, buf, path, true, sc); err != nil {
 			return err
 		}
 		buf.WriteByte('}')
@@ -182,20 +182,22 @@ func writeValue(p *plan, v reflect.Value, buf *bytes.Buffer, path string) error 
 		buf.WriteString(`{"type":`)
 		_ = writeString(buf, s, path)
 		buf.WriteByte('}')
+	case kindPersonal:
+		return writePersonal(p, v, buf, path, sc)
 	default:
 		return fail(path, "no encoding for %s", p.describe())
 	}
 	return nil
 }
 
-func writeFields(p *plan, v reflect.Value, buf *bytes.Buffer, path string, continuing bool) error {
+func writeFields(p *plan, v reflect.Value, buf *bytes.Buffer, path string, continuing bool, sc *sealScope) error {
 	for i, f := range p.fields {
 		if i > 0 || continuing {
 			buf.WriteByte(',')
 		}
 		_ = writeString(buf, f.name, path)
 		buf.WriteByte(':')
-		if err := writeValue(f.plan, v.Field(f.index), buf, join(path, f.name)); err != nil {
+		if err := writeValue(f.plan, v.Field(f.index), buf, join(path, f.name), sc); err != nil {
 			return err
 		}
 	}

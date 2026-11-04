@@ -28,6 +28,9 @@ type fakeSidecar struct {
 	awaited  *pb.AwaitEndRequest
 	frames   []*pb.RowFrame
 	tooOldTo map[string]bool
+	// keyProject is the project GetSubjectKey answers as the own one; "" has no keys (before 1.23).
+	keyProject string
+	keyAsked   []string
 }
 
 func (f *fakeSidecar) Invoke(_ context.Context, r *pb.InvokeRequest) (*pb.InvokeReply, error) {

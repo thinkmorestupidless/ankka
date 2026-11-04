@@ -180,6 +180,7 @@ func (e *EventSourcedEntity[S, E]) declare(d *declarations) {
 	if e.snapshotEvery < 0 {
 		d.problem(where, "SnapshotEvery is 0 (never) or more, not %d", e.snapshotEvery)
 	}
+	d.notePersonal(where, e.stateCodec, e.eventCodec)
 	for _, p := range CodecProblems(e.stateCodec) {
 		d.problem(where, "its state, a %s: %s", reflect.TypeFor[S](), p)
 	}

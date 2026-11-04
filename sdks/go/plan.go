@@ -39,6 +39,7 @@ const (
 	kindDone
 	kindUnit
 	kindRaw
+	kindPersonal
 )
 
 var kindNames = map[planKind]string{
@@ -47,6 +48,7 @@ var kindNames = map[planKind]string{
 	kindDuration: "duration", kindLocalDate: "local date", kindLocalDateTime: "local date-time",
 	kindBytes: "bytes", kindOptional: "optional", kindSequence: "sequence", kindMap: "map",
 	kindRecord: "record", kindSum: "sum type", kindEnum: "enumeration", kindDone: "done", kindUnit: "unit", kindRaw: "raw JSON",
+	kindPersonal: "personal field",
 }
 
 type plan struct {
@@ -58,6 +60,8 @@ type plan struct {
 	sum    *sumPlan    // sum type
 	values []string    // enumeration
 	allows map[string]bool
+	// personal is whether the type holds a personal field anywhere, so a codec fetches keys first.
+	personal bool
 }
 
 type fieldPlan struct {
@@ -108,6 +112,9 @@ func planFor(t reflect.Type) (*plan, []string) {
 	if len(b.problems) > 0 {
 		return nil, dedupe(b.problems)
 	}
+	for _, built := range b.building {
+		built.personal = holdsPersonal(built, map[*plan]bool{})
+	}
 	for typ, built := range b.building {
 		registry.plans[typ] = built
 	}
@@ -146,6 +153,14 @@ func (b *planBuilder) build(t reflect.Type, where string) *plan {
 		return b.keep(t, &plan{kind: kindUnit, typ: t})
 	case rawJSONType:
 		return b.keep(t, &plan{kind: kindRaw, typ: t})
+	}
+	if isPersonalType(t) {
+		p := b.keep(t, &plan{kind: kindPersonal, typ: t})
+		p.elem = b.build(reflect.Zero(t).Interface().(personalValue).personalElem(), where)
+		if p.elem.kind == kindPersonal {
+			return b.refuse(where, "%s holds a personal field inside a personal field; one says whose it is", t)
+		}
+		return p
 	}
 	switch t.Kind() {
 	case reflect.String:

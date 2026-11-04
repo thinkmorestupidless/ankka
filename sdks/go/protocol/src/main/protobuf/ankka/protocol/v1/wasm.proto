@@ -89,3 +89,36 @@ message ConfigReply { optional string value = 1; }
 
 // The invoke_stream import: a streaming reply, delivered whole.
 message StreamTokens { repeated StreamToken tokens = 1; }
+
+// keyring_seal (1.23, feature 042): a personal field sealed into its envelope by the runtime, with
+// the keyring the runtime holds and the same code a Scala field is sealed with. `value` is the
+// field's own JSON; `manifest` the manifest of the record the field is in, which the envelope is
+// bound to. A write for an erased data subject is the reply's Error (CONFLICT), never a trap.
+message KeyringSealRequest {
+  string subject = 1;
+  string manifest = 2;
+  bytes value = 3;
+}
+
+message KeyringSealReply {
+  oneof reply {
+    bytes envelope = 1;                       // the field as it is written: the envelope's JSON
+    Error error = 2;
+  }
+}
+
+// keyring_open (1.23): an envelope read back. Erased when the subject's key is destroyed; an
+// envelope whose authentication fails is the reply's Error (INTERNAL, details `personal` =
+// `corrupt`).
+message KeyringOpenRequest {
+  bytes envelope = 1;                         // the field as it was written
+  string manifest = 2;
+}
+
+message KeyringOpenReply {
+  oneof reply {
+    bytes value = 1;                          // the field's own JSON
+    bool erased = 2;
+    Error error = 3;
+  }
+}

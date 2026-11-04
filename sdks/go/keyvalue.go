@@ -92,6 +92,7 @@ func (e *KeyValueEntity[S]) declare(d *declarations) {
 	if len(e.handlers) == 0 {
 		d.problem(where, "a key value entity has at least one handler")
 	}
+	d.notePersonal(where, e.stateCodec)
 	for _, p := range CodecProblems(e.stateCodec) {
 		d.problem(where, "its state, a %s: %s", reflect.TypeFor[S](), p)
 	}

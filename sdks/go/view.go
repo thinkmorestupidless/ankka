@@ -217,6 +217,7 @@ func (v *ViewComponent[Row]) declare(d *declarations) {
 	default:
 		d.problem(where, "a view reads one source and has %d OnChange; a KeyedView reads several", len(v.changes))
 	}
+	d.notePersonal(where, v.rowCodec)
 	for _, p := range CodecProblems(v.rowCodec) {
 		d.problem(where, "its row, a %s: %s", reflect.TypeFor[Row](), p)
 	}
@@ -444,6 +445,7 @@ func (v *KeyedViewComponent[Row]) declare(d *declarations) {
 		}
 		sources = append(sources, src.toPb())
 	}
+	d.notePersonal(where, v.rowCodec)
 	for _, p := range CodecProblems(v.rowCodec) {
 		d.problem(where, "its row, a %s: %s", reflect.TypeFor[Row](), p)
 	}

@@ -12,7 +12,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-func init() { kit.Of = kitOf }
+func init() {
+	kit.Of = kitOf
+	kit.DropKey = func(project, subject string) { currentKeyring().drop(project, subject) }
+}
 
 func kitOf(service any) (*kit.Service, error) {
 	s, ok := service.(*Service)
@@ -74,6 +77,9 @@ func kitOf(service any) (*kit.Service, error) {
 	out.Views, out.Consumers = d.viewKits, d.consumerKits
 	out.TimedActions, out.Agents, out.Mcp = d.timedActions, d.agents, d.mcpTools
 	out.WithClient = func(ctx context.Context, c any) context.Context { return WithClient(ctx, c.(*Client)) }
+	out.UseKeyring = func(c any) func() {
+		return useKeyring(newKeyring(&sidecarKeys{client: c.(*Client)}))
+	}
 	return out, nil
 }
 

@@ -152,6 +152,8 @@ func Step[S, I any](name string, f func(ctx context.Context, state S, input I) (
 func (s *stepPart[S, I]) part()            {}
 func (s *stepPart[S, I]) stepName() string { return s.name }
 
+func (s *stepPart[S, I]) codecs() []any { return []any{s.in} }
+
 func (s *stepPart[S, I]) stepProblems() []string {
 	var out []string
 	for _, p := range CodecProblems(s.in) {
@@ -304,6 +306,9 @@ func (w *WorkflowComponent[S]) declare(d *declarations) {
 			names = append(names, s.stepName())
 		}
 		seen[s.stepName()]++
+		if sc, ok := s.(interface{ codecs() []any }); ok {
+			d.notePersonal(where+"."+s.stepName(), sc.codecs()...)
+		}
 		for _, p := range s.stepProblems() {
 			d.problem(where+"."+s.stepName(), "%s", p)
 		}
@@ -349,6 +354,7 @@ func (w *WorkflowComponent[S]) declare(d *declarations) {
 	if len(w.handlers) == 0 {
 		d.problem(where, "a workflow has at least one command, to start it")
 	}
+	d.notePersonal(where, w.stateCodec)
 	for _, p := range CodecProblems(w.stateCodec) {
 		d.problem(where, "its state, a %s: %s", reflect.TypeFor[S](), p)
 	}

@@ -76,6 +76,9 @@ func (h handlerBase[I, R]) describe() string {
 	return fmt.Sprintf("%s (%s to %s)", h.wireName, reflect.TypeFor[I](), reflect.TypeFor[R]())
 }
 
+// codecs are the handler's input and reply codecs, for what they hold.
+func (h handlerBase[I, R]) codecs() []any { return []any{h.in, h.out} }
+
 func (h handlerBase[I, R]) codecProblems() []string {
 	var out []string
 	for _, p := range CodecProblems(h.in) {
@@ -144,6 +147,9 @@ func handlerProblems(d *declarations, componentID string, handlers []handlerPart
 		seen[h.wire()]++
 		for _, p := range h.codecProblems() {
 			d.problem(componentID+"."+h.wire(), "%s", p)
+		}
+		if hc, ok := h.(interface{ codecs() []any }); ok {
+			d.notePersonal(componentID+"."+h.wire(), hc.codecs()...)
 		}
 	}
 	for _, w := range sortedKeys(seen) {

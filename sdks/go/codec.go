@@ -30,7 +30,10 @@ type Codec[T any] interface {
 // CodecOption changes a default codec.
 type CodecOption func(*codecSettings)
 
-type codecSettings struct{ manifest string }
+type codecSettings struct {
+	manifest string
+	edge     bool
+}
 
 // Manifest names a default JSON codec's manifest, which is what the journal stores beside each value;
 // without it the manifest is the type's name.
@@ -48,8 +51,12 @@ func CodecFor[T any](opts ...CodecOption) Codec[T] {
 	for _, o := range opts {
 		o(&s)
 	}
-	return &defaultCodec[T]{inner: codecForType(reflect.TypeFor[T](), s.manifest, true)}
+	return &defaultCodec[T]{inner: codecAt(reflect.TypeFor[T](), s.manifest, true, s.edge)}
 }
+
+// edgeCodec is CodecFor at an endpoint, where no codec seals: a personal field is its value with its
+// subject beside it, {"subject", "value"}, or {"subject"} once erased.
+func edgeCodec(s *codecSettings) { s.edge = true }
 
 // CustomCodec is a codec the developer writes: what the value's bytes are is theirs to say.
 func CustomCodec[T any](manifest, contentType string, encode func(T) ([]byte, error), decode func([]byte) (T, error)) Codec[T] {
@@ -90,6 +97,7 @@ func (c *defaultCodec[T]) Decode(data []byte) (T, error) {
 	return v, err
 }
 func (c *defaultCodec[T]) codecProblems() []string { return c.inner.problems }
+func (c *defaultCodec[T]) holdsPersonal() bool     { return c.inner.personal }
 
 // problematic is a codec that can say what is wrong with it before it is used.
 type problematic interface{ codecProblems() []string }
@@ -111,6 +119,7 @@ type typeCodec struct {
 	manifest    string
 	contentType string
 	problems    []string
+	personal    bool // the type holds a personal field
 	encode      func(reflect.Value) ([]byte, error)
 	decode      func([]byte, reflect.Value) error
 }
@@ -125,17 +134,24 @@ func broken(manifest string, problems []string) *typeCodec {
 }
 
 func codecForType(t reflect.Type, manifest string, topLevel bool) *typeCodec {
+	return codecAt(t, manifest, topLevel, false)
+}
+
+// codecAt is codecForType, at the edge when edge is set.
+func codecAt(t reflect.Type, manifest string, topLevel, edge bool) *typeCodec {
 	if manifest == "" {
 		if c := textOrBinaryCodec(t); c != nil {
 			return c
 		}
 	}
 	if topLevel && manifest == "" && t.Kind() == reflect.Pointer {
-		inner := codecForType(t.Elem(), "", true)
+		inner := codecAt(t.Elem(), "", true, edge)
 		if len(inner.problems) > 0 {
 			return inner
 		}
-		return optionCodec(t, inner)
+		c := optionCodec(t, inner)
+		c.personal = inner.personal
+		return c
 	}
 	p, problems := planFor(t)
 	if manifest == "" {
@@ -147,10 +163,18 @@ func codecForType(t reflect.Type, manifest string, topLevel bool) *typeCodec {
 	if len(problems) > 0 {
 		return broken(manifest, problems)
 	}
+	if edge {
+		return &typeCodec{
+			manifest: manifest, contentType: JSONContent, personal: p.personal,
+			encode: func(v reflect.Value) ([]byte, error) { return encodeJSON(p, v) },
+			decode: func(data []byte, target reflect.Value) error { return decodeJSON(p, data, target) },
+		}
+	}
+	// A codec seals: a personal field is its envelope, bound to the manifest.
 	return &typeCodec{
-		manifest: manifest, contentType: JSONContent,
-		encode: func(v reflect.Value) ([]byte, error) { return encodeJSON(p, v) },
-		decode: func(data []byte, target reflect.Value) error { return decodeJSON(p, data, target) },
+		manifest: manifest, contentType: JSONContent, personal: p.personal,
+		encode: func(v reflect.Value) ([]byte, error) { return sealJSON(p, v, manifest) },
+		decode: func(data []byte, target reflect.Value) error { return openJSON(p, data, target, manifest) },
 	}
 }
 

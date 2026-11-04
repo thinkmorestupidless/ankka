@@ -1,6 +1,5 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.github.dockerjava.api.model.ExposedPort
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
 import com.thinkmorestupidless.ankka.controlplane.api.{GrantDetail, MachineTokenEndpoint}
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
@@ -18,7 +17,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.time.{Duration, Instant}
 import scala.concurrent.duration.DurationInt
-import scala.jdk.CollectionConverters.*
 
 /**
  * `features/erasure/other-projects.feature`'s machine outside the installation on k3s (feature
@@ -82,14 +80,9 @@ class ErasureClusterFeatures
   override protected def routeDomain: String   = BaseDomain
 
   override protected def configure(container: K3sContainer): K3sContainer =
+    // The API server's port and the Gateway's HTTPS NodePort, published on ports of this host.
+    container.withExposedPorts(6443, GatewayStack.HttpsNodePort)
     container
-      .withCreateContainerCmdModifier(cmd =>
-        cmd.withExposedPorts(
-          (Option(cmd.getExposedPorts).toVector.flatten :+
-            ExposedPort.tcp(GatewayStack.HttpsNodePort)).asJava
-        ): Unit
-      )
-      .asInstanceOf[K3sContainer]
 
   private var httpsPort: Int = 0
 

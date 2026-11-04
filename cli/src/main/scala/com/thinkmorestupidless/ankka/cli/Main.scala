@@ -950,6 +950,112 @@ object Main:
       make.orElse(withdraw).orElse(revoke).orElse(list).orElse(received)
     }
 
+    val erasures = Opts.subcommand(
+      "erasures",
+      "Erasure requests: a data subject's personal fields made unreadable everywhere the project " +
+        "keeps them. Members ask, list, read, replace and withdraw; only an owner overrides a hold."
+    ) {
+      val notBefore = Opts
+        .option[String]("not-before", "Hold the request until this date (2027-01-31).")
+        .orNone
+      val reason = Opts.option[String]("reason", "Why, recorded with the request.").orNone
+
+      val file = Opts.subcommand(
+        "file",
+        "Ask for the erasure of a data subject. Applied at once without --not-before; asked again " +
+          "for a data subject already erased, the request already applied, applied again."
+      ) {
+        (
+          Opts.argument[String]("subject"),
+          notBefore,
+          reason,
+          Opts
+            .option[String](
+              "correlation",
+              "An id of your own, to find this request beside one asked in another project."
+            )
+            .orNone,
+          contextOpt
+        ).mapN { (subject, date, why, correlation, ctx) => () =>
+          val ask = ErasureAsk(subject, date.map(ErasuresCommand.notBefore), why, correlation)
+          Output.erasure(ctx.client.askErasure(ctx.project, ask), ctx.format)
+        }
+      }
+
+      val list = Opts.subcommand("list", "List the project's erasure requests, newest first.") {
+        (
+          Opts.option[String]("subject", "Only this data subject's.").orNone,
+          Opts
+            .option[String]("state", ErasuresCommand.States.mkString("Only those ", ", ", "."))
+            .orNone,
+          Opts.option[String]("correlation", "Only those with this correlation id.").orNone,
+          contextOpt
+        ).mapN { (subject, state, correlation, ctx) => () =>
+          Output.erasures(
+            ctx.client.listErasures(ctx.project, subject, state, correlation),
+            ctx.format
+          )
+        }
+      }
+
+      val get = Opts.subcommand(
+        "get",
+        "Show one erasure request: where it stands, its hold and each service's completion."
+      ) {
+        (Opts.argument[String]("request"), contextOpt).mapN { (rid, ctx) => () =>
+          Output.erasure(ctx.client.getErasure(ctx.project, rid), ctx.format)
+        }
+      }
+
+      val replace = Opts.subcommand(
+        "replace",
+        "Give a held erasure request a new not-before date or reason, in place of the old."
+      ) {
+        (Opts.argument[String]("request"), notBefore, reason, contextOpt).mapN {
+          (rid, date, why, ctx) => () =>
+            val body = ErasureReplace(date.map(ErasuresCommand.notBefore), why)
+            Output.erasure(ctx.client.replaceErasure(ctx.project, rid, body), ctx.format)
+        }
+      }
+
+      val withdraw = Opts.subcommand("withdraw", "Withdraw an erasure request not yet applied.") {
+        (Opts.argument[String]("request"), contextOpt).mapN { (rid, ctx) => () =>
+          Output.erasure(ctx.client.withdrawErasure(ctx.project, rid), ctx.format)
+        }
+      }
+
+      val overrideHold = Opts.subcommand(
+        "override",
+        "Apply a held erasure request at once, before its not-before date. Owners only."
+      ) {
+        (
+          Opts.argument[String]("request"),
+          Opts.option[String]("reason", "Why the hold is overridden, recorded with it."),
+          contextOpt
+        ).mapN { (rid, why, ctx) => () =>
+          Output.erasure(ctx.client.overrideErasure(ctx.project, rid, why), ctx.format)
+        }
+      }
+
+      val certificate = Opts.subcommand(
+        "certificate",
+        "The erasure certificate of an applied erasure request: who asked, the hold, the key's " +
+          "destruction and each service's completion. --format json for the document itself."
+      ) {
+        (Opts.argument[String]("request"), contextOpt).mapN { (rid, ctx) => () =>
+          Output.erasureCertificate(ctx.client.erasureCertificate(ctx.project, rid), ctx.format)
+        }
+      }
+
+      file
+        .orElse(list)
+        .orElse(get)
+        .orElse(replace)
+        .orElse(withdraw)
+        .orElse(overrideHold)
+        .orElse(certificate)
+    }
+
     list
       .orElse(get)
       .orElse(status)
@@ -970,6 +1076,7 @@ object Main:
       .orElse(brokers)
       .orElse(location)
       .orElse(grants)
+      .orElse(erasures)
   }
 
   // ── services ──────────────────────────────────────────────────────────────
@@ -1633,7 +1740,24 @@ object Main:
 
   private val localCommand =
     Opts.subcommand("local", "Tools for services running on this machine.") {
-      localWeb orElse Opts.subcommand(
+      val erasures = Opts.subcommand(
+        "erasures",
+        "Erasures against the local keyring of services running on this machine (development only)."
+      ) {
+        Opts.subcommand(
+          "file",
+          "Destroy a data subject's key in the local keyring of each running service, or of one."
+        ) {
+          (
+            Opts.argument[String]("subject"),
+            Opts.option[String]("service", "Only this running service.").orNone,
+            Opts.flag("rerun", "Run the erasure again, as if asked again.").orFalse
+          ).mapN { (subject, service, rerun) => () =>
+            local.LocalErasures.file(subject, service, rerun)
+          }
+        }
+      }
+      erasures orElse localWeb orElse Opts.subcommand(
         "console",
         "Serve a console over the services running on this machine."
       ) {

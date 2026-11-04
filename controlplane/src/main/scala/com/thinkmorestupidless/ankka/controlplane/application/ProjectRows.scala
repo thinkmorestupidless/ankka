@@ -56,6 +56,8 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
         _: ProjectRehearsalRequested | _: ProjectRehearsalEnded |
         _: ProjectBackupCredentialReissued =>
       effects.ignore()
+    // A refused erasure ask is history only (feature 042).
+    case _: ErasureAskRefused => effects.ignore()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

@@ -59,6 +59,11 @@ export const operations = [
   "service.storage-settings",
   "project-location.set",
   "project-location.clear",
+  // Feature 042: a project's erasure requests. An override is an owner's; the control plane refuses a member's.
+  "erasure.ask",
+  "erasure.replace",
+  "erasure.withdraw",
+  "erasure.override",
 ] as const;
 export type Operation = (typeof operations)[number];
 

@@ -693,6 +693,34 @@ final class ClientLogic(
   // runtime's keyring client and its cache, as the service's own identity; a read of a subject no
   // key was made for reads as erased, as it does in the runtime.
 
+  /**
+   * An erasure request asked by the process (feature 042, 1.23), as this service: the control plane
+   * names it as who asked and needs the `erasure` grant of the project, its own included.
+   */
+  def askErasure(request: AskErasureRequest): Future[AskErasureReply] =
+    onStore {
+      val subject = com.thinkmorestupidless.ankka.core.DataSubject
+        .from(request.subject)
+        .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
+      val notBefore = request.notBefore.filter(_.nonEmpty).map { text =>
+        try java.time.LocalDate.parse(text.take(10))
+        catch
+          case _: java.time.format.DateTimeParseException =>
+            throw CommandError(
+              s"not_before is an ISO-8601 date, not '$text'",
+              ErrorCode.BadRequest
+            )
+      }
+      val asked = service.erasures.ask(
+        subject,
+        Option(request.project).filter(_.nonEmpty),
+        notBefore,
+        request.reason,
+        request.correlation
+      )
+      AskErasureReply(AskErasureReply.Reply.Ok(ErasureAsked(asked.id, asked.state)))
+    }(e => AskErasureReply(AskErasureReply.Reply.Error(e)))
+
   def getSubjectKey(request: SubjectKeyRequest): Future[SubjectKeyReply] =
     onStore {
       val keyring = com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(service.system)

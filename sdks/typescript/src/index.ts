@@ -73,6 +73,7 @@ export {
   ClientKeys, InMemoryClientKeys, Expiry, CLIENT_KEYS_SINCE,
   type IssueClientKey, type IssuedClientKey, type ClientKeySummary,
 } from "./client-keys.ts"
+export { Erasures, ERASURES_SINCE, type AskErasure, type ErasureAsked } from "./erasures.ts"
 export { type Socket, SocketClosed } from "./socket.ts"
 export { Acl, Callers, type CallerMatcher, type CallersAcl, type AnyOfAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, sseEvents, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type EventContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"

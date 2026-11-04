@@ -342,6 +342,17 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /**
+   * A service asked for an erasure request in this project without the project's `erasure` grant
+   * (feature 042): recorded so the refusal is in the project's history. Nothing else changes.
+   */
+  case ErasureAskRefused(
+      service: String,
+      subject: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
   /** What the project asks of its database was set (feature 041): the whole setting, as asked. */
   case ProjectDatabaseSet(
       setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,
@@ -407,6 +418,11 @@ enum ProjectEvent:
 
 /** `ProjectEntity.makeGrant`: the endpoint mints the id and says whether the grant must wait. */
 final case class MakeGrant(id: String, grantee: Grantee, target: GrantTarget, pending: Boolean)
+
+/**
+ * `record-erasure-refused`: the service (`ankka://<project>/<service>`) and the subject it named.
+ */
+final case class RecordErasureRefused(service: String, subject: String)
 
 /** `record-grant-change`, on a grantee project or organization, from the consumer. */
 final case class RecordGrantChange(

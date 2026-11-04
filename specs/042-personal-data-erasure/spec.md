@@ -451,10 +451,17 @@ and a listing by correlation id returns both; assert a service without the grant
 - added `features/erasure/asking.feature`: a service granted the right by another project asks for an erasure request there
 - added `features/erasure/asking.feature`: a service without the right is refused and the refusal is recorded
 - added `features/erasure/asking.feature`: a member lists the erasure requests of two projects by their correlation id in either project
-- added `features/erasure/places.feature`: a member asks for an erasure request in every place the platform offers
+- added `features/erasure/places.feature`: a member asks for an erasure request through the command line
+- added `features/erasure/places.feature`: a member asks for an erasure request through the console
+- added `features/erasure/places.feature`: a member asks for an erasure request through the platform's MCP server
 - added `features/erasure/places.feature`: the console shows the erasure requests of a project with where each one stands and each service's completion
-- added `features/erasure/places.feature`: a member fetches the erasure certificate of an applied erasure request in every place the platform offers
-- added `features/erasure/places.feature`: only an owner overrides a hold, in every place the platform offers
+- added `features/erasure/places.feature`: a member fetches the erasure certificate of an applied erasure request through the command line
+- added `features/erasure/places.feature`: a member fetches the erasure certificate of an applied erasure request through the console
+- added `features/erasure/places.feature`: a member fetches the erasure certificate of an applied erasure request through the platform's MCP server
+- added `features/erasure/places.feature`: only an owner overrides a hold, an owner through the console
+- added `features/erasure/places.feature`: only an owner overrides a hold, an owner through the platform's MCP server
+- added `features/erasure/places.feature`: only an owner overrides a hold, a member who is not an owner through the console
+- added `features/erasure/places.feature`: only an owner overrides a hold, a member who is not an owner through the platform's MCP server
 
 ---
 

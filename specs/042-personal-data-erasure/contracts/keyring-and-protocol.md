@@ -92,6 +92,7 @@ message ErasureReply { int64 objects_erased = 1; string finality = 2; Error erro
 |---|---|---|---|
 | `keyring_seal` | subject, ad, plaintext | envelope bytes, or an error code | every call site |
 | `keyring_open` | envelope bytes, ad | plaintext, `ERASED`, or an error code | every call site |
+| `erasure_ask` | `AskErasureRequest` | `AskErasureReply` | where `request` is (decided 2026-11-04, T090) |
 
 Export `erase(subject_ptr, len) -> result_ptr` when the module has a handler. `storage` gains the op
 `erase`. `ModuleLoader.Imports`/`Exports`, `WASM-ABI.md` and `WasmImportsSuite` updated.

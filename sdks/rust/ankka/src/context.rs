@@ -348,6 +348,14 @@ impl Context {
             .then(|| crate::services::Services::with_metadata(self.metadata.clone()))
     }
 
+    /// Asking for erasure requests (protocol 1.23), or `None` where [`services`](Context::services)
+    /// is: the ask waits for the control plane, and the runtime serves it only where it serves a
+    /// call to another service.
+    pub fn erasures(&self) -> Option<crate::erasures::Erasures> {
+        self.services
+            .then(|| crate::erasures::Erasures::with_metadata(self.metadata.clone()))
+    }
+
     /// The service's secret store, or `None` in an entity, a view and a workflow's command handler.
     /// A read there would put a database call on a single-writer path, and a value read there is
     /// one line away from an event or a state.

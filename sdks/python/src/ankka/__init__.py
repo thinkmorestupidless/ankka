@@ -57,6 +57,7 @@ from ankka.graph import GraphConsumer  # noqa: E402
 from ankka.mcp import McpServer, ResultGuardrail  # noqa: E402
 from ankka.client_keys import ClientKeys, ClientKeySummary, Expiry, InMemoryClientKeys, IssuedClientKey  # noqa: E402
 from ankka.mcp_endpoint import McpEndpoint, ToolAnswer, tool  # noqa: E402
+from ankka.erasures import ErasureAsked, Erasures  # noqa: E402
 from ankka.views import CaughtUp, Overflow, Removed, WatchEnded, sse_events  # noqa: E402
 
 __all__ = [
@@ -78,5 +79,6 @@ __all__ = [
     "StoredObject",
     "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "socket", "sse",
     "table_of",
+    "ErasureAsked", "Erasures",
     "CaughtUp", "Overflow", "Removed", "WatchEnded", "sse_events",
 ]

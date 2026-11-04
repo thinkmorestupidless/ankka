@@ -17,6 +17,7 @@ from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 from ankka.secrets import HasSecrets
 from ankka.storage import HasStorage
+from ankka.erasures import HasErasures
 from ankka.services import HasServices
 from ankka.standing import Standing
 
@@ -27,7 +28,7 @@ Src = TypeVar("Src")
 Out = TypeVar("Out")
 
 
-class Consumer(HasSecrets, HasStorage, HasServices, Generic[Src, Out]):
+class Consumer(HasSecrets, HasStorage, HasServices, HasErasures, Generic[Src, Out]):
     component_id: ClassVar[str]
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None

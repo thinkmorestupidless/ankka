@@ -94,11 +94,7 @@ final class ClientService(
     // An ack nothing waited for (a notice handed before a restart) is no error: the work is done.
     notices.ack(request.seq, request.instance): Unit
     Future.successful(SubjectNoticeAckReply())
-  // Filing from a service lands with asking.feature (feature 042, T090).
-  def askErasure(request: AskErasureRequest): Future[AskErasureReply] =
-    Future.failed(
-      Status.UNIMPLEMENTED.withDescription("filing an erasure is not served yet").asException()
-    )
+  def askErasure(request: AskErasureRequest): Future[AskErasureReply] = logic.askErasure(request)
 
   def decide(request: DecideRequest): Future[InvokeReply] = logic.decide(request)
 

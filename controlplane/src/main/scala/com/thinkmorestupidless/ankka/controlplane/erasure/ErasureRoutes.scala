@@ -5,7 +5,16 @@ import com.thinkmorestupidless.ankka.controlplane.api.ErasureWire.given
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
 import com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings
 import com.thinkmorestupidless.ankka.core.*
-import com.thinkmorestupidless.ankka.http.{EndpointClients, HttpEndpoint, Respond}
+import com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity
+import com.thinkmorestupidless.ankka.controlplane.domain.{Actor, Attribution, RecordErasureRefused}
+import com.thinkmorestupidless.ankka.http.{
+  Acl,
+  Caller,
+  Callers,
+  EndpointClients,
+  HttpEndpoint,
+  Respond
+}
 import org.slf4j.LoggerFactory
 
 import java.security.SecureRandom
@@ -41,8 +50,56 @@ trait ErasureRoutes extends HttpEndpoint:
         ErrorCode.Conflict
       )
 
-  postBody("/{projectId}/erasures") { (projectId: String, ask: ErasureAsk) =>
-    val access = authz.project(principal, projectId, write = true)
+  // A member asks with a token; a service of any project with the `erasure` grant of this one
+  // (contracts/control-plane-and-cli.md), and is named as having asked.
+  withAcl(Acl.anyOf(acl, Acl.allowCallers(Callers.anyService))) {
+    postBody("/{projectId}/erasures") { (projectId: String, ask: ErasureAsk) =>
+      val asker = request.principal match
+        case Some(p) => authz.metadata(authz.project(p, projectId, write = true))
+        case None    =>
+          request.caller match
+            case Caller.Service(project, service) => serviceAsker(projectId, project, service, ask)
+            case other                            =>
+              throw CommandError(s"$other may not ask for an erasure", ErrorCode.Forbidden)
+      asked(projectId, ask, asker)
+    }
+  }
+
+  /**
+   * A service may ask when `projectId` holds an accepted `erasure` grant naming it, its own project
+   * included. A refusal is recorded in the history of the project it asked in, then answered.
+   */
+  private def serviceAsker(
+      projectId: String,
+      project: String,
+      service: String,
+      ask: ErasureAsk
+  ): Metadata =
+    requireOn()
+    val grantee = Grantee.Service(project, service)
+    val owner   = erasureClients.componentClient.forEventSourcedEntity(EntityId(projectId))
+    val granted = owner
+      .call(ProjectEntity.grants)
+      .invoke()
+      .exists(g =>
+        g.state == GrantState.Accepted && g.grantee == grantee && g.target == GrantTarget.erasure
+      )
+    val actor = Attribution(
+      Actor(s"ankka://$project/$service", Some(s"service $service of $project")),
+      java.time.Instant.now()
+    ).metadata
+    if !granted then
+      owner
+        .call(ProjectEntity.recordErasureRefused)
+        .withMetadata(actor)
+        .invoke(RecordErasureRefused(s"ankka://$project/$service", ask.subject)): Unit
+      throw CommandError(
+        s"service $service of $project has no erasure grant of project '$projectId'",
+        ErrorCode.Forbidden
+      )
+    actor
+
+  private def asked(projectId: String, ask: ErasureAsk, asker: Metadata) =
     requireOn()
     // Asked again for a data subject already erased: that request, nothing recorded, and its
     // notice sent again so every service, and every handler, runs it again (data-model.md).
@@ -67,18 +124,17 @@ trait ErasureRoutes extends HttpEndpoint:
             )
         )
         Respond(ErasureRoutes.view(current), 200)
-      case None => askNew(projectId, ask, access)
-  }
+      case None => askNew(projectId, ask, asker)
 
   private def askNew(
       projectId: String,
       ask: ErasureAsk,
-      access: com.thinkmorestupidless.ankka.controlplane.auth.Authorized
+      asker: Metadata
   ): Respond[ErasureRequestView] =
     val rid   = ErasureRoutes.rid()
     val asked = request(projectId, rid)
       .call(ErasureRequestEntity.ask)
-      .withMetadata(authz.metadata(access))
+      .withMetadata(asker)
       .invoke(AskErasure(projectId, ask.subject, ask.notBefore, ask.reason, ask.correlation))
     if asked.state.contains(ErasureState.Applying) then applyLater(asked.id)
     Respond(ErasureRoutes.view(asked), 201)

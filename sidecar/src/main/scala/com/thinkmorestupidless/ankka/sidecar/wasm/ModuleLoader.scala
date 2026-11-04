@@ -62,8 +62,8 @@ object ModuleLoader:
    * with protocol 1.6; a module that does not use the store does not import them. `request`, `now`
    * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
    * module that calls it, as is `await_end`, which arrived with 1.18, the three client key imports,
-   * which arrived with 1.20, `storage`, which arrived with 1.21, and `keyring_seal` and
-   * `keyring_open`, which arrived with 1.23.
+   * which arrived with 1.20, `storage`, which arrived with 1.21, and `keyring_seal`, `keyring_open`
+   * and `erasure_ask`, which arrived with 1.23.
    */
   val Imports: Set[String] =
     Set(
@@ -88,7 +88,8 @@ object ModuleLoader:
       "revoke_client_key",
       "storage",
       "keyring_seal",
-      "keyring_open"
+      "keyring_open",
+      "erasure_ask"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r

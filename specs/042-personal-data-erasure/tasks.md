@@ -257,13 +257,13 @@ and every scenario bound to a suite and red before a line of the feature exists.
 
 **Independent test**: `ErasureFeatures` over `asking.feature` and `places.feature` (CLI and MCP in-process); the console's Playwright suite.
 
-- [ ] T089 [US8] Bind `FEAT/asking.feature` and `FEAT/places.feature`; red
-- [ ] T090 [US8] `ctx.erasures.ask(...)` in `SDK/Erasures.scala` through the component client to the control plane's route with the service's certificate; the endpoint admits a service holding the `erasure` grant of the target project (rendered `grants.json`), names it as who asked, and records a refusal in the project's history; `AskErasure` for processes (T062)
-- [ ] T091 [US8] `GET /erasures?correlation=` listing across the caller's projects
-- [ ] T092 [US8] CLI: `ankka projects erasures file|list|get|replace|withdraw|override|certificate` in `CLI/Main.scala`'s `projectsCommand`, `CLI/ControlPlaneClient.scala`, `CLI/Output.scala`; `ankka local erasures file` in `CLI/local/LocalErasures.scala` against the local console's routes; `CliErasuresSuite` against a real control plane in-process
-- [ ] T093 [US8] MCP tools `erasures_list`, `erasure_get`, `erasure_file`, `erasure_replace`, `erasure_withdraw`, `erasure_override`, `erasure_certificate` in `CLI/mcp/AnkkaTools.scala`; `AnkkaToolsSuite` cases, including an override refused to a member
-- [ ] T094 [US8] Console: the *Erasures* section in `CON/src/routes/project.tsx` and a request page `CON/src/routes/erasure.tsx` (ask, withdraw, owner's override, certificate download), schemas in `CON/src/client/schemas.ts`, the client in `client/control-plane.ts`, the fake control plane and fixtures (`ControlPlaneFixturesSuite`), unit tests and Playwright cases per console.md (navigate by id after a write)
-- [ ] T095 [US8] `ErasureFeatures`: `asking.feature` and `places.feature` green (`ranElsewhere` names the console scenarios for the Playwright suite)
+- [X] T089 [US8] Bind `FEAT/asking.feature` and `FEAT/places.feature`; red
+- [X] T090 [US8] `ctx.erasures.ask(...)` in `SDK/Erasures.scala` through the component client to the control plane's route with the service's certificate; the endpoint admits a service holding the `erasure` grant of the target project (rendered `grants.json`), names it as who asked, and records a refusal in the project's history; `AskErasure` for processes (T062)
+- [X] T091 [US8] `GET /erasures?correlation=` listing across the caller's projects
+- [X] T092 [US8] CLI: `ankka projects erasures file|list|get|replace|withdraw|override|certificate` in `CLI/Main.scala`'s `projectsCommand`, `CLI/ControlPlaneClient.scala`, `CLI/Output.scala`; `ankka local erasures file` in `CLI/local/LocalErasures.scala` against the local console's routes; `CliErasuresSuite` against a real control plane in-process
+- [X] T093 [US8] MCP tools `erasures_list`, `erasure_get`, `erasure_file`, `erasure_replace`, `erasure_withdraw`, `erasure_override`, `erasure_certificate` in `CLI/mcp/AnkkaTools.scala`; `AnkkaToolsSuite` cases, including an override refused to a member
+- [X] T094 [US8] Console: the *Erasures* section in `CON/src/routes/project.tsx` and a request page `CON/src/routes/erasure.tsx` (ask, withdraw, owner's override, certificate download), schemas in `CON/src/client/schemas.ts`, the client in `client/control-plane.ts`, the fake control plane and fixtures (`ControlPlaneFixturesSuite`), unit tests and Playwright cases per console.md (navigate by id after a write)
+- [X] T095 [US8] `ErasureFeatures`: `asking.feature` and `places.feature` green (`ranElsewhere` names the console scenarios for the Playwright suite)
 
 ---
 

@@ -37,7 +37,13 @@ final class McpServerSuite extends FunSuite:
         val (status, body) = exchange.getRequestURI.getPath match
           case "/services/checkout/cart" => 200 -> cart
           case "/services/checkout"      => 200 -> s"[$cart]"
-          case _                         => 404 -> """{"message":"no such thing"}"""
+          case "/projects/checkout/erasures" if exchange.getRequestMethod == "POST" =>
+            val asked = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+            requests.synchronized(requests += asked)
+            201 -> """{"id":"01J","project":"checkout","subject":"player/8c1f","state":"held","askedBy":"ada"}"""
+          case "/projects/checkout/erasures/01J/override" =>
+            403 -> """{"status":403,"error":"owner role required in organization 'acme'"}"""
+          case _ => 404 -> """{"message":"no such thing"}"""
         val bytes = body.getBytes(StandardCharsets.UTF_8)
         exchange.getResponseHeaders.add("Content-Type", "application/json")
         exchange.sendResponseHeaders(status, bytes.length.toLong)
@@ -173,6 +179,48 @@ final class McpServerSuite extends FunSuite:
     }
     val delete = tools.find(_.string("name").contains("delete_service")).get
     assertEquals(delete("annotations").flatMap(_("destructiveHint")), Some(Json.bool(true)))
+  }
+
+  test("the erasure tools are listed, and asking for an erasure is marked destructive") {
+    val tools = exchange("""{"jsonrpc":"2.0","id":4,"method":"tools/list"}""")
+      .head("result")
+      .flatMap(_("tools")) match
+      case Some(Json.Arr(values)) => values
+      case other                  => fail(s"no tools: $other")
+    val names = tools.flatMap(_.string("name")).toSet
+    Seq(
+      "erasures_list",
+      "erasure_get",
+      "erasure_file",
+      "erasure_replace",
+      "erasure_withdraw",
+      "erasure_override",
+      "erasure_certificate"
+    ).foreach(n => assert(names.contains(n), s"$n is not among $names"))
+    def hint(name: String, which: String) =
+      tools.find(_.string("name").contains(name)).flatMap(_("annotations")).flatMap(_(which))
+    assertEquals(hint("erasure_file", "destructiveHint"), Some(Json.bool(true)))
+    assertEquals(hint("erasure_certificate", "readOnlyHint"), Some(Json.bool(true)))
+  }
+
+  test("erasure_file asks as the logged-in member, with the date held from the start of its day") {
+    val result =
+      call("erasure_file", """{"subject":"player/8c1f","notBefore":"2027-01-31","reason":"aml"}""")
+    assertEquals(result("isError"), Some(Json.bool(false)), text(result))
+    assert(text(result).contains("\"state\": \"held\""), text(result))
+    assertEquals(
+      requests.toVector,
+      Vector(
+        "POST /projects/checkout/erasures",
+        """{"subject":"player/8c1f","notBefore":"2027-01-31T00:00:00Z","reason":"aml"}"""
+      )
+    )
+  }
+
+  test("an override refused to a member is a tool error naming why") {
+    val result = call("erasure_override", """{"request":"01J","reason":"regulator order"}""")
+    assertEquals(result("isError"), Some(Json.bool(true)))
+    assert(text(result).contains("owner role required"), text(result))
   }
 
   test("get_service answers with the control plane's status, in the configured project") {

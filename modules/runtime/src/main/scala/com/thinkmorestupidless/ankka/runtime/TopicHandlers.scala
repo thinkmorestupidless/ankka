@@ -90,14 +90,16 @@ private[ankka] final class ConsumerTopicHandler(
     observability: Observability,
     secrets: SecretStore,
     services: ServiceClients,
-    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
+    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+    erasures: com.thinkmorestupidless.ankka.sdk.Erasures =
+      com.thinkmorestupidless.ankka.sdk.Erasures.unavailable
 ):
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(
-      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
   def process(message: IncomingMessage): Future[Done] =

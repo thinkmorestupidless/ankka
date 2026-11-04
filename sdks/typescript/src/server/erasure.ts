@@ -8,6 +8,7 @@ import { Erasure, ErasureReplySchema, type ErasureCall, type ErasureReply } from
 import { secretsFor } from "../client.ts"
 import { metadataFromProto } from "../context.ts"
 import { CommandError, ErrorCode } from "../effects/common.ts"
+import { erasuresFor } from "../erasures.ts"
 import { finalityToProto, type ErasureHandler } from "../erasure.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import { subjectProblem, type DataSubject } from "../personal.ts"
@@ -28,7 +29,7 @@ export async function invokeErasure(handler: ErasureHandler | undefined, call: E
   try {
     const report =
       (await handler(
-        { client, secrets: secretsFor(client), storage: ctx.storage ?? processStorage(), erasureSeq: call.erasureSeq, rerun: call.rerun, metadata },
+        { client, secrets: secretsFor(client), storage: ctx.storage ?? processStorage(), erasures: erasuresFor(client), erasureSeq: call.erasureSeq, rerun: call.rerun, metadata },
         call.subject as DataSubject,
       )) ?? {}
     const count = report.objectsErased ?? 0

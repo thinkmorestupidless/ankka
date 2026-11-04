@@ -171,6 +171,85 @@ object Output:
           )
         )
 
+  // ── Erasure requests (feature 042) ──────────────────────────────────────────
+
+  def erasures(rows: Vector[ErasureRequestSummary], format: Format): String =
+    format match
+      case Format.Json  => writeToString(rows)(using ErasureWire.erasureSummariesCodec)
+      case Format.Table =>
+        table(
+          Vector(
+            "ID",
+            "DATA SUBJECT",
+            "STATE",
+            "NOT BEFORE",
+            "ASKED BY",
+            "ASKED AT",
+            "CORRELATION"
+          ),
+          rows.map(r =>
+            Vector(
+              r.id,
+              r.subject,
+              r.state,
+              r.notBefore.fold("-")(_.toString),
+              r.askedBy.getOrElse("-"),
+              r.askedAt.fold("-")(_.toString),
+              r.correlation.getOrElse("-")
+            )
+          )
+        )
+
+  /** One erasure request: where it stands, its hold, and each service's completion. */
+  def erasure(r: ErasureRequestView, format: Format): String =
+    format match
+      case Format.Json  => writeToString(r)(using ErasureWire.erasureRequestViewCodec)
+      case Format.Table =>
+        val lines = Vector(
+          Some(s"erasure request ${r.id} of '${r.subject}' in '${r.project}': ${r.state}"),
+          r.askedBy.map(by => s"  asked by:    $by${r.askedAt.fold("")(at => s" at $at")}"),
+          r.notBefore.map(nb => s"  not before:  $nb${r.reason.fold("")(why => s" ($why)")}"),
+          r.correlation.map(c => s"  correlation: $c"),
+          r.holdOverride.map(o => s"  overridden:  by ${o.owner}: ${o.reason}"),
+          r.destroyedAt.map(at => s"  key destroyed at $at"),
+          r.lastFailure.map(f =>
+            s"  not applied yet: ${f.reason}${f.at.fold("")(at => s" (since $at)")}"
+          ),
+          r.finalAt.map(at => s"  final at $at")
+        ).flatten
+        val completions =
+          if r.completions.isEmpty then Vector.empty
+          else
+            Vector("  completion:") ++ r.completions.map(c =>
+              s"    ${c.service}: ${c.completedAt.fold("not yet")(at => s"completed at $at")}" +
+                c.handler.fold("")(h =>
+                  s", handler erased ${h.objectsErased} objects (${h.finality})" +
+                    h.error.fold("")(e => s": $e")
+                )
+            )
+        (lines ++ completions).mkString("\n")
+
+  /** The erasure certificate of an applied erasure request. */
+  def erasureCertificate(c: ErasureCertificate, format: Format): String =
+    format match
+      case Format.Json  => writeToString(c)(using ErasureWire.erasureCertificateCodec)
+      case Format.Table =>
+        (Vector(
+          Some(s"erasure certificate of request ${c.request} in '${c.project}'"),
+          Some(s"  data subject: ${c.subject}"),
+          c.askedBy.map(by => s"  asked by:     $by${c.askedAt.fold("")(at => s" at $at")}"),
+          c.hold.map(h =>
+            s"  hold:         not before ${h.notBefore}${h.lapsedAt
+                .fold("")(at => s", lapsed at $at")}"
+          ),
+          c.holdOverride.map(o => s"  overridden:   by ${o.owner}: ${o.reason}"),
+          c.keyDestroyedAt.map(at => s"  key destroyed at $at"),
+          c.finalAt.map(at => s"  final at $at")
+        ).flatten ++ c.services.map(s =>
+          s"  ${s.service}: ${s.completedAt.fold("not completed")(at => s"completed at $at")}" +
+            s.handler.fold("")(h => s", handler erased ${h.objectsErased} objects (${h.finality})")
+        )).mkString("\n")
+
   /** One grant just made. */
   def grantMade(grant: GrantDetail, projectId: String, format: Format): String =
     format match

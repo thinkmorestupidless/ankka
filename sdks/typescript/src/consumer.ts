@@ -8,6 +8,7 @@ import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } fro
 import { processStorage, type Buckets } from "./storage.ts"
 import { ConsumerEffects, type ConsumerEffect } from "./effects/stateless.ts"
 import { servicesFor, type Services } from "./services.ts"
+import { erasuresFor, type Erasures } from "./erasures.ts"
 import type { Standing } from "./standing.ts"
 
 type MaybePromise<T> = T | Promise<T>
@@ -116,6 +117,18 @@ export abstract class Consumer<M, Out = never> {
   /** A unit test's in place of the runtime's: `component.services = new ScriptedServices()`. */
   set services(services: Services) {
     this.#services = services
+  }
+
+  #erasures: Erasures | undefined
+
+  /** Asks for erasure requests as this service (1.23), which needs the project's `erasure` grant. */
+  get erasures(): Erasures {
+    return this.#erasures ?? erasuresFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.erasures = new Erasures(client)`. */
+  set erasures(erasures: Erasures) {
+    this.#erasures = erasures
   }
 
   /** @internal */

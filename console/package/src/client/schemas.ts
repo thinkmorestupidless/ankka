@@ -899,6 +899,117 @@ export type SwitchRequest = z.input<typeof switchRequestSchema>;
 export const rehearsalRequestSchema = z.object({ moment: optional(z.string()), line: optional(z.string()) });
 export type RehearsalRequest = z.input<typeof rehearsalRequestSchema>;
 
+// ── Erasure (feature 042), from `controlplane-api`'s `erasures.scala` ────────
+
+/** What a service's erasure handler reported for a run. */
+export const erasureHandlerViewSchema = z.object({
+  objectsErased: z.number().int(),
+  finality: z.string(),
+  error: optional(z.string()),
+});
+export type ErasureHandlerView = z.infer<typeof erasureHandlerViewSchema>;
+
+/** One service's completion of an erasure. */
+export const erasureCompletionViewSchema = z.object({
+  service: z.string(),
+  completedAt: optional(z.string()),
+  rowsRedacted: z.number().int().default(0),
+  tokensDropped: z.number().int().default(0),
+  sessionsEnded: z.number().int().default(0),
+  handler: optional(erasureHandlerViewSchema),
+});
+export type ErasureCompletionView = z.infer<typeof erasureCompletionViewSchema>;
+
+/** An owner's override of a hold. */
+export const erasureOverrideViewSchema = z.object({ owner: z.string(), reason: z.string(), at: optional(z.string()) });
+export type ErasureOverrideView = z.infer<typeof erasureOverrideViewSchema>;
+
+/** Why the last attempt to apply an erasure request failed, and since when. */
+export const erasureFailureViewSchema = z.object({ reason: z.string(), at: optional(z.string()) });
+export type ErasureFailureView = z.infer<typeof erasureFailureViewSchema>;
+
+/** The words an erasure request's state is said in today; any other is shown as it is. */
+export const erasureStates = ["held", "applying", "applied", "withdrawn"] as const;
+
+/** An erasure request, as a member reads it: where it stands, its hold, and each service's completion. */
+export const erasureRequestViewSchema = z.object({
+  id: z.string(),
+  project: z.string(),
+  subject: z.string(),
+  state: z.string(),
+  askedBy: optional(z.string()),
+  askedAt: optional(z.string()),
+  notBefore: optional(z.string()),
+  reason: optional(z.string()),
+  correlation: optional(z.string()),
+  lapsedAt: optional(z.string()),
+  holdOverride: optional(erasureOverrideViewSchema),
+  erasureSeq: optional(z.number().int()),
+  destroyedAt: optional(z.string()),
+  completions: z.array(erasureCompletionViewSchema).default([]),
+  objectsFinalAt: optional(z.string()),
+  finalAt: optional(z.string()),
+  lastFailure: optional(erasureFailureViewSchema),
+});
+export type ErasureRequestView = z.infer<typeof erasureRequestViewSchema>;
+
+/** One line of a project's erasure requests; `project` is set where a listing spans projects. */
+export const erasureRequestSummarySchema = z.object({
+  id: z.string(),
+  subject: z.string(),
+  state: z.string(),
+  correlation: optional(z.string()),
+  notBefore: optional(z.string()),
+  askedBy: optional(z.string()),
+  askedAt: optional(z.string()),
+  appliedAt: optional(z.string()),
+  finalAt: optional(z.string()),
+  project: optional(z.string()),
+});
+export type ErasureRequestSummary = z.infer<typeof erasureRequestSummarySchema>;
+
+/** The hold an erasure waited under, and when it lapsed. */
+export const erasureHoldViewSchema = z.object({ notBefore: z.string(), reason: optional(z.string()), lapsedAt: optional(z.string()) });
+
+/** A service's part of an erasure, as the certificate states it. */
+export const erasureCertificateServiceSchema = z.object({
+  service: z.string(),
+  completedAt: optional(z.string()),
+  handler: optional(erasureHandlerViewSchema),
+});
+
+/** The erasure certificate of an applied erasure request. It holds no personal field. */
+export const erasureCertificateSchema = z.object({
+  request: z.string(),
+  project: z.string(),
+  subject: z.string(),
+  askedBy: optional(z.string()),
+  askedAt: optional(z.string()),
+  hold: optional(erasureHoldViewSchema),
+  holdOverride: optional(erasureOverrideViewSchema),
+  keyDestroyedAt: optional(z.string()),
+  services: z.array(erasureCertificateServiceSchema).default([]),
+  finalAt: optional(z.string()),
+});
+export type ErasureCertificate = z.infer<typeof erasureCertificateSchema>;
+
+/** `POST /projects/{id}/erasures`: the data subject, and an optional hold. */
+export const erasureAskSchema = z.object({
+  subject: z.string(),
+  notBefore: optional(z.string()),
+  reason: optional(z.string()),
+  correlation: optional(z.string()),
+});
+export type ErasureAsk = z.input<typeof erasureAskSchema>;
+
+/** `PUT …/erasures/{rid}`: a held request's new not-before date and reason, in place of the old. */
+export const erasureReplaceSchema = z.object({ notBefore: optional(z.string()), reason: optional(z.string()) });
+export type ErasureReplace = z.input<typeof erasureReplaceSchema>;
+
+/** `POST …/erasures/{rid}/override`: an owner's reason for applying a held request now. */
+export const erasureOverrideSchema = z.object({ reason: z.string().default("") });
+export type ErasureOverride = z.input<typeof erasureOverrideSchema>;
+
 export const credentialReissuedSchema = z.object({ project: z.string(), generation: z.number().int() });
 export type CredentialReissued = z.infer<typeof credentialReissuedSchema>;
 
@@ -1100,4 +1211,10 @@ export const schemasByType: Record<string, z.ZodType> = {
   ByteRatesRequest: byteRatesRequestSchema,
   TokenResponse: tokenResponseSchema,
   JsonWebKeySet: jsonWebKeySetSchema,
+  ErasureAsk: erasureAskSchema,
+  ErasureReplace: erasureReplaceSchema,
+  ErasureOverride: erasureOverrideSchema,
+  ErasureRequestView: erasureRequestViewSchema,
+  ErasureRequestSummary: erasureRequestSummarySchema,
+  ErasureCertificate: erasureCertificateSchema,
 };

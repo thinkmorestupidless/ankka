@@ -77,6 +77,8 @@ private[cli] final class AnkkaTools(
 
   private val serviceArg = "name" -> string("The service's name, as in its descriptor.")
 
+  private val requestArg = "request" -> string("The erasure request's id in its project.")
+
   // ── Control plane ───────────────────────────────────────────────────────
 
   private def serviceAction(
@@ -197,6 +199,148 @@ private[cli] final class AnkkaTools(
       readOnly = true,
       idempotent = true
     )(args => ToolResult(json(client.projectHistory(project(args))))),
+    // Erasure requests (feature 042), each as the logged-in member: no more than they may do.
+    Tool(
+      "erasures_list",
+      "List erasure requests",
+      "A project's erasure requests, newest first, each with its data subject, where it stands (held, applying, applied, withdrawn), its not-before date and who asked.",
+      schema(
+        Seq.empty,
+        projectArg,
+        "subject" -> string("Only this data subject's requests."),
+        "state"   -> string("Only requests in this state: held, applying, applied or withdrawn."),
+        "correlation" -> string("Only requests with this correlation id.")
+      ),
+      readOnly = true,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(
+          client.listErasures(
+            project(args),
+            args.string("subject"),
+            args.string("state"),
+            args.string("correlation")
+          )
+        )(using ErasureWire.erasureSummariesCodec)
+      )
+    ),
+    Tool(
+      "erasure_get",
+      "Read an erasure request",
+      "One erasure request: where it stands, its hold, why it is not applied yet if an attempt failed, and each service's completion.",
+      schema(Seq("request"), requestArg, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(client.getErasure(project(args), required(args, "request")))(using
+          ErasureWire.erasureRequestViewCodec
+        )
+      )
+    ),
+    Tool(
+      "erasure_file",
+      "Ask for an erasure",
+      "Ask for the erasure of a data subject: its personal fields become unreadable everywhere the project keeps them, and cannot be read again. Applied at once unless `notBefore` holds it. Asked for a data subject already erased, the request already applied is applied again.",
+      schema(
+        Seq("subject"),
+        "subject"     -> string("The data subject, as the services name it: player/8c1f."),
+        "notBefore"   -> string("Hold the request until this date, 2027-01-31."),
+        "reason"      -> string("Why, recorded with the request."),
+        "correlation" -> string(
+          "An id of your own, to find this request beside one asked in another project."
+        ),
+        projectArg
+      ),
+      readOnly = false,
+      destructive = true,
+      idempotent = true
+    ) { args =>
+      val ask = ErasureAsk(
+        required(args, "subject"),
+        args.string("notBefore").map(com.thinkmorestupidless.ankka.cli.ErasuresCommand.notBefore),
+        args.string("reason"),
+        args.string("correlation")
+      )
+      ToolResult(
+        json(client.askErasure(project(args), ask))(using ErasureWire.erasureRequestViewCodec)
+      )
+    },
+    Tool(
+      "erasure_replace",
+      "Replace an erasure request's hold",
+      "Give a held erasure request a new not-before date or reason, in place of the old. Refused once it is no longer held.",
+      schema(
+        Seq("request"),
+        requestArg,
+        "notBefore" -> string("The new not-before date, 2027-01-31."),
+        "reason"    -> string("The new reason."),
+        projectArg
+      ),
+      readOnly = false,
+      destructive = false,
+      idempotent = true
+    ) { args =>
+      val body = ErasureReplace(
+        args.string("notBefore").map(com.thinkmorestupidless.ankka.cli.ErasuresCommand.notBefore),
+        args.string("reason")
+      )
+      ToolResult(
+        json(client.replaceErasure(project(args), required(args, "request"), body))(using
+          ErasureWire.erasureRequestViewCodec
+        )
+      )
+    },
+    Tool(
+      "erasure_withdraw",
+      "Withdraw an erasure request",
+      "Withdraw an erasure request that is not yet applied. An applied one cannot be withdrawn.",
+      schema(Seq("request"), requestArg, projectArg),
+      readOnly = false,
+      destructive = false,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(client.withdrawErasure(project(args), required(args, "request")))(using
+          ErasureWire.erasureRequestViewCodec
+        )
+      )
+    ),
+    Tool(
+      "erasure_override",
+      "Override an erasure request's hold",
+      "Apply a held erasure request at once, before its not-before date. Only an owner of the project's organization may; a member is refused. The reason is recorded with the request and on its certificate.",
+      schema(
+        Seq("request", "reason"),
+        requestArg,
+        "reason" -> string("Why the hold is overridden."),
+        projectArg
+      ),
+      readOnly = false,
+      destructive = true,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(
+          client.overrideErasure(project(args), required(args, "request"), required(args, "reason"))
+        )(using ErasureWire.erasureRequestViewCodec)
+      )
+    ),
+    Tool(
+      "erasure_certificate",
+      "Fetch an erasure certificate",
+      "The erasure certificate of an applied erasure request: who asked, the hold and any override, when the key was destroyed, and each service's completion. It holds no personal field.",
+      schema(Seq("request"), requestArg, projectArg),
+      readOnly = true,
+      idempotent = true
+    )(args =>
+      ToolResult(
+        json(client.erasureCertificate(project(args), required(args, "request")))(using
+          ErasureWire.erasureCertificateCodec
+        )
+      )
+    ),
     Tool(
       "service_logs",
       "Service logs",

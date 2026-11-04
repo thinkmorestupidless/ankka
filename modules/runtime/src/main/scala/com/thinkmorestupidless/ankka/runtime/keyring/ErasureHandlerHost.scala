@@ -52,6 +52,7 @@ private[ankka] object ErasureHandlerHost:
       def secrets: SecretStore     = service.secrets
       def services: ServiceClients = service.services
       def storage: ObjectStorage   = service.storage
+      override def erasures        = service.erasures
       def erasureSeq: Long         = notice.seq
       def rerun: Boolean           = notice.rerun
     try

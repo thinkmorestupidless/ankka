@@ -5,6 +5,7 @@
 
 import type { ComponentClient, Secrets } from "./client.ts"
 import type { Metadata } from "./effects/common.ts"
+import type { Erasures } from "./erasures.ts"
 import type { DataSubject } from "./personal.ts"
 import type { Buckets } from "./storage.ts"
 import type { Duration } from "./time.ts"
@@ -15,6 +16,8 @@ export interface ErasureContext {
   readonly secrets: Secrets
   /** The service's buckets. */
   readonly storage: Buckets
+  /** Asks for erasure requests as this service (1.23). */
+  readonly erasures: Erasures
   /** The erasure's sequence number in the keyring. */
   readonly erasureSeq: bigint
   /** Whether this is a re-run of a handler that already ran for this subject. */

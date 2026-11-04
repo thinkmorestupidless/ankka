@@ -295,3 +295,20 @@ None yet.
 - **The keyring is not ready until both copies of the erasure log have been read** (T051): with one
   copy unreadable the union is unknown, so it applies nothing and answers nothing, and tries again
   every five seconds, reporting the unread copy on `/status`.
+
+- **A project grants the `erasure` right to its own services too** (2026-11-04, T090). Grants refuse a
+  project's own services because a route's ACL names them; nothing names who may ask for an erasure,
+  and `asking.feature` has "brand" grant "players" of its own project. The own-service refusal now
+  leaves out the `erasure` target. A refused service ask is the project event `ErasureAskRefused`,
+  shown in the project's history as `erasure-refused`.
+- **Asking from code goes to the control plane over the service's certificate, at the address secret-read
+  records use** (2026-11-04, T090). `ankka.secrets.records-url` already names the control plane for every
+  service, and `ControlPlaneHttp` is now the one client both use. `ctx.erasures` is on endpoints
+  (`EndpointClients.erasures`), consumers and erasure handlers; a process reaches it through
+  `Client.AskErasure`.
+- **A Rust module asks through a third import, `erasure_ask`** (2026-11-04, asked): `AskErasureRequest` in,
+  `AskErasureReply` out, permitted where `request` is. The contract's ABI table carries it.
+- **`places.feature`'s outlines name their place in the title** (2026-11-04, asked, T089): `GherkinSuite`
+  leaves a scenario to another suite by name, and every row of an outline had one name. With `<place>`
+  (and `<who>`) in the title each row is named, so `ErasureFeatures` runs the command line and MCP rows
+  against the real control plane and leaves the console rows to the console's Playwright suite.

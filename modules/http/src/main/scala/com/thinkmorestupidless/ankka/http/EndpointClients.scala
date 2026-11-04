@@ -57,7 +57,13 @@ final class EndpointClients private[ankka] (
      * `clients.storage.bucket("photos").url(name)`. A put streams its body to the store once, so a
      * request's body can be kept without being held in memory.
      */
-    val storage: ObjectStorage = ObjectStorage.unavailable
+    val storage: ObjectStorage = ObjectStorage.unavailable,
+    /**
+     * Erasure requests asked as this service (feature 042): `clients.erasures.ask(subject)`. The
+     * control plane names the service as who asked, and needs the `erasure` grant of the project.
+     */
+    val erasures: com.thinkmorestupidless.ankka.sdk.Erasures =
+      com.thinkmorestupidless.ankka.sdk.Erasures.unavailable
 ):
 
   /**

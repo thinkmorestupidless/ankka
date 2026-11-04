@@ -7,7 +7,7 @@ Feature: A member works with erasure requests wherever the platform is used
   Background:
     Given a project "brand" with the service "players"
 
-  Scenario Outline: a member asks for an erasure request in every place the platform offers
+  Scenario Outline: a member asks for an erasure request through <place>
     When a member of "brand" asks for an erasure request for "player/8c1f" in "brand" through <place>
     Then the erasure request is accepted
     And it names the member as who asked for it
@@ -25,7 +25,7 @@ Feature: A member works with erasure requests wherever the platform is used
     Then the console shows the erasure request for "player/8c1f" as applied, with the completion of "players"
     And the console shows the erasure request for "player/41d2" as held, with its not-before date
 
-  Scenario Outline: a member fetches the erasure certificate of an applied erasure request in every place the platform offers
+  Scenario Outline: a member fetches the erasure certificate of an applied erasure request through <place>
     Given an applied erasure request for "player/8c1f" in "brand"
     When a member of "brand" fetches its erasure certificate through <place>
     Then the member is given the erasure certificate of the erasure request
@@ -36,7 +36,7 @@ Feature: A member works with erasure requests wherever the platform is used
       | the console                  |
       | the platform's MCP server    |
 
-  Scenario Outline: only an owner overrides a hold, in every place the platform offers
+  Scenario Outline: only an owner overrides a hold, <who> through <place>
     Given a held erasure request for "player/8c1f" in "brand"
     When <who> of "brand" overrides its hold with the reason "regulator order 2026-114" through <place>
     Then <outcome>

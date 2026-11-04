@@ -62,6 +62,9 @@ pub enum Import {
     /// `keyring_open`: `KeyringOpenRequest` in, `KeyringOpenReply` out (protocol 1.23). Called
     /// through [`call_keyring_open`].
     KeyringOpen,
+    /// `erasure_ask`: `AskErasureRequest` in, `AskErasureReply` out (protocol 1.23). Called through
+    /// [`call_erasure_ask`].
+    ErasureAsk,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -176,6 +179,17 @@ pub fn call_keyring_seal(request: &[u8]) -> Vec<u8> {
 /// (protocol 1.23).
 pub fn call_keyring_open(request: &[u8]) -> Vec<u8> {
     host::call_keyring_open(request)
+}
+
+/// Calls `erasure_ask`: an erasure request asked of the control plane as this service, an encoded
+/// `AskErasureRequest` in and an encoded `AskErasureReply` out. In a link block of its own, so a
+/// module that never asks for an erasure does not import it, and runs on a runtime that predates it
+/// (protocol 1.23). The runtime serves it only where it serves [`call_request`].
+///
+/// Natively, a test's script answers it (`ankka::testkit::with_erasures`), or, with none given, it
+/// is refused `Unavailable`.
+pub fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
+    host::call_erasure_ask(request)
 }
 
 /// Sends a line to the runtime's log, under the module's logger.
@@ -311,6 +325,18 @@ mod host {
         through(request, keyring_open_import)
     }
 
+    // Reached only from `call_erasure_ask`, so a module that never asks for an erasure does not
+    // import it.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "erasure_ask"]
+        fn erasure_ask_import(ptr: u32, len: u32) -> u64;
+    }
+
+    pub(super) fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
+        through(request, erasure_ask_import)
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -338,6 +364,7 @@ mod host {
                 Import::Storage => panic!("storage is called through call_storage"),
                 Import::KeyringSeal => panic!("keyring_seal is called through call_keyring_seal"),
                 Import::KeyringOpen => panic!("keyring_open is called through call_keyring_open"),
+                Import::ErasureAsk => panic!("erasure_ask is called through call_erasure_ask"),
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -424,8 +451,8 @@ mod host {
 use native as host;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{
-    NativeHost, with_native_clock, with_native_host, with_native_keyring, with_native_random,
-    with_native_services, with_native_storage,
+    NativeHost, with_native_clock, with_native_erasures, with_native_host, with_native_keyring,
+    with_native_random, with_native_services, with_native_storage,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -593,6 +620,38 @@ mod native {
         keyring(Import::KeyringOpen, request)
     }
 
+    thread_local! {
+        /// What answers `erasure_ask` on this thread when a test said.
+        static ERASURES: RefCell<Option<Rc<dyn NativeHost>>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `f` with `erasures` answering every `erasure_ask` made on this thread, then puts back
+    /// whatever answered them before.
+    pub fn with_native_erasures<T>(
+        erasures: impl NativeHost + 'static,
+        f: impl FnOnce() -> T,
+    ) -> T {
+        let mut previous = ERASURES.with(|e| e.replace(Some(Rc::new(erasures))));
+        let _restore = Restore(|| ERASURES.with(|e| *e.borrow_mut() = previous.take()));
+        f()
+    }
+
+    pub(super) fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
+        if let Some(erasures) = ERASURES.with(|e| e.borrow().clone()) {
+            return erasures.call(Import::ErasureAsk, request);
+        }
+        proto::AskErasureReply {
+            reply: Some(proto::ask_erasure_reply::Reply::Error(proto::Error {
+                message: "asking for an erasure needs the control plane, and this test gave none: \
+                          answer it with ankka::testkit::with_erasures"
+                    .into(),
+                code: proto::ErrorCode::Unavailable as i32,
+                ..Default::default()
+            })),
+        }
+        .encode_to_vec()
+    }
+
     pub(super) fn now() -> i64 {
         CLOCK.with(|c| c.get()).unwrap_or_else(|| {
             let since = std::time::SystemTime::now()
@@ -719,6 +778,7 @@ mod native {
             }
             Import::Storage => call_storage(request),
             Import::KeyringSeal | Import::KeyringOpen => keyring(import, request),
+            Import::ErasureAsk => call_erasure_ask(request),
         }
     }
 

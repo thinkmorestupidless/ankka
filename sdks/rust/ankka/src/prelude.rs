@@ -26,6 +26,7 @@ pub use crate::effects::{
     ReplicationChange, Response, StepEffect, WorkflowEffect,
 };
 pub use crate::erasure::{ErasureReport, Finality};
+pub use crate::erasures::{AskErasure, ErasureAsked, Erasures};
 pub use crate::graph::{self, GraphConsumer, GraphEffect};
 pub use crate::personal::{DataSubject, Personal};
 pub use crate::service::Service;

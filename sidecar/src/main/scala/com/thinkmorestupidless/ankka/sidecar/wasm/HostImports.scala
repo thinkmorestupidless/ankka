@@ -102,6 +102,7 @@ final class HostImports(
     .addFunction(bytes("storage")(storage))
     .addFunction(bytes("keyring_seal")(keyringSeal))
     .addFunction(bytes("keyring_open")(keyringOpen))
+    .addFunction(bytes("erasure_ask")(erasureAsk))
     .addFunction(logFunction)
     .build()
 
@@ -272,6 +273,24 @@ final class HostImports(
       case None =>
         KeyringOpenReply(KeyringOpenReply.Reply.Error(notReady)).toByteArray
       case Some(c) => c.keyringOpen(KeyringOpenRequest.parseFrom(asked)).toByteArray
+
+  /**
+   * An erasure request asked as this service (protocol 1.23, feature 042), from where a call to
+   * another service may be made, since it waits on the control plane; refused, by throwing, from
+   * anywhere else. The control plane's refusal is the reply's `Error`.
+   */
+  private[sidecar] def erasureAsk(asked: Array[Byte]): Array[Byte] =
+    val site = CallSite.current.getOrElse(
+      throw ImportRefused(
+        "erasure_ask",
+        "erasure_ask may not be called outside a call into the module"
+      )
+    )
+    site.mayRequest.left.foreach(reason => throw ImportRefused("erasure_ask", reason))
+    logic match
+      case None    => AskErasureReply(AskErasureReply.Reply.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.askErasure(AskErasureRequest.parseFrom(asked)), commandTimeout).toByteArray
 
   private def keyringSite(name: String): Unit =
     val site = CallSite.current.getOrElse(

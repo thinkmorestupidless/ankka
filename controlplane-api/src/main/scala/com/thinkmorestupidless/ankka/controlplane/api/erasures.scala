@@ -68,7 +68,9 @@ final case class ErasureRequestSummary(
     askedBy: Option[String] = None,
     askedAt: Option[Instant] = None,
     appliedAt: Option[Instant] = None,
-    finalAt: Option[Instant] = None
+    finalAt: Option[Instant] = None,
+    /** The request's project: set where a listing spans projects (`GET /erasures`). */
+    project: Option[String] = None
 )
 
 /** The hold an erasure waited under, and when it lapsed. */

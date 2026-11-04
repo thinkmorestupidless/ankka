@@ -200,6 +200,8 @@ object ControlPlane:
           erasures = () => erasures.flatMap(_.application)
         ),
       _ => SecretReadsEndpoint(secretRecords),
+      clients =>
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasuresEndpoint(clients, acl, clock),
       _ => com.thinkmorestupidless.ankka.controlplane.erasure.ErasureLogEndpoint(() => erasures),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix

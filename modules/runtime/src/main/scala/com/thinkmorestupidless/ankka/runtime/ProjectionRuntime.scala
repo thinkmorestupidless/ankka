@@ -247,7 +247,14 @@ final class ProjectionRuntime private (
       )
       keyed.foreach(startKeyedView(_, client, askTimeout))
       consumers.foreach(
-        startConsumer(_, client, service.secrets, service.services, service.storage)
+        startConsumer(
+          _,
+          client,
+          service.secrets,
+          service.services,
+          service.storage,
+          service.erasures
+        )
       )
 
       if remoteViews.nonEmpty || remoteKeyed.nonEmpty || remoteConsumers.nonEmpty then
@@ -942,7 +949,8 @@ final class ProjectionRuntime private (
       client: ComponentClient,
       secrets: SecretStore,
       services: ServiceClients,
-      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+      erasures: com.thinkmorestupidless.ankka.sdk.Erasures
   )(using system: ActorSystem[?]): Unit =
     type AnyConsumer = Consumer[Any, Any]
     val typed       = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
@@ -971,6 +979,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 storage,
+                erasures,
                 HistoryLines(system),
                 journalOf(sourceId)
               )
@@ -993,6 +1002,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 storage,
+                erasures,
                 HistoryLines(system)
               )
           )
@@ -1014,6 +1024,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 storage,
+                erasures,
                 HistoryLines(system),
                 ChangeReader.workflow(decoder.manifest)
               )
@@ -1032,7 +1043,8 @@ final class ProjectionRuntime private (
               Observability(system),
               secrets,
               services,
-              storage
+              storage,
+              erasures
             )
           // `validate` refused a consumer over a topic that declares nowhere.
           val start   = startFrom.getOrElse(StartFrom.Earliest)
@@ -1646,6 +1658,7 @@ private final class ConsumerEventHandler[A](
     secrets: SecretStore,
     services: ServiceClients,
     storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+    erasures: com.thinkmorestupidless.ankka.sdk.Erasures,
     lines: HistoryLines,
     reader: ChangeReader[A]
 ) extends Handler[EventEnvelope[A]]:
@@ -1654,7 +1667,7 @@ private final class ConsumerEventHandler[A](
 
   private val consumer =
     descriptor.create(
-      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
   /**
@@ -1715,6 +1728,7 @@ private final class ConsumerStateHandler(
     secrets: SecretStore,
     services: ServiceClients,
     storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+    erasures: com.thinkmorestupidless.ankka.sdk.Erasures,
     lines: HistoryLines
 ) extends Handler[DurableStateChange[StateRecord]]:
 
@@ -1722,7 +1736,7 @@ private final class ConsumerStateHandler(
 
   private val consumer =
     descriptor.create(
-      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =

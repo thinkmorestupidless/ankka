@@ -600,6 +600,19 @@ final case class Project(
     copy(backupCredentialGeneration = generation)
       .remember("backup-credential-reissued", actor, at, Some(s"generation $generation"))
 
+  def onErasureAskRefused(
+      service: String,
+      subject: String,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    remember(
+      "erasure-refused",
+      actor,
+      at,
+      Some(s"$service asked for an erasure request for $subject without the erasure grant")
+    )
+
   def onDatabaseSet(
       setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,
       actor: Option[Actor],

@@ -9,6 +9,10 @@ async def erase(ctx: ErasureContext, subject: DataSubject) -> ErasureReport:
     return ErasureReport(objects_erased=removed.count, finality=removed.finality)
 ```
 
+Endpoints, consumers and the erasure handler can also ask for an erasure request, as this service
+(``self.erasures.ask(subject)``, ``ctx.erasures.ask(subject)``), which needs the ``erasure`` grant of
+the project it asks in.
+
 One per service. The sidecar calls it on one instance for each erased data subject, and again on
 each re-run within the window, so it must be idempotent. One that raises is recorded as failed for
 that run and run again on the next; the platform's own duties do not wait for it.
@@ -28,10 +32,10 @@ from ankka._proto.ankka.protocol.v1 import erasure_pb2, erasure_pb2_grpc, payloa
 from ankka.client import CommandError, ComponentClient
 from ankka.codec import _format_duration
 from ankka.context import Metadata
+from ankka.erasures import Erasures
 from ankka.personal import DataSubject, subject_problem
 
 log = logging.getLogger("ankka")
-
 
 @dataclass(frozen=True)
 class ErasureReport:
@@ -57,6 +61,11 @@ class ErasureContext:
     client: ComponentClient
     storage: Any = None
     secrets: Any = None
+
+    @property
+    def erasures(self) -> Erasures:
+        """Asks for erasure requests as this service, through the handler's client."""
+        return Erasures(self.client)
 
 
 ErasureHandler = Callable[[ErasureContext, DataSubject], "ErasureReport | None | Awaitable[ErasureReport | None]"]

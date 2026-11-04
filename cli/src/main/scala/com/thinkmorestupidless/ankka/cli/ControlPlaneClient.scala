@@ -309,6 +309,66 @@ final class ControlPlaneClient(settings: Settings):
       send("POST", s"/projects/${segment(projectId)}/grants", Some(writeToString(request)))
     )
 
+  // ── Erasure requests (feature 042) ──────────────────────────────────────────
+
+  def askErasure(projectId: String, ask: ErasureAsk): ErasureRequestView =
+    decode[ErasureRequestView](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/erasures",
+        Some(writeToString(ask)(using ErasureWire.erasureAskCodec))
+      )
+    )(using ErasureWire.erasureRequestViewCodec)
+
+  def listErasures(
+      projectId: String,
+      subject: Option[String] = None,
+      state: Option[String] = None,
+      correlation: Option[String] = None
+  ): Vector[ErasureRequestSummary] =
+    val params = Vector(
+      subject.map(s => s"subject=${encode(s)}"),
+      state.map(s => s"state=${encode(s)}"),
+      correlation.map(c => s"correlation=${encode(c)}")
+    ).flatten
+    val query = if params.isEmpty then "" else params.mkString("?", "&", "")
+    get[Vector[ErasureRequestSummary]](s"/projects/${segment(projectId)}/erasures$query")(using
+      ErasureWire.erasureSummariesCodec
+    )
+
+  def getErasure(projectId: String, rid: String): ErasureRequestView =
+    get[ErasureRequestView](s"/projects/${segment(projectId)}/erasures/${segment(rid)}")(using
+      ErasureWire.erasureRequestViewCodec
+    )
+
+  def replaceErasure(projectId: String, rid: String, body: ErasureReplace): ErasureRequestView =
+    decode[ErasureRequestView](
+      send(
+        "PUT",
+        s"/projects/${segment(projectId)}/erasures/${segment(rid)}",
+        Some(writeToString(body)(using ErasureWire.erasureReplaceCodec))
+      )
+    )(using ErasureWire.erasureRequestViewCodec)
+
+  def withdrawErasure(projectId: String, rid: String): ErasureRequestView =
+    decode[ErasureRequestView](
+      send("POST", s"/projects/${segment(projectId)}/erasures/${segment(rid)}/withdraw", None)
+    )(using ErasureWire.erasureRequestViewCodec)
+
+  def overrideErasure(projectId: String, rid: String, reason: String): ErasureRequestView =
+    decode[ErasureRequestView](
+      send(
+        "POST",
+        s"/projects/${segment(projectId)}/erasures/${segment(rid)}/override",
+        Some(writeToString(ErasureOverride(reason))(using ErasureWire.erasureOverrideCodec))
+      )
+    )(using ErasureWire.erasureRequestViewCodec)
+
+  def erasureCertificate(projectId: String, rid: String): ErasureCertificate =
+    get[ErasureCertificate](
+      s"/projects/${segment(projectId)}/erasures/${segment(rid)}/certificate"
+    )(using ErasureWire.erasureCertificateCodec)
+
   def listGrants(projectId: String): Vector[GrantDetail] =
     get[Vector[GrantDetail]](s"/projects/${segment(projectId)}/grants")
 

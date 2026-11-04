@@ -31,6 +31,9 @@ type fakeSidecar struct {
 	// keyProject is the project GetSubjectKey answers as the own one; "" has no keys (before 1.23).
 	keyProject string
 	keyAsked   []string
+	// erasure answers AskErasure; nil is a sidecar before 1.23.
+	erasure       *pb.AskErasureReply
+	erasuresAsked []*pb.AskErasureRequest
 }
 
 func (f *fakeSidecar) Invoke(_ context.Context, r *pb.InvokeRequest) (*pb.InvokeReply, error) {

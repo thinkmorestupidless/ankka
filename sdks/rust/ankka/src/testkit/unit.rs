@@ -1208,3 +1208,96 @@ impl NativeHost for InMemoryKeyring {
 pub fn with_keyring<T>(keyring: &InMemoryKeyring, f: impl FnOnce() -> T) -> T {
     crate::abi::imports::with_native_keyring(keyring.clone(), f)
 }
+
+// ── Erasure requests ─────────────────────────────────────────────────────────
+
+/// Answers `erasure_ask` for unit tests, as the control plane would: each ask in turn takes the next
+/// scripted answer, and with none left it is accepted as `held` under an id of its own
+/// (`erasure-1`, `erasure-2`, …). Every ask is kept, so a test reads what its handler asked. Clones
+/// share what they hold.
+#[derive(Debug, Clone, Default)]
+pub struct ScriptedErasures {
+    held: Rc<RefCell<ErasuresState>>,
+}
+
+#[derive(Debug, Default)]
+struct ErasuresState {
+    script: std::collections::VecDeque<proto::ask_erasure_reply::Reply>,
+    asked: Vec<proto::AskErasureRequest>,
+}
+
+impl ScriptedErasures {
+    /// Accepts every ask as `held`.
+    pub fn new() -> ScriptedErasures {
+        ScriptedErasures::default()
+    }
+
+    /// The next ask is answered `asked`.
+    pub fn answer(self, asked: crate::erasures::ErasureAsked) -> ScriptedErasures {
+        self.held
+            .borrow_mut()
+            .script
+            .push_back(proto::ask_erasure_reply::Reply::Ok(proto::ErasureAsked {
+                id: asked.id,
+                state: asked.state,
+            }));
+        self
+    }
+
+    /// The next ask is refused with `code` and `message`: `Forbidden` is the control plane's answer
+    /// to a service without the project's `erasure` grant.
+    pub fn refuse(self, code: ErrorCode, message: impl Into<String>) -> ScriptedErasures {
+        self.held
+            .borrow_mut()
+            .script
+            .push_back(proto::ask_erasure_reply::Reply::Error(
+                CommandError::new(code, message.into()).to_proto(),
+            ));
+        self
+    }
+
+    /// Every ask made of it, in order, as the runtime received it.
+    pub fn asked(&self) -> Vec<proto::AskErasureRequest> {
+        self.held.borrow().asked.clone()
+    }
+
+    /// Answers one ask as the `erasure_ask` import does.
+    pub fn respond(&self, request: proto::AskErasureRequest) -> proto::AskErasureReply {
+        let mut held = self.held.borrow_mut();
+        held.asked.push(request);
+        let n = held.asked.len();
+        let reply = held.script.pop_front().unwrap_or_else(|| {
+            proto::ask_erasure_reply::Reply::Ok(proto::ErasureAsked {
+                id: format!("erasure-{n}"),
+                state: "held".to_string(),
+            })
+        });
+        proto::AskErasureReply { reply: Some(reply) }
+    }
+}
+
+impl NativeHost for ScriptedErasures {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        match import {
+            Import::ErasureAsk => self
+                .respond(
+                    proto::AskErasureRequest::decode(request)
+                        .unwrap_or_else(|e| panic!("an erasure ask that does not decode: {e}")),
+                )
+                .encode_to_vec(),
+            other => panic!("the erasure double answers only erasure_ask, not {other:?}"),
+        }
+    }
+}
+
+/// Runs `f` with `erasures` answering every erasure its handlers ask for on this thread. With none
+/// given, an ask is refused `Unavailable`, as it is where no control plane is reachable.
+///
+/// ```ignore
+/// let erasures = ScriptedErasures::new().refuse(ErrorCode::Forbidden, "no erasure grant");
+/// let response = with_erasures(&erasures, || kit.post("/close/8c1f", &()));
+/// assert_eq!(erasures.asked()[0].subject, "player/8c1f");
+/// ```
+pub fn with_erasures<T>(erasures: &ScriptedErasures, f: impl FnOnce() -> T) -> T {
+    crate::abi::imports::with_native_erasures(erasures.clone(), f)
+}

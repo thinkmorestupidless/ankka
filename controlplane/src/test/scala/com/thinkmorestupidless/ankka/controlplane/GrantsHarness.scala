@@ -50,7 +50,10 @@ final class GrantsHarness(
   val machineKeys =
     com.thinkmorestupidless.ankka.controlplane.auth.MachineKeys.inMemory(identity.clock)
   private var kit: AnkkaTestKit = null
-  private var url: String       = ""
+  private var bound: String     = ""
+
+  /** The control plane's address, once started. */
+  def url: String  = bound
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
   private var people = Map.empty[String, String]
@@ -76,7 +79,7 @@ final class GrantsHarness(
       Seq(ProjectionRuntime(), projector) ++ erasurePlane.toSeq ++ Seq(server, tokens),
       keyring = keyring
     )
-    url = s"http://127.0.0.1:${server.boundPort.getOrElse(sys.error("server did not bind"))}"
+    bound = s"http://127.0.0.1:${server.boundPort.getOrElse(sys.error("server did not bind"))}"
 
   def stop(): Unit =
     if kit != null then kit.stop()
@@ -101,14 +104,32 @@ final class GrantsHarness(
   ): (Int, String) =
     request(method, path, body, Some(if as.startsWith("ankka_") then as else tokenOf(as)))
 
+  /** A request as the service `service` of `project`, as its certificate would name it. */
+  def sendAsService(
+      method: String,
+      path: String,
+      body: Option[String],
+      project: String,
+      service: String
+  ): (Int, String) =
+    request(
+      method,
+      path,
+      body,
+      None,
+      Some(kit.asCaller(com.thinkmorestupidless.ankka.http.Caller.Service(project, service)))
+    )
+
   def request(
       method: String,
       path: String,
       body: Option[String],
-      bearer: Option[String]
+      bearer: Option[String],
+      caller: Option[(String, String)] = None
   ): (Int, String) =
     val builder = JdkRequest.newBuilder(URI.create(url + path)).timeout(Duration.ofSeconds(30))
     bearer.foreach(b => builder.header("Authorization", s"Bearer $b"): Unit)
+    caller.foreach((name, value) => builder.header(name, value): Unit)
     body match
       case Some(json) =>
         builder.header("Content-Type", "application/json")

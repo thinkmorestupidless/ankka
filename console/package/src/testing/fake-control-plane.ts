@@ -102,7 +102,30 @@ interface Project {
   database?: { replicas: number; synchronous: boolean; retentionDays?: number; rehearse?: string };
   /** The changes to its topics, newest first. */
   history?: ProjectHistoryRecord[];
+  /** Feature 042: its erasure requests, oldest first. */
+  erasures?: ErasureRecord[];
   hidden: boolean;
+}
+
+/** An erasure request as the control plane's entity holds it (feature 042). */
+interface ErasureRecord {
+  id: string;
+  project: string;
+  subject: string;
+  state: "held" | "applying" | "applied" | "withdrawn";
+  askedBy?: string;
+  askedAt: string;
+  notBefore?: string;
+  reason?: string;
+  correlation?: string;
+  lapsedAt?: string;
+  holdOverride?: { owner: string; reason: string; at: string };
+  erasureSeq?: number;
+  destroyedAt?: string;
+  appliedAt?: string;
+  completions: { service: string; completedAt?: string; rowsRedacted: number; tokensDropped: number; sessionsEnded: number }[];
+  finalAt?: string;
+  lastFailure?: { reason: string; at?: string };
 }
 
 interface ProjectHistoryRecord {
@@ -411,6 +434,14 @@ interface Caller {
   tokenOrg?: string;
 }
 
+/** A handler's answer with 201, as the control plane gives for a new erasure request. */
+class Created {
+  readonly body: unknown;
+  constructor(body: unknown) {
+    this.body = body;
+  }
+}
+
 class HttpError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -532,6 +563,13 @@ export interface FakeSeed {
   grants?: { projectId: string; grantee: string; target: FakeGrantTarget; state?: string; by?: string }[];
   /** Machines registered on an organization. */
   machines?: { organizationId: string; name: string; byteRates?: Machine["byteRates"] }[];
+  /** Feature 042: whether the installation's erasure is on (`ANKKA_ERASURE`); off until a suite says so. */
+  erasure?: boolean;
+  /**
+   * Erasure requests, as if asked by `askedBy` (`seed` otherwise): `held` until a not-before date a
+   * month away unless one is given, or `applied` with a completion from every service of the project.
+   */
+  erasures?: { projectId: string; subject: string; state: "held" | "applied" | "withdrawn"; notBefore?: string; reason?: string; correlation?: string; askedBy?: string }[];
 }
 
 export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): Promise<FakeControlPlane> {
@@ -550,6 +588,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   let base = "";
   let objectStore: "garage" | "gcs" = "garage";
   let cloud: FakeCloud | null = null;
+  let erasureOn = false;
+  let erasureSeq = 0;
 
   const serviceKey = (p: string, n: string) => `${p}/${n}`;
 
@@ -825,10 +865,11 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       ...(cloud ? { cloud: { ...where, ...(kmsKey && owns ? { kmsKey } : {}) } } : {}),
       // Feature 038: where secrets are kept, as an installation that has said nothing answers.
       secrets: { backend: "postgres", recordRetention: "365d", auditLog: "unknown" },
-      // Spec 057: a one-node broker and no bound on retention, as the shipped settings say; no
-      // erasure, which the platform does not have yet.
+      // Spec 057: a one-node broker and no bound on retention, as the shipped settings say.
       broker: { nodes: 1, defaultCopies: 1, minInSync: 1 },
       retention: { unbounded: true },
+      // Feature 042: the installation's erasure, as `ANKKA_ERASURE` sets it, with the keyring's default size.
+      erasure: { enabled: erasureOn, keyringInstances: 2 },
       // Feature 041: where the backups go, as an installation with Garage and no copy says it.
       backups: {
         backupTarget: "object-store",
@@ -1515,6 +1556,200 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   const noSuchProject = (id: string) => new HttpError(404, `no such project '${id}'`);
 
   /** A project's grants are read by its organization's members and written by its owners; an outsider is told there is no project. */
+  // ── Erasure requests (feature 042) ─────────────────────────────────────────
+
+  const Crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  /** A request's id: a ULID, sortable by time, as the control plane makes one. */
+  const erasureId = () => {
+    let time = Date.now();
+    let head = "";
+    for (let i = 0; i < 10; i++) {
+      head = Crockford[time % 32] + head;
+      time = Math.floor(time / 32);
+    }
+    const tail = [...randomBytes(16)].map((b) => Crockford[b % 32]).join("");
+    return head + tail;
+  };
+  const SubjectRule = "a data subject is 1 to 253 characters from letters, digits, '.', '_', '-', '/' and ':'";
+
+  /** Every write is refused while the installation's erasure is off, in the control plane's words. */
+  function requireErasure() {
+    if (!erasureOn) throw new HttpError(409, "erasure is off on this installation (ANKKA_ERASURE)");
+  }
+
+  /** The key destroyed and every service of the project completed: what the platform does after the answer. */
+  function applyErasure(r: ErasureRecord) {
+    const at = now();
+    r.state = "applied";
+    r.erasureSeq = ++erasureSeq;
+    r.destroyedAt = at;
+    r.appliedAt = at;
+    r.lastFailure = undefined;
+    r.completions = [...services.values()]
+      .filter((s) => s.projectId === r.project)
+      .map((s) => ({ service: s.name, completedAt: at, rowsRedacted: 3, tokensDropped: 1, sessionsEnded: 1 }))
+      .sort((a, b) => a.service.localeCompare(b.service));
+  }
+
+  /** A request answered as `applying` is applied by the next read, as the real one is moments later. */
+  function settleErasures(project: Project) {
+    for (const r of project.erasures ?? []) if (r.state === "applying") applyErasure(r);
+  }
+
+  function requireErasure404(project: Project, rid: string): ErasureRecord {
+    const r = project.erasures?.find((e) => e.id === rid);
+    if (!r) throw new HttpError(404, `no such erasure request '${project.id}/${rid}'`);
+    return r;
+  }
+
+  const notHeld = (r: ErasureRecord, what: string) => {
+    if (r.state !== "held") throw new HttpError(409, `erasure request '${r.project}/${r.id}': it is ${r.state} and cannot be ${what}`);
+  };
+
+  const erasureView = (r: ErasureRecord) => ({
+    id: r.id,
+    project: r.project,
+    subject: r.subject,
+    state: r.state,
+    askedBy: r.askedBy,
+    askedAt: r.askedAt,
+    notBefore: r.notBefore,
+    reason: r.reason,
+    correlation: r.correlation,
+    lapsedAt: r.lapsedAt,
+    holdOverride: r.holdOverride,
+    erasureSeq: r.erasureSeq,
+    destroyedAt: r.destroyedAt,
+    completions: r.completions,
+    finalAt: r.finalAt,
+    lastFailure: r.lastFailure,
+  });
+
+  const erasureSummary = (r: ErasureRecord, withProject = false) => ({
+    id: r.id,
+    subject: r.subject,
+    state: r.state,
+    correlation: r.correlation,
+    notBefore: r.notBefore,
+    askedBy: r.askedBy,
+    askedAt: r.askedAt,
+    appliedAt: r.appliedAt,
+    finalAt: r.finalAt,
+    project: withProject ? r.project : undefined,
+  });
+
+  function askErasure(project: Project, subject: unknown, notBefore: string | undefined, reason: string | undefined, correlation: string | undefined, askedBy: string | undefined): ErasureRecord {
+    if (typeof subject !== "string" || !/^[A-Za-z0-9._/:-]{1,253}$/.test(subject)) throw new HttpError(400, `'${String(subject)}' is not a data subject: ${SubjectRule}`);
+    if (reason !== undefined && reason.length > 500) throw new HttpError(400, "a reason is at most 500 characters");
+    if (correlation !== undefined && !/^[A-Za-z0-9._/:-]{1,128}$/.test(correlation))
+      throw new HttpError(400, "a correlation is 1 to 128 characters from letters, digits, '.', '_', '-', '/' and ':'");
+    if (notBefore !== undefined && Number.isNaN(Date.parse(notBefore))) throw new HttpError(400, `'${notBefore}' is not an instant`);
+    const askedAt = now();
+    const held = notBefore !== undefined && Date.parse(notBefore) > Date.parse(askedAt);
+    const r: ErasureRecord = { id: erasureId(), project: project.id, subject, state: held ? "held" : "applying", askedBy, askedAt, notBefore, reason, correlation, completions: [] };
+    project.erasures ??= [];
+    project.erasures.push(r);
+    return r;
+  }
+
+  route("POST", "/projects/{projectId}/erasures", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    requireErasure();
+    const b = (body ?? {}) as { subject?: unknown; notBefore?: string; reason?: string; correlation?: string };
+    settleErasures(project);
+    // Asked again for a data subject already erased: that request, answered 200 rather than 201.
+    const applied = project.erasures?.find((r) => r.subject === b.subject && r.state === "applied");
+    if (applied) return erasureView(applied);
+    return new Created(erasureView(askErasure(project, b.subject, b.notBefore ?? undefined, b.reason ?? undefined, b.correlation ?? undefined, c.subject)));
+  });
+
+  route("GET", "/projects/{projectId}/erasures", (c, p, _body, url) => {
+    const { project } = requireProject(c, p.projectId);
+    settleErasures(project);
+    const subject = url.searchParams.get("subject");
+    const state = url.searchParams.get("state");
+    const correlation = url.searchParams.get("correlation");
+    if (state !== null && !["held", "applying", "applied", "withdrawn"].includes(state))
+      throw new HttpError(400, `state is one of held, applying, applied, withdrawn, not '${state}'`);
+    return [...(project.erasures ?? [])]
+      .reverse()
+      .filter((r) => (subject === null || r.subject === subject) && (state === null || r.state === state) && (correlation === null || r.correlation === correlation))
+      .map((r) => erasureSummary(r));
+  });
+
+  route("GET", "/erasures", (c, _p, _body, url) => {
+    const correlation = url.searchParams.get("correlation");
+    return [...projects.values()]
+      .filter((p) => organizations.get(p.organizationId)?.members.has(c.subject))
+      .flatMap((p) => (settleErasures(p), [...(p.erasures ?? [])].reverse()))
+      .filter((r) => correlation === null || r.correlation === correlation)
+      .map((r) => erasureSummary(r, true));
+  });
+
+  route("GET", "/projects/{projectId}/erasures/{requestId}", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    settleErasures(project);
+    return erasureView(requireErasure404(project, p.requestId));
+  });
+
+  route("PUT", "/projects/{projectId}/erasures/{requestId}", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    requireErasure();
+    const r = requireErasure404(project, p.requestId);
+    notHeld(r, "replaced");
+    const b = (body ?? {}) as { notBefore?: string; reason?: string };
+    if (b.reason && b.reason.length > 500) throw new HttpError(400, "a reason is at most 500 characters");
+    r.notBefore = b.notBefore ?? undefined;
+    r.reason = b.reason ?? undefined;
+    return erasureView(r);
+  });
+
+  route("POST", "/projects/{projectId}/erasures/{requestId}/withdraw", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    requireErasure();
+    const r = requireErasure404(project, p.requestId);
+    notHeld(r, "withdrawn");
+    r.state = "withdrawn";
+    return erasureView(r);
+  });
+
+  route("POST", "/projects/{projectId}/erasures/{requestId}/override", (c, p, body) => {
+    const { project } = requireProject(c, p.projectId);
+    const org = requireOwner(c, project.organizationId);
+    requireWrite(org);
+    requireErasure();
+    const r = requireErasure404(project, p.requestId);
+    notHeld(r, "overridden");
+    const reason = String((body as { reason?: unknown } | undefined)?.reason ?? "");
+    if (reason.trim() === "") throw new HttpError(400, "an override needs a reason");
+    if (reason.length > 500) throw new HttpError(400, "an override's reason is at most 500 characters");
+    r.state = "applying";
+    r.holdOverride = { owner: c.subject, reason, at: now() };
+    return erasureView(r);
+  });
+
+  route("GET", "/projects/{projectId}/erasures/{requestId}/certificate", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    settleErasures(project);
+    const r = requireErasure404(project, p.requestId);
+    if (r.state !== "applied") throw new HttpError(409, `erasure request '${r.id}' is ${r.state}; a certificate is issued once it is applied`);
+    return {
+      request: r.id,
+      project: r.project,
+      subject: r.subject,
+      askedBy: r.askedBy,
+      askedAt: r.askedAt,
+      hold: r.notBefore ? { notBefore: r.notBefore, reason: r.reason, lapsedAt: r.lapsedAt } : undefined,
+      holdOverride: r.holdOverride,
+      keyDestroyedAt: r.destroyedAt,
+      services: r.completions.map((x) => ({ service: x.service, completedAt: x.completedAt })),
+      finalAt: r.finalAt,
+    };
+  });
+
   function grantProject(c: Caller, id: string, owner: boolean): { project: Project; org: Org } {
     const project = projects.get(id);
     if (!project) throw noSuchProject(id);
@@ -2155,7 +2390,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     match.r.keys.forEach((k, i) => (params[k] = decodeURIComponent(match.m![i + 1])));
     try {
       const result = match.r.handler(caller as Caller, params, body, url);
-      send(res, 200, result);
+      if (result instanceof Created) send(res, 201, result.body);
+      else send(res, 200, result);
     } catch (e) {
       if (e instanceof HttpError) return send(res, e.status, { status: e.status, error: e.message });
       send(res, 500, { status: 500, error: String(e) });
@@ -2218,6 +2454,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       if (seed.objectStore) objectStore = seed.objectStore;
       if (seed.cloud !== undefined) cloud = seed.cloud;
       if (seed.held) hold = { ...seed.held, releasedAt: undefined, releasedBy: undefined };
+      if (seed.erasure !== undefined) erasureOn = seed.erasure;
       for (const o of seed.organizations ?? []) {
         const members = new Map<string, Member>();
         for (const s of o.owners ?? []) members.set(s, { role: "owner", since: now() });
@@ -2307,6 +2544,15 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         if (!parseGrantee(g.grantee)) throw new Error(`grantee ${g.grantee} is not service:<project>/<name> or machine:<organization>/<name>`);
         const grant = makeGrant(project, org, g.grantee, g.target, g.by ?? "seed", g.state);
         if (g.state && g.state !== "pending" && g.state !== "accepted") grant.ended = { by: g.by ?? "seed", at: grant.granted.at };
+      }
+      for (const e of seed.erasures ?? []) {
+        const project = projects.get(e.projectId);
+        if (!project) throw new Error(`no project ${e.projectId}`);
+        const notBefore = e.notBefore ?? (e.state === "held" ? new Date(Date.now() + 30 * 86400000).toISOString() : undefined);
+        const r = askErasure(project, e.subject, notBefore, e.reason, e.correlation, e.askedBy ?? "seed");
+        if (e.state === "applied") applyErasure(r);
+        else if (e.state === "withdrawn") r.state = "withdrawn";
+        else if (r.state !== "held") throw new Error(`a held erasure request needs a not-before date in the future, not ${notBefore}`);
       }
     },
     close: () =>

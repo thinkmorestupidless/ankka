@@ -639,7 +639,9 @@ final class ServiceBuilder private[ankka] (
       replicating,
       builtStorage.storage,
       builtStorage.directory,
-      keyringHandle
+      keyringHandle,
+      com.thinkmorestupidless.ankka.runtime.keyring.ControlPlaneErasures
+        .from(system.settings.config, serviceIdentity.toOption.flatMap(_.project))
     )
     started.set(service)
     system.whenTerminated.foreach { _ =>
@@ -890,7 +892,13 @@ final class AnkkaService private[ankka] (
      * binds as `Keyring.current` around its serializer calls.
      */
     val keyring: com.thinkmorestupidless.ankka.core.Keyring =
-      com.thinkmorestupidless.ankka.core.Keyring.unavailable
+      com.thinkmorestupidless.ankka.core.Keyring.unavailable,
+    /**
+     * Erasure requests asked as this service (feature 042): given to endpoints, consumers and
+     * erasure handlers. Refuses every ask where no control plane is reachable.
+     */
+    val erasures: com.thinkmorestupidless.ankka.sdk.Erasures =
+      com.thinkmorestupidless.ankka.sdk.Erasures.unavailable
 ):
 
   /**

@@ -59,6 +59,27 @@ class ErasureFeatures(
   override val munitTimeout = 4.minutes
 
   override protected def ranElsewhere: Map[String, String] = Map(
+    // A session's and an instance's own suite: kits with agents and a scripted model.
+    "a session started with a data subject keeps its conversation encrypted under the subject key" ->
+      "ErasureAgentsFeatures",
+    "a session of an erased data subject reads as erased and a new turn begins with nothing" ->
+      "ErasureAgentsFeatures",
+    "an agent instance or a task tagged with an erased data subject reads as erased and the agent instance is stopped" ->
+      "ErasureAgentsFeatures",
+    "a session started with no data subject is unchanged by any erasure" ->
+      "ErasureAgentsFeatures",
+    // The console is the console package's own: its Playwright suite, against the fake control
+    // plane, which ControlPlaneFixturesSuite holds to the real one's answers.
+    "a member asks for an erasure request through the console" ->
+      "the console's Playwright suite (just test-console)",
+    "the console shows the erasure requests of a project with where each one stands and each service's completion" ->
+      "the console's Playwright suite (just test-console)",
+    "a member fetches the erasure certificate of an applied erasure request through the console" ->
+      "the console's Playwright suite (just test-console)",
+    "only an owner overrides a hold, an owner through the console" ->
+      "the console's Playwright suite (just test-console)",
+    "only an owner overrides a hold, a member who is not an owner through the console" ->
+      "the console's Playwright suite (just test-console)",
     // A restored database and a restored keyring are a cluster's: CNPG's recovery and the hold.
     "a service restored to before an erasure is not ready until it has applied the erasure log to its own tables" ->
       "ErasureRestoreClusterFeatures, on k3s",
@@ -838,6 +859,278 @@ class ErasureFeatures(
     val envelope = envelopeOf(text, "email").getOrElse(fail(s"no envelope of 'email' in $text"))
     assertEquals(sealedUnder(envelope, subject, "player-event"), "\"" + email + "\"")
     kit.assertNoPersonalValue(email)
+  }
+
+  // ── asking.feature ─────────────────────────────────────────────────────────
+
+  /** A project of the feature as the control plane knows it in this scenario. */
+  private def planeOf(name: String): String =
+    if name == project then planeProject else s"$name-$scenarios"
+
+  private var lastAsk: (Int, String) = (0, "")
+
+  Given("a project {string}") { (name: String) =>
+    harness.project(planeOf(name), "acme", "ada")
+  }
+
+  private def grantErasure(grantor: String, service: String, of: String): Unit =
+    val (status, body) = harness.send(
+      "POST",
+      s"/projects/${planeOf(grantor)}/grants",
+      Some(s"""{"grantee":"service:${planeOf(of)}/$service","target":{"kind":"erasure"}}"""),
+      as = "ada"
+    )
+    assert(status / 100 == 2 || status == 409, s"$status $body")
+
+  Given("{string} grants {string} the right to ask for an erasure") {
+    (grantor: String, service: String) => grantErasure(grantor, service, project)
+  }
+
+  Given("{string} grants {string} of {string} the right to ask for an erasure") {
+    (grantor: String, service: String, of: String) => grantErasure(grantor, service, of)
+  }
+
+  Given("{string} grants {string} of {string} nothing") { (_: String, _: String, _: String) =>
+    ()
+  }
+
+  private def askAs(
+      service: String,
+      subject: String,
+      in: String,
+      correlation: Option[String] = None
+  ): (Int, String) =
+    harness.sendAsService(
+      "POST",
+      s"/projects/${planeOf(in)}/erasures",
+      Some(
+        s"""{"subject":"$subject"${correlation.fold("")(c => s""","correlation":"$c"""")}}"""
+      ),
+      planeOf(project),
+      service
+    )
+
+  When("{string} asks for an erasure request for {string} in {string}") {
+    (service: String, subject: String, in: String) =>
+      lastAsk = askAs(service, subject, in)
+      if lastAsk._1 / 100 == 2 then settled(in, lastAsk._2)
+  }
+
+  /**
+   * Waits for an accepted ask to be applied: applied later, it would reach the next scenario's
+   * keyring and erase a data subject that scenario records.
+   */
+  private def settled(in: String, answer: String): Unit =
+    val id = com.github.plokhotnyuk.jsoniter_scala.core
+      .readFromString(answer)(using
+        com.thinkmorestupidless.ankka.controlplane.api.ErasureWire.erasureRequestViewCodec
+      )
+      .id
+    eventually(s"erasure request $id applied")(
+      Some(harness.send("GET", s"/projects/${planeOf(in)}/erasures/$id", as = "ada")._2)
+        .filter(_.contains(""""state":"applied""""))
+    ): Unit
+
+  private def askedView: com.thinkmorestupidless.ankka.controlplane.api.ErasureRequestView =
+    com.github.plokhotnyuk.jsoniter_scala.core.readFromString(lastAsk._2)(using
+      com.thinkmorestupidless.ankka.controlplane.api.ErasureWire.erasureRequestViewCodec
+    )
+
+  Then("the erasure request is accepted") { () =>
+    assert(lastAsk._1 == 201 || lastAsk._1 == 200, s"${lastAsk._1} ${lastAsk._2}")
+  }
+
+  Then("it names the service {string} as who asked for it") { (service: String) =>
+    assertEquals(askedView.askedBy, Some(s"ankka://${planeOf(project)}/$service"))
+  }
+
+  Then("it names the service {string} of {string} as who asked for it") {
+    (service: String, of: String) =>
+      assertEquals(askedView.askedBy, Some(s"ankka://${planeOf(of)}/$service"))
+  }
+
+  Then("{string} is refused") { (_: String) =>
+    assertEquals(lastAsk._1, 403, lastAsk._2)
+  }
+
+  Then("the refusal is recorded in the history of {string}") { (in: String) =>
+    val (status, body) = harness.send("GET", s"/projects/${planeOf(in)}/history", as = "ada")
+    assertEquals(status, 200, body)
+    assert(body.contains(""""kind":"erasure-refused""""), body)
+    assert(body.contains(s"ankka://${planeOf(project)}/"), body)
+  }
+
+  /** A correlation id of this scenario: the requests outlive it, and an outline runs twice. */
+  private def correlationOf(id: String): String = s"$id-$scenarios"
+
+  Given(
+    "{string} has asked for an erasure request for {string} in {string} with the correlation id {string}"
+  ) { (service: String, subject: String, in: String, correlation: String) =>
+    grantErasure(in, service, project)
+    val (status, body) = askAs(service, subject, in, Some(correlationOf(correlation)))
+    assert(status == 201, s"$status $body")
+    settled(in, body)
+  }
+
+  private var listed: Vector[com.thinkmorestupidless.ankka.controlplane.api.ErasureRequestSummary] =
+    Vector.empty
+
+  When("a member lists the erasure requests of {string} with the correlation id {string}") {
+    (in: String, correlation: String) =>
+      // The listing is a view: retried until both requests are in it.
+      listed = eventually(s"both requests listed from $in") {
+        val (status, body) =
+          harness.send("GET", s"/erasures?correlation=${correlationOf(correlation)}", as = "ada")
+        assertEquals(status, 200, body)
+        Some(
+          com.github.plokhotnyuk.jsoniter_scala.core.readFromString(body)(using
+            com.thinkmorestupidless.ankka.controlplane.api.ErasureWire.erasureSummariesCodec
+          )
+        ).filter(_.size >= 2)
+      }
+      assert(listed.exists(_.project.contains(planeOf(in))), s"$in is not among $listed")
+  }
+
+  Then("both erasure requests are listed, each with where it stands") { () =>
+    assertEquals(listed.size, 2, listed.toString)
+    assertEquals(listed.flatMap(_.project).toSet, Set(planeOf(project), planeOf("payments")))
+    assert(listed.forall(r => ErasureState.parse(r.state).isDefined), listed.toString)
+  }
+
+  // ── places.feature: the command line and the platform's MCP server ─────────
+
+  /** A scratch config file, so nothing the CLI resolves reads a developer's own. */
+  private lazy val cliConfig: Unit =
+    val file = java.nio.file.Files.createTempFile("ankka-erasure-cli", ".json")
+    java.nio.file.Files.delete(file)
+    sys.props("ankka.config") = file.toString
+
+  /** `ankka <args>` as `person`, in this scenario's project: the exit code and what it printed. */
+  private def cli(person: String, stdin: String, args: String*): (Int, String) =
+    cliConfig
+    val out  = java.io.ByteArrayOutputStream()
+    val err  = java.io.ByteArrayOutputStream()
+    val outs = java.io.PrintStream(out, true, UTF_8)
+    val errs = java.io.PrintStream(err, true, UTF_8)
+    val all  =
+      args ++ Seq("--url", harness.url, "--token", harness.tokenOf(person), "-p", planeProject)
+    val code = Console.withIn(java.io.StringReader(stdin))(
+      Console.withOut(outs)(
+        Console.withErr(errs)(com.thinkmorestupidless.ankka.cli.Main.run(all, outs, errs))
+      )
+    )
+    (code, if code == 0 then out.toString(UTF_8) else err.toString(UTF_8) + out.toString(UTF_8))
+
+  /** One tool of `ankka mcp`, called as `person`: whether it was an error, and its text. */
+  private def mcp(person: String, tool: String, arguments: String): (Boolean, String) =
+    val init =
+      """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"suite","version":"1"}}}"""
+    val call =
+      s"""{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"$tool","arguments":$arguments}}"""
+    val (code, out) = cli(person, s"$init\n$call\n", "mcp")
+    assertEquals(code, 0, out)
+    val reply = out.linesIterator.find(_.contains(""""id":2""")).getOrElse(fail(s"no reply: $out"))
+    val error = reply.contains(""""isError":true""")
+    val text  = """"text":"((?:[^"\\]|\\.)*)"""".r
+      .findFirstMatchIn(reply)
+      .map(m => StringContext.processEscapes(m.group(1)))
+      .getOrElse(fail(s"no text: $reply"))
+    (error, text)
+
+  private def placeAnswer(ok: Boolean, text: String): (Int, String) =
+    (if ok then 200 else 400, text)
+
+  When(
+    "a member of {string} asks for an erasure request for {string} in {string} through the command line"
+  ) { (_: String, subject: String, _: String) =>
+    filer = "bob"
+    val (code, out) = cli("bob", "", "projects", "erasures", "file", subject, "-o", "json")
+    lastAsk = placeAnswer(code == 0, out)
+    RequestId.findFirstMatchIn(out).foreach(m => asked += subject -> m.group(1))
+    if code == 0 then settled(project, out)
+  }
+
+  When(
+    "a member of {string} asks for an erasure request for {string} in {string} through the platform's MCP server"
+  ) { (_: String, subject: String, _: String) =>
+    filer = "bob"
+    val (error, text) = mcp("bob", "erasure_file", s"""{"subject":"$subject"}""")
+    lastAsk = placeAnswer(!error, text)
+    """"id": "([0-9A-Z]{26})"""".r
+      .findFirstMatchIn(text)
+      .foreach(m => asked += subject -> m.group(1))
+    if !error then settled(project, text)
+  }
+
+  Then("it names the member as who asked for it") { () =>
+    val (status, me) = harness.send("GET", "/auth/whoami", as = "bob")
+    assertEquals(status, 200, me)
+    val by = askedView.askedBy.getOrElse(fail(s"no one asked: ${lastAsk._2}"))
+    assert(me.contains(s""""$by""""), s"$by is not bob: $me")
+  }
+
+  Given("an applied erasure request for {string} in {string}") { (subject: String, in: String) =>
+    assertEquals(in, project)
+    val (status, body) = askErasure(subject)
+    assertEquals(status, 201, body)
+    assert(untilFinal(subject).contains(""""state":"applied""""))
+  }
+
+  Given("a held erasure request for {string} in {string}") { (subject: String, in: String) =>
+    assertEquals(in, project)
+    held(subject, "2099-01-31", None)
+  }
+
+  private var fetched: String = ""
+
+  When("a member of {string} fetches its erasure certificate through the command line") {
+    (_: String) =>
+      val rid         = requestOf(asked.keys.head)
+      val (code, out) = cli("bob", "", "projects", "erasures", "certificate", rid, "-o", "json")
+      assertEquals(code, 0, out)
+      fetched = out
+  }
+
+  When("a member of {string} fetches its erasure certificate through the platform's MCP server") {
+    (_: String) =>
+      val (error, text) =
+        mcp("bob", "erasure_certificate", s"""{"request":"${requestOf(asked.keys.head)}"}""")
+      assert(!error, text)
+      fetched = text
+  }
+
+  Then("the member is given the erasure certificate of the erasure request") { () =>
+    val subject = asked.keys.head
+    // The certificate names its request by its full id, `<project>/<request id>`.
+    assert(
+      """"request":\s*"([^"]+)"""".r
+        .findFirstMatchIn(fetched)
+        .exists(_.group(1).endsWith(requestOf(subject))),
+      fetched
+    )
+    assert(fetched.replace(" ", "").contains(s""""subject":"$subject""""), fetched)
+    assert(fetched.contains("keyDestroyedAt"), fetched)
+  }
+
+  private def overrideByMcp(person: String, reason: String): Unit =
+    val (error, text) = mcp(
+      person,
+      "erasure_override",
+      s"""{"request":"${requestOf(asked.keys.head)}","reason":"$reason"}"""
+    )
+    answered =
+      (if error then if text.contains("owner role required") then 403 else 500 else 200, text)
+
+  When(
+    "an owner of {string} overrides its hold with the reason {string} through the platform's MCP server"
+  )((_: String, reason: String) => overrideByMcp("ada", reason))
+
+  When(
+    "a member who is not an owner of {string} overrides its hold with the reason {string} through the platform's MCP server"
+  )((_: String, reason: String) => overrideByMcp("bob", reason))
+
+  Then("the override is refused") { () =>
+    assertEquals(answered._1, 403, answered._2)
   }
 
   // ── erasing.feature ────────────────────────────────────────────────────────

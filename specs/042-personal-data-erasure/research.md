@@ -28,7 +28,7 @@ spec as a planning amendment:
 
 ## R2. The manifest reaches the codec through a scoped encoding context
 
-**Decision**: `Serializer.json` (`CORE/Serializer.scala:23-32`) binds a `PersonalScope(manifest)` in a `ThreadLocal` for exactly the duration of `writeToArray`/`readFromArray`, and the personal codec reads it for the associated data (subject, project, manifest; FR-004). The project comes from the keyring handle (R3). Outside a `Serializer` (a raw `writeToArray`) the scope is absent and the codec refuses to encode, naming `Serializer`.
+**Decision**: `Serializer.json` (`CORE/Serializer.scala:23-32`) binds a `PersonalScope(manifest)` in a `ThreadLocal` for exactly the duration of `writeToArray`/`readFromArray`, and the personal codec reads it for the associated data (subject, project, manifest; FR-004). The project comes from the keyring handle (R3). Outside a `Serializer` the scope is absent, and that absence is the edge: the codec writes and reads the plain edge form of R26 instead. A raw `writeToArray` in a test therefore prints the value, which `PersonalLeakSuite` must account for.
 
 **Evidence**: `JsonValueCodec` has no context parameter and `toBytes`/`fromBytes` pass only the value (`Serializer.scala:30-31`); the Java `Serializer` interface is the same. A thread-local is sound here because encode and decode are synchronous calls on one thread (the virtual-thread rule of `CLAUDE.md` concerns work handed to another thread, which never happens inside a codec).
 
@@ -92,7 +92,7 @@ trip per payload with personal fields.
 
 ## R10. The keyring is a standalone platform component with its own database, not an ankka application
 
-**Decision**: a new sbt project `keyring` (image `ankka-keyring`), depending on `core`, `grpc`'s server support and `auth-oidc`, never on `runtime`. Keys live in a plain Postgres table on its own CNPG cluster in `ankka-keyring`, made by code as `secret-reads` does (`components/secret-reads`, `ReadRecordStore.scala:135`). Destroying a key is a `DELETE` of its row and a tombstone row in one transaction, followed by `VACUUM` of the table so no dead tuple holds it. It speaks gRPC over mutual TLS as `ankka://platform/keyring`, issued by the `ankka-service` ClusterIssuer and checked at start as the model keeper checks its own (`model-keeper` `Main.Identity`, `components/models/certificate.yaml:13-32`). It is a kustomize component, `components/keyring`, which an installation adds to turn erasure on (R19).
+**Decision**: a new sbt project `keyring` (image `ankka-keyring`), depending on `grpc` for its mutual-TLS server binding and the caller read from a certificate, and so, transitively, on `http` and `runtime` as libraries; it hosts no component, opens no journal and joins no cluster. "Not an ankka application" is about the store, not the classpath. Keys live in a plain Postgres table on its own CNPG cluster in `ankka-keyring`, made by code as `secret-reads` does (`components/secret-reads`, `ReadRecordStore.scala:135`). Destroying a key is a `DELETE` of its row and a tombstone row in one transaction, followed by `VACUUM` of the table so no dead tuple holds it. It speaks gRPC over mutual TLS as `ankka://platform/keyring`, issued by the `ankka-service` ClusterIssuer and checked at start as the model keeper checks its own (`model-keeper` `Main.Identity`, `components/models/certificate.yaml:13-32`). It is a kustomize component, `components/keyring`, which an installation adds to turn erasure on (R19).
 
 **Evidence**: an ankka application keeps its state in an append-only journal, where a destroyed key would stay forever: the one store the keyring must not be. The control plane is an ankka application by principle 6, but "the operator deliberately is not"; the keyring is the second such exception, and for a reason the journal itself gives.
 
@@ -100,7 +100,7 @@ trip per payload with personal fields.
 
 ## R11. Keys are AES-256-GCM, wrapped twice
 
-**Decision**: a subject key is 32 random bytes; a field is sealed with AES-256-GCM, a random 96-bit nonce, and the associated data `subject ‖ project ‖ manifest` (length-prefixed). The envelope is `{"$personal":1,"subject":"…","c":"<base64 nonce‖ciphertext‖tag>"}`, and after an erasure the same envelope still decodes (to `Erased`) because the subject is read before the key. Each project's key-encryption key wraps its subject keys and its lookup key, and the root key wraps each project's: on a Postgres installation it is a 32-byte key in the keyring's own secret store under 038's `postgres` backend, on Google Cloud the KMS key of a `wrapping-key` request with the keyring as requester (R18). `SecretCipher` is the precedent for the cipher and the associated data (`RT/SecretCipher.scala:44-87`).
+**Decision**: a subject key is 32 random bytes; a field is sealed with AES-256-GCM, a random 96-bit nonce, and the associated data `subject ‖ project ‖ manifest` (length-prefixed). The envelope is `{"$personal":1,"project":"…","subject":"…","c":"<base64 nonce‖ciphertext‖tag>"}`: the project is in the clear because a consumer in another project (FR-027) and a follower installation (FR-032) must know whose key to fetch and what to bind, and the handle's own project is not it. After an erasure the same envelope still decodes (to `Erased`) because the project and subject are read before the key. Each project's key-encryption key wraps its subject keys and its lookup key, and the root key wraps each project's: on a Postgres installation it is a 32-byte key in the keyring's own secret store under 038's `postgres` backend, on Google Cloud the KMS key of a `wrapping-key` request with the keyring as requester (R18). `SecretCipher` is the precedent for the cipher and the associated data (`RT/SecretCipher.scala:44-87`).
 
 ## R12. A view's personal fields are known to the view, from the row type
 
@@ -122,7 +122,7 @@ trip per payload with personal fields.
 
 ## R15. A service's completion goes to the keyring, and the control plane reads it
 
-**Decision**: each instance acks a destroyed notice on its open channel when its cache is dropped, its rows redacted, its tokens dropped, its sessions marked and (for the instance that won the subject's singleton lease, R16) its handler finished. The keyring records acks per instance and reports a service complete when every instance connected at the notice has acked, or has disconnected and its successor has acked. The control plane polls `ErasureStatus(request)` from the keyring, a call that returns no key, and records completion in the request's entity. The keyring's 60-second bound (FR-022) is enforced on the instance: no ack within it and the instance drops its whole cache.
+**Decision**: each instance acks a destroyed notice on its open channel when its cache is dropped, its rows redacted, its tokens dropped, its sessions marked and (for the instance that won the subject's singleton lease, R16) its handler finished. The keyring records acks per instance and reports a service complete when at least one instance of it has acked and every instance of it connected at that moment has; an instance that connects later receives the backlog (its cache is empty, and the rows and tokens it would redact are shared and already done), so a rolling deploy cannot leave a service incomplete. The control plane polls `ErasureStatus(request)` from the keyring, a call that returns no key, and records completion in the request's entity. The keyring's 60-second bound (FR-022) is enforced on the instance: no ack within it and the instance drops its whole cache.
 
 **Evidence**: services cannot call the control plane today; status reaches it through the operator (`StatusIngest`). The keyring is already the one party every instance is connected to.
 
@@ -178,6 +178,14 @@ trip per payload with personal fields.
 
 **Decision**: the console gains an *Erasures* section of the project page (console.md: sections are routes, no new control plane route for the console), with filing, withdrawal, an owner's override and the certificate's download, its schemas and the fake control plane extended, and Playwright cases. `AnkkaTools.controlPlane` gains `erasures_list`, `erasure_get`, `erasure_file`, `erasure_withdraw`, `erasure_override`, `erasure_certificate`, acting as the logged-in member.
 
+## R26. At the edge, a personal field is plain with its subject beside it
+
+**Decision**: when no `PersonalScope` is bound (an HTTP, socket or MCP reply or body in `http`'s codecs, and each SDK's equivalent), `Personal.Present(s, v)` encodes as `{"subject": s, "value": v}` and `Erased(s)` as `{"subject": s}`; decode accepts the same. The endpoint's ACL gates it as it gates any field. `edge.feature` holds the three scenarios.
+
+**Evidence**: `HTTP/codecs.scala:69` writes with `writeToArray` straight from a derived codec; nothing there could bind a scope or reach a store, and the first version of R2 would have refused every such reply.
+
+**Alternatives**: refusing routes whose types hold `Personal` at start forces a mapping type per route; sending the envelope gives a service's own client ciphertext for its own data.
+
 ## Planning amendments written into the spec
 
 - FR-004: the manifest reaches the codec through a scoped encoding context (R2).
@@ -186,6 +194,7 @@ trip per payload with personal fields.
 - Edge case on declared queries: a view knows its personal fields from the row type, by hand in Rust (R12).
 - FR-032: the follower's fetch goes through a relay SPI the replication layer implements (R17).
 - FR-017: the keyring is a standalone component, not an ankka application, because a journal cannot forget (R10).
+- FR-034 (review): at the edge a personal field is plain with its data subject beside it (R26); the envelope carries its project (R11); FR-006 names the three readers of an envelope's clear part.
 
 ## Declined remediations
 
@@ -194,3 +203,4 @@ None yet.
 ## Design finished
 
 2026-11-04: analyze reported nothing above LOW.
+2026-11-04 (review): a second design pass found the edge form unstated, the envelope without its project, FR-006 contradicting redaction, and the keyring's dependency line wrong; all fixed, analyze reported nothing above LOW.

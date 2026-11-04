@@ -22,15 +22,28 @@ Encoding `Erased` writes the subject-only envelope (a row being re-written after
 ## The personal envelope (every store)
 
 ```json
-{"$personal": 1, "subject": "player/8c1f", "c": "<base64(nonce ‖ ciphertext ‖ tag)>"}
-{"$personal": 1, "subject": "player/8c1f"}
+{"$personal": 1, "project": "brand", "subject": "player/8c1f", "c": "<base64(nonce ‖ ciphertext ‖ tag)>"}
+{"$personal": 1, "project": "brand", "subject": "player/8c1f"}
 ```
 
 - `$personal`: the envelope's version; a reader refuses a version it does not know.
+- `project`: the project whose subject key sealed the field, in the clear, so a consumer in another
+  project and a follower installation know whose key to ask for and what to bind as associated data.
 - `c`: AES-256-GCM of the field's own JSON encoding under the subject key, 96-bit random nonce,
   associated data `len‖subject ‖ len‖project ‖ len‖manifest` (R2, R11). Absent once redacted.
 - Held to `protocol/fixtures/personal/envelopes.json`: a fixed key, nonce and plaintext per case,
   which every SDK must produce byte for byte and open (SC-008).
+
+## The edge form (R26, FR-034)
+
+In an endpoint's reply or a caller's body, where no `Serializer` is encoding:
+
+```json
+{"subject": "player/8c1f", "value": "ada@example.com"}
+{"subject": "player/8c1f"}
+```
+
+Held to `protocol/fixtures/personal/edge.json`.
 
 ## Keyring store (the keyring's own database, R10)
 

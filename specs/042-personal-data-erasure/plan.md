@@ -95,7 +95,7 @@ existing control plane event decode unchanged; warning-free; serialized tests; n
 **Scale/Scope**: one new sbt project (`keyring`, about 15 files); about 30 new and 60 changed Scala
 files across fourteen modules; about 6 new and 15 changed files per process SDK; 4 new Java and 2
 Kotlin files; one proto service pair, five client rpcs, two imports and one export; one kustomize
-component; about 8 console files; 2 new docs pages and about 10 changed; 11 feature files and `facts.feature`, 60
+component; about 8 console files; 2 new docs pages and about 10 changed; 12 feature files and `facts.feature`, 63
 scenarios.
 
 ## Constitution Check
@@ -109,7 +109,7 @@ scenarios.
 |---|---|---|
 | Effects are inert data; one thing performs them | pass | handlers still return effects; the codec runs where serialization already runs; the operator's new actions are descriptions `Fabric8Executor` performs |
 | Explicit registration, never scanning | pass | the erasure handler is registered on the service; a view's personal fields come from its declared row type (R12); the relay is a ServiceLoader SPI like the transport's (R17) |
-| Module dependency direction | pass | `Personal` and the handle trait in `core` (no Pekko); the client and duties in `runtime`; `keyring` depends on `core`, `grpc`, `auth-oidc`, never `runtime`; the operator gains nothing beyond `crd` |
+| Module dependency direction | pass | `Personal` and the handle trait in `core` (no Pekko); the client and duties in `runtime`; `keyring` depends on `grpc` (so on `http` and `runtime` as libraries) and is a leaf nothing depends on; the operator gains nothing beyond `crd` |
 | The wire name is separate from the method name | pass | new rpcs and imports have their own names; `Personal`'s method names are each language's |
 | A field on the resource needs the schema | pass | `spec.personal`, `CrdSchemaSuite` both ways |
 | Never render what must not roll | pass | `RenderingUnchangedSuite` for services without `personal` |
@@ -119,7 +119,7 @@ scenarios.
 | Which variables are the platform's is said once | pass | `ANKKA_ERASURE`, `ANKKA_KEYRING_INSTANCES`, `ANKKA_KEYRING_ADDRESS` in `PlatformVariables` |
 | A behaviour an older runtime must refuse is a new rpc or import | pass | 1.23's rpcs, `Erasure` service, `keyring_*` imports; each SDK refuses personal fields under 1.22 |
 | Could this check pass while the thing it checks is false? | pass | `assertNoPersonalValue` is proven red by a bypassed codec; the leak suite interpolates whole events; the sidecar's no-inspection case feeds bytes it could not parse; the restore cases assert readiness is *held*, not just the end state |
-| Each acceptance scenario ends as a test that fails without the feature | pass | 60 scenarios: in-process by `ErasureFeatures`, cluster by the two k3s suites, language cases by the SDK suites and conformance (named in `ranElsewhere`), the Google-only object case by ankka-gcp (`ranOutside`) |
+| Each acceptance scenario ends as a test that fails without the feature | pass | 63 scenarios: in-process by `ErasureFeatures`, cluster by the two k3s suites, language cases by the SDK suites and conformance (named in `ranElsewhere`), the Google-only object case by ankka-gcp (`ranOutside`) |
 | Be your own customer / nothing civic or casino-specific in the platform | pass | the platform knows subjects, not players; holds are dates the domain gives |
 | Docs: pages stand alone, samples from tested code, limitations honest | pass | `contracts/platform.md`'s docs list; limitations say what erasure is not |
 | Every tracked file claimed by a CI path filter | pass | `keyring/` is a new top-level directory: `.github/ci-coverage.py` and the `build` job's filter gain it |
@@ -147,7 +147,7 @@ specs/042-personal-data-erasure/
 └── tasks.md                         # /speckit-tasks
 ```
 
-Acceptance scenarios: `features/erasure/` (eleven files) and `features/installation/facts.feature`.
+Acceptance scenarios: `features/erasure/` (twelve files) and `features/installation/facts.feature`.
 
 ### Source Code (repository root)
 

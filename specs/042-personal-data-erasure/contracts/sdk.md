@@ -58,6 +58,13 @@ Each language matches on present or erased: Scala `case Personal.Present(_, v)` 
 TypeScript `p.kind`; Go `if v, ok := p.Value(); ok`; Rust `match`. Every SDK offers
 `orElse(default)` for convenience. Decoding never throws for an erased subject (FR-011).
 
+## At the edge
+
+An endpoint's reply or body type may hold `Personal` fields. There they are
+`{"subject": "player/8c1f", "value": "ada@example.com"}`, or `{"subject": "player/8c1f"}` once erased,
+and a body in that shape decodes to present or erased. The ACL gates them like any field; nothing
+rewrites them, and the docs say an endpoint exposes what its handler returns. The same in every SDK.
+
 ## Errors
 
 | Situation | Error (every language) |

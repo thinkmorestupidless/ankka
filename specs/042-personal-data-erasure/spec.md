@@ -132,6 +132,11 @@ transcripts and object storage, and a restored backup must not bring an erased s
   bound. Bound it? → A: For 30 days after application, a platform setting, then stop; asking for the
   same data subject again runs them once more. Only a run that erased something or failed is audited;
   a quiet run updates the request's last run time.
+- Q: (review) What is a personal field at a service's edge, in an endpoint's reply or a caller's
+  body, whose codecs never pass through `Serializer`? → A: Plain, with the data subject beside it:
+  `{"subject": "player/8c1f", "value": …}`, and `{"subject": "player/8c1f"}` once erased; a body in
+  the same shape decodes to present or erased. The endpoint's ACL is the gate, as for every other
+  field, and the documentation says an endpoint exposes what its handler returns.
 
 ## Context
 
@@ -247,6 +252,9 @@ plain values.
 - added `features/erasure/personal-fields.feature`: a data subject's subject key is made on its first write, once, whichever instance writes first
 - added `features/erasure/personal-fields.feature`: a personal field cannot be written where no service runs
 - added `features/erasure/personal-fields.feature`: a service whose descriptor declares personal fields is refused by an installation that runs no keyring
+- added `features/erasure/edge.feature`: an endpoint answers a personal field as its value with its data subject beside it
+- added `features/erasure/edge.feature`: an endpoint answers a personal field of an erased data subject as the data subject alone
+- added `features/erasure/edge.feature`: an endpoint reads a personal field a caller sent as a value with its data subject
 - added `features/installation/facts.feature`: an installation that runs a keyring reports its erasure as on and how many instances its keyring has
 - added `features/installation/facts.feature`: an installation that runs no keyring reports its erasure as off
 - changed `features/installation/facts.feature`: a fact the control plane cannot read is reported as not stated
@@ -518,8 +526,17 @@ and a listing by correlation id returns both; assert a service without the grant
 - **FR-005**: A subject's key MUST be created on its first write, once, whichever instance or service
   writes first, unless the keyring holds a tombstone for the subject, in which case the write MUST be
   refused naming the subject as erased.
-- **FR-006**: The runtime, the sidecar and every store MUST handle a payload with personal envelopes as
-  they handle any other bytes; nothing outside the codec MUST parse, rewrite or depend on the envelope.
+- **FR-034**: At a service's edge — an HTTP, socket or MCP reply or body, in every SDK — a personal
+  field MUST encode as its value with its data subject beside it (`{"subject", "value"}`), or as the
+  data subject alone once erased, and a body in that shape MUST decode to present or erased. No
+  envelope MUST cross the edge, and no plain value MUST reach a store: the two forms are told apart
+  by whether a `Serializer` is encoding, never by the caller.
+- **FR-006**: The journal, snapshots, key value state, topics, the sidecar and every backup MUST handle
+  a payload with personal envelopes as they handle any other bytes, and MUST never parse or rewrite
+  one. The only things outside a codec that read an envelope's clear part (its project and subject,
+  never its ciphertext) are the redaction a service runs over its own view rows (FR-009, FR-021), an
+  SDK's own scan of a payload for the keys it must fetch before decoding, and the recorder's check
+  that drops an envelope from telemetry (FR-029).
 
 **Erasure**
 

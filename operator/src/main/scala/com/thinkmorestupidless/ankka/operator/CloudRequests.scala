@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.operator
 import com.thinkmorestupidless.ankka.crd.{
   AnkkaProject,
   AnkkaService,
+  Buckets,
   CloudKinds,
   CloudResource,
   CloudResourceSpec,
@@ -109,13 +110,13 @@ object CloudRequests:
 
   /**
    * Whom a request serves, and so where it lives, what it is labelled and what owns it: a service's
-   * resource, or a project's.
+   * resource, or a project's, or a platform workload's, which nothing owns.
    */
   final case class Requester(
       namespace: String,
       subject: CloudSubject,
       labels: Map[String, String],
-      owner: OwnerReference
+      owner: Option[OwnerReference]
   ):
     /** A service's request is `<service>-<suffix>`; a project's `<project>.<suffix>`. */
     def name(suffix: String): String =
@@ -129,7 +130,7 @@ object CloudRequests:
         namespace = resource.getMetadata.getNamespace,
         subject = CloudSubject(spec.projectId, spec.serviceName),
         labels = Labels.identity(spec.projectId, spec.serviceName),
-        owner = Labels.ownerReference(resource)
+        owner = Some(Labels.ownerReference(resource))
       )
 
     def of(project: AnkkaProject): Requester =
@@ -141,7 +142,24 @@ object CloudRequests:
           Labels.ManagedByKey -> Labels.ManagedByAnkka,
           Labels.ProjectKey   -> projectId
         ),
-        owner = Labels.ownerReference(project)
+        owner = Some(Labels.ownerReference(project))
+      )
+
+    /**
+     * A platform workload's requests (feature 042: the keyring's), in its own namespace
+     * `ankka-<component>`, for the subject `platform`/`<component>`, so each is named
+     * `<component>-<suffix>`. Owned by nothing: the workload is the installation's, not a resource
+     * the operator watches, and a request it still needs must not go with anything.
+     */
+    def Platform(component: String): Requester =
+      Requester(
+        namespace = s"ankka-$component",
+        subject = CloudSubject.platform(component),
+        labels = Map(
+          Labels.ManagedByKey -> Labels.ManagedByAnkka,
+          Labels.ProjectKey   -> Buckets.PlatformProject
+        ),
+        owner = None
       )
 
   /**
@@ -338,7 +356,7 @@ object CloudRequests:
       .withNamespace(by.namespace)
       .withName(by.name(suffix))
       .withLabels(by.labels.asJava)
-      .withOwnerReferences(by.owner)
+      .withOwnerReferences(by.owner.toList.asJava)
       .build()
     if annotations.nonEmpty then meta.setAnnotations(annotations.asJava)
     resource.setMetadata(meta)

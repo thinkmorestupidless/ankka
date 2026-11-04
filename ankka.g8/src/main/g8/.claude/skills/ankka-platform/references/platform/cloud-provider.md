@@ -126,6 +126,13 @@ A request is named from what it is for and whom it serves: `<service>-<suffix>` 
 `<project>.<suffix>` for a project's, so a project's can never share a name with any service's. It is
 owned by the service or project it serves and goes with it; nothing in the cloud goes with it.
 
+The platform's own workloads ask too. The keyring, on an installation that names a wrapping key and
+erases personal data, asks for an `identity` for its ServiceAccount `ankka-keyring` and then a
+`wrapping-key` naming that identity. Its requests are in its namespace, `ankka-keyring`, with the
+subject `{ project: platform, service: keyring }`, named `keyring-identity` and
+`keyring-wrapping-key`, and owned by nothing, since the keyring belongs to the installation. A
+provider grants a wrapping key only to an identity it made for the same subject.
+
 Every parameter and output is a string. A list is comma-separated, a boolean is `"true"` or `"false"`,
 and a number is its decimal text.
 

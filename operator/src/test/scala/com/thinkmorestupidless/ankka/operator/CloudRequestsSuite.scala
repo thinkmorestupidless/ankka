@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.crd.{
   AnkkaServiceSpec,
   CloudKinds,
   CloudResource,
+  CloudResourceStatus,
   CloudSubject
 }
 import io.fabric8.kubernetes.api.model.ObjectMetaBuilder
@@ -245,14 +246,114 @@ class CloudRequestsSuite extends munit.FunSuite:
     holdsTheContract(c)
   }
 
+  // Feature 042: the keyring's requests, a platform workload's.
+
+  private val erasureOn = Settings.default.copy(
+    cloud = Some(cloud),
+    erasure = Some(KeyringSettings("https://keyring.ankka-keyring.svc:8443"))
+  )
+
+  private val noSecrets = new _root_.com.thinkmorestupidless.ankka.operator.cloud.SecretWrites:
+    def create(ns: String, name: String, e: Map[String, String]) =
+      _root_.com.thinkmorestupidless.ankka.operator.cloud.SecretWrites.Outcome.Created
+    def patch(ns: String, name: String, e: Map[String, String]): Unit = ()
+
+  private def keyringRequests(
+      settings: Settings,
+      answers: Map[String, CloudResourceStatus]
+  ): Vector[CloudResource] =
+    val now = java.time.Instant.parse("2026-11-04T12:00:00Z")
+    PlatformErasure
+      .cloudActions(
+        settings,
+        (_, name) => answers.get(name).map(s => CloudObservation(1L, now, Some(s))),
+        now
+      )
+      .collect { case Action.EnsureCloudResource(r) => r }
+
   test("a keyring on an installation that names a wrapping key asks to wrap with it") {
-    val r = wrappingKey(cloud, byProject, "shop-keyring@my-account.scripted", "keys/ankka")
-    assertEquals(r.getMetadata.getName, "shop.wrapping-key")
+    val provider = _root_.com.thinkmorestupidless.ankka.operator.cloud
+      .ScriptedFulfilment("gcp", "my-account", "europe-west2", 20.seconds)
+    def fulfil(r: CloudResource) =
+      provider.fulfil(
+        r.getMetadata.getNamespace,
+        r.getMetadata.getName,
+        r.getSpec,
+        1L,
+        None,
+        noSecrets
+      )
+
+    // First the keyring's cloud identity, and nothing to wrap with until it is made.
+    val first = keyringRequests(erasureOn, Map.empty)
+    assertEquals(first.map(_.getMetadata.getName), Vector("keyring-identity"))
+    val identity = first.head
+    assertEquals(identity.getSpec.parameters, Map("serviceAccount" -> "ankka-keyring"))
+    val made = fulfil(identity)
+
+    val second = keyringRequests(erasureOn, Map("keyring-identity" -> made))
+    assertEquals(
+      second.map(_.getMetadata.getName),
+      Vector("keyring-identity", "keyring-wrapping-key")
+    )
+    val r = second(1)
+    assertEquals(r.getSpec.kind, CloudKinds.WrappingKey)
+    assertEquals(r.getMetadata.getNamespace, "ankka-keyring")
+    assertEquals(r.getSpec.subject, CloudSubject("platform", "keyring"))
     assertEquals(
       r.getSpec.parameters,
-      Map("identity" -> "shop-keyring@my-account.scripted", "key" -> "keys/ankka")
+      Map("identity" -> made.outputs("identity"), "key" -> "keys/ankka")
     )
+    // No resource the operator watches owns the keyring: its requests go with nothing.
+    for request <- second do
+      assertEquals(request.getMetadata.getOwnerReferences.asScala.toList, List.empty)
+    holdsTheContract(identity)
     holdsTheContract(r)
+
+    // The fulfilment names the wrapping key the keyring wraps with.
+    val answered = fulfil(r)
+    assertEquals(answered.phase, CloudKinds.Ready)
+    assertEquals(answered.outputs, Map("key" -> "keys/ankka"))
+
+    // And the keyring's ServiceAccount is bound to the identity as the provider said.
+    val bound = PlatformErasure
+      .cloudActions(
+        erasureOn,
+        (_, name) =>
+          Option.when(name == "keyring-identity")(
+            CloudObservation(1L, java.time.Instant.EPOCH, Some(made))
+          ),
+        java.time.Instant.EPOCH
+      )
+      .collectFirst { case Action.EnsureServiceAccount(sa) => sa }
+      .getOrElse(fail("the ServiceAccount is not bound"))
+    assertEquals(bound.getMetadata.getNamespace, "ankka-keyring")
+    assertEquals(bound.getMetadata.getName, "ankka-keyring")
+    assertEquals(
+      bound.getMetadata.getAnnotations.asScala.toMap,
+      Map("scripted.example/identity" -> "ankka-keyring")
+    )
+  }
+
+  test("a keyring asks nothing of a cloud without a wrapping key, or with erasure off") {
+    for settings <- Vector(
+        erasureOn.copy(cloud = Some(cloud.copy(kmsKey = None))),
+        erasureOn.copy(cloud = Some(cloud.copy(kmsKey = Some("")))),
+        erasureOn.copy(erasure = None),
+        erasureOn.copy(cloud = None),
+        erasureOn.copy(cloud = Some(cloud.copy(provider = "other")))
+      )
+    do assertEquals(keyringRequests(settings, Map.empty), Vector.empty, settings.toString)
+  }
+
+  test("a platform workload's request is <component>-<suffix> in its own namespace") {
+    val by = Requester.Platform("keyring")
+    assertEquals(by.namespace, "ankka-keyring")
+    assertEquals(by.subject, CloudSubject.platform("keyring"))
+    assertEquals(by.name("wrapping-key"), "keyring-wrapping-key")
+    assertEquals(by.owner, None)
+    // A project called `keyring` would render into the same namespace: the id is reserved.
+    assert(Names.ReservedProjectIds.contains("keyring"))
   }
 
   // Feature 055: named buckets, a public one, one credential over several.

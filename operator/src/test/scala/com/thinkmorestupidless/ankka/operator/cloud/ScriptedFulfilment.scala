@@ -331,7 +331,11 @@ final class ScriptedFulfilment(
         )
       case CloudKinds.BucketCredential => credential(namespace, spec, now, previous, secrets)
       case CloudKinds.WrappingKey      =>
-        Right(Map(Keys.Key -> p(Keys.Key)) -> None)
+        // As Cloud KMS grants it: to an identity this provider made for the same subject, never
+        // to one a request merely names (feature 042: the keyring's).
+        if identityOf(spec.subject).contains(p(Keys.Identity)) then
+          Right(Map(Keys.Key -> p(Keys.Key)) -> None)
+        else Left(s"no identity ${p(Keys.Identity)} was made for this subject")
 
   /**
    * A service's bucket is named by the contract's rule (`BucketNames`), its prefix the request's
@@ -350,6 +354,10 @@ final class ScriptedFulfilment(
         case None => BucketNames.name(prefix, spec.subject.project, spec.subject.service)
 
   private def isBackupBucket(bucket: String): Boolean = bucket.endsWith("--backup")
+
+  /** What an identity request of `subject` answered, if one has. */
+  private def identityOf(subject: CloudSubject): Option[String] =
+    memory.made.get((CloudKinds.Identity, subject)).flatMap(_.outputs.get(Keys.Identity))
 
   /** The project's database's identity: what an identity request of the project's own answered. */
   private def databaseIdentity(project: String): Option[String] =

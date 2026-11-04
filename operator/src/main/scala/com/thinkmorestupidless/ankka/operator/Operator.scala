@@ -330,11 +330,18 @@ final class Operator(
    * not in this cluster leaves the others done. A failure is logged and tried again at the next
    * resync: it never stops the operator reconciling services.
    */
-  private def platformActions: Vector[Action] =
-    PlatformBackups.actions(settings) ++ PlatformErasure.actions(settings)
+  private def platformActions(executor: Executor): Vector[Action] =
+    PlatformBackups.actions(settings) ++ PlatformErasure.actions(settings) ++
+      PlatformErasure.cloudActions(
+        settings,
+        executor.observeCloudResource,
+        java.time.Instant.now()
+      )
 
   private val platform: Option[java.util.concurrent.ScheduledExecutorService] =
-    Option.when(platformActions.nonEmpty) {
+    Option.when(
+      PlatformBackups.actions(settings).nonEmpty || PlatformErasure.actions(settings).nonEmpty
+    ) {
       val executor  = Fabric8Executor.of(client, settings)
       val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r =>
         val thread = new Thread(r, "ankka-operator-platform-backups")
@@ -343,7 +350,7 @@ final class Operator(
       }
       scheduler.scheduleWithFixedDelay(
         () =>
-          platformActions.foreach { action =>
+          platformActions(executor).foreach { action =>
             try executor.execute(action)
             catch
               // An installation whose control plane, or keyring, is not in this cluster has no

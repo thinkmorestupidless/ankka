@@ -13,6 +13,15 @@ import io.fabric8.kubernetes.model.annotation.{Group, Kind, Plural, ShortNames, 
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class CloudSubject(project: String = "", service: String = "")
 
+object CloudSubject:
+
+  /**
+   * A platform workload's own request (feature 042, the keyring's): the reserved project `platform`
+   * and the workload's name, as its certificate's `ankka://platform/<component>` says, so no
+   * project's subject can be it.
+   */
+  def platform(component: String): CloudSubject = CloudSubject(Buckets.PlatformProject, component)
+
 /**
  * What the operator asks the installation's cloud provider for. Written by the operator alone, by
  * server-side apply; never by the provider, whose grant has no verb on it but reading.

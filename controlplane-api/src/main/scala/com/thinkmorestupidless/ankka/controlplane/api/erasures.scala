@@ -50,8 +50,13 @@ final case class ErasureRequestView(
     destroyedAt: Option[Instant] = None,
     completions: Vector[ErasureCompletionView] = Vector.empty,
     objectsFinalAt: Option[Instant] = None,
-    finalAt: Option[Instant] = None
+    finalAt: Option[Instant] = None,
+    /** Why the last attempt to apply it failed, and since when; none once it is applied. */
+    lastFailure: Option[ErasureFailureView] = None
 )
+
+/** Why an erasure request is not applied yet: the step that failed, and since when. */
+final case class ErasureFailureView(reason: String, at: Option[Instant] = None)
 
 /** One line of a project's erasure requests. */
 final case class ErasureRequestSummary(

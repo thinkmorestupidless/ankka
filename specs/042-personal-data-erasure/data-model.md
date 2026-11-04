@@ -79,6 +79,7 @@ After a `DELETE` from `subject_key`, the keyring runs `VACUUM subject_key` (R10)
 | `completions` | `Map[service, Completion]` | `Completion(at, rowsRedacted, tokensDropped, sessionsEnded, handler: Option[HandlerReport])` |
 | `objectsFinalAt` | `Option[Instant]` | the latest finality any handler reported |
 | `finalAt` | `Option[Instant]` | when every service has completed and objects are final |
+| `lastFailure` | `Option[(reason, at)]` | why the last attempt to apply it failed and since when (the step: the log, or the keyring); the same reason again keeps the first `at`; cleared when the key is destroyed |
 | `lastRunAt` | `Option[Instant]` | the last re-run of the handlers; a quiet run sets only this (a state-only update, not an audited event) |
 
 ```text
@@ -93,11 +94,12 @@ After a `DELETE` from `subject_key`, the keyring runs `VACUUM subject_key` (R10)
 
 - An ask for a subject already `Applied` answers that request, records nothing new, and asks the
   keyring to re-send the notice (edge case: filed twice).
-- `Applying` with a failed log write stays `Applying`, destroys nothing, and is retried by the sweep.
+- `Applying` with a failed log write stays `Applying`, destroys nothing, records `ApplyFailed(reason)`
+  as its `lastFailure`, and is retried by the sweep.
 - `Applied` is final; withdraw, replace and override on it answer 409.
 
 Events (each with `actor: Option[Actor]`, `at: Option[Instant]`): `Asked`, `Replaced`, `Withdrawn`,
-`HoldOverridden`, `LogWritten(seq)`, `KeyDestroyed(at)`, `ServiceCompleted(service, completion)`,
+`HoldOverridden`, `ApplyFailed(reason)`, `LogWritten(seq)`, `KeyDestroyed(at)`, `ServiceCompleted(service, completion)`,
 `HandlerRan(service, report, at)`, `ObjectsFinal(at)`, `Finalised(at)`.
 
 View `erasure_requests` (control plane): `project, rid, subject, state, correlation, not_before, asked_by, applied_at, final_at`.

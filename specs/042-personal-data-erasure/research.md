@@ -207,6 +207,14 @@ None yet.
 
 ## Found during implementation
 
+- **A request that could not be applied says why** (T054, decided 2026-11-04): `restores.feature`
+  asks it, and the design had no place for it. The request gains `lastFailure: {reason, at}`
+  through an `ApplyFailed` event, the step named in the reason ("the erasure log could not be
+  written: …", "the keyring did not destroy the subject key: …"). The same reason again records
+  nothing, so a sweep retrying every five minutes does not fill the request's history; the key's
+  destruction clears it. The project's history shows it as `erasure-apply-failed`. Additive to
+  `GET …/erasures/{rid}`; the CLI and the console show it with the request.
+
 - **An entity already in memory keeps what it decrypted** (T041, 2026-11-04, the person's decision).
   Nothing in the design stopped a live entity whose state holds a subject's fields decrypted. The
   duties do not stop entities: a live entity reads the subject as written until it is passivated or

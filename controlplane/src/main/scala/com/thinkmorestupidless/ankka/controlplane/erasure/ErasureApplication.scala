@@ -40,15 +40,47 @@ final class ErasureApplication(
     }
 
   private def applying(current: ErasureRequest): Future[ErasureRequest] =
+    attempt(current).recoverWith { case e =>
+      // Nothing was destroyed: the key is destroyed only after both copies of the log are written.
+      // The request says why, and the failure is the caller's still, so the sweep tries again.
+      val reason = e match
+        case f: ApplyStep => f.getMessage
+        case other        => s"the erasure could not be applied: ${other.getMessage}"
+      blocking(
+        request(current.id)
+          .call(ErasureRequestEntity.applyFailed)
+          .withMetadata(attribution())
+          .invoke(reason)
+      ).transformWith(_ =>
+        Future.failed(e match
+          case f: ApplyStep => f.getCause
+          case other        => other)
+      )
+    }
+
+  /** A step of an application that failed, named for the request's `lastFailure`. */
+  private final class ApplyStep(message: String, cause: Throwable)
+      extends RuntimeException(message, cause)
+
+  private def step[A](what: String)(f: => Future[A]): Future[A] =
+    scala.util.Try(f).fold(Future.failed, identity).recoverWith { case e =>
+      Future.failed(ApplyStep(s"$what: ${e.getMessage}", e))
+    }
+
+  private def attempt(current: ErasureRequest): Future[ErasureRequest] =
     for
-      entry <- log.write(current.project, current.rid, current.subject, Instant.now(clock))
-      _     <- blocking(
+      entry <- step("the erasure log could not be written")(
+        log.write(current.project, current.rid, current.subject, Instant.now(clock))
+      )
+      _ <- blocking(
         request(current.id)
           .call(ErasureRequestEntity.logWritten)
           .withMetadata(attribution())
           .invoke(entry.seq)
       )
-      gone  <- keyring.destroy(ErasureOrder(entry.seq, current.project, current.subject))
+      gone <- step("the keyring did not destroy the subject key")(
+        keyring.destroy(ErasureOrder(entry.seq, current.project, current.subject))
+      )
       after <- blocking(
         request(current.id)
           .call(ErasureRequestEntity.keyDestroyed)

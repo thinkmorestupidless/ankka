@@ -78,12 +78,22 @@ class ErasureApplicationSuite extends munit.FunSuite with LogCapturing:
         .call(ErasureRequestEntity.get)
         .invoke()
       assertEquals(still.state, Some(ErasureState.Applying))
-      assertEquals(admin.ordered, Vector.empty)
-      bucket.refuse = false
       assertEquals(
-        Await.result(application.apply("brand/r2"), 30.seconds).state,
-        Some(ErasureState.Applied)
+        still.lastFailure.map(_.reason),
+        Some("the erasure log could not be written: the bucket refused the write")
       )
+      assertEquals(admin.ordered, Vector.empty)
+      // The same failure again keeps the time it began.
+      intercept[IllegalStateException](Await.result(application.apply("brand/r2"), 30.seconds))
+      val again = kit.componentClient
+        .forEventSourcedEntity(EntityId("brand/r2"))
+        .call(ErasureRequestEntity.get)
+        .invoke()
+      assertEquals(again.lastFailure, still.lastFailure)
+      bucket.refuse = false
+      val applied = Await.result(application.apply("brand/r2"), 30.seconds)
+      assertEquals(applied.state, Some(ErasureState.Applied))
+      assertEquals(applied.lastFailure, None)
       assertEquals(admin.ordered.size, 1)
     }
   }
@@ -99,6 +109,10 @@ class ErasureApplicationSuite extends munit.FunSuite with LogCapturing:
         .invoke()
       assertEquals(still.state, Some(ErasureState.Applying))
       assert(still.erasureSeq.isDefined)
+      assertEquals(
+        still.lastFailure.map(_.reason),
+        Some("the keyring did not destroy the subject key: the keyring is down")
+      )
       admin.refuse = None
       assertEquals(
         Await.result(application.apply("brand/r3"), 30.seconds).state,

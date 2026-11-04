@@ -26,6 +26,9 @@ object ErasureState:
 /** An owner's override of a hold: who, why, when. */
 final case class HoldOverride(owner: Actor, reason: String, at: Option[Instant] = None)
 
+/** Why an attempt to apply a request failed, and since when it has failed so. */
+final case class ApplyFailure(reason: String, at: Option[Instant] = None)
+
 /** What one service did for the erasure, as its instances reported it. */
 final case class ServiceCompletion(
     at: Option[Instant] = None,
@@ -72,7 +75,9 @@ final case class ErasureRequest(
     handlerRuns: Vector[HandlerRun] = Vector.empty,
     objectsFinalAt: Option[Instant] = None,
     finalAt: Option[Instant] = None,
-    withdrawnAt: Option[Instant] = None
+    withdrawnAt: Option[Instant] = None,
+    /** Why the last attempt to apply it failed; none once it is applied. */
+    lastFailure: Option[ApplyFailure] = None
 ):
   def exists: Boolean = state.isDefined
 
@@ -110,6 +115,9 @@ enum ErasureRequestEvent:
 
   /** The hold's date passed: the request is applied from here. */
   case HoldLapsed(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+  /** An attempt to apply it failed, and nothing was destroyed by it; the sweep tries again. */
+  case ApplyFailed(reason: String, actor: Option[Actor] = None, at: Option[Instant] = None)
   case LogWritten(seq: Long, actor: Option[Actor] = None, at: Option[Instant] = None)
   case KeyDestroyed(destroyedAt: Instant, actor: Option[Actor] = None, at: Option[Instant] = None)
   case ServiceCompleted(

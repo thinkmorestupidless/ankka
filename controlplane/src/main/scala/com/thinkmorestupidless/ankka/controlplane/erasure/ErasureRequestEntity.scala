@@ -43,10 +43,11 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
           state = Some(ErasureState.Applying),
           holdOverride = actor.map(HoldOverride(_, reason, at))
         )
-      case HoldLapsed(_, at)        => s.copy(state = Some(ErasureState.Applying), lapsedAt = at)
-      case LogWritten(seq, _, _)    => s.copy(erasureSeq = Some(seq))
-      case KeyDestroyed(when, _, _) =>
-        s.copy(state = Some(ErasureState.Applied), destroyedAt = Some(when))
+      case HoldLapsed(_, at)          => s.copy(state = Some(ErasureState.Applying), lapsedAt = at)
+      case ApplyFailed(reason, _, at) => s.copy(lastFailure = Some(ApplyFailure(reason, at)))
+      case LogWritten(seq, _, _)      => s.copy(erasureSeq = Some(seq))
+      case KeyDestroyed(when, _, _)   =>
+        s.copy(state = Some(ErasureState.Applied), destroyedAt = Some(when), lastFailure = None)
       case ServiceCompleted(service, completion, _, _) =>
         s.copy(completions = s.completions.updated(service, completion))
       case HandlerRan(service, report, _, at) =>
@@ -117,6 +118,18 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
       case Some(ErasureState.Applying) =>
         conflict(s"its log entry is ${currentState.erasureSeq.get}, not $seq")
       case _ => stateConflict("logged")
+
+  /**
+   * An attempt to apply it failed. The same reason again is no news: the failure keeps the time it
+   * began, so a sweep retrying every five minutes records one event, not one a pass.
+   */
+  def applyFailed(reason: String): Effect[ErasureRequest] =
+    currentState.state match
+      case Some(ErasureState.Applying) if currentState.lastFailure.exists(_.reason == reason) =>
+        effects.reply(currentState)
+      case Some(ErasureState.Applying) =>
+        effects.persist(ApplyFailed(reason, actor, Some(now))).thenReply(identity)
+      case _ => stateConflict("failed")
 
   /** The keyring destroyed the key: the request is applied. */
   def keyDestroyed(when: Instant): Effect[ErasureRequest] =
@@ -196,6 +209,7 @@ object ErasureRequestEntity
   val withdraw         = command("withdraw")(_.withdraw)
   val overrideHold     = command("override-hold")(_.overrideHold)
   val lapse            = command("lapse")(_.lapse)
+  val applyFailed      = command("apply-failed")(_.applyFailed)
   val logWritten       = command("log-written")(_.logWritten)
   val keyDestroyed     = command("key-destroyed")(_.keyDestroyed)
   val recordCompletion = command("record-completion")(_.recordCompletion)

@@ -69,7 +69,7 @@ final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureReq
     case KeyDestroyed(when, _, _) =>
       effects.updateRow(row.copy(state = ErasureState.Applied.wire, appliedAt = Some(when)))
     case Finalised(_, at) => effects.updateRow(row.copy(finalAt = at))
-    case _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal =>
+    case _: ApplyFailed | _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal =>
       effects.updateRow(row)
 
 object ErasureRequestsView
@@ -109,6 +109,8 @@ object ErasureRequestsView
         ErasureHistoryLine("erasure-hold-overridden", who(actor), at, Some(s"$of: $reason"))
       case HoldLapsed(actor, at) =>
         ErasureHistoryLine("erasure-hold-lapsed", who(actor), at, Some(of))
+      case ApplyFailed(reason, actor, at) =>
+        ErasureHistoryLine("erasure-apply-failed", who(actor), at, Some(s"$of: $reason"))
       case LogWritten(seq, actor, at) =>
         ErasureHistoryLine("erasure-logged", who(actor), at, Some(s"$of, log entry $seq"))
       case KeyDestroyed(when, actor, at) =>

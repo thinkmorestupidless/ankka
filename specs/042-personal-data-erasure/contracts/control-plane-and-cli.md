@@ -6,7 +6,7 @@
 |---|---|---|
 | `POST /projects/{id}/erasures` | member; service with the `erasure` grant of `{id}` | `{subject, notBefore?, reason?, correlation?}` → 201 the request; 200 an applied one already for the subject; 400 a subject outside FR-002 |
 | `GET /projects/{id}/erasures?subject=&state=&correlation=` | member | list, newest first, paged |
-| `GET /projects/{id}/erasures/{rid}` | member | the request with completions |
+| `GET /projects/{id}/erasures/{rid}` | member | the request with completions, and `lastFailure: {reason, at}` while an attempt to apply it has failed |
 | `PUT /projects/{id}/erasures/{rid}` | filer or member | replace a held request's `notBefore`/`reason`; 409 if not held |
 | `POST /projects/{id}/erasures/{rid}/withdraw` | filer or member | 409 if applied |
 | `POST /projects/{id}/erasures/{rid}/override` | owner | `{reason}` → applied at once; 403 for a member |

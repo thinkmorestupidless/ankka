@@ -177,7 +177,8 @@ object ErasureRoutes:
         )
       },
       objectsFinalAt = r.objectsFinalAt,
-      finalAt = r.finalAt
+      finalAt = r.finalAt,
+      lastFailure = r.lastFailure.map(f => ErasureFailureView(f.reason, f.at))
     )
 
   def summary(r: ErasureRequestRow): ErasureRequestSummary =

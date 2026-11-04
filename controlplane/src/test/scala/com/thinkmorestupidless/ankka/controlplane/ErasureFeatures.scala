@@ -71,7 +71,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
     "an SDK writes the same personal envelope and reads it back into its own personal type" ->
       "each SDK's suite against protocol/fixtures/personal, and ConformanceSuite's personal.* cases",
     "a service written in a language of the JVM writes the personal envelope a service written in Scala writes" ->
-      "PersonalJavaSuite (sdk-java) and the Kotlin SDK's PersonalTest",
+      "PersonalJavaSuite (testkit-java) and the Kotlin SDK's PersonalTest",
     // The console is tested by its own Playwright suite against the fake control plane.
     "the console shows the erasure requests of a project with where each one stands and each service's completion" ->
       "console/e2e/tests/erasures.spec.ts, against the fake control plane"

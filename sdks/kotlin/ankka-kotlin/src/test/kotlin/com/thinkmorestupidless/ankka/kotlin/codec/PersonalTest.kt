@@ -4,10 +4,12 @@ import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.core.KeyAnswer
 import com.thinkmorestupidless.ankka.core.Keyring
 import com.thinkmorestupidless.ankka.core.PersonalScope
+import com.thinkmorestupidless.ankka.javasdk.Ankka
 import com.thinkmorestupidless.ankka.javasdk.Personal
 import com.thinkmorestupidless.ankka.javasdk.codec.Serializer
 import com.thinkmorestupidless.ankka.kotlin.personal
 import com.thinkmorestupidless.ankka.kotlin.subject
+import com.thinkmorestupidless.ankka.kotlin.testkit.ankkaTestKit
 import com.thinkmorestupidless.ankka.kotlin.valueOrNull
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
@@ -141,5 +143,24 @@ class PersonalTest {
         if (found.isEmpty) fail("no CommandError behind $e")
         val error = found.get()
         assertTrue(error.message!!.contains("keyring"), error.message)
+    }
+
+    /**
+     * features/erasure/languages.feature's JVM outline, its Kotlin row: the envelope is the Java
+     * codec's, held to the fixtures above; here the service keeps no plain value, and the entity
+     * recovered in Kotlin reads the field, and reads it as erased once its data subject is.
+     */
+    @Test
+    fun `a service written in Kotlin keeps the field encrypted and recovers it`() {
+        ankkaTestKit(Ankka.service("players").register(KotlinPlayers::class.java)) {
+            fun email() = componentClient().forEventSourcedEntity("8c1f").call(KotlinPlayers::email).invoke()
+            componentClient().forEventSourcedEntity("8c1f").call(KotlinPlayers::register).invoke("ada@example.com")
+            assertNoPersonalValue("ada@example.com")
+            restartService()
+            assertEquals("ada@example.com", email())
+            erase("player/8c1f")
+            restartService()
+            assertEquals("erased", email())
+        }
     }
 }

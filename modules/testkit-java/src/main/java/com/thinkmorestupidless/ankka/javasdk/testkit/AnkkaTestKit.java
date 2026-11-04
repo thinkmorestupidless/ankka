@@ -160,6 +160,27 @@ public final class AnkkaTestKit implements AutoCloseable {
     return kit.service(name);
   }
 
+  /**
+   * Erases {@code subject} (feature 042): its subject key is destroyed at once, every personal field
+   * of it reads as erased, and the service is sent the notice. Answers the erasure's sequence.
+   */
+  public long erase(String subject) {
+    return kit.erase(subject);
+  }
+
+  /**
+   * Fails, naming the table and column, when any of {@code values} is held anywhere in the service's
+   * database in plain, base64 or hex: what a personal field must never be.
+   */
+  public void assertNoPersonalValue(String... values) {
+    kit.assertNoPersonalValue(java.util.List.of(values));
+  }
+
+  /** The kit's bridge, for the platform's own tests in this package. */
+  ServiceKit bridge() {
+    return kit;
+  }
+
   @Override
   public void close() {
     kit.close();

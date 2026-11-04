@@ -140,6 +140,20 @@ final class ServiceKit private (
       )
     )
 
+  /**
+   * Erases `subject` (feature 042): its subject key is destroyed at once and the service is sent
+   * the notice; answers the erasure's sequence.
+   */
+  def erase(subject: String): Long =
+    kit.erase(com.thinkmorestupidless.ankka.core.DataSubject(subject))
+
+  /** Fails, naming the table and column, when any of `values` is held in plain, base64 or hex. */
+  def assertNoPersonalValue(values: java.util.List[String]): Unit =
+    kit.assertNoPersonalValue(scala.jdk.CollectionConverters.ListHasAsScala(values).asScala.toSeq*)
+
+  /** The Scala kit underneath, for the platform's own tests. */
+  private[ankka] def scalaKit: stk.AnkkaTestKit = kit
+
   def close(): Unit =
     kit.stop()
     scripted.values.foreach(_.stop())

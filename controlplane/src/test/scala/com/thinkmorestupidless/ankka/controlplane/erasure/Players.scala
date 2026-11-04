@@ -32,6 +32,13 @@ final case class PlayerRegistered(
 ) extends PlayerEvent
 final case class EmailChanged(email: Personal[String]) extends PlayerEvent
 
+given Serializer[PlayerRegistered] = Codecs.serializer[PlayerRegistered]("player-registered")
+
+/** What the `players` endpoint answers: the player's id and email (`edge.feature`). */
+final case class Registration(playerId: String, email: Personal[String])
+
+given Serializer[Registration] = Codecs.serializer[Registration]("registration")
+
 final case class Player(
     email: Option[Personal[String]],
     name: Option[Personal[String]],
@@ -67,6 +74,15 @@ final class PlayerEntity(context: EventSourcedEntityContext)
       )
       .thenReply(_ => Done)
 
+  /** Records a registration a caller sent whole, as the endpoint of `edge.feature` hands it. */
+  def record(registered: PlayerRegistered): Effect[Done] =
+    effects.persist(registered).thenReply(_ => Done)
+
+  def registration: ReadOnlyEffect[Registration] =
+    currentState.email match
+      case Some(email) => effects.reply(Registration(playerId, email))
+      case None        => effects.error(s"'$playerId' is not registered", ErrorCode.NotFound)
+
   def changeEmail(email: String): Effect[Done] =
     effects.persist(EmailChanged(Personal(subject, email))).thenReply(_ => Done)
 
@@ -87,10 +103,12 @@ object PlayerEntity
   // Every event is followed by a snapshot, so a snapshot of a personal field is always there to read.
   override def snapshotEvery: Option[Int] = Some(1)
 
-  val register    = command("register")(_.register)
-  val changeEmail = command("change-email")(_.changeEmail)
-  val email       = query("email")(_.email)
-  val currency    = query("currency")(_.currency)
+  val register     = command("register")(_.register)
+  val changeEmail  = command("change-email")(_.changeEmail)
+  val record       = command("record")(_.record)
+  val registration = query("registration")(_.registration)
+  val email        = query("email")(_.email)
+  val currency     = query("currency")(_.currency)
 
 /** A player's contact card, as a key value entity. */
 final case class PlayerContact(email: Option[Personal[String]])
@@ -173,3 +191,28 @@ object Engagement
     ):
   val handed: ConcurrentLinkedQueue[(String, Personal[String])] = ConcurrentLinkedQueue()
   def create(ctx: ConsumerContext)                              = new Engagement
+
+/**
+ * The endpoint of `edge.feature`: a player's registration answered, and a registration a caller
+ * sent recorded, each with its personal field in the edge form, since no serializer is encoding.
+ */
+final class PlayersEndpoint(clients: com.thinkmorestupidless.ankka.http.EndpointClients)
+    extends com.thinkmorestupidless.ankka.http.HttpEndpoint("/players"):
+
+  private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[Registration] =
+    Codecs.make[Registration]
+  private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[PlayerRegistered] =
+    Codecs.make[PlayerRegistered]
+
+  val acl: com.thinkmorestupidless.ankka.http.Acl = com.thinkmorestupidless.ankka.http.Acl.AllowAll
+
+  private def player(id: String) = clients.componentClient.forEventSourcedEntity(EntityId(id))
+
+  get("/{id}") { (id: String) =>
+    player(id).call(PlayerEntity.registration).invoke()
+  }
+
+  postBody("/{id}") { (id: String, registered: PlayerRegistered) =>
+    player(id).call(PlayerEntity.record).invoke(registered): Unit
+    "recorded"
+  }

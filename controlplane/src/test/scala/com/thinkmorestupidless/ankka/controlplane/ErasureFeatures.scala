@@ -87,7 +87,14 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   /** The scenario's first kit: `players` in its project. */
   private def kit: AnkkaTestKit = kits.headOption.getOrElse(fail("no service was started"))
 
+  /** The endpoint of `edge.feature`, served by the first kit, on a port of its own. */
+  private var server: Option[com.thinkmorestupidless.ankka.http.HttpServer] = None
+
   private def startKit(): AnkkaTestKit =
+    val http = com.thinkmorestupidless.ankka.http.HttpServer.at("127.0.0.1", 0)(clients =>
+      PlayersEndpoint(clients)
+    )
+    if kits.isEmpty then server = Some(http)
     val started = AnkkaTestKit.start(
       Seq(
         PlayerEntity.descriptor,
@@ -96,7 +103,7 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
         RegistrationPublisher.descriptor,
         Engagement.descriptor
       ),
-      Seq(ProjectionRuntime.withBroker(broker, broker)),
+      Seq(ProjectionRuntime.withBroker(broker, broker), http),
       serviceIdentity = ServiceIdentity.deployed(project, "players"),
       keyring = keyring
     )
@@ -484,4 +491,94 @@ class ErasureFeatures extends GherkinSuite("../features/erasure") with LogCaptur
   Then("the refusal says the installation's erasure is off") { () =>
     assert(applied._2.contains("erasure is off"), applied._2)
     assert(applied._2.contains("ANKKA_ERASURE"), applied._2)
+  }
+
+  // ── edge.feature ───────────────────────────────────────────────────────────
+
+  private val http                  = java.net.http.HttpClient.newHttpClient()
+  private var answer: (Int, String) = (0, "")
+
+  private def call(method: String, path: String, body: Option[String] = None): (Int, String) =
+    val port    = server.flatMap(_.boundPort).getOrElse(fail("the endpoint is not bound"))
+    val builder =
+      java.net.http.HttpRequest.newBuilder(java.net.URI.create(s"http://127.0.0.1:$port$path"))
+    body match
+      case Some(json) =>
+        builder.header("Content-Type", "application/json")
+        builder.method(method, java.net.http.HttpRequest.BodyPublishers.ofString(json)): Unit
+      case None => builder.method(method, java.net.http.HttpRequest.BodyPublishers.noBody()): Unit
+    val response = http.send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString())
+    (response.statusCode, response.body)
+
+  Given(
+    "a service {string} whose event {string} has the field {string} marked as a personal field of the data subject {string}"
+  ) { (service: String, event: String, field: String, subject: String) =>
+    assertEquals(
+      (service, event, field, subject),
+      ("players", "PlayerRegistered", "email", "player/8c1f")
+    )
+    startKit(): Unit
+  }
+
+  Given("an endpoint of {string} that answers with the {string} of an entity") {
+    (_: String, _: String) => assert(server.nonEmpty)
+  }
+
+  Given("an entity of {string} recorded a {string} with the email {string}") {
+    (_: String, _: String, email: String) =>
+      register(kit, "8c1f", email)
+      written = Some("8c1f" -> email)
+  }
+
+  Given("an erasure of {string} in the project of {string} is applied") {
+    (subject: String, _: String) =>
+      kit.erase(DataSubject(subject)): Unit
+      // What an entity already holds in memory is the erasure duties' (story 2); recovered from
+      // its journal, as here, it reads the field as erased.
+      kit.restartService()
+  }
+
+  When("a caller the endpoint allows asks for the entity") { () =>
+    answer = call("GET", "/players/8c1f")
+    assertEquals(answer._1, 200, answer._2)
+  }
+
+  Then(
+    "the answer holds the field {string} as the value {string} with the data subject {string} beside it"
+  ) { (field: String, value: String, subject: String) =>
+    assert(
+      answer._2.contains(s""""$field":{"subject":"$subject","value":"$value"}"""),
+      answer._2
+    )
+  }
+
+  Then("the answer holds no personal envelope") { () =>
+    assert(!answer._2.contains("$personal"), answer._2)
+  }
+
+  Then("the answer holds the field {string} as the data subject {string} alone") {
+    (field: String, subject: String) =>
+      assert(answer._2.contains(s""""$field":{"subject":"$subject"}"""), answer._2)
+  }
+
+  When(
+    "a caller the endpoint allows sends a {string} whose field {string} is the value {string} with the data subject {string} beside it"
+  ) { (_: String, field: String, value: String, subject: String) =>
+    val edge = s"""{"subject":"$subject","value":"$value"}"""
+    val body =
+      s"""{"playerId":"8c1f","$field":$edge,"name":{"subject":"$subject","value":"Ada"},""" +
+        s""""dateOfBirth":{"subject":"$subject","value":"1990-04-01"},"currency":"EUR",""" +
+        """"registeredAt":"2026-11-04T09:00:00Z"}"""
+    answer = call("POST", "/players/8c1f", Some(body))
+    assertEquals(answer._1, 200, answer._2)
+    written = Some("8c1f" -> value)
+  }
+
+  Then(
+    "the entity of {string} records the {string} with the email {string} as a personal field of {string}"
+  ) { (_: String, _: String, email: String, subject: String) =>
+    val text     = journalText(idOf(subject))
+    val envelope = envelopeOf(text, "email").getOrElse(fail(s"no envelope of 'email' in $text"))
+    assertEquals(sealedUnder(envelope, subject, "player-event"), "\"" + email + "\"")
+    kit.assertNoPersonalValue(email)
   }

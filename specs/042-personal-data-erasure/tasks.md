@@ -103,8 +103,8 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T023 [US1] Bind the JVM outline of `FEAT/languages.feature` (Java and Kotlin rows) through `modules/testkit-java` and the Kotlin kit; green
 - [X] T024 [US1] The descriptor field: `personal: Boolean = false` on `ServiceSpec` in `API/descriptors.scala` (strict codec, `DescriptorSuite`), `spec.personal` on `CRD/AnkkaService.scala` and `KUST/crd/ankkaservice.yaml` (`CrdSchemaSuite` both ways), the control plane's projection carries it
 - [X] T025 [US1] The installation setting: `InstallationEndpoint` in `CP/api/InstallationEndpoint.scala` reports `InstallationErasure(enabled, keyringInstances)` from `ANKKA_ERASURE`/`ANKKA_KEYRING_INSTANCES` instead of `None`; `PUT /services/...` in `CP/api/ServiceEndpoint.scala` refuses `"personal": true` with erasure off, naming `ANKKA_ERASURE`, beside `objectStorageProblems`; update `InstallationFactsFeatures` and bind the three `facts.feature` scenarios and `personal-fields.feature`'s refusal scenario
-- [ ] T026 [US1] Bind `FEAT/edge.feature` in `ErasureFeatures` with an HTTP endpoint of `players` (`HttpServer.at("127.0.0.1", 0)`); the reply and a posted body hold the edge form, no envelope; green
-- [ ] T027 [US1] `ErasureFeatures`: `personal-fields.feature`, `edge.feature` and the four `facts.feature` scenarios green
+- [X] T026 [US1] Bind `FEAT/edge.feature` in `ErasureFeatures` with an HTTP endpoint of `players` (`HttpServer.at("127.0.0.1", 0)`); the reply and a posted body hold the edge form, no envelope; green
+- [X] T027 [US1] `ErasureFeatures`: `personal-fields.feature`, `edge.feature` and the four `facts.feature` scenarios green
 
 **Checkpoint**: story 1 is complete for the JVM; a Scala service stores no personal value in plain anywhere.
 

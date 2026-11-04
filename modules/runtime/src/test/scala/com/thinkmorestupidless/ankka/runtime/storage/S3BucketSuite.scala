@@ -474,6 +474,29 @@ class S3VersionsListingSuite extends munit.FunSuite:
     assertEquals(page.nextVersion, Some("3"))
   }
 
+  test("Google names a version's id Generation, and the next page's NextGenerationMarker") {
+    val xml =
+      """<?xml version="1.0" encoding="UTF-8"?>
+        |<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+        |  <Name>kyc</Name><Prefix>subjects/player%2F8c1f/</Prefix>
+        |  <IsTruncated>true</IsTruncated>
+        |  <NextKeyMarker>subjects/player%2F8c1f/a.jpg</NextKeyMarker>
+        |  <NextGenerationMarker>1730764800000002</NextGenerationMarker>
+        |  <Version><Key>subjects/player%2F8c1f/a.jpg</Key><Generation>1730764800000001</Generation></Version>
+        |  <Version><Key>subjects/player%2F8c1f/a.jpg</Key><Generation>1730764800000002</Generation></Version>
+        |</ListVersionsResult>""".stripMargin
+    val page = S3Bucket.parseVersions(xml.getBytes("UTF-8"))
+    assertEquals(
+      page.versions,
+      Vector(
+        "subjects/player%2F8c1f/a.jpg" -> "1730764800000001",
+        "subjects/player%2F8c1f/a.jpg" -> "1730764800000002"
+      )
+    )
+    assertEquals(page.nextVersion, Some("1730764800000002"))
+    assert(page.generations)
+  }
+
 final class CountingClient(underlying: HttpClient) extends HttpClient:
   val listings                              = new java.util.concurrent.atomic.AtomicInteger()
   val requests                              = new java.util.concurrent.atomic.AtomicInteger()

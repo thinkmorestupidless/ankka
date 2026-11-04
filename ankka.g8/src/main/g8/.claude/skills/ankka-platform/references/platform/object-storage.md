@@ -381,7 +381,8 @@ sets none: a rule a service sets through S3 is refused by Google Cloud Storage.
 
 Every bucket in Google Cloud Storage keeps versions. An object overwritten or deleted stays readable as a
 noncurrent version, and a deleted object can be recovered for the installation's soft-delete window
-(`ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS`, 7 days as shipped), which `ankka services get` shows. No bucket has
+(`ANKKA_OBJECT_STORE_SOFT_DELETE_DAYS`, 7 days as shipped), which `ankka services get` shows and the service
+is told as `ANKKA_S3_SOFT_DELETE_DAYS`, so an erasure of its objects says when they are gone for good. No bucket has
 a retention policy: the platform refuses no deletion on account of an object's age, and keeping a
 document for as long as a rule requires is the service's own to do. Deleting every version of an object
 removes it once the soft-delete window has passed:

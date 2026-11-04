@@ -172,6 +172,51 @@ class GcsCompatibilitySuite extends munit.FunSuite:
   }
   // docs:end delete-every-version
 
+  // features/erasure/objects.feature: the store's half of a soft-delete window (feature 042).
+  test(
+    "an erasure deletes every version under a data subject's prefix and is final after the window"
+  ) {
+    import com.thinkmorestupidless.ankka.core.DataSubject
+    import com.thinkmorestupidless.ankka.runtime.storage.{S3Bucket, S3Target, SigV4}
+    import com.thinkmorestupidless.ankka.sdk.{BucketExposure, Finality, ObjectRules}
+    import scala.concurrent.duration.DurationInt
+    val subject = DataSubject(s"gcs-compatibility/${UUID.randomUUID()}")
+    val prefix  = ObjectRules.subjectPrefix(subject)
+    val outside = fresh("kept.txt")
+    put(prefix + "passport.pdf", "first")
+    put(prefix + "passport.pdf", "second")
+    put(prefix + "selfie.jpg", "only")
+    put(outside, "not theirs")
+    val bucketOf = S3Bucket(
+      S3Target(
+        URI.create(endpoint),
+        region,
+        bucket.get,
+        Some(SigV4.Credentials(access.get, secret.get)),
+        None
+      ),
+      None,
+      BucketExposure.Signed,
+      None,
+      30.seconds,
+      7.days,
+      HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build(),
+      softDelete = Some(7.days)
+    )
+    val erased = bucketOf.erase(subject)
+    assertEquals(erased.count, 2L)
+    assertEquals(erased.finality, Finality.After(7.days))
+    val left = s3
+      .listObjectVersions(
+        ListObjectVersionsRequest.builder().bucket(bucket.get).prefix(prefix).build()
+      )
+      .versions()
+      .asScala
+      .map(_.key())
+    assertEquals(left.toVector, Vector.empty[String])
+    assertEquals(get(outside), "not theirs")
+  }
+
   // features/object-storage-gcs/reachable.feature
 
   private val http = HttpClient.newHttpClient()

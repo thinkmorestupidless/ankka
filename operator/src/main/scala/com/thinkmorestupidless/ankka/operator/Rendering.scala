@@ -888,7 +888,8 @@ object Rendering:
       plan: ObjectStoragePlan = ObjectStoragePlan.NotAsked,
       credentialGeneration: Int = 0
   ): Option[StorageEnv] =
-    if ObjectStorage.takesCloudPath(spec, settings, reported) then cloudStorageEnv(spec, plan)
+    if ObjectStorage.takesCloudPath(spec, settings, reported) then
+      cloudStorageEnv(spec, settings, plan)
     else garageStorageEnv(spec, settings, credentialGeneration)
 
   /**
@@ -897,7 +898,11 @@ object Rendering:
    * requests are answered, and nothing for a bucket the provider refused: no instance starts told
    * of a bucket that is not there.
    */
-  private def cloudStorageEnv(spec: AnkkaServiceSpec, plan: ObjectStoragePlan): Option[StorageEnv] =
+  private def cloudStorageEnv(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      plan: ObjectStoragePlan
+  ): Option[StorageEnv] =
     plan match
       case ObjectStoragePlan.Ready(_, Some(cloud)) =>
         Some(
@@ -911,7 +916,8 @@ object Rendering:
             ) ++
               // A bucket reachable from the internet is reached there at the cloud's own address,
               // which is the one the provider answered (feature 039): no route of the installation's.
-              Option.when(spec.exposeObjectStorage)(StorageEnv.PublicEndpoint -> cloud.endpoint),
+              Option.when(spec.exposeObjectStorage)(StorageEnv.PublicEndpoint -> cloud.endpoint) ++
+              StorageEnv.softDelete(settings),
             credentialGeneration = cloud.credentialGeneration.toInt
           )
         )
@@ -947,7 +953,9 @@ object Rendering:
             case Some(c) =>
               StorageEnv(
                 secret = Some(Buckets.cloudSecret(spec.serviceName)),
-                literals = Vector(StorageEnv.Endpoint -> c.endpoint, StorageEnv.Region -> c.region),
+                literals =
+                  Vector(StorageEnv.Endpoint -> c.endpoint, StorageEnv.Region -> c.region) ++
+                    StorageEnv.softDelete(settings),
                 credentialGeneration = c.credentialGeneration.toInt
               )
             case None =>
@@ -2320,6 +2328,15 @@ object StorageEnv:
   val PublicUrl: String      = PlatformVariables.ObjectStoragePrefix + "PUBLIC_URL"
   val AccessKey: String      = PlatformVariables.ObjectStoragePrefix + "ACCESS_KEY"
   val SecretKey: String      = PlatformVariables.ObjectStoragePrefix + "SECRET_KEY"
+  val SoftDeleteDays: String = PlatformVariables.ObjectStoragePrefix + "SOFT_DELETE_DAYS"
+
+  /**
+   * How long the installation's cloud store keeps a deleted object (feature 042), which the service
+   * reports as when an erasure of objects becomes final: the window the operator asks every cloud
+   * bucket for, and the one its status reports. Nothing for none, which is immediate.
+   */
+  def softDelete(settings: Settings): Option[(String, String)] =
+    settings.gcs.map(_.softDeleteDays).filter(_ > 0).map(days => SoftDeleteDays -> days.toString)
 
   /** A supplied bucket's credential: the project secret's two entries (feature 055). */
   val SuppliedAccessKey: String = "access-key"

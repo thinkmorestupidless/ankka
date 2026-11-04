@@ -107,9 +107,6 @@ class ErasureFeatures(
       "ErasureProjectsFeatures, and ErasureClusterFeatures through the gateway on k3s",
     "the keyring refuses to decrypt for a machine outside the installation once its grant is revoked or the data subject is erased" ->
       "ErasureProjectsFeatures, and ErasureClusterFeatures through the gateway on k3s",
-    // A soft-delete window is the cloud store's (GCS), which only the GCS cluster suite reaches.
-    "the erasure request says when the erasure of objects becomes final on an object store with a soft-delete window" ->
-      "ObjectStorageGcsClusterFeatures, against a real bucket",
     // Each language writes the envelope itself.
     "an SDK writes the same personal envelope and reads it back into its own personal type" ->
       ("ConformanceSuite's personal.* and erasure.handler-runs cases against each language's " +
@@ -315,6 +312,12 @@ class ErasureFeatures(
         30.seconds
       )
     else keyring.acks.find(a => a.seq == seq && a.service == service).map(_.completion)
+
+  /** The window a soft-delete scenario's store keeps a deleted object for. */
+  private val SoftDeleteWindow: FiniteDuration = 7.days
+
+  /** The data subject the last `is erased in` step erased. */
+  @volatile private var lastErased: Option[String] = None
 
   /** Each run of a bucket's handler (`objects.feature`): the service, the subject, the count. */
   private val bucketRuns = java.util.concurrent.ConcurrentLinkedQueue[(String, String, Long)]()
@@ -1723,6 +1726,12 @@ class ErasureFeatures(
     keep(service, prefixOf(subject) + b)
   }
 
+  Given("{string} has kept objects under the subject prefix of {string}") {
+    (service: String, subject: String) =>
+      keep(service, prefixOf(subject) + "passport.pdf")
+      keep(service, prefixOf(subject) + "selfie.jpg")
+  }
+
   Given("{string} has kept the object {string} outside any subject prefix") {
     (service: String, name: String) => keep(service, name)
   }
@@ -1736,6 +1745,19 @@ class ErasureFeatures(
     }
   }
 
+  // The window is the store's; on the platform the operator tells a service its cloud bucket's as
+  // ANKKA_S3_SOFT_DELETE_DAYS (ObjectStorageRenderingSuite), and GcsCompatibilitySuite erases under
+  // a subject prefix of a real bucket that keeps one.
+  Given(
+    "the object store of the installation keeps every version of an object behind a soft-delete window"
+  ) { () =>
+    names.filter(_ != "players").foreach { service =>
+      val store = storeOf(service)
+      store.keepsVersions = true
+      store.softDelete = Some(SoftDeleteWindow)
+    }
+  }
+
   Given("the object store of the installation keeps one version of an object") { () =>
     names.filter(_ != "players").foreach(service => storeOf(service).keepsVersions = false)
   }
@@ -1746,6 +1768,7 @@ class ErasureFeatures(
 
   When("{string} is erased in {string}") { (subject: String, in: String) =>
     assertEquals(in, project)
+    lastErased = Some(subject)
     val (status, body) = askErasure(subject)
     assertEquals(status, 201, body)
     appliedToEveryone(subject): Unit
@@ -1780,6 +1803,28 @@ class ErasureFeatures(
       val report = completionOf(service)
       assertEquals(report.objectsErased, count.toLong, report.toString)
       assertEquals(report.error, None)
+  }
+
+  Then(
+    "the erasure request says that the erasure of objects becomes final when the soft-delete window has passed"
+  ) { () =>
+    val subject = lastErased.getOrElse(fail("nothing was erased"))
+    val applied = java.time.Instant.now()
+    val request = eventually("the request says when objects are final")(
+      Option(
+        plane.componentClient
+          .getOrElse(fail("the erasure plane has not started"))
+          .forEventSourcedEntity(EntityId(s"$planeProject/${requestOf(subject)}"))
+          .call(com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestEntity.get)
+          .invoke()
+      ).filter(_.objectsFinalAt.nonEmpty)
+    )
+    val finalAt = request.objectsFinalAt.get
+    val window  = java.time.Duration.ofMillis(SoftDeleteWindow.toMillis)
+    // Final no sooner than the window after the erasure, and not a minute later.
+    assert(!finalAt.isBefore(applied.plus(window).minusSeconds(60)), s"$finalAt, applied $applied")
+    assert(!finalAt.isAfter(applied.plus(window).plusSeconds(60)), s"$finalAt, applied $applied")
+    names.filter(_ != "players").foreach(service => storeOf(service).softDelete = None)
   }
 
   Then("the erasure handler of {string} ran again") { (service: String) =>

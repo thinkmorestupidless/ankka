@@ -433,17 +433,18 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
       spec: AnkkaServiceSpec,
       plan: ObjectStoragePlan,
       identity: Option[String] = None,
-      bucket: Option[String] = None
+      bucket: Option[String] = None,
+      installation: Settings = withCloud
   ): Vector[Action] =
     val r = resource(spec)
     Rendering
       .render(
         r,
-        withCloud,
+        installation,
         ProvisioningPlan.Supplied,
         objectStoragePlan = plan,
         cloudRequests =
-          ObjectStorage.cloudRequests(r, withCloud, cloud, None, None, identity, bucket)
+          ObjectStorage.cloudRequests(r, installation, cloud, None, None, identity, bucket)
       )
       .fold(p => fail(p.mkString("; ")), identity => identity)
 
@@ -773,6 +774,19 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
           s"$hosting: ${other.getName}"
         )
       }
+  }
+
+  test(
+    "cloud: a service is told how long its bucket keeps a deleted object, and nothing for none"
+  ) {
+    def told(days: Int) =
+      val installation = withCloud.copy(gcs = Some(GcsSettings("t", days)))
+      storageVariables(
+        developers(asks, containers(renderCloud(asks, cloudReady, installation = installation)))
+      )
+        .get("ANKKA_S3_SOFT_DELETE_DAYS")
+    assertEquals(told(30), Some("30"))
+    assertEquals(told(0), None)
   }
 
   test("cloud: the credential's generation is on the pod template, so a new one rolls the pods") {

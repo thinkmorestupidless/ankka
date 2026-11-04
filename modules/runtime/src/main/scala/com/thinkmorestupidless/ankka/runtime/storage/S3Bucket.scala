@@ -162,11 +162,14 @@ final class S3Bucket(
     val found                  = Vector.newBuilder[(String, String)]
     var marker: Option[String] = None
     var versionMarker          = Option.empty[String]
+    var generations            = false
     var more                   = true
     var listed                 = true
     while more && listed do
       val query = Vector("prefix" -> prefix, "versions" -> "") ++
-        marker.map("key-marker" -> _) ++ versionMarker.map("version-id-marker" -> _)
+        marker.map("key-marker" -> _) ++ versionMarker.map("version-id-marker" -> _) ++
+        // Google pages by generation; it names the next one `NextGenerationMarker`.
+        versionMarker.filter(_ => generations).map("generation-marker" -> _)
       val response = send(
         signed("GET", s"/${target.bucket}", query).GET().build(),
         HttpResponse.BodyHandlers.ofByteArray()
@@ -182,6 +185,7 @@ final class S3Bucket(
         found ++= page.versions
         marker = page.nextKey
         versionMarker = page.nextVersion
+        generations = page.generations
         more = page.truncated
     Option.when(listed)(found.result())
 
@@ -299,13 +303,17 @@ object S3Bucket:
       versions: Vector[(String, String)],
       truncated: Boolean,
       nextKey: Option[String],
-      nextVersion: Option[String]
+      nextVersion: Option[String],
+      /** The answer named versions as Google does, `Generation`, rather than `VersionId`. */
+      generations: Boolean = false
   )
 
   /**
    * A `ListObjectVersions` answer: each `Version` and `DeleteMarker` as its key and version id. A
    * delete marker's id is kept too, since a marker is itself a version to remove. A `Version` with
-   * an id of `null` (a store that has never kept versions) is read with an empty id.
+   * an id of `null` (a store that has never kept versions) is read with an empty id. Google Cloud
+   * Storage names a version's id `Generation` and the next page's `NextGenerationMarker`, and takes
+   * either id back as `versionId`.
    */
   private[storage] def parseVersions(xml: Array[Byte]): Versions =
     val factory = XMLInputFactory.newFactory()
@@ -319,28 +327,32 @@ object S3Bucket:
     var inEntry   = false
     var key       = ""
     var version   = ""
+    var google    = false
     try
       while reader.hasNext do
         reader.next() match
           case XMLStreamConstants.START_ELEMENT =>
             reader.getLocalName match
-              case "Version" | "DeleteMarker" => inEntry = true; key = ""; version = ""
-              case "Key" if inEntry           => key = reader.getElementText
-              case "VersionId" if inEntry     =>
+              case "Version" | "DeleteMarker"            => inEntry = true; key = ""; version = ""
+              case "Key" if inEntry                      => key = reader.getElementText
+              case "VersionId" | "Generation" if inEntry =>
+                google = google || reader.getLocalName == "Generation"
                 version = reader.getElementText.trim match
                   case "null" => ""
                   case v      => v
-              case "IsTruncated"         => truncated = reader.getElementText.trim == "true"
-              case "NextKeyMarker"       => nextKey = Some(reader.getElementText)
-              case "NextVersionIdMarker" => nextVer = Some(reader.getElementText)
-              case _                     => ()
+              case "IsTruncated"          => truncated = reader.getElementText.trim == "true"
+              case "NextKeyMarker"        => nextKey = Some(reader.getElementText)
+              case "NextVersionIdMarker"  => nextVer = Some(reader.getElementText)
+              case "NextGenerationMarker" =>
+                google = true; nextVer = Some(reader.getElementText)
+              case _ => ()
           case XMLStreamConstants.END_ELEMENT
               if reader.getLocalName == "Version" || reader.getLocalName == "DeleteMarker" =>
             inEntry = false
             versions += key -> version
           case _ => ()
     finally reader.close()
-    Versions(versions.result(), truncated, nextKey, nextVer)
+    Versions(versions.result(), truncated, nextKey, nextVer, google)
 
   /**
    * A `ListObjectsV2` answer: its entries, and the token for the next page while it is truncated.

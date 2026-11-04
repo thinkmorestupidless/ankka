@@ -97,8 +97,9 @@ final class KeyringService(
     admitted(who, Admission.Request.Status(seq))(notices.status(seq).map(Answer.Ok(_)))
 
   /**
-   * `POST /v1/decrypt`: each field in the clear, or `null` where its data subject is erased; every
-   * field must be of the request's project. Each data subject read is recorded with how many of its
+   * `POST /v1/decrypt`: each field in the clear, or `null` where it holds no value; every field
+   * must be of the request's project. A request naming an erased data subject is refused, and
+   * recorded as a refusal; otherwise each data subject read is recorded with how many of its
    * fields, never a value (FR-031).
    */
   def decrypt(who: Admission.Who, request: DecryptRequest): Future[Answer[DecryptReply]] =
@@ -124,27 +125,42 @@ final class KeyringService(
             )
             .map(_.toMap)
             .flatMap { keys =>
-              val values = envelopes.zipWithIndex.map { (e, i) =>
-                (keys(e.subject), e.c) match
-                  case (Wrapping.Answer.Key(k), Some(c)) =>
-                    val ad = PersonalCipher.associatedData(e.subject, e.project, request.manifest)
-                    Try(Base64.getDecoder.decode(c)).toOption
-                      .flatMap(PersonalCipher.open(k, _, ad))
-                      .map(p => Right(Some(RawJson(p))))
-                      .getOrElse(Left(s"the personal envelope of field $i failed authentication"))
-                  case _ => Right(None)
-              }
-              values.collectFirst { case Left(why) => why } match
-                case Some(why) => Future.successful(Answer.Invalid(why))
-                case None      =>
-                  val machine = who.name
-                  Future
-                    .traverse(envelopes.groupBy(_.subject).toVector)((s, es) =>
-                      store.decrypted(machine, request.grant, request.project, s, es.size)
-                    )
-                    .map(_ => Answer.Ok(DecryptReply(values.collect { case Right(v) => v })))
+              // An erased data subject is refused, as a revoked grant is (FR-031), and recorded.
+              subjects.find(s => keys(s) == Wrapping.Answer.Destroyed) match
+                case Some(erased) =>
+                  val why = s"the data subject $erased is erased"
+                  store
+                    .refused(who.name, request.project, erased, why)
+                    .map(_ => Answer.Refused(why))
+                case None => opened(who, request, envelopes, keys)
             }
     }
+
+  /** Each field opened under its subject's key, or `null` when it holds no value; recorded. */
+  private def opened(
+      who: Admission.Who,
+      request: DecryptRequest,
+      envelopes: Vector[Envelope],
+      keys: Map[String, Wrapping.Answer]
+  ): Future[Answer[DecryptReply]] =
+    val values = envelopes.zipWithIndex.map { (e, i) =>
+      (keys(e.subject), e.c) match
+        case (Wrapping.Answer.Key(k), Some(c)) =>
+          val ad = PersonalCipher.associatedData(e.subject, e.project, request.manifest)
+          Try(Base64.getDecoder.decode(c)).toOption
+            .flatMap(PersonalCipher.open(k, _, ad))
+            .map(p => Right(Some(RawJson(p))))
+            .getOrElse(Left(s"the personal envelope of field $i failed authentication"))
+        case _ => Right(None)
+    }
+    values.collectFirst { case Left(why) => why } match
+      case Some(why) => Future.successful(Answer.Invalid(why))
+      case None      =>
+        Future
+          .traverse(envelopes.groupBy(_.subject).toVector)((s, es) =>
+            store.decrypted(who.name, request.grant, request.project, s, es.size)
+          )
+          .map(_ => Answer.Ok(DecryptReply(values.collect { case Right(v) => v })))
 
 object KeyringService:
 

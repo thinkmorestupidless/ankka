@@ -64,9 +64,33 @@ object View:
       val componentId: ComponentId,
       val source: ChangeSource[Src],
       val rowSerializer: Serializer[Row]
-  ):
+  )(using personal: PersonalFields[Row]):
 
     def create(ctx: ViewComponentContext): V
+
+    private val lookups = scala.collection.mutable.ArrayBuffer.empty[String]
+
+    /**
+     * Marks a personal field of the row for lookup (feature 042): a declared query may compare it
+     * by equality, which the runtime answers from a token of the value, never the value. Any other
+     * predicate on a personal field is refused when the service starts.
+     */
+    protected final inline def lookup(inline field: Row => Any): Unit =
+      lookupAt(FieldPath.of(field))
+
+    protected final def lookupAt(path: String): Unit = declared.synchronized {
+      if taken then
+        throw IllegalStateException(
+          s"view '$componentId' marks '$path' for lookup after it was registered; mark it in the " +
+            "companion's body"
+        )
+      if !personal.paths.contains(path) then
+        throw IllegalArgumentException(
+          s"view '$componentId' marks '$path' for lookup, which is not a personal field of its row" +
+            personal.paths.mkString(" (its personal fields: ", ", ", ")")
+        )
+      if !lookups.contains(path) then lookups += path
+    }
 
     /** The table holding this view's rows, for a declared query's statement to name. */
     final def table: String = ViewDescriptor.tableFor(componentId)
@@ -131,7 +155,18 @@ object View:
         taken = true
         declared.toVector
       }
-      ViewDescriptor(componentId, source, rowSerializer, create, parallelism, version, queries)
+      val marked = declared.synchronized(lookups.toVector)
+      ViewDescriptor(
+        componentId,
+        source,
+        rowSerializer,
+        create,
+        parallelism,
+        version,
+        queries,
+        personalFields = personal.paths,
+        lookupFields = marked
+      )
 
 /** The registered form of a view. */
 final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
@@ -142,7 +177,11 @@ final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
     parallelism: Int,
     version: Option[Int] = None,
     queries: Vector[DeclaredQuery] = Vector.empty,
-    override val platform: Boolean = false
+    override val platform: Boolean = false,
+    /** The paths of the row's personal fields (feature 042): `email`, `address.line1`. */
+    personalFields: Vector[String] = Vector.empty,
+    /** Which of them a declared query may compare by equality, through a lookup token. */
+    lookupFields: Vector[String] = Vector.empty
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.View
 

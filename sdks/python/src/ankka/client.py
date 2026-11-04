@@ -45,6 +45,22 @@ def _payload(codec: Codec[Any], value: Any) -> payload_pb2.Payload:
     return payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(value))
 
 
+async def _sealable(value: Any) -> None:
+    """Fetches the subject keys a value about to be encoded needs (feature 042); raises the refusal."""
+    if value is None or isinstance(value, (str, bytes, int, float, bool)):
+        return
+    from ankka import keyring
+
+    await keyring.current().prefetch_values(value)
+
+
+async def _opened(message: Any) -> None:
+    """Fetches the subject keys a reply's sealed envelopes need before it is decoded (feature 042)."""
+    from ankka import keyring
+
+    await keyring.current().prefetch_message(message)
+
+
 def _error(pb: payload_pb2.Error) -> Error:
     return Error(pb.message, ErrorCode.from_pb(pb.code), dict(pb.details))
 
@@ -199,6 +215,7 @@ class Invocation:
         an agent's turn that waits for a person raises ``ApprovalAwaited`` (``ask`` answers it)."""
         in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
         out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
+        await _sealable(input)
         outcome = await self._outcome(self._request(input, in_codec), out_codec)
         if isinstance(outcome, AwaitingApproval):
             raise ApprovalAwaited(outcome.requests)
@@ -216,6 +233,7 @@ class Invocation:
         with the requests the turn waits on when the model called a tool that requires approval."""
         in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
         out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
+        await _sealable(input)
         return await self._outcome(self._request(input, in_codec), out_codec)
 
     async def decide(
@@ -261,7 +279,9 @@ class Invocation:
         )
 
     async def _outcome(self, request: client_pb2.InvokeRequest, out_codec: Codec[Any]) -> Answered[Any] | AwaitingApproval:
-        return self._read(await self._stub.Invoke(request), out_codec)
+        answer = await self._stub.Invoke(request)
+        await _opened(answer)
+        return self._read(answer, out_codec)
 
     @staticmethod
     def _read(answer: client_pb2.InvokeReply, out_codec: Codec[Any]) -> Answered[Any] | AwaitingApproval:
@@ -427,6 +447,7 @@ class Views:
         answer = await self._stub.Query(request)
         if answer.HasField("error"):
             raise CommandError(_error(answer.error))
+        await _opened(answer)
         decoding = codec or default_codec_for(row)
         documents = json.loads(answer.rows.data.decode("utf-8"))
         return [decoding.decode(json.dumps(d).encode("utf-8")) for d in documents]
@@ -502,6 +523,7 @@ class Views:
             async for frame in frames:
                 which = frame.WhichOneof("frame")
                 if which == "row":
+                    await _opened(frame)
                     yield views.Row(frame.row.key, decoding.decode(frame.row.payload.data))
                 elif which == "removed":
                     yield views.Removed(frame.removed.key)

@@ -156,6 +156,8 @@ def to_json_value(value: Any, tp: Any = None) -> Any:
         return None
     if isinstance(value, bool):
         return value
+    if _is_personal_value(value):
+        return _personal_to_json(value, tp)
     if isinstance(value, enum.Enum):
         return {DISCRIMINATOR: value.name}
     if isinstance(value, int) and tp is float:
@@ -200,6 +202,8 @@ def from_json_value(value: Any, tp: Any) -> Any:
         raise EncodingError(f"null where a {tp} was required")
     if tp is Any:
         return value
+    if _is_personal_type(tp):
+        return _personal_from_json(value, tp)
     members = _union_members(tp)
     if members is not None:
         if not isinstance(value, dict) or DISCRIMINATOR not in value:
@@ -259,6 +263,98 @@ def from_json_value(value: Any, tp: Any) -> Any:
         inner = args[1] if len(args) == 2 else Any
         return {k: from_json_value(v, inner) for k, v in value.items()}
     raise EncodingError(f"cannot decode into {tp!r}")
+
+
+# ── Personal fields (feature 042; ENCODING.md, "Personal fields") ─────────────
+#
+# Under a scope (a component's codec, `JsonCodec`) a personal field is the envelope, sealed with
+# the key the keyring prefetched; outside one (an endpoint's reply or body) it is the edge form.
+# `personal` imports the client, which imports this module, hence the imports inside.
+
+
+def _is_personal_value(value: Any) -> bool:
+    from ankka.personal import Personal
+
+    return isinstance(value, Personal)
+
+
+def _is_personal_type(tp: Any) -> bool:
+    from ankka.personal import is_personal_type
+
+    return is_personal_type(tp)
+
+
+def _personal_inner(tp: Any) -> Any:
+    args = get_args(_strip_optional(tp)[0]) if tp is not None else ()
+    return args[0] if args else Any
+
+
+def _personal_to_json(value: Any, tp: Any) -> dict[str, Any]:
+    from ankka import keyring, personal
+
+    inner = _personal_inner(tp)
+    subject = str(value.subject)
+    scope = personal.current_scope()
+    if scope is None:
+        edge: dict[str, Any] = {"subject": subject}
+        if isinstance(value, personal.Present):
+            edge["value"] = to_json_value(value.value, inner)
+        return edge
+    ring = keyring.current()
+    project = ring.own_project()
+    envelope: dict[str, Any] = {"$personal": personal.VERSION, "project": project, "subject": subject}
+    if isinstance(value, personal.Present):
+        key = ring.key_for_write(subject)
+        plaintext = write_json(to_json_value(value.value, inner)).encode("utf-8")
+        ad = personal.associated_data(subject, project, scope.manifest)
+        envelope["c"] = personal.b64encode(personal.seal(key, plaintext, ad))
+    return envelope
+
+
+def _personal_from_json(value: Any, tp: Any) -> Any:
+    from ankka import keyring, personal
+
+    inner = _personal_inner(tp)
+    scope = personal.current_scope()
+    if not isinstance(value, dict):
+        raise EncodingError(f"expected a personal field, got {value!r}")
+    subject = value.get("subject")
+    if scope is None:
+        if not isinstance(subject, str):
+            raise EncodingError("a personal field names its data subject")
+        s = _subject(subject)
+        if "value" in value:
+            return personal.Present(s, from_json_value(value["value"], inner))
+        return personal.Erased(s)
+    project = value.get("project")
+    if not isinstance(subject, str) or not isinstance(project, str):
+        raise EncodingError("a personal envelope names its project and its data subject")
+    s = _subject(subject)
+    version = value.get("$personal")
+    if version != personal.VERSION or isinstance(version, bool):
+        raise personal.CorruptEnvelope(subject, f"its version is {version}, and this reader knows {personal.VERSION}")
+    boxed = value.get("c")
+    if boxed is None:
+        return personal.Erased(s)
+    key = keyring.current().key_for_read(project, subject)
+    if key is None:
+        return personal.Erased(s)
+    data = personal.b64decode(boxed) if isinstance(boxed, str) else None
+    if data is None:
+        raise personal.CorruptEnvelope(subject, "it is not base64")
+    plaintext = personal.open_sealed(key, data, personal.associated_data(subject, project, scope.manifest))
+    if plaintext is None:
+        raise personal.CorruptEnvelope(subject, "it failed authentication")
+    return personal.Present(s, from_json_value(json.loads(plaintext.decode("utf-8")), inner))
+
+
+def _subject(text: str) -> Any:
+    from ankka.personal import DataSubject, subject_problem
+
+    problem = subject_problem(text)
+    if problem is not None:
+        raise EncodingError(problem)
+    return DataSubject(text)
 
 
 def _decode_dataclass(obj: dict[str, Any], cls: type) -> Any:
@@ -334,10 +430,17 @@ class JsonCodec(Generic[A]):
     content_type: str = JSON
 
     def encode(self, value: A) -> bytes:
-        return write_json(to_json_value(value, self.cls)).encode("utf-8")
+        from ankka.personal import within
+
+        # The manifest is bound for the one call, so a personal field inside is sealed under it.
+        with within(self.manifest):
+            return write_json(to_json_value(value, self.cls)).encode("utf-8")
 
     def decode(self, data: bytes) -> A:
-        return typing.cast(A, from_json_value(json.loads(data.decode("utf-8")), self.cls))
+        from ankka.personal import within
+
+        with within(self.manifest):
+            return typing.cast(A, from_json_value(json.loads(data.decode("utf-8")), self.cls))
 
 
 def json_codec(cls: Any, manifest: str) -> JsonCodec[Any]:

@@ -418,7 +418,8 @@ class Endpoint(HasSecrets, HasStorage, HasServices, HasClientKeys):
             assert codec is not None
             if result is None or isinstance(result, Done):
                 return 204, codec.content_type, b""  # as a Scala endpoint answers Done: no content
-            return 200, codec.content_type, codec.encode(result)
+            with _at_edge():  # a reply is the edge: a personal field is its value beside its subject
+                return 200, codec.content_type, codec.encode(result)
         finally:
             _current.reset(token)
 
@@ -453,7 +454,15 @@ class Endpoint(HasSecrets, HasStorage, HasServices, HasClientKeys):
         if spec.body_param is not None:
             assert spec.body_codec is not None
             try:
-                kwargs[spec.body_param] = spec.body_codec.decode(body)
+                with _at_edge():
+                    kwargs[spec.body_param] = spec.body_codec.decode(body)
             except Exception as e:  # a body that does not decode is the caller's problem
                 raise HttpProblem(400, f"cannot decode the request body: {e}") from e
         return kwargs
+
+
+def _at_edge() -> Any:
+    """``personal.at_edge``; imported here because ``personal`` imports the client, which imports this."""
+    from ankka.personal import at_edge
+
+    return at_edge()

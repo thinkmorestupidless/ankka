@@ -29,6 +29,7 @@ from ankka._proto.ankka.protocol.v1 import (
     discovery_pb2,
     discovery_pb2_grpc,
     endpoint_pb2,
+    erasure_pb2_grpc,
     endpoint_pb2_grpc,
     event_sourced_pb2,
     event_sourced_pb2_grpc,
@@ -44,7 +45,9 @@ from ankka._proto.ankka.protocol.v1 import (
     workflow_pb2,
     workflow_pb2_grpc,
 )
-from ankka import contract, start_from
+from ankka import contract, keyring, start_from
+from ankka.erasure import ErasureServicer
+from ankka.personal import PERSONAL_SINCE
 from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient, SidecarRows
@@ -82,9 +85,16 @@ def _failure(command_id: int, message: str, code: Any = payload_pb2.INTERNAL) ->
 
 
 class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
-    def __init__(self, registry: Registry, storage: Buckets | None = None) -> None:
+    def __init__(
+        self,
+        registry: Registry,
+        storage: Buckets | None = None,
+        on_personal: Any = None,
+    ) -> None:
         self.registry = registry
         self.storage = storage
+        # Called once a runtime that hands out subject keys has discovered a service that needs them.
+        self.on_personal = on_personal
 
     async def Discover(self, request: discovery_pb2.SidecarInfo, context: Any) -> discovery_pb2.Spec:
         log.info("sidecar %s (protocol %s) discovering", request.runtime_version, request.protocol_version)
@@ -94,6 +104,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
             or grants_refusal(self.registry, request.protocol_version)
             or replication_refusal(self.registry, request.protocol_version)
             or mcp_refusal(self.registry, request.protocol_version)
+            or personal_refusal(self.registry, request.protocol_version)
         )
         if refusal is not None:
             log.error(refusal)
@@ -112,6 +123,8 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
                 )
             else:
                 spec.endpoints.append(storage_endpoint())
+        if self.on_personal is not None and self.registry.personal_components():
+            self.on_personal()
         return spec
 
     def refusal(self, sidecar_protocol: str) -> str | None:
@@ -215,6 +228,14 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
         here: str | None = None
         async for message in request_iterator:
             kind = message.WhichOneof("message")
+            unopened = await _opened(message)
+            if unopened is not None:
+                if kind == "command":
+                    yield event_sourced_pb2.EventSourcedOut(failure=_refused(message.command.id, unopened))
+                    continue
+                # A recovery the keyring cannot serve ends here, never with a field read as erased.
+                yield event_sourced_pb2.EventSourcedOut(failure=_refused(0, unopened))
+                return
             if kind == "init":
                 here = message.init.installation or None
                 cls = self.registry.entities.get(message.init.component_id)
@@ -287,6 +308,13 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                             EventContext(here, True, sequence + i, ctx.attribution, ctx.forwarded_from),
                         )
                 reply = event_sourced_pb2.EventSourcedOut.Reply(command_id=cmd.id)
+                if not isinstance(effect.outcome, Fail):
+                    unsealable = await _sealable(effect.events, new_state if cmd.snapshot_requested else None)
+                    if unsealable is not None:
+                        # Nothing is written: the reply is the refusal, and the state stays.
+                        reply.outcome.error.CopyFrom(unsealable)
+                        yield event_sourced_pb2.EventSourcedOut(reply=reply)
+                        continue
                 if effect.replication is not None and not isinstance(effect.outcome, Fail):
                     reply.replication.CopyFrom(replication_to_pb(effect.replication))
                 if isinstance(effect.outcome, Fail):
@@ -354,6 +382,13 @@ class KeyValueServicer(key_value_pb2_grpc.KeyValueServicer):
         entity_id = ""
         async for message in request_iterator:
             kind = message.WhichOneof("message")
+            unopened = await _opened(message)
+            if unopened is not None:
+                if kind == "command":
+                    yield key_value_pb2.KeyValueOut(failure=_refused(message.command.id, unopened))
+                    continue
+                yield key_value_pb2.KeyValueOut(failure=_refused(0, unopened))
+                return
             if kind == "init":
                 cls = self.registry.key_values.get(message.init.component_id)
                 if cls is None:
@@ -382,6 +417,11 @@ class KeyValueServicer(key_value_pb2_grpc.KeyValueServicer):
                 new_state = state if effect.new_state is None else effect.new_state
                 if isinstance(effect.outcome, Fail):
                     reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
+                    yield key_value_pb2.KeyValueOut(reply=reply)
+                    continue
+                unsealable = await _sealable(effect.new_state)
+                if unsealable is not None:
+                    reply.outcome.error.CopyFrom(unsealable)
                     yield key_value_pb2.KeyValueOut(reply=reply)
                     continue
                 if effect.new_state is not None:
@@ -435,6 +475,10 @@ class _WorkflowStream:
         if isinstance(effect.outcome, Fail):
             reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
             return workflow_pb2.WorkflowOut(reply=reply)
+        unsealable = await _sealable(effect.new_state, effect.transition)
+        if unsealable is not None:
+            reply.outcome.error.CopyFrom(unsealable)
+            return workflow_pb2.WorkflowOut(reply=reply)
         if effect.new_state is not None:
             reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, effect.new_state))
         if effect.transition is not None:
@@ -468,6 +512,10 @@ class _WorkflowStream:
         except Exception as e:
             log.warning("%s/%s step %s raised: %s", type(workflow).component_id, workflow.entity_id, run.step, e)
             return workflow_pb2.WorkflowOut(failure=_failure(run.id, str(e) or type(e).__name__))
+        unsealable = await _sealable(step_effect)
+        if unsealable is not None:
+            # Thrown, not failed: the engine applies the step's recovery to a fault.
+            return workflow_pb2.WorkflowOut(failure=_refused(run.id, unsealable))
         step_reply = workflow_pb2.WorkflowOut.StepReply(command_id=run.id)
         if step_effect.new_state is not None:
             step_reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, step_effect.new_state))
@@ -512,6 +560,13 @@ class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
             try:
                 async for message in request_iterator:
                     kind = message.WhichOneof("message")
+                    unopened = await _opened(message)
+                    if unopened is not None:
+                        which = message.command.id if kind == "command" else message.run_step.id if kind == "run_step" else 0
+                        await out.put(workflow_pb2.WorkflowOut(failure=_refused(which, unopened)))
+                        if kind == "init":
+                            return
+                        continue
                     if kind == "init":
                         cls = self.registry.workflows.get(message.init.component_id)
                         if cls is None:
@@ -559,6 +614,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
         if cls is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown view {request.component_id!r}")
         assert cls is not None
+        await _ready_or_abort(context, await _opened(request))
         view = cls()
         effect = await view._handle(
             None if request.deleted else request.event.data,
@@ -566,6 +622,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
             Metadata.from_pb(request.metadata),
             Standing.from_pb(request.standing) if request.HasField("standing") else None,
         )
+        await _ready_or_abort(context, await _sealable(effect))
         if isinstance(effect, view_effects.UpdateRow):
             return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
         if isinstance(effect, view_effects.DeleteRow):
@@ -579,6 +636,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
         if cls is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown keyed view {request.component_id!r}")
         assert cls is not None
+        await _ready_or_abort(context, await _opened(request))
         metadata = Metadata.from_pb(request.metadata)
         reader = SidecarRows(self.client.with_metadata(metadata).views)
         effect = await cls()._handle(
@@ -588,6 +646,7 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
             reader,
             Standing.from_pb(request.standing) if request.HasField("standing") else None,
         )
+        await _ready_or_abort(context, await _sealable(effect))
         changes = [
             view_pb2.RowChange(key=c.key, upsert=_payload_of(cls.row_codec, c.row))
             if isinstance(c, keyed_effects.Upsert)
@@ -608,6 +667,7 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         if cls is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown consumer {request.component_id!r}")
         assert cls is not None
+        await _ready_or_abort(context, await _opened(request))
         metadata = Metadata.from_pb(request.metadata)
         consumer = cls(self.client.with_metadata(metadata))
         if self.storage is not None:
@@ -617,12 +677,20 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
             metadata,
             Standing.from_pb(request.standing) if request.HasField("standing") else None,
         )
+        await _ready_or_abort(context, await _sealable(effect))
         refusal = several_refusal(effect, metadata)
         if refusal is not None:
             # Failed, not answered: a runtime that does not know `produce_all` would read it as no
             # effect and record the change as handled with nothing published.
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
         return consumer_effect_pb(effect, cls.out_codec)
+
+
+async def _ready_or_abort(context: Any, refused: payload_pb2.Error | None) -> None:
+    """A change whose personal fields cannot be opened or sealed fails, to be delivered again."""
+    if refused is not None:
+        status = grpc.StatusCode.UNAVAILABLE if refused.code == payload_pb2.UNAVAILABLE else grpc.StatusCode.FAILED_PRECONDITION
+        await context.abort(status, refused.message)
 
 
 def reads_workflow(cls: Any) -> bool:
@@ -665,6 +733,47 @@ def mcp_refusal(registry: Registry, sidecar_protocol: str) -> str | None:
         f"MCP endpoint {paths} needs protocol 1.20: the sidecar speaks protocol {sidecar_protocol}, and this SDK "
         f"{PROTOCOL_VERSION}. Run a sidecar speaking 1.20 or later."
     )
+
+
+def personal_refusal(registry: Registry, sidecar_protocol: str) -> str | None:
+    """A runtime before 1.23 hands a process no subject keys and runs no erasure handler: a service
+    with a personal field or a handler is refused, naming the version, rather than started to fail
+    at its first write or never erase what the handler keeps."""
+    if not start_from.older_than(sidecar_protocol, PERSONAL_SINCE):
+        return None
+    naming = registry.personal_components()
+    if registry.erasure_handler is not None:
+        naming.append("the erasure handler")
+    if not naming:
+        return None
+    return (
+        f"personal fields need protocol 1.23 ({', '.join(naming)}): the sidecar speaks protocol "
+        f"{sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar speaking 1.23 or later."
+    )
+
+
+async def _opened(message: Any) -> payload_pb2.Error | None:
+    """Fetches the key of every sealed envelope a request carries, before any codec reads it; the
+    refusal when the keyring cannot answer."""
+    try:
+        await keyring.current().prefetch_message(message)
+    except CommandError as refused:
+        return refused.error.to_pb()
+    return None
+
+
+async def _sealable(*values: Any) -> payload_pb2.Error | None:
+    """Fetches the key of every data subject a value about to be written names, before any codec
+    seals it; the refusal for an erased subject, or when the keyring cannot answer."""
+    try:
+        await keyring.current().prefetch_values(values)
+    except CommandError as refused:
+        return refused.error.to_pb()
+    return None
+
+
+def _refused(command_id: int, error: payload_pb2.Error) -> payload_pb2.Failure:
+    return payload_pb2.Failure(command_id=command_id, error=error)
 
 
 def replication_to_pb(change: Any) -> event_sourced_pb2.ReplicationChange:
@@ -811,6 +920,9 @@ class TimedActionServicer(timed_action_pb2_grpc.TimedActionServicer):
         if cls is None or spec is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown timed action {request.component_id}/{request.name}")
         assert cls is not None and spec is not None
+        unopened = await _opened(request)
+        if unopened is not None:
+            return timed_action_pb2.TimedActionEffect(fail=unopened)
         metadata = Metadata.from_pb(request.metadata)
         action = cls(self.client.with_metadata(metadata))
         if self.storage is not None:
@@ -1199,9 +1311,15 @@ class Server:
         self.storage: Buckets = storage if storage is not None else from_environment(descriptor_directory=descriptor_directory)
         self._server: grpc.aio.Server | None = None
         self.port = 0
+        # The process's subject keys, from the sidecar (protocol 1.23): what its codecs seal with.
+        self.keyring = keyring.SidecarKeyring(self.client)
+        keyring.install(self.keyring)
+
+    def _follow_notices(self) -> None:
+        self.keyring.follow_notices()
 
     def add_servicers(self, server: grpc.aio.Server) -> None:
-        discovery_pb2_grpc.add_DiscoveryServicer_to_server(DiscoveryServicer(self.registry, self.storage), server)  # type: ignore[no-untyped-call]
+        discovery_pb2_grpc.add_DiscoveryServicer_to_server(DiscoveryServicer(self.registry, self.storage, self._follow_notices), server)  # type: ignore[no-untyped-call]
         event_sourced_pb2_grpc.add_EventSourcedServicer_to_server(EventSourcedServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         key_value_pb2_grpc.add_KeyValueServicer_to_server(KeyValueServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         workflow_pb2_grpc.add_WorkflowServicer_to_server(WorkflowServicer(self.registry, self.client, self.storage), server)  # type: ignore[no-untyped-call]
@@ -1212,6 +1330,9 @@ class Server:
         endpoint_pb2_grpc.add_HttpServicer_to_server(http, server)  # type: ignore[no-untyped-call]
         mcp_pb2_grpc.add_McpServicer_to_server(McpServicer(self.registry, self.client, http), server)  # type: ignore[no-untyped-call]
         agent_pb2_grpc.add_AgentServicer_to_server(AgentServicer(self.registry, self.client, self.storage), server)  # type: ignore[no-untyped-call]
+        erasure_pb2_grpc.add_ErasureServicer_to_server(  # type: ignore[no-untyped-call]
+            ErasureServicer(self.registry.erasure_handler, self.client, self.storage), server
+        )
 
     async def start(self, host: str = "127.0.0.1", port: int = 0) -> int:
         if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
@@ -1232,6 +1353,7 @@ class Server:
         await self._server.wait_for_termination()
 
     async def stop(self, grace: float | None = None) -> None:
+        await self.keyring.stop()
         if self._server is not None:
             await self._server.stop(grace)
             self._server = None

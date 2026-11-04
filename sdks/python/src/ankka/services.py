@@ -160,7 +160,9 @@ class ServiceClient:
 
     async def _with_body(self, method: str, path: str, body: Any, headers: Headers | None) -> ServiceResponse:
         codec = default_codec_for(type(body))
-        return await self.request(method, path, body=codec.encode(body), content_type=codec.content_type, headers=headers)
+        with _at_edge():  # another service's endpoint: a personal field in its edge form
+            encoded = codec.encode(body)
+        return await self.request(method, path, body=encoded, content_type=codec.content_type, headers=headers)
 
     def _succeeded(self, response: ServiceResponse) -> ServiceResponse:
         if response.status // 100 != 2:
@@ -168,7 +170,8 @@ class ServiceClient:
         return response
 
     def _decoded(self, response: ServiceResponse, returns: type[R]) -> R:
-        decoded: R = default_codec_for(returns).decode(self._succeeded(response).body)
+        with _at_edge():
+            decoded: R = default_codec_for(returns).decode(self._succeeded(response).body)
         return decoded
 
 
@@ -365,3 +368,10 @@ __all__ = [
     "ServiceUnresolvable",
     "Services",
 ]
+
+
+def _at_edge() -> Any:
+    """``personal.at_edge``; imported here because ``personal`` imports the client, which imports this."""
+    from ankka.personal import at_edge
+
+    return at_edge()

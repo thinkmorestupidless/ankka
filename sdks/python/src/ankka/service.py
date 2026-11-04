@@ -15,13 +15,16 @@ from ankka import __version__
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent
+from ankka.codec import JsonCodec
 from ankka.consumer import Consumer
+from ankka.erasure import ErasureHandler
 from ankka.endpoint import Endpoint
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
 from ankka.graph import GraphConsumer
 from ankka.key_value_entity import KeyValueEntity
 from ankka.keyed_view import KeyedView
 from ankka.mcp_endpoint import McpEndpoint, McpToolSpec
+from ankka.personal import mentions_personal
 from ankka.timed_action import TimedAction
 from ankka.view import View
 from ankka.workflow import Workflow
@@ -49,6 +52,8 @@ class Registry:
     # Each MCP endpoint's tools, its references bound to what is registered: filled by `validate`.
     mcp_tools: dict[str, dict[str, McpToolSpec]] = field(default_factory=dict)
     others: list[Any] = field(default_factory=list)
+    # The service's erasure handler (protocol 1.23): what the platform cannot erase for it.
+    erasure_handler: ErasureHandler | None = None
 
     def tools_of(self, endpoint_id: str) -> dict[str, McpToolSpec]:
         if endpoint_id not in self.mcp_tools:
@@ -77,7 +82,51 @@ class Registry:
             components=components,
             endpoints=[cls.to_endpoint() for cls in self.endpoints.values()],
             mcp_endpoints=[cls.to_pb(self.tools_of(eid)) for eid, cls in self.mcp_endpoints.items()],
+            erasure_handler=self.erasure_handler is not None,
         )
+
+    def personal_components(self) -> list[str]:
+        """The components whose codecs hold a personal field, which need protocol 1.23. An
+        endpoint's reply and body hold one in the edge form, which needs no keyring."""
+        found: list[str] = []
+        for registry in (
+            self.entities,
+            self.key_values,
+            self.workflows,
+            self.views,
+            self.keyed_views,
+            self.consumers,
+            self.timed_actions,
+            self.agents,
+            self.autonomous,
+        ):
+            for cls in registry.values():
+                if any(mentions_personal(c.cls) for c in _codecs_of(cls)):
+                    found.append(cls.__name__)
+        return found
+
+
+def _codecs_of(cls: Any) -> list[JsonCodec[Any]]:
+    """The JSON codecs a component class declares: as class attributes and on its handlers and steps."""
+    holders: list[Any] = [cls]
+    for listing in ("handlers", "steps"):
+        method = getattr(cls, listing, None)
+        if callable(method):
+            try:
+                holders.extend(method().values())
+            except Exception:
+                continue
+    found: list[JsonCodec[Any]] = []
+    for holder in holders:
+        names = [n for n in dir(holder) if not n.startswith("__")]
+        for name in names:
+            try:
+                value = getattr(holder, name)
+            except Exception:
+                continue
+            if isinstance(value, JsonCodec):
+                found.append(value)
+    return found
 
 
 class ServiceBuilder:
@@ -138,6 +187,15 @@ class ServiceBuilder:
         else:
             self._problems.append(f"{component!r} is not an ankka component")
         return self
+
+    def erasure_handler(self, handler: ErasureHandler) -> ErasureHandler:
+        """Registers the service's erasure handler, as a decorator: ``@service.erasure_handler``.
+        It is called with an ``ErasureContext`` and the erased ``DataSubject``, may be async, and
+        answers an ``ErasureReport`` (None: nothing erased, at once). One per service."""
+        if self._registry.erasure_handler is not None:
+            self._problems.append("the service declares two erasure handlers; it may declare one")
+        self._registry.erasure_handler = handler
+        return handler
 
     def validate(self) -> Registry:
         # References are bound here, once everything is registered, so the order of `register`

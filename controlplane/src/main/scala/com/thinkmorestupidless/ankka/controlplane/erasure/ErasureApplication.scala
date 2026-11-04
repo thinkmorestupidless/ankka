@@ -142,6 +142,49 @@ final class ErasureApplication(
           }
         }
 
+  /**
+   * Reads each service's latest report from the keyring into the request, for a service that has
+   * completed before and reported since (a re-run, FR-015): a run that erased or failed is a
+   * `HandlerRan` (FR-016); runs that did neither set only `lastRunAt`.
+   */
+  def recordRuns(current: ErasureRequest): Future[ErasureRequest] =
+    current.erasureSeq.filter(_ => current.state.contains(ErasureState.Applied)) match
+      case None      => Future.successful(current)
+      case Some(seq) =>
+        keyring.status(seq).flatMap { status =>
+          blocking {
+            def known(service: String) =
+              (current.completions.get(service).flatMap(_.at).toVector ++
+                current.handlerRuns.filter(_.service == service).flatMap(_.at) ++
+                current.lastRunAt).maxOption
+            val fresh = status.services.collect {
+              case com.thinkmorestupidless.ankka.core.keyring.ServiceErasureStatus(
+                    service,
+                    Some(at),
+                    Some(c)
+                  ) if current.completions.contains(service) && known(service).forall(at.isAfter) =>
+                (service, at, c)
+            }
+            val loud = fresh.flatMap((service, at, c) =>
+              c.handler
+                .filter(h => h.objectsErased > 0 || h.error.isDefined)
+                .map(h => HandlerRun(service, h, Some(at)))
+            )
+            val ran = loud.foldLeft(current)((req, run) =>
+              request(req.id)
+                .call(ErasureRequestEntity.recordHandlerRun)
+                .withMetadata(attribution())
+                .invoke(run)
+            )
+            if fresh.nonEmpty && loud.isEmpty then
+              request(ran.id)
+                .call(ErasureRequestEntity.ranQuietly)
+                .withMetadata(attribution())
+                .invoke(fresh.map(_._2).max)
+            else ran
+          }
+        }
+
   /** Asks the keyring to send request `id`'s notice again, so every service runs it again. */
   def resend(current: ErasureRequest): Future[Unit] =
     current.erasureSeq.fold(Future.unit) { seq =>

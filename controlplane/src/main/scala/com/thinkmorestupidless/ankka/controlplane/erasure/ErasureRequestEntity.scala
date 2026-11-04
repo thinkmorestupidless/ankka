@@ -52,6 +52,7 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
         s.copy(completions = s.completions.updated(service, completion))
       case HandlerRan(service, report, _, at) =>
         s.copy(handlerRuns = s.handlerRuns :+ HandlerRun(service, report, at))
+      case RanQuietly(ranAt, _, _)  => s.copy(lastRunAt = Some(ranAt))
       case ObjectsFinal(when, _, _) => s.copy(objectsFinalAt = Some(when))
       case Finalised(_, at)         => s.copy(finalAt = at)
 
@@ -153,7 +154,17 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
   /** A run of a service's handler that erased something or failed (FR-016). */
   def recordHandlerRun(run: HandlerRun): Effect[ErasureRequest] =
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("re-run")
-    else effects.persist(HandlerRan(run.service, run.report, actor, Some(now))).thenReply(identity)
+    // At when the run reported, which is what the next pass compares the keyring's report with.
+    else
+      effects
+        .persist(HandlerRan(run.service, run.report, actor, run.at.orElse(Some(now))))
+        .thenReply(identity)
+
+  /** A re-run that erased nothing and failed nowhere, reported at `at`; an older one is no news. */
+  def ranQuietly(at: Instant): Effect[ErasureRequest] =
+    if !currentState.state.contains(ErasureState.Applied) then stateConflict("re-run")
+    else if currentState.lastRunAt.exists(!_.isBefore(at)) then effects.reply(currentState)
+    else effects.persist(RanQuietly(at, actor, Some(now))).thenReply(identity)
 
   def objectsFinal(when: Instant): Effect[ErasureRequest] =
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("made final")
@@ -214,6 +225,7 @@ object ErasureRequestEntity
   val keyDestroyed     = command("key-destroyed")(_.keyDestroyed)
   val recordCompletion = command("record-completion")(_.recordCompletion)
   val recordHandlerRun = command("record-handler-run")(_.recordHandlerRun)
+  val ranQuietly       = command("ran-quietly")(_.ranQuietly)
   val objectsFinal     = command("objects-final")(_.objectsFinal)
   val finalise         = command("finalise")(_.finalise)
   val get              = query("get")(_.get)

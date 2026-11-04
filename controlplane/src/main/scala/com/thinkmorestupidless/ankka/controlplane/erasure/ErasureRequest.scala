@@ -77,7 +77,9 @@ final case class ErasureRequest(
     finalAt: Option[Instant] = None,
     withdrawnAt: Option[Instant] = None,
     /** Why the last attempt to apply it failed; none once it is applied. */
-    lastFailure: Option[ApplyFailure] = None
+    lastFailure: Option[ApplyFailure] = None,
+    /** The last re-run of the handlers that erased nothing and failed nowhere (FR-016). */
+    lastRunAt: Option[Instant] = None
 ):
   def exists: Boolean = state.isDefined
 
@@ -132,5 +134,11 @@ enum ErasureRequestEvent:
       actor: Option[Actor] = None,
       at: Option[Instant] = None
   )
+
+  /**
+   * A re-run of the handlers that erased nothing and failed nowhere: when, and no more. Not a line
+   * of the project's history (data-model.md: a quiet run is not an audited event).
+   */
+  case RanQuietly(ranAt: Instant, actor: Option[Actor] = None, at: Option[Instant] = None)
   case ObjectsFinal(finalAt: Instant, actor: Option[Actor] = None, at: Option[Instant] = None)
   case Finalised(actor: Option[Actor] = None, at: Option[Instant] = None)

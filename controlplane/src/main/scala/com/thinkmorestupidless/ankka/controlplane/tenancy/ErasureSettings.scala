@@ -8,13 +8,23 @@ import com.typesafe.config.Config
  * (`ANKKA_KEYRING_INSTANCES`). Read once at startup, as `BrokerFacts` is. Off unless the keyring's
  * component says otherwise; a service that declares personal fields is refused while it is.
  */
-final case class ErasureSettings(enabled: Boolean, keyringInstances: Int)
+final case class ErasureSettings(
+    enabled: Boolean,
+    keyringInstances: Int,
+    /** How long after an application the sweep asks every handler to run again (FR-015). */
+    rerunWindow: scala.concurrent.duration.FiniteDuration = ErasureSettings.DefaultRerunWindow
+)
 
 object ErasureSettings:
 
-  val Section: String      = "ankka.controlplane.erasure"
-  val EnabledKey: String   = s"$Section.enabled"
-  val InstancesKey: String = s"$Section.keyring-instances"
+  val Section: String        = "ankka.controlplane.erasure"
+  val EnabledKey: String     = s"$Section.enabled"
+  val InstancesKey: String   = s"$Section.keyring-instances"
+  val RerunWindowKey: String = s"$Section.rerun-window"
+
+  /** Thirty days, unless `ANKKA_ERASURE_RERUN_WINDOW` says otherwise. */
+  val DefaultRerunWindow: scala.concurrent.duration.FiniteDuration =
+    scala.concurrent.duration.FiniteDuration(30, java.util.concurrent.TimeUnit.DAYS)
 
   /** What a control plane told nothing reports: off, with the keyring's default size. */
   val off: ErasureSettings = ErasureSettings(enabled = false, keyringInstances = 2)
@@ -37,4 +47,18 @@ object ErasureSettings:
             s"$InstancesKey (ANKKA_KEYRING_INSTANCES) is '$n'; it must be a whole number of at least 1"
           )
         }
-    ErasureSettings(enabled, instances)
+    val window = text(RerunWindowKey) match
+      case "" => DefaultRerunWindow
+      case w  =>
+        scala.util
+          .Try(config.getDuration(RerunWindowKey))
+          .toOption
+          .filter(d => !d.isNegative && !d.isZero)
+          .map(d => scala.concurrent.duration.FiniteDuration(d.toMillis, "ms").toCoarsest)
+          .getOrElse {
+            throw IllegalArgumentException(
+              s"$RerunWindowKey (ANKKA_ERASURE_RERUN_WINDOW) is '$w'; it must be a duration " +
+                "longer than nothing, such as 30d"
+            )
+          }
+    ErasureSettings(enabled, instances, window)

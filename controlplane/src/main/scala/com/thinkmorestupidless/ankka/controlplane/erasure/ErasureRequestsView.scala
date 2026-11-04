@@ -46,7 +46,10 @@ final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureReq
   def onChange(event: ErasureRequestEvent): Effect =
     val current = row
     val line    = ErasureRequestsView.lineOf(current, event)
-    rowOf(current.copy(history = current.history :+ line), event)
+    event match
+      // A quiet re-run is no line of the project's history.
+      case _: RanQuietly => effects.updateRow(current)
+      case _             => rowOf(current.copy(history = current.history :+ line), event)
 
   private def rowOf(row: ErasureRequestRow, event: ErasureRequestEvent): Effect = event match
     case Asked(project, subject, notBefore, _, correlation, actor, at) =>
@@ -69,7 +72,8 @@ final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureReq
     case KeyDestroyed(when, _, _) =>
       effects.updateRow(row.copy(state = ErasureState.Applied.wire, appliedAt = Some(when)))
     case Finalised(_, at) => effects.updateRow(row.copy(finalAt = at))
-    case _: ApplyFailed | _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal =>
+    case _: ApplyFailed | _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal |
+        _: RanQuietly =>
       effects.updateRow(row)
 
 object ErasureRequestsView
@@ -143,6 +147,8 @@ object ErasureRequestsView
           Some(s"$of, objects final at $when")
         )
       case Finalised(actor, at) => ErasureHistoryLine("erasure-final", who(actor), at, Some(of))
+      case RanQuietly(ranAt, actor, at) =>
+        ErasureHistoryLine("erasure-ran-quietly", who(actor), at, Some(s"$of, re-run at $ranAt"))
 
   val byProject = query("by-project")(
     s"SELECT payload FROM $table WHERE payload::jsonb->>'project' = :project " +
@@ -152,6 +158,19 @@ object ErasureRequestsView
     s"SELECT payload FROM $table WHERE payload::jsonb->>'project' = :project " +
       "AND payload::jsonb->>'subject' = :subject ORDER BY payload::jsonb->>'askedAt' DESC"
   )
+
+  /** What the sweep carries on (T059): held, applying, or applied and not yet final. */
+  val open = query("open")(
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'state' = 'held' " +
+      "OR payload::jsonb->>'state' = 'applying' " +
+      "OR (payload::jsonb->>'state' = 'applied' AND payload::jsonb->>'finalAt' IS NULL)"
+  )
+
+  /** Every applied request, whose handlers the sweep runs again within the window. */
+  val applied = query("applied")(
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'state' = 'applied'"
+  )
+
   val byCorrelation = query("by-correlation")(
     s"SELECT payload FROM $table WHERE payload::jsonb->>'correlation' = :correlation " +
       "ORDER BY payload::jsonb->>'askedAt' DESC"

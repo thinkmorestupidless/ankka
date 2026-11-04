@@ -421,6 +421,13 @@ object ControlPlane:
     val served = Ankka.service
       .registerAll(componentsWith(projector))
       .withExtension(hold)
+      // Feature 042: after the hold, so a held control plane is known before anything is applied.
+      .withExtension(
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasureSweep(
+          erasurePlane,
+          () => erasure.rerunWindow
+        )
+      )
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(records)

@@ -369,7 +369,15 @@ class ErasureFeatures(
     def status(seq: Long) = admin.status(seq)
 
   private val logBucket = MemoryErasureLogBucket()
-  private val plane     = ErasurePlane(currentKeyring, Some(logBucket))
+  private val plane     =
+    // The keyring reports in real time, so the plane reads real time, moved as far as the
+    // scenario moved the endpoints' clock: a hold lapses when the endpoints' date passes.
+    ErasurePlane(
+      currentKeyring,
+      Some(logBucket),
+      clock = () => java.time.Clock.offset(java.time.Clock.systemUTC(), moved)
+    )
+  private lazy val sweep = ErasureSweep(plane, () => 30.days)
 
   private def apply(service: String, personal: Boolean): (Int, String) =
     val said = if personal then ""","personal":true""" else ""
@@ -866,11 +874,15 @@ class ErasureFeatures(
    * read from the keyring, as the control plane's sweep does.
    */
   private def untilFinal(subject: String): String =
-    val id = s"$planeProject/${requestOf(subject)}"
-    eventually("the erasure request is final", 60.seconds) {
-      val now = Await.result(application.apply(id), 30.seconds)
-      Option.when(now.finalAt.isDefined)(readRequest(subject))
-    }
+    val id   = s"$planeProject/${requestOf(subject)}"
+    var seen = ""
+    try
+      eventually("the erasure request is final", 60.seconds) {
+        val now = Await.result(application.apply(id), 30.seconds)
+        seen = now.toString
+        Option.when(now.finalAt.isDefined)(readRequest(subject))
+      }
+    catch case e: munit.FailException => fail(s"${e.getMessage}; last read: $seen")
 
   private def erased(subject: String): String =
     val (status, body) = askErasure(subject)
@@ -1325,7 +1337,16 @@ class ErasureFeatures(
     case other                                                      => fail(s"no one is '$other'")
 
   /** The control plane's erasure sweep, once, at the control plane's clock (T059). */
-  private def sweepOnce(): Unit = fail("the erasure sweep is not built yet (T059)")
+  private def sweepOnce(): Unit =
+    // The sweep reads the requests' view; a pass before it lists a request would not see it.
+    asked.keys.foreach { subject =>
+      eventually(s"the list shows the request for $subject") {
+        val (_, list) =
+          harness.send("GET", s"/projects/$planeProject/erasures?subject=$subject", as = "ada")
+        Option.when(list.contains(requestOf(subject)))(())
+      }
+    }
+    Await.result(sweep.runOnce(), 2.minutes): Unit
 
   private def ridPath(subject: String) = s"/projects/$planeProject/erasures/${requestOf(subject)}"
 
@@ -1392,13 +1413,16 @@ class ErasureFeatures(
   Then("within 15 minutes and 60 seconds the erasure request is applied without anyone acting") {
     () =>
       val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
-      val reply   = untilFinal(subject)
+      // The sweep runs every five minutes, well inside the fifteen; nobody asked it to.
+      assert(ErasureSweep.Every <= 15.minutes, ErasureSweep.Every.toString)
+      val reply = untilFinal(subject)
       assert(reply.contains(""""state":"applied""""), reply)
       assert(reply.contains(""""lapsedAt":"""), reply)
-      assert(
-        !projectHistory.matches("""(?s).*erasure-hold-lapsed","by":"[^"]+.*"""),
-        "someone acted"
+      // The control plane lapsed it: no member is named on the line.
+      val lapsed = eventually("the lapse in the project's history")(
+        """erasure-hold-lapsed[^}]*""".r.findFirstIn(projectHistory)
       )
+      assert(Seq("ada", "bob", "cyd").forall(p => !lapsed.contains(p)), lapsed)
   }
 
   Then("every service of {string} reads every personal field of {string} as erased") {

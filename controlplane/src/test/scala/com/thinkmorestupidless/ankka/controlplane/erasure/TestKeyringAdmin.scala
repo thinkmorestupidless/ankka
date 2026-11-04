@@ -16,8 +16,11 @@ import scala.jdk.CollectionConverters.*
  */
 final class TestKeyringAdmin(
     keyring: InMemoryKeyring,
-    services: () => Vector[String] = () => Vector.empty
+    services: () => Vector[String] = () => Vector.empty,
+    clock: java.time.Clock = java.time.Clock.systemUTC()
 ) extends KeyringAdmin:
+
+  private val seen = ConcurrentHashMap[(Long, String, Int), Instant]()
 
   /** The keyring's sequence for each log entry's. */
   private val notices                  = ConcurrentHashMap[Long, Long]()
@@ -33,7 +36,7 @@ final class TestKeyringAdmin(
         order.seq,
         _ => keyring.erase(order.project, DataSubject(order.subject))
       )
-      Future.successful(ErasureDestroyed(Instant.now()))
+      Future.successful(ErasureDestroyed(clock.instant()))
     }(why => Future.failed(IllegalStateException(why)))
 
   def resend(seq: Long): Future[Unit] =
@@ -48,11 +51,16 @@ final class TestKeyringAdmin(
     val acks   = notice.toVector.flatMap(n => keyring.acks.filter(_.seq == n))
     Future.successful(
       ErasureStatus(
-        (services() ++ acks.map(_.service)).distinct.map(service =>
-          acks.find(_.service == service) match
-            case Some(a) => ServiceErasureStatus(service, Some(Instant.now()), Some(a.completion))
-            case None    => ServiceErasureStatus(service)
-        )
+        (services() ++ acks.map(_.service)).distinct.map { service =>
+          val mine = acks.filter(_.service == service)
+          mine.lastOption match
+            // Each service's latest report, at when this keyring first saw it, as the real
+            // keyring keeps the time of each instance's last acknowledgement.
+            case Some(a) =>
+              val at = seen.computeIfAbsent((notice.get, service, mine.size), _ => clock.instant())
+              ServiceErasureStatus(service, Some(at), Some(a.completion))
+            case None => ServiceErasureStatus(service)
+        }
       )
     )
 

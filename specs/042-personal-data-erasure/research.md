@@ -207,6 +207,14 @@ None yet.
 
 ## Found during implementation
 
+- **A failed handler run is acknowledged, with why** (T036, 2026-11-04, the person's decision). The
+  handler must not hold up the platform's duties, and a service's completion must say a run was
+  refused (`objects.feature`), so an ack's `handler` gains an optional `error` beside
+  `finality: "failed"`, as the sidecar's `ErasureReply` has an `Error`. A deferred finality is
+  `after:` and an ISO-8601 duration (`after:P7D`); the control plane adds it to the run's time for
+  `objectsFinalAt`. The handler runs where the `ankka-erasure-handler` singleton is: every instance
+  hears every notice and only the holder runs it, so no message crosses the cluster.
+
 - **The keyring speaks HTTP and a WebSocket, not gRPC** (T003, 2026-11-04, the person's decision).
   `runtime` carries no gRPC (only `grpc`, above `http`, and the sidecar do), and every service's
   runtime calls the keyring; gRPC would have put grpc-java, netty-shaded and generated stubs on every

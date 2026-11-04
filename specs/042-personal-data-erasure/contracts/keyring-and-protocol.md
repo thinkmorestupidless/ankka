@@ -31,7 +31,10 @@ the keyring answers the backlog after `after`, then live notices.
   grants of every project from the `ankka-project` ConfigMaps it may list.
 - The control plane's identity may call only the three `/v1/erasures` routes; a key fetch from it is
   refused and recorded.
-- An instance acks when its duties are done (R15).
+- An instance acks when its duties are done (R15). `handler` is present on the one instance that ran
+  the service's erasure handler: `finality` is `immediate` or `after:` and an ISO-8601 duration
+  (`after:P7D`); a run that threw is acked all the same with `{"objectsErased":0,"finality":"failed","error":"<why>"}`,
+  and the next pass runs it again.
 - `/v1/decrypt` answers values field by field; refused once the grant is revoked or the data subject
   is erased; each call recorded (FR-031).
 

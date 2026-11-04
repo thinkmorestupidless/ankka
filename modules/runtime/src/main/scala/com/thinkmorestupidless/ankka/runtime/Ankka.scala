@@ -105,7 +105,8 @@ final class ServiceBuilder private[ankka] (
     private val storageOverride: Option[ObjectStorage] = None,
     private val keyringOverride: Option[
       com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
-    ] = None
+    ] = None,
+    private val erasureHandler: Option[com.thinkmorestupidless.ankka.sdk.ErasureHandler] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
@@ -117,7 +118,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
@@ -129,7 +131,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
@@ -142,7 +145,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -158,7 +162,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -175,7 +180,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -192,7 +198,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices.andThen(wrap),
       transportFactory,
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -211,7 +218,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       Some(factory),
       storageOverride,
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -228,7 +236,8 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       Some(storage),
-      keyringOverride
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -247,7 +256,27 @@ final class ServiceBuilder private[ankka] (
       wrapServices,
       transportFactory,
       storageOverride,
-      Some(client)
+      Some(client),
+      erasureHandler
+    )
+
+  /**
+   * The service's erasure handler (feature 042): run on one instance for each application of an
+   * erasure in its project, and on each re-run. One per service; a second replaces the first.
+   */
+  def withErasureHandler(
+      handler: com.thinkmorestupidless.ankka.sdk.ErasureHandler
+  ): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      storageOverride,
+      keyringOverride,
+      Some(handler)
     )
 
   /** Validates the definition without starting anything. */
@@ -599,6 +628,10 @@ final class ServiceBuilder private[ankka] (
           tables,
           ErasureHooks.of(system)
         )(using system.executionContext).start()
+        erasureHandler.foreach(handler =>
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureHandlerHost
+            .start(handler, service, ErasureHooks.of(system))(using system)
+        )
         system.whenTerminated.foreach(_ => ErasureHooks.forget(system))(using
           scala.concurrent.ExecutionContext.parasitic
         )

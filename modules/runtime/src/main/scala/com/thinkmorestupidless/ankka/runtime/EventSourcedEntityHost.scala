@@ -13,7 +13,8 @@ import com.thinkmorestupidless.ankka.runtime.replication.{
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.apache.pekko.actor.typed.scaladsl.{Behaviors, TimerScheduler}
-import org.apache.pekko.actor.typed.{Behavior, PostStop}
+import org.apache.pekko.actor.typed.{ActorRef, Behavior, PostStop}
+import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
 import org.apache.pekko.persistence.typed.scaladsl.{
   Effect as PekkoEffect,
   EffectBuilder,
@@ -98,7 +99,9 @@ private[ankka] object EventSourcedEntityHost:
       descriptor: EventSourcedEntityDescriptor[C, S, E],
       entityId: EntityId,
       componentClient: ComponentClient,
-      replication: Option[Replication] = None
+      replication: Option[Replication] = None,
+      /** The entity's shard, through which it leaves memory when asked to (`Passivate`). */
+      shard: Option[ActorRef[ClusterSharding.ShardCommand]] = None
   ): Behavior[EntityProtocol.Command] =
     // Only an entity that declares itself replicated, on a service that names installations.
     val rep = replication.filter(r => descriptor.replicated && r.replicates(descriptor.componentId))
@@ -117,7 +120,17 @@ private[ankka] object EventSourcedEntityHost:
           com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
         val copy = rep.map(r => HostReplication(r, descriptor.componentId, entityId, ctx))
         val host =
-          Host(descriptor, entity, entityId, observability, componentRef, copy, timers, keyring)
+          Host(
+            descriptor,
+            entity,
+            entityId,
+            observability,
+            componentRef,
+            copy,
+            timers,
+            keyring,
+            shard.map(s => () => s ! ClusterSharding.Passivate(ctx.self))
+          )
 
         val base = EventSourcedBehavior
           .withEnforcedReplies[
@@ -162,7 +175,8 @@ private[ankka] object EventSourcedEntityHost:
       componentRef: Int,
       copy: Option[HostReplication],
       timers: TimerScheduler[EntityProtocol.Command],
-      keyring: com.thinkmorestupidless.ankka.core.Keyring
+      keyring: com.thinkmorestupidless.ankka.core.Keyring,
+      passivate: Option[() => Unit]
   ):
     private type Effect = ReplyEffect[Journaled[E], Stored[S]]
 
@@ -256,6 +270,12 @@ private[ankka] object EventSourcedEntityHost:
                 .thenNoReply()
             else PekkoEffect.noReply
           }
+
+        case EntityProtocol.Passivate =>
+          // Asked from outside (an erasure, feature 042); the shard stops the entity and holds
+          // what arrives until it has.
+          passivate.foreach(_())
+          PekkoEffect.noReply
 
         case timedOut: EntityProtocol.HandoverTimedOut =>
           copy.fold(PekkoEffect.noReply[Journaled[E], Stored[S]])(

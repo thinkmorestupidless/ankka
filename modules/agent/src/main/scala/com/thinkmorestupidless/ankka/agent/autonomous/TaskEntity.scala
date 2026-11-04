@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonValueCodec, JsonWriter}
-import com.thinkmorestupidless.ankka.agent.TokenUsage
+import com.thinkmorestupidless.ankka.agent.{LiveSubjects, Sealing, TokenUsage}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
 import com.thinkmorestupidless.ankka.sdk.*
@@ -42,6 +42,10 @@ final case class Assignee(componentId: String, instanceId: String)
  * `result` is the canonical JSON of the task type's result, present only when completed; readers
  * decode it with the type. `reason` explains the last rejection, failure, cancellation or
  * unassignment.
+ *
+ * `subject` is the data subject the task was created with (feature 042): its instructions, its
+ * attachments, its result and its reasons are then kept sealed under the subject's key, and
+ * `erased` says the key was destroyed, so each of them reads as empty.
  */
 final case class TaskRecord(
     id: String,
@@ -61,7 +65,9 @@ final case class TaskRecord(
     startedAt: Option[Long],
     endedAt: Option[Long],
     /** The agent's definition for this task alone, when the task carries one. */
-    definition: Option[TaskDefinition] = None
+    definition: Option[TaskDefinition] = None,
+    subject: Option[String] = None,
+    erased: Boolean = false
 ):
   def exists: Boolean = createdAt > 0L
 
@@ -85,6 +91,13 @@ object TaskRecord:
     None
   )
 
+  /** What a task keeps in the clear: everything but its personal texts. */
+  private[autonomous] def redacted(r: TaskRecord): TaskRecord =
+    r.copy(instructions = "", attachments = Vector.empty, result = None, reason = None)
+
+  /** A task whose data subject was erased: its personal texts read as empty. */
+  private[autonomous] def erasedFrom(r: TaskRecord): TaskRecord = redacted(r).copy(erased = true)
+
 enum TaskEvent:
   case Created(
       id: String,
@@ -93,7 +106,8 @@ enum TaskEvent:
       attachments: Vector[Attachment],
       dependencies: Vector[String],
       at: Long,
-      definition: Option[TaskDefinition] = None
+      definition: Option[TaskDefinition] = None,
+      subject: Option[String] = None
   )
   case DependentAdded(taskId: String)
   case Assigned(assignee: Assignee, at: Long)
@@ -103,6 +117,25 @@ enum TaskEvent:
   case Completed(result: String, iterations: Int, usage: TokenUsage, at: Long)
   case Failed(reason: String, iterations: Int, usage: TokenUsage, at: Long)
   case Cancelled(reason: String, at: Long)
+
+  /**
+   * An event of a task with a data subject that holds a personal text (feature 042): the event's
+   * own JSON sealed under the subject's key, beside a clear copy with the texts taken out, which is
+   * what it reads as once the key is destroyed.
+   */
+  case Sealed(clear: String, body: Personal[String])
+
+object TaskEvent:
+
+  /** The event with its personal texts taken out; `None` for one that holds none. */
+  private[autonomous] def redacted(e: TaskEvent): Option[TaskEvent] = e match
+    case c: Created        => Some(c.copy(instructions = "", attachments = Vector.empty))
+    case u: Unassigned     => Some(u.copy(reason = ""))
+    case r: ResultRejected => Some(r.copy(reason = ""))
+    case c: Completed      => Some(c.copy(result = ""))
+    case f: Failed         => Some(f.copy(reason = ""))
+    case c: Cancelled      => Some(c.copy(reason = ""))
+    case _                 => None
 
 /**
  * The record of one task. The platform registers it; nothing in a service writes to it directly.
@@ -125,7 +158,17 @@ final class TaskEntity(context: EventSourcedEntityContext)
   def applyEvent(event: TaskEvent): TaskRecord =
     val s = currentState
     event match
-      case E.Created(id, typeName, instructions, attachments, dependencies, at, definition) =>
+      case E.Created(
+            id,
+            typeName,
+            instructions,
+            attachments,
+            dependencies,
+            at,
+            definition,
+            about
+          ) =>
+        about.foreach(held)
         TaskRecord.empty.copy(
           id = id,
           typeName = typeName,
@@ -133,8 +176,13 @@ final class TaskEntity(context: EventSourcedEntityContext)
           attachments = attachments,
           dependencies = dependencies,
           createdAt = at,
-          definition = definition
+          definition = definition,
+          subject = about
         )
+      case E.Sealed(clear, body) =>
+        val (inner, gone) = Sealing.open[TaskEvent](body, clear)(using TaskCodecs.event)
+        val next          = applyEvent(inner)
+        if gone then TaskRecord.erasedFrom(next) else next
       case E.DependentAdded(id) =>
         if s.dependents.contains(id) then s else s.copy(dependents = s.dependents :+ id)
       case E.Assigned(assignee, at) =>
@@ -170,6 +218,32 @@ final class TaskEntity(context: EventSourcedEntityContext)
       case E.Cancelled(reason, at) =>
         s.copy(status = Cancelled, reason = Some(reason), endedAt = Some(at))
 
+  /** Notes that this task, in memory, holds `subject`'s conversation (`LiveSubjects`). */
+  private def held(subject: String): Unit =
+    Option(context.componentClient).foreach(
+      LiveSubjects.hold(
+        _,
+        LiveSubjects.Holder.Entity(TaskEntity.componentId, EntityId(taskId)),
+        subject
+      )
+    )
+
+  /**
+   * `event` as the task keeps it (feature 042): as it is with no data subject, or when it holds no
+   * personal text; else sealed under the subject's key, or written erased once the subject is.
+   */
+  private def sealedOr(
+      event: TaskEvent,
+      subject: Option[String] = currentState.subject
+  ): TaskEvent =
+    (subject.flatMap(DataSubject.from(_).toOption), TaskEvent.redacted(event)) match
+      case (Some(s), Some(clear)) =>
+        E.Sealed(
+          Sealing.clear(clear)(using TaskCodecs.event),
+          Sealing.seal(s, event, erased = currentState.erased)(using TaskCodecs.event)
+        )
+      case _ => event
+
   // ── Commands ──────────────────────────────────────────────────────────────
 
   def create(request: Create): Effect[Done] =
@@ -178,19 +252,26 @@ final class TaskEntity(context: EventSourcedEntityContext)
     else if request.dependencies.contains(taskId) then
       effects.error(s"task '$taskId' cannot depend on itself")
     else
-      effects
-        .persist(
-          E.Created(
-            taskId,
-            request.typeName,
-            request.instructions,
-            request.attachments,
-            request.dependencies.distinct,
-            now(),
-            request.definition
-          )
-        )
-        .thenReply(_ => Done)
+      request.subject.map(Sealing.subjectOf) match
+        case Some(Left(problem)) => effects.error(problem.message, problem.code)
+        case _                   =>
+          effects
+            .persist(
+              sealedOr(
+                E.Created(
+                  taskId,
+                  request.typeName,
+                  request.instructions,
+                  request.attachments,
+                  request.dependencies.distinct,
+                  now(),
+                  request.definition,
+                  request.subject
+                ),
+                request.subject
+              )
+            )
+            .thenReply(_ => Done)
 
   /**
    * Records that another task depends on this one.
@@ -220,7 +301,7 @@ final class TaskEntity(context: EventSourcedEntityContext)
     withTask { s =>
       s.status match
         case Assigned | InProgress | ResultRejected =>
-          effects.persist(E.Unassigned(request.reason, now())).thenReply(_ => Done)
+          effects.persist(sealedOr(E.Unassigned(request.reason, now()))).thenReply(_ => Done)
         case other => refuse(s"cannot unassign a task that is ${other.wire}")
     }
 
@@ -237,7 +318,9 @@ final class TaskEntity(context: EventSourcedEntityContext)
       s.status match
         case InProgress =>
           effects
-            .persist(E.ResultRejected(request.reason, request.iterations, request.usage, now()))
+            .persist(
+              sealedOr(E.ResultRejected(request.reason, request.iterations, request.usage, now()))
+            )
             .thenReply(_ => Done)
         case other => refuse(s"cannot reject the result of a task that is ${other.wire}")
     }
@@ -247,7 +330,9 @@ final class TaskEntity(context: EventSourcedEntityContext)
       s.status match
         case InProgress | ResultRejected =>
           effects
-            .persist(E.Completed(request.result, request.iterations, request.usage, now()))
+            .persist(
+              sealedOr(E.Completed(request.result, request.iterations, request.usage, now()))
+            )
             .thenReply(_ => Done)
         case other => refuse(s"cannot complete a task that is ${other.wire}")
     }
@@ -257,7 +342,7 @@ final class TaskEntity(context: EventSourcedEntityContext)
       s.status match
         case Assigned | InProgress | ResultRejected =>
           effects
-            .persist(E.Failed(request.reason, request.iterations, request.usage, now()))
+            .persist(sealedOr(E.Failed(request.reason, request.iterations, request.usage, now())))
             .thenReply(_ => Done)
         case other => refuse(s"cannot fail a task that is ${other.wire}")
     }
@@ -265,7 +350,7 @@ final class TaskEntity(context: EventSourcedEntityContext)
   def cancel(request: Cancel): Effect[Done] =
     withTask { s =>
       if s.status.terminal then refuse(s"cannot cancel a task that is ${s.status.wire}")
-      else effects.persist(E.Cancelled(request.reason, now())).thenReply(_ => Done)
+      else effects.persist(sealedOr(E.Cancelled(request.reason, now()))).thenReply(_ => Done)
     }
 
   def get: ReadOnlyEffect[TaskRecord] =
@@ -282,11 +367,39 @@ final class TaskEntity(context: EventSourcedEntityContext)
   // A command handler may read the clock; the fold may not, which is why the time is in the event.
   private def now(): Long = System.currentTimeMillis()
 
+/**
+ * The task's codecs, apart from its companion, whose constructor names them before its own fields
+ * are set.
+ */
+private[autonomous] object TaskCodecs:
+  given event: JsonValueCodec[TaskEvent]   = Codecs.make[TaskEvent]
+  given record: JsonValueCodec[TaskRecord] = Codecs.make[TaskRecord]
+
+  /**
+   * The record as a snapshot keeps it: sealed whole under the task's data subject when it has one.
+   */
+  val events: Serializer[TaskEvent] = Sealing.eventSerializer[TaskEvent](
+    "task-event",
+    {
+      case TaskEvent.Sealed(clear, Personal.Present(subject, _)) =>
+        Some(TaskEvent.Sealed(clear, Personal.Erased(subject)))
+      case _ => None
+    }
+  )
+
+  val state: Serializer[TaskRecord] = Sealing.stateSerializer[TaskRecord](
+    "task-record",
+    _.subject,
+    _.erased,
+    TaskRecord.redacted,
+    TaskRecord.erasedFrom
+  )
+
 object TaskEntity
     extends EventSourcedEntity.Companion[TaskEntity, TaskRecord, TaskEvent](
       componentId = ComponentId("ankka-task"),
-      stateSerializer = Codecs.serializer[TaskRecord]("task-record"),
-      eventSerializer = Codecs.serializer[TaskEvent]("task-event")
+      stateSerializer = TaskCodecs.state,
+      eventSerializer = TaskCodecs.events
     ):
 
   /** The platform's own: it keeps what the platform needs, and no service wrote it. */
@@ -297,7 +410,12 @@ object TaskEntity
       instructions: String,
       attachments: Vector[Attachment] = Vector.empty,
       dependencies: Vector[String] = Vector.empty,
-      definition: Option[TaskDefinition] = None
+      definition: Option[TaskDefinition] = None,
+      /**
+       * The data subject the task is about (feature 042), which its personal texts are sealed
+       * under.
+       */
+      subject: Option[String] = None
   )
   final case class AddDependent(taskId: String)
 

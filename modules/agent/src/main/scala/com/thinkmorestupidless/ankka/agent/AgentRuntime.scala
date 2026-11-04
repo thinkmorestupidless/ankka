@@ -190,6 +190,15 @@ final class AgentRuntime private (
     startBlueprints(service, timers, clock)
     startAutonomous(service, timers)
 
+    // An erasure ends what holds the data subject's conversation in memory (feature 042).
+    com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks
+      .of(system)
+      .onSessions(notice =>
+        Future(AgentRuntime.endHeld(service.componentClient, notice.subject))(using
+          AnkkaExecutors.virtual
+        )
+      )
+
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
     if agents.isEmpty then system.log.debug("no agents registered")
     else
@@ -492,6 +501,30 @@ final class AgentRuntime private (
 
 object AgentRuntime:
 
+  /**
+   * Ends what holds `subject`'s conversation in memory, once its key is destroyed (feature 042):
+   * each session and task leaves memory and reads its journal again, as erased, and each autonomous
+   * instance tagged with the subject is terminated by its host. Answers how many.
+   */
+  private[agent] def endHeld(client: ComponentClient, subject: String): Long =
+    import com.thinkmorestupidless.ankka.agent.autonomous.forAutonomousAgent
+    val held     = LiveSubjects.take(client, subject)
+    val entities = held.collect { case LiveSubjects.Holder.Entity(c, e) => (c, e) }
+    // The entities first: a terminated instance hands back its tasks, which must read as erased.
+    entities.foreach((c, e) => client.transportRef.tell(c, e, EntityProtocol.Passivate))
+    val ended = held.collect { case LiveSubjects.Holder.Instance(c, i) => (c, i) }.count { (c, i) =>
+      try
+        client.forAutonomousAgent(c, i).terminate(): Unit
+        true
+      catch
+        case scala.util.control.NonFatal(e) =>
+          org.slf4j.LoggerFactory
+            .getLogger(classOf[AgentRuntime])
+            .warn(s"autonomous instance '$c/$i' of an erased data subject was not terminated", e)
+          false
+    }
+    entities.size.toLong + ended
+
   /** The first judged guardrail nobody can answer: no provider of its own, and none configured. */
   private[agent] def unanswerableGuardrail(
       guardrails: Vector[Guardrail],
@@ -717,7 +750,15 @@ private[agent] object AgentHost:
           finally agent._setContext(None)
 
         reply(
-          loop.run(effect, TurnOrigin(invoke.method, streaming = false, invoke.payload)),
+          loop.run(
+            effect,
+            TurnOrigin(
+              invoke.method,
+              streaming = false,
+              invoke.payload,
+              AgentCalls.subjectIn(invoke.metadata)
+            )
+          ),
           binding.encodeReply
         )
       }
@@ -938,7 +979,12 @@ private[agent] object AgentHost:
         val ended = loop.runStreaming(
           effect,
           text => request.tokens ! EntityProtocol.Token(text),
-          TurnOrigin(request.method, streaming = true, request.payload)
+          TurnOrigin(
+            request.method,
+            streaming = true,
+            request.payload,
+            AgentCalls.subjectIn(request.metadata)
+          )
         )
         ended match
           case Right(None)           => request.tokens ! EntityProtocol.StreamCompleted
@@ -999,13 +1045,24 @@ final class AgentNoArgInvocation[R] private[agent] (
 
   def invokeAsync(): Future[R] = send(metadata)
 
-/** Calls to agents, addressed by session. */
+/**
+ * Calls to agents, addressed by session.
+ *
+ * A session started with a data subject (`forAgent(sessionId, subject = Some(...))`, feature 042)
+ * keeps its conversation sealed under that subject's key, and reads as erased once the subject is
+ * erased. The subject is fixed at the session's first call: a later call naming another is refused.
+ */
 final class AgentCalls private[agent] (
     transport: com.thinkmorestupidless.ankka.sdk.CallTransport,
-    sessionId: SessionId
+    sessionId: SessionId,
+    subject: Option[DataSubject] = None
 ):
   private given ExecutionContext = ExecutionContext.parasitic
   private val entity             = EntityId(sessionId)
+
+  // The data subject rides on the call's metadata, which the agent's host reads.
+  private def named(metadata: Metadata): Metadata =
+    subject.fold(metadata)(s => metadata.set(AgentCalls.SubjectKey, s.value))
 
   /** Calls a handler for its value; throws `ApprovalAwaited` when the turn waits for approval. */
   def call[A <: Agent, I, O](handle: CommandHandle[A, I, O]): AgentInvocation[I, O] =
@@ -1134,7 +1191,7 @@ final class AgentCalls private[agent] (
             EntityProtocol.InvokeStream(
               handle.name,
               handle.inputSerializer.toBytes(input),
-              Vector.empty,
+              subject.toVector.map(s => MetaEntry(AgentCalls.SubjectKey, s.value)),
               tokens
             )
           )
@@ -1155,12 +1212,18 @@ final class AgentCalls private[agent] (
       metadata: Metadata
   ): Future[AgentOutcome[O]] =
     transport
-      .askWithMetadata(handle.componentId, entity, handle.name, payload, metadata)
+      .askWithMetadata(handle.componentId, entity, handle.name, payload, named(metadata))
       .map(outcomeOf(handle.outputSerializer.fromBytes))
 
   private def sendNoArg[O](handle: NoArgHandle[?, O], metadata: Metadata): Future[AgentOutcome[O]] =
     transport
-      .askWithMetadata(handle.componentId, entity, handle.name, Array.emptyByteArray, metadata)
+      .askWithMetadata(
+        handle.componentId,
+        entity,
+        handle.name,
+        Array.emptyByteArray,
+        named(metadata)
+      )
       .map(outcomeOf(handle.outputSerializer.fromBytes))
 
   private def sendDecision[O](
@@ -1191,6 +1254,15 @@ final class AgentCalls private[agent] (
     case AgentOutcome.Answered(value)            => value
     case AgentOutcome.AwaitingApproval(requests) => throw ApprovalAwaited(requests)
 
+object AgentCalls:
+
+  /** The metadata key a call names its data subject under (feature 042). */
+  private[ankka] val SubjectKey: String = "ankka-data-subject"
+
+  /** The data subject a call named, if it named one. */
+  private[ankka] def subjectIn(metadata: Seq[MetaEntry]): Option[String] =
+    metadata.collectFirst { case MetaEntry(SubjectKey, value) => value }
+
 /**
  * Adds `forAgent` to `ComponentClient`.
  *
@@ -1200,6 +1272,14 @@ final class AgentCalls private[agent] (
 extension (client: ComponentClient)
   def forAgent(sessionId: SessionId): AgentCalls =
     AgentCalls(client.transportRef, sessionId)
+
+  /**
+   * Calls to an agent in a session started with `subject` (feature 042): what the session keeps of
+   * its conversation is sealed under the subject's key. `None` is a session with no data subject,
+   * which no erasure changes.
+   */
+  def forAgent(sessionId: SessionId, subject: Option[DataSubject]): AgentCalls =
+    AgentCalls(client.transportRef, sessionId, subject)
 
   def forSessionMemory(sessionId: SessionId) =
     client.forEventSourcedEntity(EntityId(sessionId))

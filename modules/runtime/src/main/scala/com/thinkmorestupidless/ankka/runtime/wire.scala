@@ -181,6 +181,13 @@ object EntityProtocol:
   /** A held handover waited as long as it may. */
   private[ankka] final case class HandoverTimedOut(target: String) extends ModuleCommand
 
+  /**
+   * Asks an event sourced entity to leave memory through its shard, so its next call recovers it
+   * from its journal (feature 042): an agent session that read a conversation before its data
+   * subject was erased must read it again, as erased. Sharding holds what arrives meanwhile.
+   */
+  private[ankka] case object Passivate extends ModuleCommand with AnkkaSerializable
+
   sealed trait Reply extends AnkkaSerializable
 
   final case class Succeeded(payload: Array[Byte], metadata: Vector[MetaEntry]) extends Reply

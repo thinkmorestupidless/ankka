@@ -228,12 +228,12 @@ and every scenario bound to a suite and red before a line of the feature exists.
 
 **Independent test**: `ErasureFeatures` over `agents.feature` with `TestModelProvider`.
 
-- [ ] T078 [US6] Bind `FEAT/agents.feature`; red
-- [ ] T079 [US6] `subject: Option[DataSubject]` on the session (`AG/SessionMemoryEntity.scala`'s `Started` and state) and on the instance (`AG/autonomous/InstanceEntity.scala`), `NON_ABSENT`; the agent client's `session(id, subject = …)` and `autonomous.start(id, subject = …)` in `SDK`; a later call naming another data subject refused; compatibility fixtures for the old shapes
-- [ ] T080 [US6] Wrap `UserMessage.text`, `AiMessage.text`, tool call arguments, `ToolResultMessage.content`, `SummaryMessage.text`, `SuspendedTurn.payload` (`AG/memory.scala`), task instructions and results (`AG/autonomous/TaskEntity.scala`) and `ApprovalRequest.arguments` (`AG/autonomous/Approvals.scala`) in envelopes under the data subject; a reader accepts both shapes; agents.md's suspended-turn rule held
-- [ ] T081 [US6] On a notice: a session of the data subject reads with an empty history and a new turn begins with nothing; an instance tagged with it is stopped by its host and reads as erased (the `ErasureDuties` hook from T035); `ObservabilityEndpoint` serves personal fields as `Personal(<subject>)`
+- [X] T078 [US6] Bind `FEAT/agents.feature`; red
+- [X] T079 [US6] `subject: Option[DataSubject]` on the session (`AG/SessionMemoryEntity.scala`'s `Started` and state) and on the instance (`AG/autonomous/InstanceEntity.scala`), `NON_ABSENT`; the agent client's `session(id, subject = …)` and `autonomous.start(id, subject = …)` in `SDK`; a later call naming another data subject refused; compatibility fixtures for the old shapes
+- [X] T080 [US6] Wrap `UserMessage.text`, `AiMessage.text`, tool call arguments, `ToolResultMessage.content`, `SummaryMessage.text`, `SuspendedTurn.payload` (`AG/memory.scala`), task instructions and results (`AG/autonomous/TaskEntity.scala`) and `ApprovalRequest.arguments` (`AG/autonomous/Approvals.scala`) in envelopes under the data subject; a reader accepts both shapes; agents.md's suspended-turn rule held
+- [X] T081 [US6] On a notice: a session of the data subject reads with an empty history and a new turn begins with nothing; an instance tagged with it is stopped by its host and reads as erased (the `ErasureDuties` hook from T035); `ObservabilityEndpoint` serves personal fields as `Personal(<subject>)`
 - [ ] T082 [US6] The process SDKs' agent clients carry the data subject (Python, TypeScript, Go, Rust), one case each
-- [ ] T083 [US6] `ErasureFeatures`: `agents.feature` green
+- [X] T083 [US6] `ErasureFeatures`: `agents.feature` green
 
 ---
 

@@ -191,6 +191,12 @@ private[ankka] final class IterationLoop(
       startedAt: Long,
       dependencies: Vector[DependencyResult]
   ): IterationResult =
+    // The task's conversation is kept under its data subject (feature 042), from its first write.
+    taskRecord.subject.foreach(subject =>
+      session(taskRecord.id)
+        .call(SessionMemoryEntity.begin)
+        .invoke(SessionMemoryEntity.Begin(subject)): Unit
+    )
     val request = ModelRequest(
       settings = ModelSettings(model.modelName),
       systemMessage = Some(systemMessage(taskType, n, budget)),

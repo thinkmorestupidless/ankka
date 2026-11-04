@@ -27,7 +27,8 @@ private[ankka] object HostProtocol:
   val Notifications: MethodName = MethodName("notifications")
   val Decide: MethodName        = MethodName("decide")
 
-  final case class AssignRequest(taskIds: Vector[String])
+  /** `subject` is the data subject the instance is started with, named by its first call. */
+  final case class AssignRequest(taskIds: Vector[String], subject: Option[String] = None)
   final case class RunSingle(taskId: String)
   final case class DequeueRequest(taskId: String, reason: String)
 
@@ -159,9 +160,17 @@ final case class TaskBuilder[R] private[autonomous] (
     id: Option[String],
     attachments: Vector[Attachment],
     dependencies: Vector[String],
-    definition: Option[TaskDefinition] = None
+    definition: Option[TaskDefinition] = None,
+    subject: Option[DataSubject] = None
 ):
   def withId(taskId: String): TaskBuilder[R] = copy(id = Some(taskId))
+
+  /**
+   * The data subject the task is about (feature 042): its instructions, attachments, result and the
+   * conversation an agent has working on it are kept sealed under the subject's key, and read as
+   * erased once the subject is erased. An instance made for the task alone takes it too.
+   */
+  def withSubject(subject: DataSubject): TaskBuilder[R] = copy(subject = Some(subject))
 
   /**
    * The agent's definition for this task alone; the platform's blueprints give their work steps
@@ -197,7 +206,14 @@ final case class TaskBuilder[R] private[autonomous] (
       .forEventSourcedEntity(EntityId(taskId))
       .call(TaskEntity.createTask)
       .invoke(
-        TaskEntity.Create(task.name, instructions, attachments, dependencies.distinct, definition)
+        TaskEntity.Create(
+          task.name,
+          instructions,
+          attachments,
+          dependencies.distinct,
+          definition,
+          subject.map(_.value)
+        )
       )
     val ended = dependencies.distinct.iterator
       .map(dep =>
@@ -227,7 +243,8 @@ final case class TaskBuilder[R] private[autonomous] (
 final class AutonomousAgentCalls private[autonomous] (
     client: ComponentClient,
     componentId: ComponentId,
-    instanceId: String
+    instanceId: String,
+    subject: Option[DataSubject] = None
 ):
   private def transport: CallTransport = client.transportRef
 
@@ -242,7 +259,9 @@ final class AutonomousAgentCalls private[autonomous] (
   def assignAsync(taskIds: String*): Future[AssignResult] =
     ask(
       HostProtocol.Assign,
-      HostProtocol.assignRequest.toBytes(HostProtocol.AssignRequest(taskIds.toVector))
+      HostProtocol.assignRequest.toBytes(
+        HostProtocol.AssignRequest(taskIds.toVector, subject.map(_.value))
+      )
     )
       .map(HostProtocol.assignResult.fromBytes)(using ExecutionContext.parasitic)
 
@@ -329,6 +348,19 @@ extension (client: ComponentClient)
       instanceId: String
   ): AutonomousAgentCalls =
     forAutonomousAgent(companion.componentId, instanceId)
+
+  /**
+   * One instance, started with `subject` (feature 042) by its first assignment: what it records of
+   * its work that holds conversation is sealed under the subject's key, and once the subject is
+   * erased the instance is terminated. A later call naming another data subject is refused.
+   */
+  def forAutonomousAgent(
+      companion: AutonomousAgent.Companion[?],
+      instanceId: String,
+      subject: Option[DataSubject]
+  ): AutonomousAgentCalls =
+    if instanceId.isEmpty then throw CommandError("an instance needs an id", ErrorCode.BadRequest)
+    else AutonomousAgentCalls(client, companion.componentId, instanceId, subject)
 
   /** One instance, by its component's id — how a caller without the companion reaches it. */
   def forAutonomousAgent(componentId: ComponentId, instanceId: String): AutonomousAgentCalls =

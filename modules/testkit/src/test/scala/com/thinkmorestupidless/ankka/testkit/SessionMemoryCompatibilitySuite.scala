@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.agent.*
-import com.thinkmorestupidless.ankka.core.{EntityId, Serializer}
+import com.thinkmorestupidless.ankka.core.{DataSubject, EntityId, Personal, Serializer}
 import com.thinkmorestupidless.ankka.testkit.autonomous.Fixtures
 
 /**
@@ -65,7 +65,11 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
       TurnSuspended(suspendedTurn),
       ApprovalDecided("a-2", Decision("a-2", approved = false, by = "sam", at = 8L)),
       TurnEnded,
-      AiMessageAdded(answered, usage)
+      AiMessageAdded(answered, usage),
+      // A session started with a data subject (feature 042), and an event of it written once the
+      // subject was erased: the one sealed form that needs no key, and so can be pinned.
+      Started("player/8c1f"),
+      Sealed(Personal.Erased(DataSubject("player/8c1f")))
     )
 
   private lazy val suspendedTurn = SuspendedTurn(
@@ -102,6 +106,10 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   private val append = SessionMemoryEntity.Append(Vector(user, ai, result), usage)
 
+  /** A session of an erased data subject, as its snapshot is kept: sealed, with an erased body. */
+  private val erasedState =
+    SessionHistory(Vector.empty, usage, 0, subject = Some("player/8c1f"), erased = true)
+
   private val endingAppend = SessionMemoryEntity.Append(Vector(result), usage, endsTurn = true)
 
   private val eventSerializer = SessionMemoryEntity.eventSerializer
@@ -118,27 +126,39 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
       "modules/testkit/src/test/resources/journal/session-memory.json"
     )
 
+  /**
+   * The keyring the pinned lines are written under: an erased body names its keyring's project, so
+   * the process default (which another suite in the JVM may have installed) must not decide it.
+   */
+  private object PinnedKeyring extends com.thinkmorestupidless.ankka.core.Keyring:
+    val project: String                                             = "brand"
+    def key(project: String, subject: DataSubject, create: Boolean) =
+      com.thinkmorestupidless.ankka.core.KeyAnswer.Destroyed
+
   test("every session memory event, the state and a batch decode from their pinned form and back") {
-    val generated =
-      (events.map(line("session-memory-event", _, eventSerializer)) ++
-        Vector(
-          line("session-history", state, stateSerializer),
-          line("session-append", append, appendSerializer),
-          line("session-history", waitingState, stateSerializer),
-          line("session-append", endingAppend, appendSerializer),
-          line("session-history", providersState, stateSerializer)
-        )).mkString("", "\n", "\n")
+    com.thinkmorestupidless.ankka.core.Keyring.binding(PinnedKeyring) {
+      val generated =
+        (events.map(line("session-memory-event", _, eventSerializer)) ++
+          Vector(
+            line("session-history", state, stateSerializer),
+            line("session-append", append, appendSerializer),
+            line("session-history", waitingState, stateSerializer),
+            line("session-append", endingAppend, appendSerializer),
+            line("session-history", providersState, stateSerializer),
+            line("session-history", erasedState, stateSerializer)
+          )).mkString("", "\n", "\n")
 
-    events.foreach(e => assertEquals(eventSerializer.fromBytes(eventSerializer.toBytes(e)), e))
-    Vector(state, waitingState, providersState).foreach(s =>
-      assertEquals(stateSerializer.fromBytes(stateSerializer.toBytes(s)), s)
-    )
-    Vector(append, endingAppend).foreach(a =>
-      assertEquals(appendSerializer.fromBytes(appendSerializer.toBytes(a)), a)
-    )
+      events.foreach(e => assertEquals(eventSerializer.fromBytes(eventSerializer.toBytes(e)), e))
+      Vector(state, waitingState, providersState, erasedState).foreach(s =>
+        assertEquals(stateSerializer.fromBytes(stateSerializer.toBytes(s)), s)
+      )
+      Vector(append, endingAppend).foreach(a =>
+        assertEquals(appendSerializer.fromBytes(appendSerializer.toBytes(a)), a)
+      )
 
-    val problems = Fixtures.check(Map(path -> generated))
-    assert(problems.isEmpty, problems.mkString("\n"))
+      val problems = Fixtures.check(Map(path -> generated))
+      assert(problems.isEmpty, problems.mkString("\n"))
+    }
   }
 
   test("each pinned line decodes, as a journal written by an earlier release must") {
@@ -157,7 +177,7 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
   test("every event case is pinned") {
     assertEquals(
       events.map(_.ordinal).distinct.size,
-      SessionMemoryEvent.TurnEnded.ordinal + 1
+      SessionMemoryEvent.Sealed(Personal.Erased(DataSubject("x"))).ordinal + 1
     )
   }
 

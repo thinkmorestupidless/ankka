@@ -262,7 +262,9 @@ object ObservabilityEndpoint:
                 service.componentClient.transportRef.ask(
                   ComponentId(SessionMemoryComponent),
                   EntityId(id),
-                  MethodName("history"),
+                  // The session as an observer is shown it: a session kept under a data subject
+                  // shows each personal text as `Personal(<subject>)`, never the value (042).
+                  MethodName("observed"),
                   Array.emptyByteArray,
                   Metadata.empty
                 ),

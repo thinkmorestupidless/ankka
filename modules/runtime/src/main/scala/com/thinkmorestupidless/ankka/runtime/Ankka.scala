@@ -751,7 +751,8 @@ final class ServiceBuilder private[ankka] (
             typed,
             EntityId(ctx.entityId),
             componentClient,
-            replicating
+            replicating,
+            Some(ctx.shard)
           )
         )
       }

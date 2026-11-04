@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, readFromStringReentrant}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
 import com.thinkmorestupidless.ankka.sdk.*
@@ -14,6 +15,11 @@ import com.thinkmorestupidless.ankka.sdk.*
  * `usageByProvider` is `usage` again, kept per model provider by the name its messages carry, so a
  * session continued across providers says what each cost. A message recorded before providers were
  * named counts in `usage` alone.
+ *
+ * `subject` is the data subject the session was started with (feature 042), fixed at its first
+ * call: everything the session keeps of its conversation is then sealed under that subject's key,
+ * and `erased` says the key was destroyed, so the conversation reads as empty. Both are absent from
+ * a session started with none, whose bytes are what they always were.
  */
 final case class SessionHistory(
     messages: Vector[SessionMessage],
@@ -21,9 +27,35 @@ final case class SessionHistory(
     sizeInBytes: Int,
     judgmentUsage: TokenUsage = TokenUsage.zero,
     suspended: Option[SuspendedTurn] = None,
-    usageByProvider: Map[String, TokenUsage] = Map.empty
+    usageByProvider: Map[String, TokenUsage] = Map.empty,
+    subject: Option[String] = None,
+    erased: Boolean = false
 ):
   def isEmpty: Boolean = messages.isEmpty && suspended.isEmpty
+
+  /**
+   * The session as an observer is shown it: a session with a data subject has every personal text
+   * replaced by `Personal(<subject>)`, which names the data subject and never the value.
+   */
+  def observed: SessionHistory = subject.fold(this) { s =>
+    val shown                                      = s"Personal($s)"
+    def message(m: SessionMessage): SessionMessage = m match
+      case u: SessionMessage.UserMessage => u.copy(text = shown)
+      case a: SessionMessage.AiMessage   =>
+        a.copy(text = shown, toolCalls = a.toolCalls.map(_.copy(arguments = shown)))
+      case r: SessionMessage.ToolResultMessage => r.copy(content = shown)
+      case m: SessionMessage.SummaryMessage    => m.copy(text = shown)
+    copy(
+      messages = messages.map(message),
+      suspended = suspended.map(t =>
+        t.copy(
+          payload = shown,
+          messages = t.messages.map(message),
+          requests = t.requests.map(_.copy(arguments = Json.str(shown)))
+        )
+      )
+    )
+  }
 
   /** The most recent `count` messages, oldest first. */
   def lastMessages(count: Int): Vector[SessionMessage] =
@@ -35,6 +67,10 @@ final case class SessionHistory(
 
 object SessionHistory:
   def empty: SessionHistory = SessionHistory(Vector.empty, TokenUsage.zero, 0)
+
+  /** A session whose data subject was erased: what it held of its conversation is gone. */
+  private[agent] def erasedFrom(state: SessionHistory): SessionHistory =
+    state.copy(messages = Vector.empty, sizeInBytes = 0, suspended = None, erased = true)
 
 /**
  * A turn that stopped because the model called a tool that requires approval.
@@ -91,6 +127,18 @@ enum SessionMemoryEvent:
   /** The suspended turn is over: answered, failed, or cut off. */
   case TurnEnded
 
+  /**
+   * The session was started with a data subject (feature 042): written first, in the clear, and
+   * never again. Every event after it is `Sealed`.
+   */
+  case Started(subject: String)
+
+  /**
+   * An event of a session with a data subject: the event's own JSON, sealed under the subject's
+   * key. Read once the key is destroyed it is erased, and the conversation reads as empty.
+   */
+  case Sealed(body: Personal[String])
+
 /**
  * A conversation, as an event sourced entity.
  *
@@ -130,7 +178,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
       currentState.copy(messages = messages, sizeInBytes = sizeOf(messages))
 
     case SessionMemoryEvent.Cleared =>
-      SessionHistory.empty
+      SessionHistory.empty.copy(subject = currentState.subject, erased = currentState.erased)
 
     case SessionMemoryEvent.JudgmentUsageAdded(usage) =>
       currentState.copy(judgmentUsage = currentState.judgmentUsage + usage)
@@ -148,16 +196,77 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     case SessionMemoryEvent.TurnEnded =>
       currentState.copy(suspended = None)
 
+    case SessionMemoryEvent.Started(subject) =>
+      held(subject)
+      currentState.copy(subject = Some(subject))
+
+    case SessionMemoryEvent.Sealed(body) =>
+      body match
+        case Personal.Present(_, json) =>
+          applyEvent(readFromStringReentrant(json)(using SessionMemoryCodecs.event))
+        case Personal.Erased(_) => SessionHistory.erasedFrom(currentState)
+
+  /**
+   * Fixes the session's data subject at its first call (feature 042). A call naming the subject it
+   * has is let through; one naming another, or naming one for a session that already holds a
+   * conversation kept with none, is refused, since what it already holds is not that subject's.
+   */
+  def begin(request: SessionMemoryEntity.Begin): Effect[Done] =
+    Sealing.subjectOf(request.subject) match
+      case Left(problem) => effects.error(problem.message, problem.code)
+      case Right(_)      =>
+        currentState.subject match
+          case Some(s) if s == request.subject =>
+            held(s)
+            effects.reply(Done)
+          case Some(_) =>
+            effects.error(
+              s"session '$theSessionId' was started with another data subject",
+              ErrorCode.Conflict
+            )
+          case None if currentState.isEmpty && currentState.usage == TokenUsage.zero =>
+            effects.persist(SessionMemoryEvent.Started(request.subject)).thenReply(_ => Done)
+          case None =>
+            effects.error(
+              s"session '$theSessionId' was started with no data subject, and holds a " +
+                "conversation that cannot be kept under one",
+              ErrorCode.Conflict
+            )
+
+  /** Notes that this session, in memory, holds `subject`'s conversation (`LiveSubjects`). */
+  private def held(subject: String): Unit =
+    Option(context.componentClient).foreach(
+      LiveSubjects.hold(
+        _,
+        LiveSubjects.Holder.Entity(SessionMemoryEntity.componentId, EntityId(theSessionId)),
+        subject
+      )
+    )
+
+  /**
+   * Persists `events` as the session keeps them: as they are with no data subject, sealed under the
+   * subject's key with one. A session whose data subject was erased keeps nothing more.
+   */
+  private def record(events: Seq[SessionMemoryEvent]): Effect[Done] =
+    if events.isEmpty || currentState.erased then effects.reply(Done)
+    else effects.persistAll(events.map(sealedOr)).thenReply(_ => Done)
+
+  private def sealedOr(event: SessionMemoryEvent): SessionMemoryEvent =
+    currentState.subject.flatMap(DataSubject.from(_).toOption) match
+      case None          => event
+      case Some(subject) =>
+        SessionMemoryEvent.Sealed(
+          Sealing.seal(subject, event, erased = false)(using SessionMemoryCodecs.event)
+        )
+
   def addUserMessage(message: SessionMessage.UserMessage): Effect[Done] =
-    effects.persist(SessionMemoryEvent.UserMessageAdded(message)).thenReply(_ => Done)
+    record(Vector(SessionMemoryEvent.UserMessageAdded(message)))
 
   def addAiMessage(request: SessionMemoryEntity.AddAiMessage): Effect[Done] =
-    effects
-      .persist(SessionMemoryEvent.AiMessageAdded(request.message, request.usage))
-      .thenReply(_ => Done)
+    record(Vector(SessionMemoryEvent.AiMessageAdded(request.message, request.usage)))
 
   def addToolResult(message: SessionMessage.ToolResultMessage): Effect[Done] =
-    effects.persist(SessionMemoryEvent.ToolResultAdded(message)).thenReply(_ => Done)
+    record(Vector(SessionMemoryEvent.ToolResultAdded(message)))
 
   /**
    * Writes several messages in one go.
@@ -189,9 +298,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     // answer with the turn still waiting, or the turn gone with no answer.
     val ended =
       Option.when(batch.endsTurn && currentState.suspended.isDefined)(SessionMemoryEvent.TurnEnded)
-    val all = events ++ judged ++ ended
-    if all.isEmpty then effects.reply(Done)
-    else effects.persistAll(all).thenReply(_ => Done)
+    record(events ++ judged ++ ended)
 
   /**
    * Records a turn that stopped to wait for approval.
@@ -206,7 +313,12 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
         s"session '$theSessionId' already has an approval request awaiting a decision",
         ErrorCode.Conflict
       )
-    else effects.persist(SessionMemoryEvent.TurnSuspended(turn)).thenReply(_ => Done)
+    else if currentState.erased then
+      effects.error(
+        s"session '$theSessionId' is of an erased data subject and keeps no turn",
+        ErrorCode.Conflict
+      )
+    else effects.persist(sealedOr(SessionMemoryEvent.TurnSuspended(turn))).thenReply(_ => Done)
 
   /**
    * Records a decision, answering with the suspended turn as it then stands.
@@ -225,7 +337,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
             effects.error(s"approval request '$id' is decided", ErrorCode.Conflict)
           case Some((turn, _)) =>
             effects
-              .persist(SessionMemoryEvent.ApprovalDecided(id, decision))
+              .persist(sealedOr(SessionMemoryEvent.ApprovalDecided(id, decision)))
               .thenReply(after => after.suspended.getOrElse(turn))
           case None if decidedBefore(id) =>
             effects.error(s"approval request '$id' is decided", ErrorCode.Conflict)
@@ -243,7 +355,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
   /** Ends the suspended turn, if there is one, adding nothing to the history. */
   def endTurn: Effect[Done] =
     if currentState.suspended.isEmpty then effects.reply(Done)
-    else effects.persist(SessionMemoryEvent.TurnEnded).thenReply(_ => Done)
+    else record(Vector(SessionMemoryEvent.TurnEnded))
 
   private def decidedBefore(approvalId: String): Boolean =
     val recorded = currentState.messages ++ currentState.suspended.toVector.flatMap(_.messages)
@@ -261,8 +373,8 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
           s"${currentState.messages.size}"
       )
     else
-      effects
-        .persist(
+      record(
+        Vector(
           SessionMemoryEvent.HistoryCompacted(
             SessionMessage.SummaryMessage(
               System.currentTimeMillis(),
@@ -272,12 +384,14 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
             request.droppedCount
           )
         )
-        .thenReply(_ => Done)
+      )
 
-  def clear: Effect[Done] =
-    effects.persist(SessionMemoryEvent.Cleared).thenReply(_ => Done)
+  def clear: Effect[Done] = record(Vector(SessionMemoryEvent.Cleared))
 
   def history: ReadOnlyEffect[SessionHistory] = effects.reply(currentState)
+
+  /** The session as an observer is shown it: personal texts as `Personal(<subject>)`. */
+  def observed: ReadOnlyEffect[SessionHistory] = effects.reply(currentState.observed)
 
   private def appended(message: SessionMessage): SessionHistory =
     val messages = currentState.messages :+ message
@@ -292,6 +406,42 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
         case m: SessionMessage.SummaryMessage    => m.text.length)
     }
 
+/**
+ * The session's codecs, apart from its companion: the companion's constructor names them, and runs
+ * before the companion's own fields are set.
+ */
+private[agent] object SessionMemoryCodecs:
+  given event: JsonValueCodec[SessionMemoryEvent] = Codecs.make[SessionMemoryEvent]
+  given history: JsonValueCodec[SessionHistory]   = Codecs.make[SessionHistory]
+
+  /**
+   * The state as a snapshot keeps it: sealed whole under the session's data subject when it has
+   * one, with only the token counts in the clear.
+   */
+  val events: Serializer[SessionMemoryEvent] =
+    Sealing.eventSerializer[SessionMemoryEvent](
+      "session-memory-event",
+      {
+        case SessionMemoryEvent.Sealed(Personal.Present(subject, _)) =>
+          Some(SessionMemoryEvent.Sealed(Personal.Erased(subject)))
+        case _ => None
+      }
+    )
+
+  val state: Serializer[SessionHistory] = Sealing.stateSerializer[SessionHistory](
+    "session-history",
+    _.subject,
+    _.erased,
+    h =>
+      SessionHistory.empty.copy(
+        usage = h.usage,
+        judgmentUsage = h.judgmentUsage,
+        usageByProvider = h.usageByProvider,
+        subject = h.subject
+      ),
+    SessionHistory.erasedFrom
+  )
+
 object SessionMemoryEntity
     extends EventSourcedEntity.Companion[
       SessionMemoryEntity,
@@ -299,9 +449,12 @@ object SessionMemoryEntity
       SessionMemoryEvent
     ](
       componentId = ComponentId("ankka-session-memory"),
-      stateSerializer = Codecs.serializer[SessionHistory]("session-history"),
-      eventSerializer = Codecs.serializer[SessionMemoryEvent]("session-memory-event")
+      stateSerializer = SessionMemoryCodecs.state,
+      eventSerializer = SessionMemoryCodecs.events
     ):
+
+  /** The data subject a session is started with: its first call names it. */
+  final case class Begin(subject: String)
 
   /** The platform's own: it keeps what the platform needs, and no service wrote it. */
   override private[ankka] def platform: Boolean = true
@@ -327,6 +480,7 @@ object SessionMemoryEntity
   given Serializer[SessionHistory] = Codecs.serializer[SessionHistory]("session-history")
   given Serializer[SuspendedTurn]  = Codecs.serializer[SuspendedTurn]("session-suspended-turn")
   given Serializer[Decision]       = Codecs.serializer[Decision]("session-decision")
+  given Serializer[Begin]          = Codecs.serializer[Begin]("session-begin")
 
   def create(context: EventSourcedEntityContext) = new SessionMemoryEntity(context)
 
@@ -340,3 +494,5 @@ object SessionMemoryEntity
   val suspendTurn    = command("suspend-turn")(_.suspendTurn)
   val decideApproval = command("decide-approval")(_.decideApproval)
   val endTurn        = command("end-turn")(_.endTurn)
+  val begin          = command("begin")(_.begin)
+  val observed       = query("observed")(_.observed)

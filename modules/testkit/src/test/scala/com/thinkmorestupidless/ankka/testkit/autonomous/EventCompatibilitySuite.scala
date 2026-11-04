@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.testkit.autonomous
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Decision, Json, TokenUsage}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
-import com.thinkmorestupidless.ankka.core.Serializer
+import com.thinkmorestupidless.ankka.core.{DataSubject, Personal, Serializer}
 
 /**
  * Pins the journal form of every task and instance event, and of the state a client reads.
@@ -37,7 +37,14 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       ResultRejected("sources must not be empty", 2, usage, 5L),
       Completed("""{"answer":"3"}""", 3, usage, 6L),
       Failed("iteration budget of 5 exhausted", 5, usage, 7L),
-      Cancelled("cancelled by caller", 8L)
+      Cancelled("cancelled by caller", 8L),
+      // Feature 042: a task created with a data subject, and an event of it once the subject was
+      // erased, which needs no key and reads as its clear copy.
+      Created("t-3", "answer", "", Vector.empty, Vector.empty, 9L, subject = Some("player/8c1f")),
+      Sealed(
+        """{"type":"Completed","result":"","iterations":3,"usage":{},"at":10}""",
+        Personal.Erased(DataSubject("player/8c1f"))
+      )
     )
 
   private val instanceEvents: Vector[InstanceEvent] =
@@ -72,6 +79,12 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       ApprovalDecided(
         "a-1",
         Decision("a-1", approved = false, by = "dana", note = Some("not now"), at = 15L)
+      ),
+      // Feature 042: an instance started with a data subject, and a sealed event once erased.
+      Created(terminateWhenDone = false, 16L, subject = Some("player/8c1f")),
+      Sealed(
+        """{"type":"IterationFailed","iteration":1,"error":"","at":17}""",
+        Personal.Erased(DataSubject("player/8c1f"))
       )
     )
 
@@ -83,24 +96,35 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       "modules/testkit/src/test/resources/journal/autonomous-events.json"
     )
 
-  test("every task event, instance event and record decodes from its pinned form and back") {
-    val generated =
-      (lines("task-event", taskEvents, TaskEntity.eventSerializer) ++
-        lines("agent-instance-event", instanceEvents, InstanceEntity.eventSerializer))
-        .mkString("", "\n", "\n")
+  /**
+   * The keyring the pinned lines are written under: an erased body names its keyring's project, so
+   * the process default (which another suite in the JVM may have installed) must not decide it.
+   */
+  private object PinnedKeyring extends com.thinkmorestupidless.ankka.core.Keyring:
+    val project: String                                             = "brand"
+    def key(project: String, subject: DataSubject, create: Boolean) =
+      com.thinkmorestupidless.ankka.core.KeyAnswer.Destroyed
 
-    // Each pinned line must decode to the value that produced it: the journal's direction.
-    taskEvents.foreach(e =>
-      assertEquals(TaskEntity.eventSerializer.fromBytes(TaskEntity.eventSerializer.toBytes(e)), e)
-    )
-    instanceEvents.foreach(e =>
-      assertEquals(
-        InstanceEntity.eventSerializer.fromBytes(InstanceEntity.eventSerializer.toBytes(e)),
-        e
+  test("every task event, instance event and record decodes from its pinned form and back") {
+    com.thinkmorestupidless.ankka.core.Keyring.binding(PinnedKeyring) {
+      val generated =
+        (lines("task-event", taskEvents, TaskEntity.eventSerializer) ++
+          lines("agent-instance-event", instanceEvents, InstanceEntity.eventSerializer))
+          .mkString("", "\n", "\n")
+
+      // Each pinned line must decode to the value that produced it: the journal's direction.
+      taskEvents.foreach(e =>
+        assertEquals(TaskEntity.eventSerializer.fromBytes(TaskEntity.eventSerializer.toBytes(e)), e)
       )
-    )
-    val problems = Fixtures.check(Map(path -> generated))
-    assert(problems.isEmpty, problems.mkString("\n"))
+      instanceEvents.foreach(e =>
+        assertEquals(
+          InstanceEntity.eventSerializer.fromBytes(InstanceEntity.eventSerializer.toBytes(e)),
+          e
+        )
+      )
+      val problems = Fixtures.check(Map(path -> generated))
+      assert(problems.isEmpty, problems.mkString("\n"))
+    }
   }
 
   test("every event case is pinned") {
@@ -108,10 +132,23 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       taskEvents.map(_.ordinal).distinct.sorted,
       taskEvents.map(_.ordinal).distinct.sorted.indices.toVector
     )
-    assertEquals(TaskEvent.Cancelled("", 0L).ordinal, taskEvents.map(_.ordinal).max)
-    val last = InstanceEvent.ApprovalDecided("", Decision("", approved = true, by = "x", at = 0L))
+    val erased = Personal.Erased(DataSubject("x"))
+    assertEquals(TaskEvent.Sealed("", erased).ordinal, taskEvents.map(_.ordinal).max)
+    val last = InstanceEvent.Sealed("", erased)
     assertEquals(last.ordinal, instanceEvents.map(_.ordinal).max)
     assertEquals(instanceEvents.map(_.ordinal).distinct.size, last.ordinal + 1)
+  }
+
+  test("a task and an instance with no data subject are written exactly as before") {
+    val task = String(TaskEntity.eventSerializer.toBytes(taskEvents.head), "UTF-8")
+    assert(!task.contains("subject"), task)
+    val instance = String(InstanceEntity.eventSerializer.toBytes(instanceEvents.head), "UTF-8")
+    assert(!instance.contains("subject"), instance)
+    val record = String(
+      TaskEntity.stateSerializer.toBytes(TaskRecord.empty.copy(id = "t-1", createdAt = 1L)),
+      "UTF-8"
+    )
+    assert(!record.contains("subject") && !record.contains("sealedState"), record)
   }
 
   test("an instance working on a task recorded before approvals reads with none") {

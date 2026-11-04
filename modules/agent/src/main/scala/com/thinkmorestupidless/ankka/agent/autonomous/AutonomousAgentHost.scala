@@ -112,7 +112,8 @@ private[ankka] object AutonomousAgentHost:
             () => self ! WorkerStopped,
             Observability(ctx.system),
             perTask,
-            Some(context)
+            Some(context),
+            subject => com.thinkmorestupidless.ankka.agent.LiveSubjects.erased(ctx.system, subject)
           )
 
           // Announced on the first message, not here: sharding creates the actor before delivering
@@ -219,6 +220,11 @@ private[ankka] object AutonomousAgentHost:
               }
               .receiveSignal { case (_, PostStop) =>
                 worker.stop()
+                com.thinkmorestupidless.ankka.agent.LiveSubjects.release(
+                  componentClient,
+                  com.thinkmorestupidless.ankka.agent.LiveSubjects.Holder
+                    .Instance(descriptor.componentId, instanceId)
+                )
                 Behaviors.same
               }
 
@@ -300,19 +306,31 @@ private[ankka] object AutonomousAgentHost:
 
     val componentName: String = componentId.toString
 
+    /** Notes that this instance, in memory, holds `subject`'s conversation (`LiveSubjects`). */
+    private def held(subject: String): Unit =
+      com.thinkmorestupidless.ankka.agent.LiveSubjects.hold(
+        client,
+        com.thinkmorestupidless.ankka.agent.LiveSubjects.Holder.Instance(componentId, instanceId),
+        subject
+      )
+
     def run(method: MethodName, payload: Array[Byte]): Either[CommandError, Array[Byte]] =
       try
         method match
           case HostProtocol.Assign =>
-            assign(HostProtocol.assignRequest.fromBytes(payload).taskIds, single = false)
+            val request = HostProtocol.assignRequest.fromBytes(payload)
+            assign(request.taskIds, single = false, request.subject)
               .map(HostProtocol.assignResult.toBytes)
           case HostProtocol.RunSingleTask =>
-            assign(Vector(HostProtocol.runSingle.fromBytes(payload).taskId), single = true).flatMap {
-              result =>
-                result.refused.headOption match
-                  case Some((id, r)) =>
-                    Left(CommandError(s"task '$id': ${r.message}", codeOf(r.code)))
-                  case None => Right(Array.emptyByteArray)
+            assign(
+              Vector(HostProtocol.runSingle.fromBytes(payload).taskId),
+              single = true,
+              None
+            ).flatMap { result =>
+              result.refused.headOption match
+                case Some((id, r)) =>
+                  Left(CommandError(s"task '$id': ${r.message}", codeOf(r.code)))
+                case None => Right(Array.emptyByteArray)
             }
           case HostProtocol.Suspend =>
             record(InstanceEvent.Suspended(now()))
@@ -423,7 +441,8 @@ private[ankka] object AutonomousAgentHost:
      */
     private def assign(
         taskIds: Vector[String],
-        single: Boolean
+        single: Boolean,
+        named: Option[String]
     ): Either[CommandError, AssignResult] =
       val current = get()
       if current.terminated then
@@ -450,7 +469,25 @@ private[ankka] object AutonomousAgentHost:
           )
         )
 
-      if !current.created then record(InstanceEvent.Created(single, now())): Unit
+      // The instance's data subject (feature 042): the one its first call names, or, for an
+      // instance made for one task, the task's. Fixed then: a later call naming another is refused.
+      val subject = named.orElse(
+        if single then records.headOption.flatMap(_._2.toOption).flatMap(_.subject) else None
+      )
+      subject.map(com.thinkmorestupidless.ankka.agent.Sealing.subjectOf) match
+        case Some(Left(problem)) => return Left(problem)
+        case _                   => ()
+      if current.created && named.isDefined && current.subject != named then
+        return Left(
+          CommandError(
+            s"instance '$instanceId' was started with " +
+              current.subject.fold("no data subject")(_ => "another data subject"),
+            ErrorCode.Conflict
+          )
+        )
+
+      if !current.created then record(InstanceEvent.Created(single, now(), subject)): Unit
+      current.subject.orElse(subject).foreach(held)
       val outcomes = records.map {
         case (id, Left(e))  => id -> Left(e)
         case (id, Right(_)) =>
@@ -482,9 +519,16 @@ private[ankka] object AutonomousAgentHost:
         record(InstanceEvent.Terminated(now()))
         theirs.foreach { id =>
           try
-            task(id)
-              .call(TaskEntity.unassign)
-              .invoke(TaskEntity.Unassign("assignee terminated")): Unit
+            // A task whose data subject was erased is not handed to another instance: there is
+            // nothing left of it to work on (feature 042).
+            if task(id).call(TaskEntity.get).invoke().erased then
+              task(id)
+                .call(TaskEntity.cancel)
+                .invoke(TaskEntity.Cancel("its data subject was erased")): Unit
+            else
+              task(id)
+                .call(TaskEntity.unassign)
+                .invoke(TaskEntity.Unassign("assignee terminated")): Unit
           catch case _: CommandError => () // ended meanwhile: nothing to hand back
         }
         emit(Notification.Terminated(componentId, instanceId, now()))
@@ -512,7 +556,9 @@ private[ankka] object AutonomousAgentHost:
       reportStopped: () => Unit,
       observability: Observability,
       perTask: TaskDefinitionResolver = TaskDefinitionResolver.none,
-      context: Option[AutonomousAgentContext] = None
+      context: Option[AutonomousAgentContext] = None,
+      /** Whether a data subject's key was destroyed (feature 042). */
+      subjectErased: String => Boolean = _ => false
   ):
     private val definition  = descriptor.definition
     private val settings    = definition.settings
@@ -666,7 +712,24 @@ private[ankka] object AutonomousAgentHost:
     private def round(): Unit =
       val rec = get()
       if rec.terminated then finish()
-      else if !rec.created || rec.suspended then
+      else if rec.subject.exists(subjectErased) then
+        // Tagged with a data subject erased while it was not in memory to be told (feature 042).
+        record(InstanceEvent.Terminated(now()))
+        emit(Notification.Terminated(componentId, instanceId, now()))
+        finish()
+      else
+        rec.subject.foreach(subject =>
+          com.thinkmorestupidless.ankka.agent.LiveSubjects.hold(
+            client,
+            com.thinkmorestupidless.ankka.agent.LiveSubjects.Holder
+              .Instance(componentId, instanceId),
+            subject
+          )
+        )
+        proceed(rec)
+
+    private def proceed(rec: InstanceRecord): Unit =
+      if !rec.created || rec.suspended then
         idle(true)
         pause(1.minute)
       else

@@ -23,11 +23,11 @@ class ErasureClusterFeatures
 
   override protected def ranElsewhere: Map[String, String] = Map(
     "a consumer in another project with a grant that allows decryption reads the value" ->
-      "ErasureFeatures, two projects in one JVM",
+      "ErasureProjectsFeatures, two projects in one JVM",
     "a consumer in another project with a grant that does not allow decryption reads the field as erased" ->
-      "ErasureFeatures, two projects in one JVM",
+      "ErasureProjectsFeatures, two projects in one JVM",
     "an erasure in the producing project reaches what another project kept of the data subject" ->
-      "ErasureFeatures, two projects in one JVM",
+      "ErasureProjectsFeatures, two projects in one JVM",
     "a revoked grant ends another project's reads of the producing project's data subjects" ->
-      "ErasureFeatures, two projects in one JVM"
+      "ErasureProjectsFeatures, two projects in one JVM"
   )

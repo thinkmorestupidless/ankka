@@ -258,11 +258,25 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
 
   private def writeEnvelope(x: Personal[A], scope: PersonalScope.Scope, out: JsonWriter): Unit =
     val keyring = Keyring.current
-    val project = keyring.project
+    // A field read from another project's envelope stays sealed under that project's key (FR-027):
+    // an erasure there reaches what this service keeps of it, with no notice of its own.
+    val origin  = PersonalCodec.originOf(x)
+    val project = origin.getOrElse(keyring.project)
     val boxed   = x match
       case Erased(_) =>
         PersonalScope.sealedField(None)
         None
+      case Present(subj, value) if origin.isDefined =>
+        PersonalCodec.ask(keyring.key(project, subj, create = false)) match
+          case KeyAnswer.Key(key) =>
+            val plaintext = writeToArrayReentrant(value)(using inner)
+            PersonalScope.sealedField(Some(plaintext))
+            val ad = PersonalCipher.associatedData(subj.value, project, scope.manifest)
+            Some(PersonalCipher.seal(key, scope.nonce, plaintext, ad))
+          // Erased there, or no longer readable here: kept as erased, as it would now be read.
+          case KeyAnswer.Destroyed | KeyAnswer.Absent | KeyAnswer.Refused(_) =>
+            PersonalScope.sealedField(None)
+            None
       case Present(subj, value) =>
         PersonalCodec.ask(keyring.key(project, subj, create = true)) match
           case KeyAnswer.Absent =>
@@ -324,18 +338,22 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
     val s = DataSubject.from(subject).fold(p => in.decodeError(p), identity)
     if version != Personal.Version then
       throw corrupt(subject, s"its version is $version, and this reader knows ${Personal.Version}")
-    if boxed == null then Erased(s)
-    else
-      PersonalCodec.ask(Keyring.current.key(project, s, create = false)) match
-        case KeyAnswer.Destroyed | KeyAnswer.Absent | KeyAnswer.Refused(_) => Erased(s)
-        case KeyAnswer.Key(key)                                            =>
-          val bytes =
-            try Base64.getDecoder.decode(boxed)
-            catch case _: IllegalArgumentException => throw corrupt(subject, "it is not base64")
-          val ad = PersonalCipher.associatedData(subject, project, scope.manifest)
-          PersonalCipher.open(key, bytes, ad) match
-            case None            => throw corrupt(subject, "it failed authentication")
-            case Some(plaintext) => Present(s, readFromArrayReentrant(plaintext)(using inner))
+    val keyring           = Keyring.current
+    val read: Personal[A] =
+      if boxed == null then Erased(s)
+      else
+        PersonalCodec.ask(keyring.key(project, s, create = false)) match
+          case KeyAnswer.Destroyed | KeyAnswer.Absent | KeyAnswer.Refused(_) => Erased(s)
+          case KeyAnswer.Key(key)                                            =>
+            val bytes =
+              try Base64.getDecoder.decode(boxed)
+              catch case _: IllegalArgumentException => throw corrupt(subject, "it is not base64")
+            val ad = PersonalCipher.associatedData(subject, project, scope.manifest)
+            PersonalCipher.open(key, bytes, ad) match
+              case None            => throw corrupt(subject, "it failed authentication")
+              case Some(plaintext) => Present(s, readFromArrayReentrant(plaintext)(using inner))
+    if project != keyring.project then PersonalCodec.remember(read, project)
+    read
 
   private def corrupt(subject: String, why: String): CommandError =
     CommandError(
@@ -345,6 +363,47 @@ final class PersonalCodec[A](inner: JsonValueCodec[A]) extends JsonValueCodec[Pe
     )
 
 object PersonalCodec:
+
+  /**
+   * The project of each field read from another project's envelope, by the field's identity and
+   * held weakly (FR-027): the same value read from this project's own envelope, or made by a
+   * handler, is a different field and is sealed under this project's key.
+   */
+  private object Origins:
+    private val queue = new java.lang.ref.ReferenceQueue[AnyRef]
+    private final class Ref(referent: AnyRef, val project: String)
+        extends java.lang.ref.WeakReference[AnyRef](referent, queue):
+      val hash: Int = System.identityHashCode(referent)
+    private val held = new java.util.concurrent.ConcurrentHashMap[Int, List[Ref]]()
+
+    def remember(field: AnyRef, project: String): Unit =
+      expunge()
+      val ref = Ref(field, project)
+      held.merge(ref.hash, List(ref), (old, add) => add ++ old.filter(_.get != null)): Unit
+
+    def of(field: AnyRef): Option[String] =
+      Option(held.get(System.identityHashCode(field)))
+        .flatMap(_.find(_.get eq field))
+        .map(_.project)
+
+    private def expunge(): Unit =
+      var gone = queue.poll()
+      while gone != null do
+        val ref = gone.asInstanceOf[Ref]
+        held.computeIfPresent(
+          ref.hash,
+          (_, refs) =>
+            val left = refs.filterNot(_ eq ref)
+            if left.isEmpty then null else left
+        ): Unit
+        gone = queue.poll()
+
+  /** Remembers that `field` was read from an envelope of `project`, another project's. */
+  private[core] def remember(field: Personal[?], project: String): Unit =
+    Origins.remember(field, project)
+
+  /** The other project `field` was read from, when it was read from one. */
+  private[core] def originOf(field: Personal[?]): Option[String] = Origins.of(field)
 
   /** `answer`, with the keyring's unavailability rethrown as `KeyringUnavailable`. */
   private[core] inline def ask(answer: => KeyAnswer): KeyAnswer =

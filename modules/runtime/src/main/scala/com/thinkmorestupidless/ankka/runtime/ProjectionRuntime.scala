@@ -492,11 +492,14 @@ final class ProjectionRuntime private (
     val sources                                 = TopicSources(system)
     val handle: IncomingMessage => Future[Done] = message =>
       given ExecutionContext = ExecutionContext.parasitic
-      lanes(message).transform { outcome =>
-        val reason = outcome.failed.toOption.map(f => Option(f.getMessage).getOrElse(f.toString))
-        sources.update(componentId)(_.copy(failing = reason))
-        outcome
-      }
+      // Feature 042: decoded and encoded under this service's keyring (see the handlers below).
+      com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+        .binding(system)(lanes(message))
+        .transform { outcome =>
+          val reason = outcome.failed.toOption.map(f => Option(f.getMessage).getOrElse(f.toString))
+          sources.update(componentId)(_.copy(failing = reason))
+          outcome
+        }
     val subscription = TopicSubscription(topic, group, startFrom, parallel)
     val subscribed   = broker.subscribe(subscription, handle)
     Divergence(system).touch(topic, Some(group), broker)
@@ -1554,7 +1557,13 @@ private final class ViewEventHandler[A](
   // you are still somewhere it is safe to take it.
   private val observability = Observability(system)
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(session, envelope))
+
+  private def processBound(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val change  = reader.read(envelope.event)
 
@@ -1602,7 +1611,13 @@ private final class ViewStateHandler(
   // Taken at construction, as the event handler's is: `process` runs on the projection's threads.
   private val observability = Observability(system)
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(change))
+
+  private def processBound(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
     database
@@ -1661,7 +1676,8 @@ private final class ConsumerEventHandler[A](
     erasures: com.thinkmorestupidless.ankka.sdk.Erasures,
     lines: HistoryLines,
     reader: ChangeReader[A]
-) extends Handler[EventEnvelope[A]]:
+)(using system: ActorSystem[?])
+    extends Handler[EventEnvelope[A]]:
 
   private val id = descriptor.componentId.toString
 
@@ -1677,7 +1693,13 @@ private final class ConsumerEventHandler[A](
    */
   private val localOnly = descriptor.produces.nonEmpty && !descriptor.mirroredChanges
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(envelope: EventEnvelope[A]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(envelope))
+
+  private def processBound(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val local   = reader.local(envelope.event)
     reader.read(envelope.event) match
@@ -1730,7 +1752,8 @@ private final class ConsumerStateHandler(
     storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
     erasures: com.thinkmorestupidless.ankka.sdk.Erasures,
     lines: HistoryLines
-) extends Handler[DurableStateChange[StateRecord]]:
+)(using system: ActorSystem[?])
+    extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
 
@@ -1739,7 +1762,13 @@ private final class ConsumerStateHandler(
       SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(change))
+
+  private def processBound(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
     val revision = change match

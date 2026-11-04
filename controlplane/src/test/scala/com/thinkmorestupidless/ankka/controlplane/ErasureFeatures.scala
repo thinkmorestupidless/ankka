@@ -92,13 +92,21 @@ class ErasureFeatures(
       "ErasureRestoreClusterFeatures, on k3s",
     "the keyring restored to before an erasure applies the erasure log before it answers any request" ->
       "ErasureRestoreClusterFeatures, on k3s",
-    // A machine outside the installation reaches the keyring through the installation's gateway.
+    // Two projects and a machine, against the keyring's own server and its real admission.
+    "a consumer in another project with a grant that allows decryption reads the value" ->
+      "ErasureProjectsFeatures",
+    "a consumer in another project with a grant that does not allow decryption reads the field as erased" ->
+      "ErasureProjectsFeatures",
+    "an erasure in the producing project reaches what another project kept of the data subject" ->
+      "ErasureProjectsFeatures",
+    "a revoked grant ends another project's reads of the producing project's data subjects" ->
+      "ErasureProjectsFeatures",
     "a machine outside the installation with a grant that does not allow decryption reads every personal field as erased" ->
-      "ErasureClusterFeatures, on k3s, through the gateway",
+      "ErasureProjectsFeatures, and ErasureClusterFeatures through the gateway on k3s",
     "a machine outside the installation with a grant that allows decryption asks the keyring to decrypt each field" ->
-      "ErasureClusterFeatures, on k3s, through the gateway",
+      "ErasureProjectsFeatures, and ErasureClusterFeatures through the gateway on k3s",
     "the keyring refuses to decrypt for a machine outside the installation once its grant is revoked or the data subject is erased" ->
-      "ErasureClusterFeatures, on k3s, through the gateway",
+      "ErasureProjectsFeatures, and ErasureClusterFeatures through the gateway on k3s",
     // A soft-delete window is the cloud store's (GCS), which only the GCS cluster suite reaches.
     "the erasure request says when the erasure of objects becomes final on an object store with a soft-delete window" ->
       "ObjectStorageGcsClusterFeatures, against a real bucket",

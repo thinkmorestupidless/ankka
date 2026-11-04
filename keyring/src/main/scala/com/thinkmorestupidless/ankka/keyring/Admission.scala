@@ -26,7 +26,17 @@ final class Admission(
   /** `request` from `who`, admitted or refused with the reason, the refusal recorded. */
   def admit(who: Admission.Who, request: Admission.Request): Future[Either[String, Unit]] =
     decide(who, request) match
-      case Right(()) => Future.successful(Right(()))
+      case Right(()) =>
+        granted(who, request) match
+          case None                          => Future.successful(Right(()))
+          case Some((caller, grant, p, sub)) =>
+            // A key read under another project's grant is recorded with the grant it was read under.
+            store.granted(caller, grant, p, sub).map(_ => Right(())).recover { case NonFatal(e) =>
+              log.warn(
+                s"a read of ${who.name} under grant $grant was not recorded: ${e.getMessage}"
+              )
+              Right(())
+            }
       case Left(why) =>
         val (project, subject) = request.about
         log.info(s"the keyring refused ${who.name}: $why")
@@ -35,6 +45,17 @@ final class Admission(
             log.warn(s"a refusal of ${who.name} was not recorded: ${e.getMessage}")
             Left(why)
         }
+
+  /** The caller, the grant, the project and the subject of an admitted read of another's key. */
+  private def granted(
+      who: Admission.Who,
+      request: Admission.Request
+  ): Option[(String, String, String, String)] =
+    (who, request) match
+      case (Admission.Who.Service(Caller.Service(p, s)), Admission.Request.Key(project, subject, _))
+          if p != project =>
+        grants.decryptGrant(project, s"service:$p/$s").map(g => (who.name, g.id, project, subject))
+      case _ => None
 
   private def decide(who: Admission.Who, request: Admission.Request): Either[String, Unit] =
     import Admission.Request.*
@@ -136,7 +157,11 @@ trait ProjectGrants:
 
   /** Whether `grantee` holds a grant to consume a topic of `project` with decrypt. */
   final def decrypts(project: String, grantee: String): Boolean =
-    of(project).exists(g => g.grantee == grantee && g.decrypts)
+    decryptGrant(project, grantee).isDefined
+
+  /** The first grant, by id, under which `grantee` consumes a topic of `project` with decrypt. */
+  final def decryptGrant(project: String, grantee: String): Option[ProjectGrants.Grant] =
+    of(project).filter(g => g.grantee == grantee && g.decrypts).sortBy(_.id).headOption
 
   /** Whether grant `id` of `project` is `grantee`'s, to consume a topic with decrypt. */
   final def decryptsWith(project: String, id: String, grantee: String): Boolean =

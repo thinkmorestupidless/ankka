@@ -56,6 +56,7 @@ Held to `protocol/fixtures/personal/edge.json`.
 | `notice_ack` | `erasure_seq, project, service, instance, acked_at, PK(erasure_seq, instance)` | completions (R15) |
 | `applied_log` | `erasure_seq BIGINT PK, project, subject, applied_at` | what this database has applied; the replay after a restore reads the gap |
 | `fetch_refusal` | `at, caller, project, subject, reason` | FR-018's record |
+| `granted_fetch` | `at, caller, grant_id, project, subject` | FR-018's record of a key given to another project's consumer, with the grant it was given under |
 | `decryption` | `at, machine, grant, project, subject, field_count` | FR-031's record; no value |
 
 After a `DELETE` from `subject_key`, the keyring runs `VACUUM subject_key` (R10).

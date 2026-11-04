@@ -193,6 +193,16 @@ final class KeyStore(database: Database)(using ExecutionContext):
         .map(_ => ())
     )
 
+  /** FR-018's record of an admitted read of another project's key: who, under which grant. */
+  def granted(caller: String, grant: String, project: String, subject: String): Future[Unit] =
+    ensure().flatMap(_ =>
+      database
+        .execute(
+          sql"INSERT INTO keyring.granted_fetch (caller, grant_id, project, subject) VALUES ($caller, $grant, $project, $subject)"
+        )
+        .map(_ => ())
+    )
+
   /** FR-031's record: a machine's decryption, how many fields of whom; never a value. */
   def decrypted(
       machine: String,
@@ -255,6 +265,9 @@ object KeyStore:
     """CREATE TABLE IF NOT EXISTS keyring.fetch_refusal (
       |  at TIMESTAMPTZ NOT NULL DEFAULT now(), caller TEXT NOT NULL, project TEXT NOT NULL,
       |  subject TEXT NOT NULL, reason TEXT NOT NULL)""".stripMargin,
+    """CREATE TABLE IF NOT EXISTS keyring.granted_fetch (
+      |  at TIMESTAMPTZ NOT NULL DEFAULT now(), caller TEXT NOT NULL, grant_id TEXT NOT NULL,
+      |  project TEXT NOT NULL, subject TEXT NOT NULL)""".stripMargin,
     """CREATE TABLE IF NOT EXISTS keyring.decryption (
       |  at TIMESTAMPTZ NOT NULL DEFAULT now(), machine TEXT NOT NULL, grant_id TEXT NOT NULL,
       |  project TEXT NOT NULL, subject TEXT NOT NULL, field_count INT NOT NULL)""".stripMargin

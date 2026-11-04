@@ -316,3 +316,23 @@ None yet.
 - **A key value entity seals its state before it persists it** (2026-11-04, T100): the event sourced host refused a command whose events the keyring could not seal, but the key value host met the refusal in its snapshot adapter, after the command, and its caller waited out the ask. It now seals the new state once before the persist and answers the keyring's refusal (unreachable, or an erased data subject) as the command's, sealing once more when the state is written. The in-memory keyring also refuses `erase` in an outage, as a stopped keyring refuses the control plane. A recovery that meets an outage still retries with backoff and its caller gets the ask timeout (R4).
 - **Another project's keys are held briefly, with no notices channel** (2026-11-04, asked, T073): the keyring counts every instance on a project's notices channel as one of that project's services and waits for its acknowledgement, so a consumer in another project listening there would hold the producing project's erasures incomplete and appear in its certificates. Instead a key of another project, read under a grant with decryption, is held for `ankka.keyring.cache.foreign-ttl` (30 s) and opens no channel: an erasure or a revoked grant there reaches a read here within 30 s, inside SC-004's 60 s and the 5-minute revocation bound. A refusal of another project's key is `KeyAnswer.Refused`, read as erased and never held (T074); a refusal of the service's own project stays an error. tasks.md's "listens to the producing project's notices" is superseded.
 - **A follower holds a relayed key for `foreign-ttl`, and the relay has no notices** (2026-11-04, T076): R17's `KeyringRelay` carried `notices(home)` as well as a fetch; as for another project (the entry above), a follower instead holds each key the relay gives it for `ankka.keyring.cache.foreign-ttl` in one cache per service, so an erasure at the home reaches a follower's read within 30 s, inside SC-004's minute. The SPI is `KeyringRelay.key(home, project, subject): KeyAnswer`, blocking as a keyring fetch is, with `KeyringRelayProvider` found through `ServiceLoader`; with none, a fetch is `Unavailable` naming the relay and the entity's recovery is retried (R4). A replicated entity binds `RoutedKeyring`, which follows the home its journal has named so far (set as each record is folded, and from a snapshot's home), so a record written before a handover is read with its own home's keys. The in-JVM relay is the test kit's `TestKeyringRelay`, registered through `ServiceLoader` in testkit's jar rather than handed to the builder, and admitting only an installation the home's `ankka.replication.installations` names. A record a follower mirrors live is decoded in the event handler, which bound no keyring before: the handler now binds the entity's. A process behind the sidecar is not routed: its follower reads with its own installation's keyring.
+- **What another project keeps of a field stays under the producing project's key** (2026-11-04, T073,
+  FR-027). `Personal[A]` carries no project, so the codec remembers, by the field's identity and weakly,
+  the project of every field it read from another project's envelope, and writes that field again under
+  that project's key (`create = false`); a key it can no longer have writes the field erased rather than
+  stalling a projection. A field a handler makes, even with the same value, is the service's own. The
+  Java and Kotlin SDKs read through `PersonalJson`, which hands over bytes, so they seal it again under
+  their own project's key; `limitations.md` says so.
+- **A projection decodes under its service's keyring** (2026-11-04, T073). Consumers, views and topic
+  sources decoded under `Keyring.current`'s JVM default, the last service installed; with two projects in
+  one JVM (two test kits) a producing project's publisher read its own events through the other
+  project's keyring. Every in-process projection handler and topic source now binds its service's
+  keyring (`ServiceKeyring.binding`) around its synchronous work.
+- **A key given under a grant is recorded** (2026-11-04, T073): `keyring.granted_fetch`, caller, grant,
+  project and subject, beside `fetch_refusal`, so "the keyring gave it because it holds the grant" can be
+  read back.
+- **`/v1/decrypt` refuses a request naming an erased data subject** (2026-11-04, T075, FR-031): the
+  whole request is `403` naming the subject and recorded in `fetch_refusal`; `null` stays for a field
+  that holds no value. The route is in `KeyringServer` and `KeyringService.decrypt`, not a
+  `DecryptRoute.scala` of its own; machine tokens reach it through the gateway's certificate and a
+  bearer (`MachineTokens`), as `Main` wires them.

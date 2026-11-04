@@ -213,3 +213,8 @@ None yet.
   service's classpath. pekko-http, already in `runtime`, serves and calls it; notices and acks ride
   one WebSocket per instance. `contracts/keyring-and-protocol.md` is rewritten to routes; the keyring
   depends on `http` and `authOidc`, and no generated-stubs project is needed.
+- **`ErasureFeatures` is in the control plane's tests, not the test kit's** (T005, 2026-11-04). An
+  erasure request, its routes and the CLI are the control plane's, which `testkit`'s tests cannot
+  see; the control plane's tests see the kits, the CLI and the keyring. `facts.feature`'s erasure
+  scenarios run in `InstallationFactsFeatures`, which already runs that file whole (a `GherkinSuite`
+  takes one directory or one file).

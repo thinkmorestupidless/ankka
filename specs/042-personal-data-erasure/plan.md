@@ -164,7 +164,7 @@ modules/runtime/…/runtime/storage/{S3Bucket,DirectoryBucket,MemoryBucket,Objec
 modules/runtime/src/main/resources/reference.conf    # ankka.keyring
 modules/agent/…/agent/{SessionMemoryEntity,memory,AgentRuntime}.scala, autonomous/{InstanceEntity,TaskEntity,AutonomousAgentHost,Approvals}.scala
 modules/testkit/…/testkit/{AnkkaTestKit,InMemoryKeyring (new),PersonalAssertions (new),TestKeyringRelay (new)}.scala
-modules/testkit/src/test/…/{ErasureFeatures,PersonalLeakSuite,PersonalRecoveryBenchmark,KeyringOutageSuite,MultiProjectKeyringSuite}.scala
+modules/testkit/src/test/…/{PersonalLeakSuite,PersonalRecoveryBenchmark,KeyringOutageSuite,MultiProjectKeyringSuite}.scala
 modules/telemetry-otlp/…/RecordedSpanData.scala
 modules/sdk-java/…/javasdk/{Personal,DataSubject,ErasureHandler}.java, codec/{Plan,Planner,JsonWriter,JsonReader,Schemas}.java
 modules/sdk-kotlin/…/Personal.kt
@@ -196,7 +196,7 @@ controlplane-api/…/api/{descriptors,Erasures (new)}.scala
 controlplane/…/controlplane/erasure/{ErasureRequestEntity,ErasureRequestsView,ErasureSweep,ErasureLog,KeyringAdmin}.scala (new)
 controlplane/…/controlplane/api/{ErasureEndpoint (new),InstallationEndpoint,ServiceEndpoint}.scala
 controlplane/…/controlplane/deploy/RestoreHold.scala, ControlPlane.scala
-controlplane/src/test/…/{ErasureClusterFeatures,ErasureRestoreClusterFeatures}.scala (new)
+controlplane/src/test/…/{ErasureFeatures,ErasureClusterFeatures,ErasureRestoreClusterFeatures}.scala (new)
 cli/…/cli/{Main,ControlPlaneClient,Output}.scala, mcp/AnkkaTools.scala, local/LocalErasures.scala (new)
 console/package/src/{routes/project.tsx,routes/erasure.tsx (new),client/control-plane.ts,client/schemas.ts,testing/fake-control-plane.ts}, fixtures/control-plane/
 

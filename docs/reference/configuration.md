@@ -120,7 +120,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.secrets.secret-manager.identity` | `""` | every service |
 | `ankka.keyring.cache.max-keys` | `10000` | every service |
 | `ankka.keyring.cache.ttl` | `5m` | every service |
-| `ankka.keyring.cache.outage-bound` | `15m` | every service |
+| `ankka.keyring.cache.outage-bound` | `60s` | every service |
 | `ankka.keyring.cache.foreign-ttl` | `30s` | every service |
 | `ankka.keyring.notice-bound` | `60s` | every service |
 | `ankka.keyring.fetch-timeout` | `2s` | every service |
@@ -342,7 +342,9 @@ reads and writes.
   recently used goes first.
 - `ankka.keyring.cache.ttl` is how long a key is held before it is asked for again, `5m`.
 - `ankka.keyring.cache.outage-bound` is how long a held key still serves while the keyring cannot be
-  reached, `15m`; past it, every read and write of a personal field fails as `Unavailable`.
+  reached, counted from when the keyring was last heard, `60s`; past it, a read or write that needs a key
+  the instance must ask for fails as `Unavailable`. It may not exceed `ankka.keyring.notice-bound`; a
+  service whose settings say otherwise does not start.
 - `ankka.keyring.notice-bound` is how long the instance's channel to the keyring may go unconfirmed before
   the instance drops every key it holds, `60s`: the bound on how long an erased data subject can still be
   read by a new fetch.

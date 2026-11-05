@@ -19,9 +19,9 @@ final class KeyCacheSuite extends munit.FunSuite:
   private def s(n: Int) = DataSubject(s"player/$n")
 
   private def cache(clock: Clock, maxKeys: Int = 3) =
-    new KeyCache(maxKeys, ttl = 5.minutes, outageBound = 15.minutes, clock)
+    new KeyCache(maxKeys, ttl = 5.minutes, clock)
 
-  test("a key is fresh for its lifetime, then only served in an outage until the bound") {
+  test("a key is fresh for its lifetime, then held only for the client's outage bound to serve") {
     val clock = Manual()
     val c     = cache(clock)
     c.put("brand", s(1), key)
@@ -29,8 +29,6 @@ final class KeyCacheSuite extends munit.FunSuite:
     clock.move(5.minutes)
     assertEquals(c.fresh("brand", s(1)), None)
     assertEquals(c.stale("brand", s(1)), Some(key))
-    clock.move(10.minutes)
-    assertEquals(c.stale("brand", s(1)), None)
   }
 
   test("a destroyed key is held whatever its age; an absent one is never held") {

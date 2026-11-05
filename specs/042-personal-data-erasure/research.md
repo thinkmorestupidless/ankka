@@ -364,3 +364,13 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   keyring's notices drops its keys at the notice bound. FR-020 now says the outage bound defaults to
   60 seconds and MUST NOT exceed the notice bound; the settings refuse an outage bound above it, and
   a test composes the outage with the notice check.
+
+### Found while fixing the review (2026-11-05)
+
+- **The outage bound counts from when the keyring was last heard, not from when a key was fetched**
+  (2026-11-05, review). With the outage bound at 60 s and a key's lifetime at 5 minutes, a bound
+  counted from the fetch could never serve a key past its lifetime, so it would mean nothing. The
+  client now serves a held key, of any age, through an outage only while a fetch answered or the
+  notices channel was confirmed within `outage-bound`; `check()` still drops every key at
+  `notice-bound`. The old rule that the outage bound be at least the lifetime is gone; the new one
+  refuses an outage bound above the notice bound.

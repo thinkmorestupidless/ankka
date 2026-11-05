@@ -85,7 +85,7 @@ object KeyringRelay:
       clock: Clock
   ): KeyringRelay =
     // Keyed by the home and the project together, so two homes' keys of one subject never mix.
-    val cache = new KeyCache(maxKeys, ttl, ttl, clock)
+    val cache = new KeyCache(maxKeys, ttl, clock)
     (home, project, subject) =>
       val at = s"$home/$project"
       cache.fresh(at, subject).getOrElse {

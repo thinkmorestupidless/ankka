@@ -228,6 +228,11 @@ A write can be refused, and nothing is written when it is:
 The refusal's details carry `personal` with `erased`, `unavailable` or `corrupt`. An entity whose
 recovery is refused as unavailable is recovered again with backoff, never read as erased.
 
+While the keyring cannot be reached, a key the instance already holds keeps serving for at most 60 seconds
+(`ankka.keyring.cache.outage-bound`, which may not exceed `ankka.keyring.notice-bound`): an instance that
+cannot hear the keyring cannot hear an erasure, so it drops every key it holds then, and reads and writes of
+personal fields are refused as unavailable until the keyring answers again.
+
 Where the keys come from depends on where the service runs:
 
 - **On an installation**, from the installation's keyring. A service that holds personal fields says so

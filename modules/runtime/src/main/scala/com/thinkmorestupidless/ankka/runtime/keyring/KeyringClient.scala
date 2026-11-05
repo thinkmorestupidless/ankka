@@ -55,14 +55,29 @@ final class KeyringClient(
         answer
       catch
         case unavailable: CommandError if unavailable.code == ErrorCode.Unavailable =>
-          cache.stale(project, subject).getOrElse(throw unavailable)
+          (if withinOutageBound() then cache.stale(project, subject) else None)
+            .getOrElse(throw unavailable)
     }
+
+  // When the keyring last answered this instance: a fetch, or a confirmation of the channel.
+  private val answeredAt = new AtomicReference[Option[java.time.Instant]](None)
+
+  /**
+   * Whether the keyring was last heard within `outage-bound`: a held key serves through an outage
+   * that long and no longer. The bound never exceeds `notice-bound` (`KeyringSettings`), so
+   * `check()` dropping every key at the notice bound is never undone by the outage (FR-020, decided
+   * 2026-11-05: the notice bound wins).
+   */
+  private def withinOutageBound(): Boolean =
+    (answeredAt.get.toList ++ store.confirmedAt().toList).maxOption.exists(at =>
+      JDuration.between(at, clock.instant()).toMillis < settings.outageBound.toMillis
+    )
 
   // Keys of another project's data subjects, read under a grant with decryption: no notice of
   // that project reaches this instance, so each is held for `foreign-ttl` and no longer, and a
   // refusal (no grant, or a revoked one) is never held at all (decided 2026-11-04, T073).
   private val foreign =
-    new KeyCache(settings.maxKeys, settings.foreignTtl, settings.foreignTtl, clock)
+    new KeyCache(settings.maxKeys, settings.foreignTtl, clock)
 
   private def foreignKey(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
     foreign.fresh(project, subject).getOrElse {
@@ -75,7 +90,10 @@ final class KeyringClient(
 
   private def fetch(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
     val call = fetching.submit(() => store.key(project, subject, create))
-    try call.get(settings.fetchTimeout.toMillis, TimeUnit.MILLISECONDS)
+    try
+      val answer = call.get(settings.fetchTimeout.toMillis, TimeUnit.MILLISECONDS)
+      answeredAt.set(Some(clock.instant()))
+      answer
     catch
       case _: TimeoutException =>
         call.cancel(true): Unit

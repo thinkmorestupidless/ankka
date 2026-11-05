@@ -14,7 +14,7 @@ final class KeyringSettingsSuite extends munit.FunSuite:
     assertEquals(s.address, None)
     assertEquals(s.maxKeys, 10000)
     assertEquals(s.ttl, 5.minutes)
-    assertEquals(s.outageBound, 15.minutes)
+    assertEquals(s.outageBound, 60.seconds)
     assertEquals(s.noticeBound, 60.seconds)
     assertEquals(s.fetchTimeout, 2.seconds)
   }
@@ -34,9 +34,14 @@ final class KeyringSettingsSuite extends munit.FunSuite:
     assert(k.getMessage.contains("max-keys"), k.getMessage)
   }
 
-  test("an outage bound shorter than a key's lifetime is refused") {
-    val e = intercept[IllegalArgumentException](
-      read("ankka.keyring.cache { ttl = 10m, outage-bound = 5m }")
+  test("an outage bound longer than the notice bound is refused: the notice bound wins") {
+    val e = intercept[IllegalArgumentException](read("ankka.keyring.cache.outage-bound = 15m"))
+    assert(e.getMessage.contains("ankka.keyring.cache.outage-bound"), e.getMessage)
+    assert(e.getMessage.contains("ankka.keyring.notice-bound"), e.getMessage)
+    // Equal to it, or shorter, is read.
+    assertEquals(read("ankka.keyring.cache.outage-bound = 30s").outageBound, 30.seconds)
+    assertEquals(
+      read("ankka.keyring { notice-bound = 2m, cache.outage-bound = 2m }").outageBound,
+      2.minutes
     )
-    assert(e.getMessage.contains("outage-bound"), e.getMessage)
   }

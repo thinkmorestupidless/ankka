@@ -28,8 +28,9 @@ object KeyringSettings:
 
   /**
    * Reads the settings. Throws `IllegalArgumentException` naming the setting when a bound is not
-   * positive, or when the cache's outage bound is shorter than its lifetime (a key would stop
-   * serving in an outage before it would have been fetched again).
+   * positive, or when the cache's outage bound exceeds the notice bound: an instance that cannot
+   * hear the keyring drops its keys at the notice bound, so a longer outage bound would promise
+   * what erasure forbids (FR-020, FR-022; decided 2026-11-05, the notice bound wins).
    */
   def from(config: Config): KeyringSettings =
     val c                                      = config.getConfig("ankka.keyring")
@@ -52,9 +53,10 @@ object KeyringSettings:
       fetchTimeout = positive("fetch-timeout"),
       foreignTtl = positive("cache.foreign-ttl")
     )
-    if settings.outageBound < settings.ttl then
+    if settings.outageBound > settings.noticeBound then
       throw IllegalArgumentException(
-        s"ankka.keyring.cache.outage-bound (${settings.outageBound}) must be at least " +
-          s"ankka.keyring.cache.ttl (${settings.ttl})"
+        s"ankka.keyring.cache.outage-bound (${settings.outageBound}) must not exceed " +
+          s"ankka.keyring.notice-bound (${settings.noticeBound}): an instance that cannot hear " +
+          "the keyring's erasure notices drops every key it holds at the notice bound"
       )
     settings

@@ -7,14 +7,15 @@ import scala.concurrent.duration.FiniteDuration
 
 /**
  * The subject keys one instance holds (feature 042, R5): at most `maxKeys`, the least recently used
- * going first; each fresh for `ttl`, then asked for again; and, while the keyring cannot be
- * reached, still served until `outageBound` after it was fetched. A notice drops one; losing the
- * notices channel drops all.
+ * going first; each fresh for `ttl`, then asked for again. While the keyring cannot be reached a
+ * held key may still be served (`stale`): for how long is the client's to say, since the outage
+ * bound counts from when the keyring was last heard, not from when the key was fetched. A notice
+ * drops one; losing the notices channel drops all.
  *
  * A destroyed key is held as `Destroyed`, which never changes; `Absent` is never held, since the
  * next write makes the key.
  */
-final class KeyCache(maxKeys: Int, ttl: FiniteDuration, outageBound: FiniteDuration, clock: Clock):
+final class KeyCache(maxKeys: Int, ttl: FiniteDuration, clock: Clock):
 
   private final case class Held(answer: KeyAnswer, at: Instant)
 
@@ -34,12 +35,12 @@ final class KeyCache(maxKeys: Int, ttl: FiniteDuration, outageBound: FiniteDurat
     }
   }
 
-  /** The answer held for `subject` while the keyring cannot be reached: within the outage bound. */
+  /**
+   * The answer held for `subject` whatever its age, for the keyring's client to serve while the
+   * keyring cannot be reached and the outage bound has not passed.
+   */
   def stale(project: String, subject: DataSubject): Option[KeyAnswer] = synchronized {
-    Option(held.get((project, subject.value))).collect {
-      case Held(d @ KeyAnswer.Destroyed, _)            => d
-      case h if age(h).toMillis < outageBound.toMillis => h.answer
-    }
+    Option(held.get((project, subject.value))).map(_.answer)
   }
 
   /** Holds what the keyring answered, unless it was `Absent`. */
@@ -60,4 +61,4 @@ final class KeyCache(maxKeys: Int, ttl: FiniteDuration, outageBound: FiniteDurat
 
 object KeyCache:
   def apply(settings: KeyringSettings, clock: Clock = Clock.systemUTC()): KeyCache =
-    new KeyCache(settings.maxKeys, settings.ttl, settings.outageBound, clock)
+    new KeyCache(settings.maxKeys, settings.ttl, clock)

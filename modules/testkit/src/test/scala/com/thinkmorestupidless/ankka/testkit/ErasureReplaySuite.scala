@@ -51,7 +51,7 @@ final class ErasureReplaySuite extends munit.FunSuite with LogCapturing:
     address = None,
     maxKeys = 100,
     ttl = 5.minutes,
-    outageBound = 15.minutes,
+    outageBound = 60.seconds,
     noticeBound = 60.seconds,
     fetchTimeout = 1.second
   )

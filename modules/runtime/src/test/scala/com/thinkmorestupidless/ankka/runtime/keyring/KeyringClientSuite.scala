@@ -42,7 +42,7 @@ final class KeyringClientSuite extends munit.FunSuite:
     address = None,
     maxKeys = 100,
     ttl = 5.minutes,
-    outageBound = 15.minutes,
+    outageBound = 60.seconds,
     noticeBound = 60.seconds,
     fetchTimeout = 200.millis
   )
@@ -51,7 +51,7 @@ final class KeyringClientSuite extends munit.FunSuite:
   private def client(clock: Manual) =
     val store = Store(clock)
     val c     =
-      new KeyringClient(store, new KeyCache(100, 5.minutes, 15.minutes, clock), settings, clock)
+      new KeyringClient(store, new KeyCache(100, settings.ttl, clock), settings, clock)
     (store, c)
 
   test("a fresh key is asked for once, then answered from the cache") {
@@ -112,13 +112,42 @@ final class KeyringClientSuite extends munit.FunSuite:
     c.close()
   }
 
-  test("in an outage a key fetched within the outage bound is still served, and past it is not") {
-    val clock      = Manual()
-    val (store, c) = client(clock)
-    val key        = c.key("brand", ada, create = true)
+  test(
+    "in an outage a held key past its lifetime serves until the outage bound, counted from when the keyring was last heard"
+  ) {
+    val clock = Manual()
+    val store = Store(clock)
+    // A short lifetime, so a key is past it within the outage bound.
+    val short = settings.copy(ttl = 20.seconds)
+    val c     = new KeyringClient(store, new KeyCache(100, short.ttl, clock), short, clock)
+    val key   = c.key("brand", ada, create = true)
+    // The outage begins: no fetch answers, and the channel is confirmed no more.
     store.delay = 2.seconds
-    clock.move(6.minutes)
-    assertEquals(c.key("brand", ada, create = false), key)
+    clock.move(30.seconds)
+    assertEquals(c.key("brand", ada, create = false), key, "past its lifetime, within the bound")
+    clock.move(31.seconds)
+    val e = intercept[CommandError](c.key("brand", ada, create = false))
+    assertEquals(e.code, ErrorCode.Unavailable)
+    c.close()
+  }
+
+  test(
+    "an outage composed with the notice check: the default bounds drop every key at 60 seconds"
+  ) {
+    val clock    = Manual()
+    val store    = Store(clock)
+    val defaults = KeyringSettings.from(com.typesafe.config.ConfigFactory.load())
+    val c        = new KeyringClient(store, KeyCache(defaults, clock), defaults, clock)
+    val key      = c.key("brand", ada, create = true)
+    store.delay = 3.seconds // longer than the default fetch-timeout: the keyring does not answer
+    clock.move(59.seconds)
+    assert(!c.check(), "the notices channel is within its bound")
+    assertEquals(c.key("brand", ada, create = false), key, "served through the outage so far")
+    clock.move(2.seconds)
+    assert(c.check(), "unconfirmed past notice-bound: every key is dropped")
+    // Nothing is served past the notice bound, however long a key's lifetime or the outage.
+    val e = intercept[CommandError](c.key("brand", ada, create = false))
+    assertEquals(e.code, ErrorCode.Unavailable)
     clock.move(10.minutes)
     intercept[CommandError](c.key("brand", ada, create = false))
     c.close()
@@ -128,7 +157,7 @@ final class KeyringClientSuite extends munit.FunSuite:
     val store = Store(clock)
     val c     = new KeyringClient(
       store,
-      new KeyCache(100, 5.minutes, 15.minutes, clock),
+      new KeyCache(100, settings.ttl, clock),
       settings,
       clock,
       ownProject = Some("payments")

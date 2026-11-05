@@ -175,8 +175,12 @@ Each service instance keeps the keys it has used in a cache:
 - `ankka.keyring.cache.foreign-ttl` (`30s`): how long a key of another project's data subject, read under
   a grant that allows decryption, is held. No notice of that project reaches this one, so this is how
   long an erasure or a revoked grant there takes to reach a read here.
-- `ankka.keyring.cache.outage-bound` (`15m`): how long a held key still serves while the keyring cannot
-  be reached. Past it, every read and write of a personal field is refused as unavailable.
+- `ankka.keyring.cache.outage-bound` (`60s`): how long a held key still serves while the keyring cannot
+  be reached, counted from when the keyring was last heard (a fetch answered, or the notices channel
+  confirmed). Past it, a read or write that needs a key the instance must ask for is refused as
+  unavailable. It may not exceed `ankka.keyring.notice-bound`, and a service whose settings say otherwise
+  does not start: an instance that cannot hear the keyring cannot hear an erasure either, and drops every
+  key it holds at the notice bound, so no outage keeps an erased data subject readable past 60 seconds.
 - `ankka.keyring.fetch-timeout` (`2s`): how long one fetch waits.
 
 While the keyring cannot be reached no erasure applies, since no key can be destroyed; an entity whose

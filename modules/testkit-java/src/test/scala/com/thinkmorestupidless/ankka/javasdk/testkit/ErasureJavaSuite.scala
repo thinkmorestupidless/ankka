@@ -34,21 +34,6 @@ class ErasureJavaSuite extends munit.FunSuite with LogCapturing:
       .collectFirst { case Some(a) => a }
       .getOrElse(fail(s"never: $what"))
 
-  /**
-   * Until the instance holds the handler's singleton: a notice heard before then is acknowledged
-   * with no handler report (`ErasureHandlerHost`), so each case first erases a subject of its own
-   * until a run is reported, and then forgets that run.
-   */
-  private def handlerHeld(kit: AnkkaTestKit): Unit =
-    val scala = kit.bridge().scalaKit
-    eventually("the handler's instance") {
-      val seq = scala.keyring.erase(scala.project, DataSubject("warm/up"), rerun = true)
-      eventually("a warm-up acknowledgement")(
-        scala.keyring.acks.find(_.seq == seq)
-      ).completion.handler
-    }: Unit
-    PlayerErasures.runs.clear()
-
   test("a Java erasure handler runs for each application, re-runs included, and reports") {
     PlayerErasures.runs.clear()
     val kit = AnkkaTestKit.start(
@@ -58,7 +43,6 @@ class ErasureJavaSuite extends munit.FunSuite with LogCapturing:
         .withErasureHandler(PlayerErasures.handle)
     )
     try
-      handlerHeld(kit)
       val bucket = kit.storage().defaultBucket()
       bucket.putBytes("subjects/player%2F8c1f/passport.png", Array[Byte](1), "image/png")
       bucket.putBytes("subjects/player%2F8c1f/selfie.png", Array[Byte](2), "image/png")
@@ -95,7 +79,6 @@ class ErasureJavaSuite extends munit.FunSuite with LogCapturing:
         .withErasureHandler((_, _) => ErasureReport.after(3, java.time.Duration.ofDays(7)))
     )
     try
-      handlerHeld(kit)
       val seq = kit.erase("player/8c1f")
       val ack =
         eventually("the acknowledgement")(kit.bridge().scalaKit.keyring.acks.find(_.seq == seq))
@@ -113,7 +96,6 @@ class ErasureJavaSuite extends munit.FunSuite with LogCapturing:
         .withErasureHandler((_, _) => throw IllegalStateException("no bucket 'kyc'"))
     )
     try
-      handlerHeld(kit)
       kit
         .componentClient()
         .forEventSourcedEntity("8c1f")

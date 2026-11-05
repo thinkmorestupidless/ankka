@@ -320,3 +320,8 @@ answering `Forbidden` naming both installations, which the forwarder returns unc
   when a URL is made, never at build time; a service that serves no HTTP is answered `Unavailable`
   naming it. The runtime serves `/_ankka/storage` only for its own directory store; otherwise the
   path is 404 unless a process declared it (`sidecar.md`).
+- **An erasure notice heard before the handler's singleton has started waits for it** (2026-11-05,
+  feature 042). Only the instance holding `ErasureHandlerHost`'s singleton runs the handler; before
+  it starts anywhere every instance would answer "no handler", and the first completion would
+  record no run. An instance not holding it asks the singleton's proxy first, which keeps the ask
+  until it is up (at most 30s). `ErasureHandlerHostSuite` holds a notice across the cluster's join.

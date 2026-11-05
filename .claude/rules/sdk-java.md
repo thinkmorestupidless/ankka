@@ -77,8 +77,3 @@ someone says which.
   `Personal` keeps it; anything that makes a new `Personal` from a read one's value (a mapping
   helper, a defensive copy) silently moves the field under this project's key, where an erasure in
   the producing project no longer reaches it.
-- **An erasure heard before the instance holds the handler's singleton runs no handler**
-  (2026-11-05). The notice is acknowledged with no handler report, and only the next re-run pass
-  runs it. A test that erases straight after the kit starts sees `handler = None`;
-  `ErasureJavaSuite` and the Kotlin `ErasureTest` erase a subject of their own until a run is
-  reported first.

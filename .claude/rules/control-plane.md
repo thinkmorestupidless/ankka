@@ -295,3 +295,8 @@ may call) and reads each service's completion from it. Its routes are `/projects
   races the request's own application; the CLI and MCP steps wait for the request to settle
   (`settled`) before the scenario ends, and the certificate's `request` field is the full
   `<project>/<id>`, matched by its end.
+- **A test kit's own service answers every erasure notice** (2026-11-05). `AnkkaTestKit` runs a service
+  of its own (`ankka-test`), which acknowledges each notice at once; a finality check that waits on
+  "every service the keyring knows" is then satisfied by the kit alone. Name the services a request
+  waits on (`TestKeyringAdmin`'s connected list, a descriptor declaring `"personal": true`) and filter
+  the kit's own out of assertions on completions.

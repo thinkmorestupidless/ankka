@@ -391,3 +391,28 @@ recorded only in `limitations.md` and here, and two requirements that pull again
 - **The keyring replays every log entry missing from `applied_log`** (2026-11-05, review). Nothing
   serialises the order entries are applied in: an entry is numbered when the control plane writes
   it and destroyed afterwards, and a destroy that met an unavailable keyring is retried later.
+
+### Control plane and operator review fixes (2026-11-05)
+
+- **A service with an erasure handler declares `"personal": true`.** That one declaration is what
+  renders the keyring's address and, on Google Cloud Storage, `ANKKA_S3_SOFT_DELETE_DAYS`, and what
+  makes the control plane wait for the service's completion. No new descriptor field, so no contract
+  change; the operator renders neither for a service that does not declare it, and
+  `RenderingUnchangedSuite` pins a GCS bucket's rendering unchanged. A runtime check that refuses an
+  erasure handler with no keyring address would close the remaining gap; it is not built here.
+- **A request is final only when every personal service of its project has completed**, read from the
+  project's service rows when the request is read (`ErasurePlane.personalServices`), not only the
+  services the keyring knew of when the key was destroyed. One that has not completed is listed with no
+  completion on the request and the certificate. A suite's own kit service acknowledges notices, so a
+  finality test names the services it waits on.
+- **A replacement of a held request needs a not-before date still to come.** The data model's only move
+  from held is to held, withdrawn or applying; a replacement with no date, or one already passed, would
+  release the hold, which is an owner's override. Both are `BadRequest`.
+- **A refused ask is recorded once per caller and data subject an hour** (`Project.ErasureRefusalWindow`),
+  so a service retrying without its grant cannot grow the project's history without bound; an ask from a
+  service of a project that does not exist is a 403, as one without the grant is.
+- **A quiet re-run is recorded per service** (`quietRuns`, `RanQuietly.service`), so one service's quiet
+  run does not hide another's last run, and a run that fails the same way twice is one history line.
+- **The sweep reads only the window it acts on.** Both of its queries take the window's start; an
+  applied request past the window is read only while it waits on its objects' date, so one that a
+  service never completed is no longer polled for ever. It stays not final, and says so.

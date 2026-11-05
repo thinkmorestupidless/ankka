@@ -406,7 +406,7 @@ messages; a session not tagged is untouched.
 ### User Story 7 - A subject's objects are erased (Priority: P2)
 
 The KYC service stores a player's passport scan in its bucket under the key
-`subjects/player/8c1f…/passport.jpg`, the prefix convention the documentation gives. Its erasure
+`subjects/player%2F8c1f…/passport.jpg`, the prefix convention the documentation gives. Its erasure
 handler calls `erase(subject)`. On GCS every version of every object under the prefix is deleted and
 the erasure of objects becomes final when the soft-delete window (039) has passed; on Garage the one
 version is gone at once. The request shows the time of finality. A week later a stale job writes one
@@ -653,7 +653,7 @@ and a listing by correlation id returns both; assert a service without the grant
 - **FR-026**: Every SDK's storage client (055) MUST offer one more call, `context.storage.erase(subject)`,
   reachable from the erasure handler, that deletes every object under the subject's prefix in the service's bucket — every version on GCS, the one version on Garage
   — using the service's own credential (034), and reports the count; a process-hosted service reaches
-  it through the sidecar. The documentation MUST give the prefix convention (`subjects/<subject>/`) and
+  it through the sidecar. The documentation MUST give the prefix convention (`subjects/<subject>/`, each `/` of the subject written `%2F`) and
   say that an object stored outside it is not erased by this call. The request MUST show the time the
   erasure of objects becomes final: at once on Garage, after the soft-delete window on GCS (039).
 - **FR-027**: A message published to a topic MUST carry its personal fields encrypted exactly as a

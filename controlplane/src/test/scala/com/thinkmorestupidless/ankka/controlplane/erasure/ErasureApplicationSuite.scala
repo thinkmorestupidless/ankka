@@ -4,7 +4,7 @@ import com.thinkmorestupidless.ankka.core.EntityId
 import com.thinkmorestupidless.ankka.runtime.{Database, ProjectionRuntime}
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, InMemoryKeyring, LogCapturing}
 
-import scala.concurrent.{Await, ExecutionContext}
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
@@ -119,6 +119,112 @@ class ErasureApplicationSuite extends munit.FunSuite with LogCapturing:
         Some(ErasureState.Applied)
       )
     }
+  }
+
+  test("one service's quiet re-run hides no other service's earlier failing one") {
+    import com.thinkmorestupidless.ankka.core.keyring.*
+    withPlane { (kit, _, _, _, _) =>
+      given ExecutionContext = kit.service.system.executionContext
+      val t0                 = java.time.Instant.parse("2031-01-01T00:00:00Z")
+      val (t1, t2)           = (t0.plusSeconds(600), t0.plusSeconds(900))
+      @volatile var answer   = ErasureStatus()
+      val scripted           = new KeyringAdmin:
+        def destroy(order: ErasureOrder) = Future.failed(IllegalStateException("not asked"))
+        def resend(seq: Long)            = Future.unit
+        def status(seq: Long)            = Future.successful(answer)
+      val application = ErasureApplication(
+        kit.componentClient,
+        ErasureLog(Database()(using kit.service.system), MemoryErasureLogBucket()),
+        scripted
+      )
+      val entity = kit.componentClient.forEventSourcedEntity(EntityId("brand/q1"))
+      ask(kit, "brand/q1"): Unit
+      entity.call(ErasureRequestEntity.logWritten).invoke(1L): Unit
+      entity.call(ErasureRequestEntity.keyDestroyed).invoke(t0): Unit
+      Seq("players", "kyc").foreach(s =>
+        entity
+          .call(ErasureRequestEntity.recordCompletion)
+          .invoke(RecordCompletion(s, ServiceCompletion(Some(t0)))): Unit
+      )
+      def run(service: String, at: java.time.Instant, report: HandlerReport) =
+        ServiceErasureStatus(service, Some(at), Some(Completion(0, 0, 0, Some(report))))
+      // kyc's quiet run at t2 is read first; players' failing run, at t1, is read a pass later.
+      answer = ErasureStatus(Vector(run("kyc", t2, HandlerReport(0, "immediate"))))
+      val first = Await.result(
+        application.recordRuns(entity.call(ErasureRequestEntity.get).invoke()),
+        30.seconds
+      )
+      assertEquals(first.quietRuns, Map("kyc" -> t2))
+      answer = ErasureStatus(
+        Vector(
+          run("kyc", t2, HandlerReport(0, "immediate")),
+          run("players", t1, HandlerReport.failed("no bucket 'kyc'"))
+        )
+      )
+      val second = Await.result(application.recordRuns(first), 30.seconds)
+      assertEquals(
+        second.handlerRuns.map(r => (r.service, r.report.error)),
+        Vector("players" -> Some("no bucket 'kyc'")),
+        "players' failing run was hidden by kyc's later quiet one"
+      )
+    }
+  }
+
+  test("a personal service that never connected keeps the request open, and is listed as awaited") {
+    val keyring = InMemoryKeyring()
+    val kit     = AnkkaTestKit.start(
+      Seq(ErasureRequestEntity.descriptor, ErasureRequestsView.descriptor),
+      Seq(ProjectionRuntime()),
+      keyring = keyring
+    )
+    try
+      given ExecutionContext = kit.service.system.executionContext
+      val admin              = TestKeyringAdmin(keyring)
+      val log = ErasureLog(Database()(using kit.service.system), MemoryErasureLogBucket())
+      // "kyc" declares personal and is paused: no instance of it hears the notice.
+      val application = ErasureApplication(
+        kit.componentClient,
+        log,
+        admin,
+        expected = project => if project == "brand" then Set("players", "kyc") else Set.empty
+      )
+      ask(kit, "brand/r9"): Unit
+      val applied = Await.result(application.apply("brand/r9"), 30.seconds)
+      val seq     = keyring.sent.last.seq
+      keyring.ack(
+        com.thinkmorestupidless.ankka.core.keyring.KeyringAck(
+          seq,
+          "players",
+          "players-0",
+          com.thinkmorestupidless.ankka.core.keyring.Completion(1, 0, 0, None)
+        )
+      )
+      val after = Await.result(application.complete(applied), 30.seconds)
+      // The kit's own service hears the notice too and completes; kyc never does.
+      assert(after.completions.contains("players"), after.toString)
+      assert(!after.completions.contains("kyc"), after.toString)
+      assertEquals(after.finalAt, None, "final without kyc, which never carried it out")
+      assertEquals(ErasureApplication.awaiting(after, Set("players", "kyc")), Vector("kyc"))
+      val certificate = ErasureRoutes.certificate(after, Vector("kyc"))
+      assertEquals(
+        certificate.services
+          .filter(s => Set("kyc", "players")(s.service))
+          .map(s => (s.service, s.completedAt.isDefined)),
+        Vector("kyc" -> false, "players" -> true)
+      )
+      // Once kyc completes, the request is final and waits on no one.
+      keyring.ack(
+        com.thinkmorestupidless.ankka.core.keyring.KeyringAck(
+          seq,
+          "kyc",
+          "kyc-0",
+          com.thinkmorestupidless.ankka.core.keyring.Completion(0, 0, 0, None)
+        )
+      )
+      val done = Await.result(application.complete(after), 30.seconds)
+      assert(done.finalAt.isDefined, done.toString)
+      assertEquals(ErasureApplication.awaiting(done, Set("players", "kyc")), Vector.empty)
+    finally kit.stop()
   }
 
   test("finality: immediate now, after a duration from the run") {

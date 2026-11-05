@@ -11,10 +11,11 @@ class ErasureEndpointSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private val keyring      = InMemoryKeyring()
-  private val admin        = TestKeyringAdmin(keyring)
-  private val bucket       = MemoryErasureLogBucket()
-  private val plane        = ErasurePlane(admin, Some(bucket))
+  private val keyring = InMemoryKeyring()
+  private val admin   = TestKeyringAdmin(keyring)
+  private val bucket  = MemoryErasureLogBucket()
+  private val plane   =
+    ErasurePlane(admin, Some(bucket), personalServices = ErasurePlane.personalServices)
   @volatile private var on = true
   private val harness      = GrantsHarness(
     erasure = () => ErasureSettings(on, 2),
@@ -208,4 +209,101 @@ class ErasureEndpointSuite extends munit.FunSuite with LogCapturing:
     assertEquals((mine.project, mine.subject), ("brand", "player/77aa"))
     assert(!read(keyring, mine.seq)._2.contains(rid))
     assertEquals(read(Caller.Service("brand", "players"), 0)._1, 403)
+  }
+
+  private def asService(method: String, path: String, body: Option[String], service: String) =
+    harness.sendAsService(method, path, body, "brand", service)
+
+  private def grantErasure(service: String): Unit =
+    val (status, body) = harness.send(
+      "POST",
+      "/projects/brand/grants",
+      Some(s"""{"grantee":"service:brand/$service","target":{"kind":"erasure"}}"""),
+      as = "ada"
+    )
+    assert(status / 100 == 2 || status == 409, s"$status $body")
+
+  test("the service that filed a held request replaces and withdraws it; no other service may") {
+    grantErasure("players")
+    grantErasure("wallet")
+    val (status, body) = asService(
+      "POST",
+      "/projects/brand/erasures",
+      Some("""{"subject":"player/f11e","notBefore":"2099-01-01T00:00:00Z"}"""),
+      "players"
+    )
+    assertEquals(status, 201, body)
+    val rid  = Rid.findFirstMatchIn(body).map(_.group(1)).getOrElse(fail(body))
+    val path = s"/projects/brand/erasures/$rid"
+    // Another service, granted too, did not file it; one with no grant is refused before that.
+    assertEquals(asService("POST", s"$path/withdraw", None, "wallet")._1, 403)
+    assertEquals(asService("POST", s"$path/withdraw", None, "stranger")._1, 403)
+    val (replaced, now) =
+      asService("PUT", path, Some("""{"notBefore":"2099-06-01T00:00:00Z"}"""), "players")
+    assertEquals(replaced, 200, now)
+    assert(now.contains(""""notBefore":"2099-06-01T00:00:00Z""""), now)
+    // Replacing a hold with no date would release it; only an owner's override does that.
+    assertEquals(asService("PUT", path, Some("""{}"""), "players")._1, 400)
+    val (withdrawn, gone) = asService("POST", s"$path/withdraw", None, "players")
+    assertEquals(withdrawn, 200, gone)
+    assert(gone.contains(""""state":"withdrawn""""), gone)
+  }
+
+  test("a service's refused asks are one line a window, and an unknown project is a 403") {
+    def refused() = asService(
+      "POST",
+      "/projects/brand/erasures",
+      Some("""{"subject":"player/f100d"}"""),
+      "flooder"
+    )
+    (1 to 5).foreach(_ => assertEquals(refused()._1, 403))
+    val history = harness.eventually("the refusal in the project's history") {
+      val (_, h) = harness.send("GET", "/projects/brand/history", as = "ada")
+      Option.when(h.contains("ankka://brand/flooder"))(h)
+    }
+    assertEquals(
+      "ankka://brand/flooder asked for an erasure request for player/f100d".r
+        .findAllMatchIn(history)
+        .size,
+      1,
+      history
+    )
+    val (unknown, why) = harness.sendAsService(
+      "POST",
+      "/projects/no-such-project/erasures",
+      Some("""{"subject":"player/1"}"""),
+      "brand",
+      "players"
+    )
+    assertEquals(unknown, 403, why)
+  }
+
+  // Last: from here every request of "brand" waits on "kyc", which never runs.
+  test("a personal service that never carried an erasure out is listed with no completion") {
+    val (applied, descriptor) = harness.send(
+      "PUT",
+      "/services/brand/kyc",
+      Some("""{"name":"kyc","service":{"image":"kyc:1","personal":true}}"""),
+      as = "ada"
+    )
+    assertEquals(applied, 200, descriptor)
+    // The project's services are read from their listing, which follows the apply.
+    harness.eventually("kyc listed") {
+      val (_, listed) = harness.send("GET", "/services/brand", as = "ada")
+      Option.when(listed.contains(""""name":"kyc""""))(listed)
+    }: Unit
+    val (status, body) = ask("""{"subject":"player/a11"}""")
+    assertEquals(status, 201, body)
+    val rid  = Rid.findFirstMatchIn(body).map(_.group(1)).getOrElse(fail(body))
+    val read = harness.eventually("the request applied, waiting on kyc") {
+      val (_, now) = harness.send("GET", s"/projects/brand/erasures/$rid", as = "ada")
+      Option.when(now.contains(""""state":"applied"""") && now.contains(""""service":"kyc""""))(
+        now
+      )
+    }
+    assert(!read.contains(""""finalAt""""), read)
+    val (_, certificate) =
+      harness.send("GET", s"/projects/brand/erasures/$rid/certificate", as = "ada")
+    assert(certificate.contains("""{"service":"kyc"}"""), certificate)
+    assert(!certificate.contains(""""finalAt""""), certificate)
   }

@@ -175,3 +175,59 @@ class ErasureRequestEntitySuite extends munit.FunSuite with LogCapturing:
     )
     assertEquals(kit().call(ErasureRequestEntity.get).error.code, ErrorCode.NotFound)
   }
+
+  test("a replacement with no not-before date, or one passed, is refused and the request held") {
+    val held = asked(Some(now.plusSeconds(86400)))
+    val none = held.call(ErasureRequestEntity.replace, ada.metadata)(ReplaceErasure())
+    assertEquals(none.error.code, ErrorCode.BadRequest)
+    assert(none.errorMessage.contains("needs a not-before date"), none.errorMessage)
+    val past = held.call(ErasureRequestEntity.replace, ada.metadata)(
+      ReplaceErasure(Some(now.minusSeconds(1)))
+    )
+    assertEquals(past.error.code, ErrorCode.BadRequest)
+    assert(past.errorMessage.contains("only an owner releases a hold"), past.errorMessage)
+    assertEquals(held.currentState.state, Some(ErasureState.Held))
+    assertEquals(held.currentState.notBefore, Some(now.plusSeconds(86400)))
+  }
+
+  private def appliedKit() =
+    val k = asked()
+    k.call(ErasureRequestEntity.logWritten, later.metadata)(12L): Unit
+    k.call(ErasureRequestEntity.keyDestroyed, later.metadata)(later.at): Unit
+    k
+
+  test("a handler failing the same way again is one event, and a new failure is another") {
+    val k                                                = appliedKit()
+    def run(service: String, error: String, at: Instant) =
+      k.call(ErasureRequestEntity.recordHandlerRun, later.metadata)(
+        HandlerRun(service, HandlerReport.failed(error), Some(at))
+      ).events
+        .size
+    assertEquals(run("kyc", "no bucket", later.at), 1)
+    assertEquals(run("kyc", "no bucket", later.at.plusSeconds(900)), 0)
+    assertEquals(run("kyc", "no bucket", later.at.plusSeconds(1800)), 0)
+    assertEquals(run("kyc", "the store refused", later.at.plusSeconds(2700)), 1)
+    // Another service's same failure is its own news.
+    assertEquals(run("players", "no bucket", later.at), 1)
+    assertEquals(k.currentState.handlerRuns.size, 3)
+  }
+
+  test("quiet runs are kept per service, so one's quiet run hides no other's") {
+    val k = appliedKit()
+    val q = k.call(ErasureRequestEntity.ranQuietly, later.metadata)(
+      QuietRun("players", later.at.plusSeconds(900))
+    )
+    assertEquals(q.replyValue.quietRuns, Map("players" -> later.at.plusSeconds(900)))
+    // An earlier run of another service is still news.
+    val other = k.call(ErasureRequestEntity.ranQuietly, later.metadata)(
+      QuietRun("kyc", later.at.plusSeconds(300))
+    )
+    assertEquals(other.events.size, 1)
+    assertEquals(
+      k.call(ErasureRequestEntity.ranQuietly, later.metadata)(
+        QuietRun("players", later.at.plusSeconds(600))
+      ).events,
+      Vector.empty
+    )
+    assertEquals(k.currentState.lastRunAt, Some(later.at.plusSeconds(900)))
+  }

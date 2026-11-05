@@ -19,7 +19,13 @@ final class ErasureApplication(
     val log: ErasureLog,
     keyring: KeyringAdmin,
     clock: Clock = Clock.systemUTC(),
-    attribution: () => Metadata = () => Metadata.empty
+    attribution: () => Metadata = () => Metadata.empty,
+    /**
+     * The services of a project that take part in an erasure: those whose descriptor declares
+     * `personal`. A request is final only once each has completed, whether or not it was connected
+     * to the keyring when the notice was written; a paused or crash-looping one keeps it open.
+     */
+    val expected: String => Set[String] = _ => Set.empty
 )(using ExecutionContext):
 
   private val logger = LoggerFactory.getLogger(classOf[ErasureApplication])
@@ -126,9 +132,8 @@ final class ErasureApplication(
                   .call(ErasureRequestEntity.objectsFinal)
                   .withMetadata(attribution())
                   .invoke(objectsFinal.max)
-            val everyone =
-              status.services.nonEmpty && status.services
-                .forall(s => withObjects.completions.contains(s.service))
+            val due      = status.services.map(_.service).toSet ++ expected(current.project)
+            val everyone = due.nonEmpty && due.forall(withObjects.completions.contains)
             val failed = withObjects.completions.values.exists(_.handler.exists(_.error.isDefined))
             if everyone && !failed && withObjects.objectsFinalAt.forall(
                 !_.isAfter(Instant.now(clock))
@@ -153,10 +158,11 @@ final class ErasureApplication(
       case Some(seq) =>
         keyring.status(seq).flatMap { status =>
           blocking {
+            // This service's own runs only: another's quiet run says nothing of this one's.
             def known(service: String) =
               (current.completions.get(service).flatMap(_.at).toVector ++
                 current.handlerRuns.filter(_.service == service).flatMap(_.at) ++
-                current.lastRunAt).maxOption
+                current.quietRuns.get(service)).maxOption
             val fresh = status.services.collect {
               case com.thinkmorestupidless.ankka.core.keyring.ServiceErasureStatus(
                     service,
@@ -176,12 +182,15 @@ final class ErasureApplication(
                 .withMetadata(attribution())
                 .invoke(run)
             )
-            if fresh.nonEmpty && loud.isEmpty then
-              request(ran.id)
-                .call(ErasureRequestEntity.ranQuietly)
-                .withMetadata(attribution())
-                .invoke(fresh.map(_._2).max)
-            else ran
+            val loudly = loud.map(_.service).toSet
+            fresh
+              .filterNot((service, _, _) => loudly(service))
+              .foldLeft(ran)((req, quiet) =>
+                request(req.id)
+                  .call(ErasureRequestEntity.ranQuietly)
+                  .withMetadata(attribution())
+                  .invoke(QuietRun(quiet._1, quiet._2))
+              )
           }
         }
 
@@ -194,6 +203,14 @@ final class ErasureApplication(
     }
 
 object ErasureApplication:
+  /**
+   * The services request `r` still waits on: those its project expects that have not completed,
+   * none once it is final. The request's page and its certificate list them with no completion.
+   */
+  def awaiting(r: ErasureRequest, expected: Set[String]): Vector[String] =
+    if r.finalAt.isDefined || !r.state.contains(ErasureState.Applied) then Vector.empty
+    else (expected -- r.completions.keySet).toVector.sorted
+
   /** When a handler's objects are final: now for `immediate`, after the duration for `after:`. */
   def finalAt(finality: String, ranAt: Option[Instant]): Option[Instant] =
     val at = ranAt.getOrElse(Instant.EPOCH)

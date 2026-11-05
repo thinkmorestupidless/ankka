@@ -147,7 +147,7 @@ object ErasureRequestsView
           Some(s"$of, objects final at $when")
         )
       case Finalised(actor, at) => ErasureHistoryLine("erasure-final", who(actor), at, Some(of))
-      case RanQuietly(ranAt, actor, at) =>
+      case RanQuietly(ranAt, actor, at, _) =>
         ErasureHistoryLine("erasure-ran-quietly", who(actor), at, Some(s"$of, re-run at $ranAt"))
 
   val byProject = query("by-project")(

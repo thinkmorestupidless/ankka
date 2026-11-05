@@ -11,12 +11,41 @@ import java.util.concurrent.atomic.AtomicReference
  * keyring. The erasure endpoint reads it from here; until the service has started it is none, and a
  * request asked then is applied by the sweep.
  */
+object ErasurePlane:
+  import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, ServiceRows}
+  import com.thinkmorestupidless.ankka.core.EntityId
+  import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
+
+  /**
+   * The services of `project` whose descriptor declares `personal`, as the control plane holds
+   * them.
+   */
+  def personalServices(service: AnkkaService, project: String): Set[String] =
+    service.viewClient
+      .forView(ServiceRows)
+      .where(jsonText("projectId") ++ sql" = $project")
+      .map(_.name)
+      .filter(name =>
+        service.componentClient
+          .forEventSourcedEntity(EntityId(s"$project/$name"))
+          .call(ServiceEntity.desiredState)
+          .invoke()
+          .flatMap(_.descriptor)
+          .exists(_.service.personal)
+      )
+      .toSet
+
 final class ErasurePlane(
     keyring: => KeyringAdmin,
     /** The log's second copy; the platform bucket of the service's storage when none is given. */
     logBucket: Option[ErasureLogBucket] = None,
     /** The control plane's clock, read on each use: a test's, moved by hand. */
-    clock: () => java.time.Clock = () => java.time.Clock.systemUTC()
+    clock: () => java.time.Clock = () => java.time.Clock.systemUTC(),
+    /**
+     * The services of a project an erasure waits on (`ErasureApplication.expected`); the control
+     * plane's are `ErasurePlane.personalServices`, read from its service rows.
+     */
+    personalServices: (AnkkaService, String) => Set[String] = (_, _) => Set.empty
 ) extends RuntimeExtension:
 
   private val made  = AtomicReference[Option[ErasureApplication]](None)
@@ -91,7 +120,8 @@ final class ErasurePlane(
           ErasureLog(Database(), bucket),
           keyring,
           now,
-          () => attribution()
+          () => attribution(),
+          project => personalServices(service, project)
         )
       )
     )

@@ -56,6 +56,9 @@ final case class OverrideHold(reason: String)
 
 final case class RecordCompletion(service: String, completion: ServiceCompletion)
 
+/** A service's re-run of its handler that erased nothing and failed nowhere, at `at`. */
+final case class QuietRun(service: String, at: Instant)
+
 /** An erasure request (feature 042, R21): one data subject of one project. */
 final case class ErasureRequest(
     id: String,
@@ -79,7 +82,9 @@ final case class ErasureRequest(
     /** Why the last attempt to apply it failed; none once it is applied. */
     lastFailure: Option[ApplyFailure] = None,
     /** The last re-run of the handlers that erased nothing and failed nowhere (FR-016). */
-    lastRunAt: Option[Instant] = None
+    lastRunAt: Option[Instant] = None,
+    /** Each service's last such re-run: one service's quiet run hides no other's failing one. */
+    quietRuns: Map[String, Instant] = Map.empty
 ):
   def exists: Boolean = state.isDefined
 
@@ -139,6 +144,12 @@ enum ErasureRequestEvent:
    * A re-run of the handlers that erased nothing and failed nowhere: when, and no more. Not a line
    * of the project's history (data-model.md: a quiet run is not an audited event).
    */
-  case RanQuietly(ranAt: Instant, actor: Option[Actor] = None, at: Option[Instant] = None)
+  case RanQuietly(
+      ranAt: Instant,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None,
+      /** Whose run; none for one written before runs were kept per service. */
+      service: Option[String] = None
+  )
   case ObjectsFinal(finalAt: Instant, actor: Option[Actor] = None, at: Option[Instant] = None)
   case Finalised(actor: Option[Actor] = None, at: Option[Instant] = None)

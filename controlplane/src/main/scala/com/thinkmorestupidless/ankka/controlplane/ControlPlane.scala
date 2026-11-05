@@ -329,7 +329,9 @@ object ControlPlane:
     val erasurePlane = com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane(
       if erasure.enabled then
         com.thinkmorestupidless.ankka.controlplane.erasure.KeyringAdmin.fromEnvironment()
-      else com.thinkmorestupidless.ankka.controlplane.erasure.KeyringAdmin.off
+      else com.thinkmorestupidless.ankka.controlplane.erasure.KeyringAdmin.off,
+      personalServices =
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane.personalServices
     )
     // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
     // naming what is missing, rather than accepted and found out at the first project secret.

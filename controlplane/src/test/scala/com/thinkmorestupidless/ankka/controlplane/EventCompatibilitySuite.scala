@@ -821,13 +821,22 @@ class ErasureRequestEventCompatibilitySuite extends munit.FunSuite with LogCaptu
       HandlerRan("kyc", HandlerReport.failed("no bucket 'kyc'"), Some(ada), Some(at)),
     s"""{"type":"ObjectsFinal","finalAt":"2026-11-11T10:00:00Z",$actor}""" ->
       ObjectsFinal(Instant.parse("2026-11-11T10:00:00Z"), Some(ada), Some(at)),
-    s"""{"type":"Finalised",$actor}""" -> Finalised(Some(ada), Some(at))
+    s"""{"type":"Finalised",$actor}""" -> Finalised(Some(ada), Some(at)),
+    s"""{"type":"ApplyFailed","reason":"the keyring is down",$actor}""" ->
+      ApplyFailed("the keyring is down", Some(ada), Some(at)),
+    s"""{"type":"RanQuietly","ranAt":"2026-11-04T10:15:00Z",$actor,"service":"players"}""" ->
+      RanQuietly(Instant.parse("2026-11-04T10:15:00Z"), Some(ada), Some(at), Some("players"))
   )
 
   test("every erasure request event decodes from its pinned shape and round-trips") {
     val serializer = ErasureRequestEntity.eventSerializer
-    // One fixture for each of the eleven events.
-    assertEquals(fixtures.map(_._2.ordinal).distinct.size, 11)
+    // One fixture for each event.
+    assertEquals(
+      fixtures.map(_._2.ordinal).distinct.size,
+      classOf[ErasureRequestEvent].getDeclaredClasses.count(c =>
+        classOf[ErasureRequestEvent].isAssignableFrom(c)
+      )
+    )
     fixtures.foreach { (json, event) =>
       assertEquals(serializer.fromBytes(json.getBytes("UTF-8")), event, json)
       assertEquals(serializer.fromBytes(serializer.toBytes(event)), event)
@@ -838,4 +847,28 @@ class ErasureRequestEventCompatibilitySuite extends munit.FunSuite with LogCaptu
     val decoded =
       ErasureRequestEntity.eventSerializer.fromBytes("""{"type":"Withdrawn"}""".getBytes("UTF-8"))
     assertEquals(decoded, Withdrawn(None, None))
+    // A quiet run from before runs were kept per service names none.
+    val quiet = ErasureRequestEntity.eventSerializer.fromBytes(
+      """{"type":"RanQuietly","ranAt":"2026-11-04T10:15:00Z"}""".getBytes("UTF-8")
+    )
+    assertEquals(quiet, RanQuietly(Instant.parse("2026-11-04T10:15:00Z")))
+  }
+
+  test("a refused service ask pins its wire form in the project's journal") {
+    import com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity
+    import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent
+    val json =
+      s"""{"type":"ErasureAskRefused","service":"ankka://casino/players","subject":"player/8c1f",$actor}"""
+    val event =
+      ProjectEvent.ErasureAskRefused("ankka://casino/players", "player/8c1f", Some(ada), Some(at))
+    val serializer = ProjectEntity.eventSerializer
+    assertEquals(serializer.fromBytes(json.getBytes("UTF-8")), event, json)
+    assertEquals(serializer.fromBytes(serializer.toBytes(event)), event)
+    assertEquals(
+      serializer.fromBytes(
+        """{"type":"ErasureAskRefused","service":"ankka://casino/players","subject":"player/8c1f"}"""
+          .getBytes("UTF-8")
+      ),
+      ProjectEvent.ErasureAskRefused("ankka://casino/players", "player/8c1f")
+    )
   }

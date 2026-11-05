@@ -65,9 +65,11 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
   private def withSweep(test: Plane => Unit): Unit =
     val keyring = InMemoryKeyring()
     val clock   = MutableClock(Start)
-    val admin   = TestKeyringAdmin(keyring, clock = clock)
-    val plane   = ErasurePlane(admin, Some(MemoryErasureLogBucket()), () => clock)
-    val kit     = AnkkaTestKit.start(
+    // "players" is connected, so no request is final before it answers: the kit's own service
+    // answers every notice at once, and alone it would make a request final before "players" ran.
+    val admin = TestKeyringAdmin(keyring, () => Vector("players"), clock = clock)
+    val plane = ErasurePlane(admin, Some(MemoryErasureLogBucket()), () => clock)
+    val kit   = AnkkaTestKit.start(
       Seq(ErasureRequestEntity.descriptor, ErasureRequestsView.descriptor),
       Seq(ProjectionRuntime(), plane),
       keyring = keyring
@@ -166,6 +168,7 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
         loud.handlerRuns.map(r => (r.service, r.report.objectsErased)),
         Vector("players" -> 2L)
       )
-      assertEquals(loud.lastRunAt, quiet.lastRunAt)
+      // players' last quiet run is unchanged by its loud one (the kit's own service runs quietly).
+      assertEquals(loud.quietRuns.get("players"), quiet.quietRuns.get("players"))
     }
   }

@@ -52,7 +52,11 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
         s.copy(completions = s.completions.updated(service, completion))
       case HandlerRan(service, report, _, at) =>
         s.copy(handlerRuns = s.handlerRuns :+ HandlerRun(service, report, at))
-      case RanQuietly(ranAt, _, _)  => s.copy(lastRunAt = Some(ranAt))
+      case RanQuietly(ranAt, _, _, service) =>
+        s.copy(
+          lastRunAt = Some(s.lastRunAt.fold(ranAt)(l => if ranAt.isAfter(l) then ranAt else l)),
+          quietRuns = service.fold(s.quietRuns)(name => s.quietRuns.updated(name, ranAt))
+        )
       case ObjectsFinal(when, _, _) => s.copy(objectsFinalAt = Some(when))
       case Finalised(_, at)         => s.copy(finalAt = at)
 
@@ -77,9 +81,19 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
             )
             .thenReply(identity)
 
+  /**
+   * A held request's new date and reason, held still (`data-model.md`: Held → Held). A replacement
+   * with no date, or one already past, is refused: it would release the hold at the next pass,
+   * which only an owner's override may do (FR-014).
+   */
   def replace(request: ReplaceErasure): Effect[ErasureRequest] =
     whenHeld("replaced") {
-      ErasureRequestEntity.reasonProblem(request.reason) match
+      val date = request.notBefore match
+        case None => Some("a replacement of a held request needs a not-before date")
+        case Some(nb) if !nb.isAfter(now) =>
+          Some(s"a replacement's not-before date $nb has passed; only an owner releases a hold")
+        case Some(_) => None
+      date.orElse(ErasureRequestEntity.reasonProblem(request.reason)) match
         case Some(problem) => effects.error(problem)
         case None          =>
           effects
@@ -151,20 +165,34 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
         .persist(ServiceCompleted(request.service, request.completion, actor, Some(now)))
         .thenReply(identity)
 
-  /** A run of a service's handler that erased something or failed (FR-016). */
+  /**
+   * A run of a service's handler that erased something or failed (FR-016). The same failure as that
+   * service's last run is no news: a handler failing every re-run for the whole window is one
+   * event, not one each fifteen minutes, as `applyFailed` keeps one a failure.
+   */
   def recordHandlerRun(run: HandlerRun): Effect[ErasureRequest] =
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("re-run")
+    else if run.report.error.isDefined &&
+      currentState.handlerRuns
+        .findLast(_.service == run.service)
+        .exists(_.report.error == run.report.error)
+    then effects.reply(currentState)
     // At when the run reported, which is what the next pass compares the keyring's report with.
     else
       effects
         .persist(HandlerRan(run.service, run.report, actor, run.at.orElse(Some(now))))
         .thenReply(identity)
 
-  /** A re-run that erased nothing and failed nowhere, reported at `at`; an older one is no news. */
-  def ranQuietly(at: Instant): Effect[ErasureRequest] =
+  /**
+   * A service's re-run that erased nothing and failed nowhere, reported at `at`; one no later than
+   * that service's last is no news.
+   */
+  def ranQuietly(run: QuietRun): Effect[ErasureRequest] =
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("re-run")
-    else if currentState.lastRunAt.exists(!_.isBefore(at)) then effects.reply(currentState)
-    else effects.persist(RanQuietly(at, actor, Some(now))).thenReply(identity)
+    else if currentState.quietRuns.get(run.service).exists(!_.isBefore(run.at)) then
+      effects.reply(currentState)
+    else
+      effects.persist(RanQuietly(run.at, actor, Some(now), Some(run.service))).thenReply(identity)
 
   def objectsFinal(when: Instant): Effect[ErasureRequest] =
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("made final")
@@ -211,6 +239,7 @@ object ErasureRequestEntity
   given Serializer[OverrideHold]     = Codecs.serializer[OverrideHold]("override-hold")
   given Serializer[RecordCompletion] = Codecs.serializer[RecordCompletion]("record-completion")
   given Serializer[HandlerRun]       = Codecs.serializer[HandlerRun]("handler-run")
+  given Serializer[QuietRun]         = Codecs.serializer[QuietRun]("quiet-run")
   given Serializer[Instant]          = Codecs.serializer[Instant]("instant")
 
   def create(context: EventSourcedEntityContext) = new ErasureRequestEntity(context)

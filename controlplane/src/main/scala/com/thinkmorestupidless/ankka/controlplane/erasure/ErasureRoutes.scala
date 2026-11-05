@@ -67,7 +67,9 @@ trait ErasureRoutes extends HttpEndpoint:
 
   /**
    * A service may ask when `projectId` holds an accepted `erasure` grant naming it, its own project
-   * included. A refusal is recorded in the history of the project it asked in, then answered.
+   * included. A refusal is recorded in the history of the project it asked in, once a window for
+   * one caller and subject, then answered. A project that does not exist is refused as one that
+   * grants nothing, so a service's ask cannot tell which projects exist.
    */
   private def serviceAsker(
       projectId: String,
@@ -76,28 +78,68 @@ trait ErasureRoutes extends HttpEndpoint:
       ask: ErasureAsk
   ): Metadata =
     requireOn()
-    val grantee = Grantee.Service(project, service)
-    val owner   = erasureClients.componentClient.forEventSourcedEntity(EntityId(projectId))
-    val granted = owner
-      .call(ProjectEntity.grants)
-      .invoke()
-      .exists(g =>
-        g.state == GrantState.Accepted && g.grantee == grantee && g.target == GrantTarget.erasure
-      )
-    val actor = Attribution(
+    val actor = serviceActor(project, service)
+    granted(projectId, project, service) match
+      case Some(true)  => actor
+      case Some(false) =>
+        erasureClients.componentClient
+          .forEventSourcedEntity(EntityId(projectId))
+          .call(ProjectEntity.recordErasureRefused)
+          .withMetadata(actor)
+          .invoke(RecordErasureRefused(s"ankka://$project/$service", ask.subject)): Unit
+        throw noGrant(projectId, project, service)
+      case None => throw noGrant(projectId, project, service)
+
+  private def serviceActor(project: String, service: String): Metadata =
+    Attribution(
       Actor(s"ankka://$project/$service", Some(s"service $service of $project")),
       java.time.Instant.now()
     ).metadata
-    if !granted then
-      owner
-        .call(ProjectEntity.recordErasureRefused)
-        .withMetadata(actor)
-        .invoke(RecordErasureRefused(s"ankka://$project/$service", ask.subject)): Unit
-      throw CommandError(
-        s"service $service of $project has no erasure grant of project '$projectId'",
-        ErrorCode.Forbidden
+
+  private def noGrant(projectId: String, project: String, service: String) =
+    CommandError(
+      s"service $service of $project has no erasure grant of project '$projectId'",
+      ErrorCode.Forbidden
+    )
+
+  /** Whether `projectId` grants the service `erasure`; none for a project that does not exist. */
+  private def granted(projectId: String, project: String, service: String): Option[Boolean] =
+    val grantee = Grantee.Service(project, service)
+    try
+      Some(
+        erasureClients.componentClient
+          .forEventSourcedEntity(EntityId(projectId))
+          .call(ProjectEntity.grants)
+          .invoke()
+          .exists(g =>
+            g.state == GrantState.Accepted && g.grantee == grantee &&
+              g.target == GrantTarget.erasure
+          )
       )
-    actor
+    catch case e: CommandError if e.code == ErrorCode.NotFound => None
+
+  /**
+   * Who may replace or withdraw request `rid`: a member, with a token; or the service that filed
+   * it, while it still holds the project's `erasure` grant (FR-014: "its filer or a member"). Any
+   * other service is refused, as one with no grant or as not the filer.
+   */
+  private def filerOrMember(projectId: String, rid: String): Metadata =
+    request.principal match
+      case Some(p) => authz.metadata(authz.project(p, projectId, write = true))
+      case None    =>
+        request.caller match
+          case Caller.Service(project, service) =>
+            if !granted(projectId, project, service).contains(true) then
+              throw noGrant(projectId, project, service)
+            val filed = request(projectId, rid).call(ErasureRequestEntity.get).invoke()
+            if !filed.askedBy.exists(_.subject == s"ankka://$project/$service") then
+              throw CommandError(
+                s"service $service of $project did not ask for erasure request '$rid'",
+                ErrorCode.Forbidden
+              )
+            serviceActor(project, service)
+          case other =>
+            throw CommandError(s"$other may not change an erasure request", ErrorCode.Forbidden)
 
   private def asked(projectId: String, ask: ErasureAsk, asker: Metadata) =
     requireOn()
@@ -166,30 +208,40 @@ trait ErasureRoutes extends HttpEndpoint:
 
   get("/{projectId}/erasures/{rid}") { (projectId: String, rid: String) =>
     authz.project(principal, projectId, write = false): Unit
-    ErasureRoutes.view(request(projectId, rid).call(ErasureRequestEntity.get).invoke())
+    val current = request(projectId, rid).call(ErasureRequestEntity.get).invoke()
+    ErasureRoutes.view(current, awaiting(current))
   }
 
-  putBody("/{projectId}/erasures/{rid}") { (projectId: String, rid: String, body: ErasureReplace) =>
-    val access = authz.project(principal, projectId, write = true)
-    requireOn()
-    ErasureRoutes.view(
-      request(projectId, rid)
-        .call(ErasureRequestEntity.replace)
-        .withMetadata(authz.metadata(access))
-        .invoke(ReplaceErasure(body.notBefore, body.reason))
+  /** The services `current` still waits on (FR-016): listed with no completion. */
+  private def awaiting(current: ErasureRequest): Vector[String] =
+    erasureApplication.fold(Vector.empty[String])(app =>
+      ErasureApplication.awaiting(current, app.expected(current.project))
     )
-  }
 
-  // Whoever asked for it or any other member: a hold is the project's, not its filer's.
-  post("/{projectId}/erasures/{rid}/withdraw") { (projectId: String, rid: String) =>
-    val access = authz.project(principal, projectId, write = true)
-    requireOn()
-    ErasureRoutes.view(
-      request(projectId, rid)
-        .call(ErasureRequestEntity.withdraw)
-        .withMetadata(authz.metadata(access))
-        .invoke()
-    )
+  // Whoever asked for it, a service included, or any other member: a hold is the project's.
+  withAcl(Acl.anyOf(acl, Acl.allowCallers(Callers.anyService))) {
+    putBody("/{projectId}/erasures/{rid}") {
+      (projectId: String, rid: String, body: ErasureReplace) =>
+        val by = filerOrMember(projectId, rid)
+        requireOn()
+        ErasureRoutes.view(
+          request(projectId, rid)
+            .call(ErasureRequestEntity.replace)
+            .withMetadata(by)
+            .invoke(ReplaceErasure(body.notBefore, body.reason))
+        )
+    }
+
+    post("/{projectId}/erasures/{rid}/withdraw") { (projectId: String, rid: String) =>
+      val by = filerOrMember(projectId, rid)
+      requireOn()
+      ErasureRoutes.view(
+        request(projectId, rid)
+          .call(ErasureRequestEntity.withdraw)
+          .withMetadata(by)
+          .invoke()
+      )
+    }
   }
 
   postBody("/{projectId}/erasures/{rid}/override") {
@@ -214,7 +266,7 @@ trait ErasureRoutes extends HttpEndpoint:
           "issued once it is applied",
         ErrorCode.Conflict
       )
-    ErasureRoutes.certificate(current)
+    ErasureRoutes.certificate(current, awaiting(current))
   }
 
   private def applyLater(id: String): Unit =
@@ -244,7 +296,7 @@ object ErasureRoutes:
   private def handler(h: com.thinkmorestupidless.ankka.core.keyring.HandlerReport) =
     ErasureHandlerView(h.objectsErased, h.finality, h.error)
 
-  def view(r: ErasureRequest): ErasureRequestView =
+  def view(r: ErasureRequest, awaiting: Vector[String] = Vector.empty): ErasureRequestView =
     ErasureRequestView(
       id = r.rid,
       project = r.project,
@@ -259,7 +311,7 @@ object ErasureRoutes:
       holdOverride = r.holdOverride.map(o => ErasureOverrideView(o.owner.subject, o.reason, o.at)),
       erasureSeq = r.erasureSeq,
       destroyedAt = r.destroyedAt,
-      completions = r.completions.toVector.sortBy(_._1).map { (service, c) =>
+      completions = (r.completions.toVector.map { (service, c) =>
         ErasureCompletionView(
           service,
           c.at,
@@ -268,7 +320,7 @@ object ErasureRoutes:
           c.sessionsEnded,
           c.handler.map(handler)
         )
-      },
+      } ++ awaiting.map(ErasureCompletionView(_))).sortBy(_.service),
       objectsFinalAt = r.objectsFinalAt,
       finalAt = r.finalAt,
       lastFailure = r.lastFailure.map(f => ErasureFailureView(f.reason, f.at))
@@ -287,7 +339,11 @@ object ErasureRoutes:
       r.finalAt
     )
 
-  def certificate(r: ErasureRequest): ErasureCertificate =
+  /**
+   * The certificate; a service the request still waits on is listed with no completion time, so a
+   * certificate issued before finality says who has not carried the erasure out.
+   */
+  def certificate(r: ErasureRequest, awaiting: Vector[String] = Vector.empty): ErasureCertificate =
     ErasureCertificate(
       request = r.id,
       project = r.project,
@@ -297,8 +353,8 @@ object ErasureRoutes:
       hold = r.notBefore.map(nb => ErasureHoldView(nb, r.reason, r.lapsedAt)),
       holdOverride = r.holdOverride.map(o => ErasureOverrideView(o.owner.subject, o.reason, o.at)),
       keyDestroyedAt = r.destroyedAt,
-      services = r.completions.toVector.sortBy(_._1).map { (service, c) =>
+      services = (r.completions.toVector.map { (service, c) =>
         ErasureCertificateService(service, c.at, c.handler.map(handler))
-      },
+      } ++ awaiting.map(ErasureCertificateService(_))).sortBy(_.service),
       finalAt = r.finalAt
     )

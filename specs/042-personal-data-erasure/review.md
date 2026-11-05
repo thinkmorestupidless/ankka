@@ -267,3 +267,150 @@ The findings below are dense in the parts read in full, which suggests the light
   - The new traps were recorded in runtime.md, testing.md and sidecar.md, as CLAUDE.md asks. `sdk-go.md` was not updated (above).
 - **Enforced by tooling and not reviewed:** formatting (`.scalafmt.conf` and the pre-commit hook), compile warnings (`-Werror`), and the commit-message hook.
 - **Tests:** not run. The instructions said not to run sbt, and every suite the diff touches needs containers (Postgres, the sidecar image) or k3s. "Could this pass while false" was asked of the tests read: four suites were found that can pass while the property they hold is false (the outage-bound, `JSON.stringify`, `RenderingUnchangedSuite` and Rust host-unavailable cases above).
+
+## Second round
+
+# Review: feat(042): the first review's fixes (6e0e2e665...3e73b7fe5)
+
+**Verdict:** Request changes
+**What it does:** It answers the first round's 41 findings in 46 commits. The fixes cover the release image, the TypeScript textual form, the process and Go key caches, the operator's soft-delete gate, the keyring's project check on acks, the outage bound, the hello's starting point, lookup tokens, the control plane's completion, refusal, re-run and filer rules, the sidecar's errors and notice streams, and storage versions. It also builds what the spec left open: Java and Kotlin erasure handlers and asking (FR-008, FR-010), FR-027 in every SDK, and FR-032 routing behind the sidecar and in the process SDKs, on protocol 1.23's `home` fields.
+**Should it exist:** yes. Each commit answers a recorded finding or a decision the person made on 2026-11-05 (research.md), and nothing else came in with them.
+**Read:**
+- **Read in full (the diff):** `keyring/` (`Notices`, `KeyStore`, `ErasureLogReplay`, `Admission`); `modules/runtime/.../keyring/` (`KeyringClient`, `KeyCache`, `KeyringSettings`, `CarriedThrough`, `ErasureDuties`, `ErasureReplay`, `ErasureHandlerHost`, `RemoteKeyStoreClient`); `Ankka.scala`, `ViewStore.redact`, `LookupTokens`, `View`/`KeyedView`; `core/Personal.scala`; the remote host and `Conversation`; `controlplane/.../erasure/` and `ProjectEntity`/`model.scala`; `sidecar/` (`ClientLogic`, `ProcessNotices`, `RemoteErasureHandler`, `SidecarExtension`, the wasm call site); `operator/Rendering.scala`; `release.yml`; `sdks/python/src/ankka/keyring.py` (whole file), `codec.py`, `personal.py`; `sdks/typescript/src/keyring.ts` (the cache and `#ensure`), `personal.ts`; `sdks/go/keyring.go`, `storage_s3.go`; `sdks/rust/ankka/src/personal.rs`; the Java SDK's `erasure/` package and its bridge (`Erasures.scala`, `Service.scala`, `Stores.scala`, `JsonReader`/`JsonWriter`); the Java test kit's `ServiceKit` and `InstallationsKit`.
+- **Tests read:** `KeyringClientSuite`, `NoticesSuite`, `ErasureLogReplaySuite`, `CarriedThroughSuite`, `ViewRedactionSuite`, `ErasureFeatures` (the holds steps), `PersonalSuite`. `PersonalRecordCodecSuite` and the Kotlin `PersonalTest` were opened outside the diff because of a finding below.
+- **Specs and docs:** the spec's diff, `limitations.md`, `holds.feature`, and the console's erasure pages, to check the awaiting services render.
+- **Skipped:** the mirrors under `marketplace/` and `ankka.g8/`, the generated `*.pb.go`, the protocol copies under each SDK (checked only as copies), and the 1,026-line GCS golden fixture.
+- **Read lightly:** the new Python, TypeScript and Go test files (`*_home*`, `*_origin*`, `keyring_cache*`), `ErasureJavaSuite`, `ClientPersonalSuite`, and the TypeScript and Go codec changes for FR-027.
+- **Still needs specialist review**, as in round one: cryptography and database.
+
+**Size:** 194 files, +7,745 −879 hand-written lines. That is over the split threshold. But this is a fix round, and each commit is scoped to one recorded finding, so the review went commit by commit against the first report rather than asking for a split.
+
+## Resolutions from the first round
+
+Each first-round resolution, checked against HEAD:
+
+**Blocking**
+1. `ankka-keyring` image unpublished (6850521f5): **holds.** The image is in `IMAGES` and in the publish step, and the manifest loops read `IMAGES`.
+2. TypeScript `toJSON` (2507a55db): **holds.** `toJSON` gives the subject only.
+3. The Python and TypeScript caches (c26febaa4, a3eac5822): **holds for the rules asked for.** Own keys are held 5 minutes, other projects' 30 seconds, the cache is bounded LRU, a read's erased answer is held for the foreign TTL, and the clock is injected. A gap remains that the first round's own suggestion left open: see the first item under Should fix.
+4. Go's foreign TTL (c5622e8ab): **holds.** A small race remains in the new drop generation (Should fix).
+5. `softDelete` gate (a8bf6dc75): **holds.** The variable is gated on `spec.personal`, and the GCS-bucket fixture is in `RenderingUnchangedSuite`.
+6. Acks across projects (2af11d624): **holds.** An ack is refused unless `applied_log` gives its seq to the hello's project. `status` filters expected instances, acks and live connections by that project. The `NoticesSuite` case covers an intruder, a phantom and a never-applied seq.
+
+**Should fix**
+7. Outage bound (b75e3549f): **holds.** The bound counts from when the keyring was last heard. Settings refuse an outage bound above the notice bound, and a test composes `check()` with the outage.
+8. Hello from the start (d0cc2c7f8): **holds for its purpose**, but it introduces a lost-acknowledgement window (Should fix).
+9. Lookup tokens on redaction (5a57a987e): **holds.** Only the erased subject's paths are dropped. The two-subject row and the second erasure clearing both rows are asserted.
+10. Lookup inside a collection (bfeca7eb4): **holds.** Both view shapes refuse a `[*]` path, and a size mismatch refuses the write.
+11. Completion waits on every personal service (f89210cce, db77f360d): **holds.** A start with an erasure handler and no keyring is refused (`requireKeyring`). There is a cost note under Should fix.
+12. Refusal flood and 404 (10f36350a, f89210cce): **holds.** One refusal is recorded per caller and subject an hour, and an unknown project answers 403.
+13. `ErasureAskRefused` pinned: **holds.**
+14. `HandlerRan` every pass (f89210cce): **holds**, with a question about a failure that recurs after a quiet run.
+15. Quiet runs per service: **holds.**
+16. The filer withdraws and replaces: **holds.** Any service may reach the routes, but `filerOrMember` admits only the filing service while it still holds the grant.
+17. `KeyringUnavailable` as UNAVAILABLE (4a43abd4b): **holds** in both places.
+18. A reopened stream deregistered (fce86acf8): **holds.** Streams are removed by `(instance, queue)`, and only that queue's waits are settled.
+19. Unbounded ack wait (fce86acf8): **holds.** Each notice has a deadline at `notice-bound`, after which the stream fails and the wait settles.
+20. A fetch in flight at a drop: **holds** in the JVM (`putIfUndropped` under the cache's lock), in Python and in TypeScript, where nothing runs between the flight check and the put. **Not quite in Go** (Should fix).
+21. Null version ids (43b5725f6, 9d69309d0): **holds.**
+22. `limitations.md` (82e0f135a): **holds.** The three entries are true now.
+23. Unimplemented MUSTs: **holds**, with the reply-encoding follow-up recorded in research. One gap in the Java test kit (Should fix).
+24. `sdk-go.md`: **holds.**
+25. `HttpClient` per call (41f991345): **holds.** Two threads may race to build the client once after a rotation, which is harmless.
+26. Sweep window in SQL (7195124de): **holds.** A small residue is noted under Nits.
+
+**Nits**
+27. Nonce overload `private[ankka]`: **holds.**
+28. Refusal repeats the value (9fca7bf81, d2f5078df): **does not hold.** Two JVM tests now fail, and Rust still repeats the value (Blocking).
+29. `erasure_file` idempotency: **holds.**
+30. Imports in `ClientLogic`: **holds.**
+31. Go evicts one entry: **holds.**
+32. Escaped subject prefix in the spec: **holds.**
+
+**Questions**
+- Replay of every unapplied entry (db84a30c0): **holds.** The new case applies 6 and then replays 5.
+- Backup and WAL wording (8bd7fd3c1): **holds.**
+- A remote host retries on its next command (7adfd4eb7): answered and documented.
+- Not-before parsing: **holds.** It accepts exactly a date, or an instant at midnight UTC.
+- The trace on a process's erasure handler (095a78932): **holds for the trace**. `Trace.outbound` also carries the current caller when one is set.
+- Replacing a hold without a date: **holds.** Refused.
+- A second ask on a held subject: **holds.** It answers 409. The new scenario is bound and asserts that one request is still held.
+- Personal data in reasons, and decrypt being project-wide: answered in the docs.
+
+## Blocking
+
+- `modules/sdk-java/src/test/scala/com/thinkmorestupidless/ankka/javasdk/codec/PersonalRecordCodecSuite.scala:146-150` and `sdks/kotlin/ankka-kotlin/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/codec/PersonalTest.kt:127` — issue (blocking): both tests still expect `'<value>' is not a data subject: <rule>`.
+  - Since 9fca7bf81, core's `DataSubject.from` answers `the value given is not a data subject: <rule>`. The Java `DataSubject` and Kotlin's `subject()` both refuse through `PersonalJson.subjectProblem`, so these two cases fail on HEAD.
+  - The commit changed `PersonalSuite` and the three process SDKs' tests, but not these two. Neither was run, since sbt was not run here, but the assertion is exact equality on the message.
+  - Suggestion: assert `s"the value given is not a data subject: ${message}"` in both.
+  - While there, two more places still repeat the value:
+    - `sdks/rust/ankka/src/personal.rs:124-130` (`'{shown}' is not a data subject`). Rust is the seventh SDK, and FR-029 covers it as much as the others.
+    - The console's fake control plane (`console/package/src/testing/fake-control-plane.ts:1642`), which then no longer matches the real one.
+  - Resolved: both tests expect `the value given is not a data subject: <rule>`; Rust and the console's fake control plane no longer repeat the value, and their tests check the exact message, 209557825
+
+## Should fix
+
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/keyring/ErasureDuties.scala:80-83` — issue (non-blocking): the service's database records a notice as carried out before the keyring has its acknowledgement.
+  - `record(after)` advances `carried_through` first. The ack then waits in `RemoteKeyStoreClient`'s in-memory `pending` queue until a socket takes it.
+  - If the instance stops in between, the next start says hello from the raised mark and is never handed that notice again. During a keyring outage that is any restart, since acks queue for the outage's length.
+  - The keyring's `status` needs at least one ack per service (`acks.isEmpty` is incomplete). A single-instance service, or a service whose every instance restarted, therefore never completes that erasure. The request waits out the window and is read no more, never final.
+  - Before d0cc2c7f8 every start re-ran the whole history, which healed this case.
+  - Suggestion: advance the database mark only once the keyring has taken the ack, from `flush` once the frame is sent (as `RemoteKeyStoreClient`'s own `carried` does). Or have the keyring's backlog also hand any applied seq this service has no ack for. Add a case that stops an instance between the duties and the ack and restarts it.
+  - Resolved: `KeyStoreClient.ack` answers once the ack frame is sent, and only then is `carried_through` advanced; an `ErasureDutiesSuite` case stops an instance between the duties and the ack and sees the notice handed again on restart, acba498b8
+
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/keyring/KeyringClient.scala:204-217` with `sdks/python/src/ankka/keyring.py`, `sdks/typescript/src/keyring.ts` and `sdks/go/keyring.go` — issue (non-blocking): the notice bound that "wins" (FR-020, decided 2026-11-05) holds only for the JVM's own cache.
+  - When the runtime's channel to the keyring goes unconfirmed past `notice-bound`, `check()` drops the runtime's keys. Nothing reaches the process beside it: `ProcessNotices` is told only of notices, and its stream stays open.
+  - A Python, TypeScript or Go process therefore keeps serving a key from its own cache for `ttl` (5 minutes) after the runtime stopped hearing notices. An erasure applied in that window reaches its reads up to 5 minutes late, past SC-004's 60 seconds.
+  - The process SDKs' docstrings claim "the runtime's rules", and the JVM cache now enforces them.
+  - Suggestion: when `check()` drops all, fail every open `SubjectNotices` stream (`ProcessNotices` gains an `endAll`), which each SDK already answers with `drop_all`. Add a sidecar case with an unconfirmed channel.
+  - Resolved: `KeyringClient.check()` tells `onDropAll` listeners when the channel lapses, and `ProcessNotices.endAll` ends every process stream, so each SDK drops its cache; a `ClientPersonalSuite` case with an outage past the notice bound, e3b9685b4
+
+- `sdks/go/keyring.go:255-271` with `:240-246` — issue (non-blocking) (if-minor): Go checks `f.dropped` under the lock in `fetchOne`, releases it, and `prefetch` re-locks later to `put`.
+  - A `drop` that runs in that gap finds neither the flight nor a cache entry, and the old key is then put back. This is the window round one's fix closed in the JVM (`putIfUndropped`), in Python and in TypeScript (single-threaded between the check and the put).
+  - Suggestion: put the answer inside `fetchOne` under the same lock that reads `dropped`, or keep a generation as the JVM does.
+  - Resolved: the answer is cached or forgotten inside `fetchOne`, under the lock that reads `dropped`; a `-race` test drops in that window, 4f78b9461
+
+- `controlplane/src/main/scala/com/thinkmorestupidless/ankka/controlplane/erasure/ErasurePlane.scala:23-34` — suggestion (if-minor): `personalServices` costs a view query plus one entity call per service of the project, and it runs often.
+  - It is called for every open applied request on every sweep pass, and again on every GET of a request and its certificate.
+  - For a project of tens of services with a backlog of applied requests, that is hundreds of entity calls per pass.
+  - Suggestion: carry `personal` on the `ServiceRows` row and filter in the query, or compute the set once per project per pass.
+  - Resolved: the sweep reads a project's personal services once per pass; carrying `personal` on `ServiceRows` was declined, since that row is the `services list` wire type and the view would need a version (research.md), 3970d82d1
+
+- `modules/testkit-java/src/main/scala/com/thinkmorestupidless/ankka/javasdk/testkit/bridge/InstallationsKit.scala:17-27` — issue (non-blocking) (if-minor): `start` and `restart` drop the `configure` function that `ServiceKit.start` uses to hand over the Java erasure handler (`(_, _, _, _, _)`).
+  - A Java service started through `InstallationsKit` runs with no erasure handler, and nothing says so.
+  - Suggestion: pass `configure` into `group.start`/`restart`. If the Scala group cannot take one, refuse a service that has a handler, naming it.
+  - Resolved: `InstallationsKit` hands `configure` to the group's start and restart; an `ErasureJavaSuite` case runs the handler at a started and a restarted installation, f81313614
+
+## Nits
+
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/keyring/ErasureHandlerHost.scala:57-64` — nitpick (non-blocking): two scaladoc blocks are stacked on `requireKeyring`. The first ("Marks the instance holding it…") belongs to `marker`, below. Move it there.
+  - Resolved: moved to `marker`, aec885152
+- `controlplane/.../erasure/ErasureRequestEntity.scala:190` (`ranQuietly`) — nitpick (non-blocking): quiet runs are now one `RanQuietly` event per service per pass. A request whose S handlers keep re-running quietly appends about S × 2,880 events over the 30 days, where it used to append 2,880. The state stays small, but consider recording a quiet run only when it changes the service's last known run.
+  - Resolved: a quiet run is recorded only when it changes the service's last known run, e6ae17255
+- `controlplane/.../erasure/ErasureRequestsView.scala:175` — nitpick (non-blocking): the `open` query keeps a request polled past the window whenever `objectsFinalAt` is set. A request that has an objects date but is missing a service's completion is therefore still polled forever, a smaller case of round one's finding. Bound that clause too, for example by `objectsFinalAt` plus the window.
+  - Resolved: the `objectsFinalAt` clause is bounded by the window too, ac0864a96
+
+## Questions
+
+- `controlplane/.../erasure/ErasureRequestEntity.scala:174-178` — question: a failure is deduped against the service's last `HandlerRun`, and quiet runs are not `HandlerRun`s. So failure A, then a quiet success, then failure A again records the second failure as no news, and FR-016's audit never shows that the handler broke again. Is that intended? If not, dedupe only when the service's last quiet run is not later than its last `HandlerRun`.
+  - Answered: not intended. A failure is deduplicated only against the service's last known run, quiet runs and its completion included, so a failure after a quiet run is audited again; an entity test, e6ae17255
+
+## Praise
+
+- `modules/runtime/.../keyring/CarriedThrough.scala` — praise: the contiguous-prefix mark is small, well named and tested on gapped numbering. It is the right shape for a project's notices, which are numbered installation-wide.
+- `sidecar/.../ProcessNotices.scala:107-117` — praise: removing by `(instance, queue)` and settling only that queue's waits fixes the reconnect race completely. The new trap in `sidecar.md` states the general rule, and the next keyed-stream registry will need it.
+- `modules/runtime/.../ViewStore.scala:146-161` — praise: computing the erased subject's lookup paths from the pre-redaction payload inside the same CTE keeps the row and its tokens in one statement. The suite's second erasure proves the other subject's token goes when its own erasure comes.
+- `keyring/.../NoticesSuite.scala` (another project's instances) — praise: one case covers an intruder named as the victim's service, a phantom service, and an ack of a seq never applied. That is exactly the set of ways the old code could be fooled.
+- `modules/runtime/.../KeyringClientSuite.scala` (the in-flight fetch) — praise: the latch-gated store reads its answer before the notice and returns it after, so the case would go red without the drop generation.
+
+## Checks applied
+
+- **General checklist groups applied:** Correctness, Design and scope, Error handling, Concurrency and state, Security (the widened ACL on replace and withdraw, the 403 for an unknown project, the cross-project ack), Data and migrations (`carried_through` added by `ADD COLUMN IF NOT EXISTS`, additive, and `RanQuietly.service` an optional field), Performance, Tests, Observability, API and compatibility (protocol 1.23's new `home` fields are additive, and the Java `ServiceBuilder` gained a method), Dependencies and build (`release.yml`), Documentation, and Commit and PR hygiene. None was skipped.
+- **Commit and PR hygiene:**
+  - All 46 headers parse as Conventional Commits scoped `042`, under 72 characters, and every commit carries the trailer.
+  - 3e73b7fe5's "39 fixed" is a known miscount: 36 resolved and 5 answered.
+  - There is no PR, so CI was not checked.
+- **Language skills:** `pr-review-scala` (concurrency in `KeyCache`/`KeyringClient`, `CarriedThrough`, `ProcessNotices` and the singleton ask; codec placement; totality); `pr-review-python`, `pr-review-typescript` and `pr-review-go` (the caches' lifetimes and races, origin tracking, and storage paging); `pr-review-rust` (`DataSubject`'s equality ignores the origin, deliberately and consistently); `pr-review-java` and `pr-review-kotlin` (the facade and the test kits). The language checklists were applied from memory of the bundled skills; no repository-local `pr-review-<language>` skills or `REVIEW.md` exist.
+- **Project rules read:** the root CLAUDE.md and the workspace brains; `runtime.md`, `sidecar.md`, `messaging.md`, `secrets.md`, `cluster-and-tls.md`, `observability.md`, `testing.md`, `sdk-go.md`, `sdk-typescript.md` and `console.md`. The new traps (the singleton wait, removing streams by pair, the home on the wire, caches keyed by home) are recorded where CLAUDE.md asks.
+- **Enforced by tooling and not reviewed:** formatting, `-Werror` and the commit-message hook.
+- **Tests:** not run. The instructions said not to run sbt, and the touched suites need Postgres, the sidecar image or k3s. "Could this pass while false" was asked of each new test read. The failing JVM refusal-message tests were found by reading, not by a run.

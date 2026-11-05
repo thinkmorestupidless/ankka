@@ -48,6 +48,41 @@ class RootKeySuite extends munit.FunSuite with LogCapturing:
     assertEquals(String(second.unwrap(wrapped, "brand".getBytes)), "kek")
   }
 
+  test("replicas starting at once on a database with no table agree on one root key") {
+    for round <- 1 to 5 do
+      Await.result(
+        database.execute(SqlFragment.raw("DROP TABLE IF EXISTS ankka_secrets")),
+        30.seconds
+      )
+      val roots = Await.result(
+        scala.concurrent.Future.sequence(
+          (1 to 4).map(_ =>
+            scala.concurrent.Future {
+              val db = database
+              RootKey.postgres(
+                DatabaseSecretStore(
+                  db,
+                  kit.secretKey.flatMap(k =>
+                    com.thinkmorestupidless.ankka.runtime.SecretKey.parse(k).toOption
+                  )
+                ),
+                db
+              )
+            }
+          )
+        ),
+        2.minutes
+      )
+      val wrapped = roots.head.wrap("kek".getBytes, "brand".getBytes)
+      roots.zipWithIndex.tail.foreach { (root, i) =>
+        val opened = scala.util.Try(String(root.unwrap(wrapped, "brand".getBytes)))
+        assertEquals(opened.toOption, Some("kek"), s"round $round: replica $i holds another root")
+      }
+      // And what a replica started later reads is the same root.
+      val later = RootKey.postgres(secrets, database)
+      assertEquals(String(later.unwrap(wrapped, "brand".getBytes)), "kek", s"round $round")
+  }
+
   test("the table the keyring makes is the platform's") {
     val stream = getClass.getResourceAsStream("/ankka/ddl/40-secrets-postgres.sql")
     assert(stream != null, "the runtime carries no 40-secrets-postgres.sql")

@@ -405,6 +405,8 @@ class ErasureRestoreClusterFeatures
       "the keyring's restore does not hold 8c1f's key"
     )
     before = keyringPods().map(_.getMetadata.getName).toSet
+    // What the instances on the keyring's own database said, before they are replaced.
+    originalLogs = keyringLogs()
     k8s
       .apps()
       .deployments()
@@ -427,6 +429,7 @@ class ErasureRestoreClusterFeatures
   }
 
   private var before: Set[String] = Set.empty
+  private var originalLogs        = ""
 
   /** The root key's row and every KEK, as each of the keyring's two databases holds them. */
   private def rootAndKeks(): String =
@@ -528,7 +531,8 @@ class ErasureRestoreClusterFeatures
         case e: munit.FailException =>
           fail(
             s"${e.getMessage}\nentity $codes: $entity\nprofile: $profile\n" +
-              s"${servicePodLogs(brand, "players")}\n${keyringLogs()}\n${rootAndKeks()}"
+              s"${servicePodLogs(brand, "players")}\n${keyringLogs()}\n${rootAndKeks()}\n" +
+              s"== before the restore\n$originalLogs"
           )
       assertEquals(
         (field(entity, "email"), field(entity, "name")),

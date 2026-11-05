@@ -508,13 +508,20 @@ class ErasureClusterFeatures
     var allErased: Option[Instant]             = None
     var last: Vector[(String, Option[String])] = Vector.empty
     var destroyed: Option[Instant]             = None
-    waitFor(5.minutes, "every service reading the name as erased, and the key's destruction") {
-      if allErased.isEmpty then
-        last = reads
-        if last.forall(_._2.contains("erased")) then allErased = Some(Instant.now())
-      destroyed = requestOf("brand", asked.id).destroyedAt
-      allErased.isDefined && destroyed.isDefined
-    }
+    try
+      waitFor(5.minutes, "every service reading the name as erased, and the key's destruction") {
+        if allErased.isEmpty then
+          last = reads
+          if last.forall(_._2.contains("erased")) then allErased = Some(Instant.now())
+        destroyed = requestOf("brand", asked.id).destroyedAt
+        allErased.isDefined && destroyed.isDefined
+      }
+    catch
+      case e: munit.FailException =>
+        fail(
+          s"${e.getMessage}\nreads: $last\nrequest: ${requestOf("brand", asked.id)}\n" +
+            s"${servicePodLogs("payments", "cardholders")}\n${servicePodLogs("brand", "engagement")}"
+        )
     val within = Duration.between(destroyed.get, allErased.get)
     assert(
       within.compareTo(Duration.ofSeconds(60)) <= 0,

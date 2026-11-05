@@ -30,6 +30,8 @@ trait RootKey:
 
 object RootKey:
 
+  private val log = org.slf4j.LoggerFactory.getLogger("ankka.keyring")
+
   /** The secret's name in the keyring's own store. */
   val SecretName = "keyring-root-key"
 
@@ -76,10 +78,11 @@ object RootKey:
       database.inTransaction { tx =>
         tx.query(lock)(_ => ())
           .flatMap(_ =>
-            Future(read().getOrElse {
+            Future(read().map { k => log.info("read the root key {}", SecretName); k }.getOrElse {
               val made = new Array[Byte](32)
               SecureRandom().nextBytes(made)
               secrets.put(SecretName, Base64.getEncoder.encodeToString(made))
+              log.info("made the root key {}, there being none", SecretName)
               read().getOrElse(throw IllegalStateException("the root key was not kept"))
             })(using com.thinkmorestupidless.ankka.runtime.AnkkaExecutors.virtual)
           )

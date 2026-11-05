@@ -114,6 +114,21 @@ export function erased(about: DataSubject): Erased {
   return new Erased(about)
 }
 
+// The project of each field read from an envelope, by the field's identity and held weakly (FR-027):
+// a field a handler makes, even with the same value, is a different object and the service's own.
+const origins = new WeakMap<Present<unknown> | Erased, string>()
+
+/** @internal Remembers that `field` was read from an envelope of `project`; answers it. */
+export function readFrom<F extends Present<unknown> | Erased>(field: F, project: string): F {
+  origins.set(field, project)
+  return field
+}
+
+/** @internal The project whose envelope `field` was read from, or `undefined` when a handler made it. */
+export function originOf(field: Present<unknown> | Erased): string | undefined {
+  return origins.get(field)
+}
+
 export function isPersonal(value: unknown): value is Personal<unknown> {
   return value instanceof Present || value instanceof Erased
 }

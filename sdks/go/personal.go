@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -65,6 +66,10 @@ type Personal[T any] struct {
 	subject DataSubject
 	value   T
 	erased  bool
+	// origin is the project whose envelope a codec read this field from; "" for one a handler made
+	// (PersonalOf). A field read from another project's envelope is written again under that
+	// project's key (FR-027), so an erasure there reaches what this service keeps of it.
+	origin string
 }
 
 // PersonalOf is a present personal field holding value about subject.
@@ -110,8 +115,10 @@ func (p Personal[T]) personalParts() (subject string, value reflect.Value, erase
 
 func (Personal[T]) personalElem() reflect.Type { return reflect.TypeFor[T]() }
 
-func (p *Personal[T]) personalSet(subject string, erased bool) reflect.Value {
-	p.subject, p.erased = DataSubject{value: subject}, erased
+func (p Personal[T]) personalOrigin() string { return p.origin }
+
+func (p *Personal[T]) personalSet(subject string, erased bool, origin string) reflect.Value {
+	p.subject, p.erased, p.origin = DataSubject{value: subject}, erased, origin
 	var zero T
 	p.value = zero
 	return reflect.ValueOf(&p.value).Elem()
@@ -122,10 +129,11 @@ func (p *Personal[T]) personalSet(subject string, erased bool) reflect.Value {
 type personalValue interface {
 	personalParts() (string, reflect.Value, bool)
 	personalElem() reflect.Type
+	personalOrigin() string
 }
 
 type personalTarget interface {
-	personalSet(subject string, erased bool) reflect.Value
+	personalSet(subject string, erased bool, origin string) reflect.Value
 }
 
 var (
@@ -245,31 +253,40 @@ func writePersonal(p *plan, v reflect.Value, buf *bytes.Buffer, path string, sc 
 		buf.WriteByte('}')
 		return nil
 	}
+	project := sc.project
+	// Read from another project's envelope: kept under that project's key (FR-027). A key it can no
+	// longer have writes the field erased, as it would now be read.
+	foreign := false
+	if origin := v.Interface().(personalValue).personalOrigin(); origin != "" && origin != sc.project {
+		project, foreign = origin, true
+	}
 	var boxed []byte
 	if !erased {
-		answer, ok := sc.keys[subjectRef{project: sc.project, subject: subject}]
+		answer, ok := sc.keys[subjectRef{project: project, subject: subject}]
 		switch {
 		case !ok:
 			return keyringUnavailable(fmt.Sprintf("no key was fetched for '%s'", subject))
-		case answer.erased:
+		case answer.erased && !foreign:
 			return subjectErased(subject)
 		}
-		var plain bytes.Buffer
-		if err := writeValue(p.elem, value, &plain, path, sc); err != nil {
-			return err
-		}
-		nonce, err := personalNonce()
-		if err != nil {
-			return fail(path, "no nonce: %v", err)
-		}
-		if boxed, err = sealField(answer.key, nonce, plain.Bytes(), associatedData(subject, sc.project, sc.manifest)); err != nil {
-			return fail(path, "cannot seal: %v", err)
+		if !answer.erased {
+			var plain bytes.Buffer
+			if err := writeValue(p.elem, value, &plain, path, sc); err != nil {
+				return err
+			}
+			nonce, err := personalNonce()
+			if err != nil {
+				return fail(path, "no nonce: %v", err)
+			}
+			if boxed, err = sealField(answer.key, nonce, plain.Bytes(), associatedData(subject, project, sc.manifest)); err != nil {
+				return fail(path, "cannot seal: %v", err)
+			}
 		}
 	}
 	buf.WriteString(`{"$personal":`)
 	buf.WriteString(strconv.Itoa(envelopeVersion))
 	buf.WriteString(`,"project":`)
-	_ = writeString(buf, sc.project, path)
+	_ = writeString(buf, project, path)
 	buf.WriteString(`,"subject":`)
 	_ = writeString(buf, subject, path)
 	if boxed != nil {
@@ -299,7 +316,7 @@ func readPersonal(p *plan, raw any, target reflect.Value, path string, sc *sealS
 			return refuse(path, "%v", err)
 		}
 		value, present := obj.get("value")
-		slot := set.personalSet(subject, !present)
+		slot := set.personalSet(subject, !present, "")
 		if present {
 			return readValue(p.elem, value, slot, path, nil)
 		}
@@ -313,7 +330,7 @@ func readPersonal(p *plan, raw any, target reflect.Value, path string, sc *sealS
 		return envelopeCorrupt(ref.subject, fmt.Sprintf("its version is %s, and this reader knows %d", version.text, envelopeVersion))
 	}
 	if boxed == nil {
-		set.personalSet(ref.subject, true)
+		set.personalSet(ref.subject, true, ref.project)
 		return nil
 	}
 	answer, fetched := sc.keys[ref]
@@ -321,7 +338,7 @@ func readPersonal(p *plan, raw any, target reflect.Value, path string, sc *sealS
 		return keyringUnavailable(fmt.Sprintf("no key was fetched for '%s'", ref.subject))
 	}
 	if answer.erased {
-		set.personalSet(ref.subject, true)
+		set.personalSet(ref.subject, true, ref.project)
 		return nil
 	}
 	bytes, err := base64.StdEncoding.DecodeString(*boxed)
@@ -336,7 +353,7 @@ func readPersonal(p *plan, raw any, target reflect.Value, path string, sc *sealS
 	if err != nil {
 		return envelopeCorrupt(ref.subject, "its plaintext is not JSON")
 	}
-	return readValue(p.elem, inner, set.personalSet(ref.subject, false), path, sc)
+	return readValue(p.elem, inner, set.personalSet(ref.subject, false, ref.project), path, sc)
 }
 
 type envelopeVersionText struct {
@@ -406,38 +423,46 @@ func holdsPersonal(p *plan, seen map[*plan]bool) bool {
 	return false
 }
 
-// personalInValue walks v by p: every subject a present field is about, and whether any personal
-// field (present or erased) is there at all.
-func personalInValue(p *plan, v reflect.Value, subjects map[string]bool) (any bool) {
+// personalInValue walks v by p: the key every present field needs, the own project's as an empty
+// project, and whether any field (present or erased) is the own project's. A field read from
+// another project's envelope (FR-027) needs that project's key and is not the own project's.
+func personalInValue(p *plan, v reflect.Value, own string, refs map[subjectRef]bool) (any bool) {
 	if !p.personal {
 		return false
 	}
 	switch p.kind {
 	case kindPersonal:
-		subject, _, erased := v.Interface().(personalValue).personalParts()
+		pv := v.Interface().(personalValue)
+		subject, _, erased := pv.personalParts()
+		if origin := pv.personalOrigin(); origin != "" && origin != own {
+			if !erased && subject != "" {
+				refs[subjectRef{project: origin, subject: subject}] = true
+			}
+			return false
+		}
 		if !erased && subject != "" {
-			subjects[subject] = true
+			refs[subjectRef{subject: subject}] = true
 		}
 		return true
 	case kindOptional:
 		if v.IsNil() {
 			return false
 		}
-		return personalInValue(p.elem, v.Elem(), subjects)
+		return personalInValue(p.elem, v.Elem(), own, refs)
 	case kindSequence:
 		if p.length < 0 && v.IsNil() {
 			return false
 		}
 		for i := 0; i < v.Len(); i++ {
-			any = personalInValue(p.elem, v.Index(i), subjects) || any
+			any = personalInValue(p.elem, v.Index(i), own, refs) || any
 		}
 	case kindMap:
 		for it := v.MapRange(); it.Next(); {
-			any = personalInValue(p.elem, it.Value(), subjects) || any
+			any = personalInValue(p.elem, it.Value(), own, refs) || any
 		}
 	case kindRecord:
 		for _, f := range p.fields {
-			any = personalInValue(f.plan, v.Field(f.index), subjects) || any
+			any = personalInValue(f.plan, v.Field(f.index), own, refs) || any
 		}
 	case kindSum:
 		if v.IsNil() {
@@ -451,7 +476,7 @@ func personalInValue(p *plan, v reflect.Value, subjects map[string]bool) (any bo
 			dyn = dyn.Elem()
 		}
 		if c := p.sum.byType[dyn.Type()]; c != nil {
-			return personalInValue(c.record, dyn, subjects)
+			return personalInValue(c.record, dyn, own, refs)
 		}
 	}
 	return any
@@ -511,23 +536,38 @@ func sealJSON(p *plan, v reflect.Value, manifest string) ([]byte, error) {
 	if !p.personal {
 		return encodeJSON(p, v)
 	}
-	subjects := map[string]bool{}
-	sc := &sealScope{manifest: manifest}
-	if personalInValue(p, v, subjects) {
-		// Asked for the own project (an empty one); the answers say which project that is.
-		kr := currentKeyring()
-		refs := make([]subjectRef, 0, len(subjects))
-		for s := range subjects {
-			refs = append(refs, subjectRef{subject: s})
+	kr := currentKeyring()
+	known, _ := kr.ownProject() // "" until an answer has named it
+	wanted := map[subjectRef]bool{}
+	sc := &sealScope{manifest: manifest, keys: map[subjectRef]keyAnswer{}}
+	ownAny := personalInValue(p, v, known, wanted)
+	var own, resealed []subjectRef
+	for r := range wanted {
+		if r.project == "" {
+			own = append(own, r)
+		} else {
+			resealed = append(resealed, r)
 		}
-		var err error
-		if sc.keys, err = kr.prefetch(refs, true); err != nil {
+	}
+	if len(resealed) > 0 {
+		// Fields read from another project's envelope (FR-027): that project's keys, never made.
+		answers, err := kr.prefetch(resealed, false)
+		if err != nil {
 			return nil, err
 		}
+		maps.Copy(sc.keys, answers)
+	}
+	if ownAny {
+		// Asked for the own project (an empty one); the answers say which project that is.
+		answers, err := kr.prefetch(own, true)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(sc.keys, answers)
 		if sc.project, err = kr.ownProject(); err != nil {
 			return nil, err
 		}
-		for _, ref := range refs {
+		for _, ref := range own {
 			if sc.keys[subjectRef{project: sc.project, subject: ref.subject}].erased {
 				return nil, subjectErased(ref.subject)
 			}

@@ -142,11 +142,15 @@ test("envelope: the erased form reads as erased with no key asked, and an erased
     assert.ok(read instanceof Erased)
     assert.equal(read.subject, e.subject)
     assert.deepEqual(asked, [])
-    // Written before any answer has named the own project: Unavailable. A prefetch asks, without create.
-    assert.throws(() => sealHolder(s.string, read, "player-registered"), (x: unknown) => x instanceof PersonalError && x.reason === "unavailable")
-    await prefetchValue(read)
-    assert.deepEqual(asked, [`(own):${e.subject}:false`])
+    // The field read is written again under the project its envelope named (FR-027), asking nothing.
     assert.equal(sealHolder(s.string, read, "player-registered"), json)
+    assert.deepEqual(asked, [])
+    // One made here, before any answer has named the own project: Unavailable. A prefetch asks, without create.
+    const made = new Erased(subject(e.subject))
+    assert.throws(() => sealHolder(s.string, made, "player-registered"), (x: unknown) => x instanceof PersonalError && x.reason === "unavailable")
+    await prefetchValue(made)
+    assert.deepEqual(asked, [`(own):${e.subject}:false`])
+    assert.equal(sealHolder(s.string, made, "player-registered"), json)
   })
 })
 

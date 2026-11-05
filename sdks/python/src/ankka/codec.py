@@ -301,8 +301,21 @@ def _personal_to_json(value: Any, tp: Any) -> dict[str, Any]:
             edge["value"] = to_json_value(value.value, inner)
         return edge
     ring = keyring.current()
+    origin = personal.origin_of(value)
+    if origin is not None and origin != ring.project:
+        # Read from another project's envelope: kept under that project's key (FR-027), so an
+        # erasure there reaches what this service keeps of it, with no notice of its own. A key it
+        # can no longer have writes the field erased, as it would now be read.
+        envelope = {"$personal": personal.VERSION, "project": origin, "subject": subject}
+        if isinstance(value, personal.Present):
+            again = ring.key_for_reseal(origin, subject)
+            if again is not None:
+                plaintext = write_json(to_json_value(value.value, inner)).encode("utf-8")
+                ad = personal.associated_data(subject, origin, scope.manifest)
+                envelope["c"] = personal.b64encode(personal.seal(again, plaintext, ad))
+        return envelope
     project = ring.own_project()
-    envelope: dict[str, Any] = {"$personal": personal.VERSION, "project": project, "subject": subject}
+    envelope = {"$personal": personal.VERSION, "project": project, "subject": subject}
     if isinstance(value, personal.Present):
         key = ring.key_for_write(subject)
         plaintext = write_json(to_json_value(value.value, inner)).encode("utf-8")
@@ -333,19 +346,21 @@ def _personal_from_json(value: Any, tp: Any) -> Any:
     version = value.get("$personal")
     if version != personal.VERSION or isinstance(version, bool):
         raise personal.CorruptEnvelope(subject, f"its version is {version}, and this reader knows {personal.VERSION}")
+    # Every field read from an envelope remembers its project, so one of another project is written
+    # again under that project's key (FR-027).
     boxed = value.get("c")
     if boxed is None:
-        return personal.Erased(s)
+        return personal.read_from(personal.Erased(s), project)
     key = keyring.current().key_for_read(project, subject)
     if key is None:
-        return personal.Erased(s)
+        return personal.read_from(personal.Erased(s), project)
     data = personal.b64decode(boxed) if isinstance(boxed, str) else None
     if data is None:
         raise personal.CorruptEnvelope(subject, "it is not base64")
     plaintext = personal.open_sealed(key, data, personal.associated_data(subject, project, scope.manifest))
     if plaintext is None:
         raise personal.CorruptEnvelope(subject, "it failed authentication")
-    return personal.Present(s, from_json_value(json.loads(plaintext.decode("utf-8")), inner))
+    return personal.read_from(personal.Present(s, from_json_value(json.loads(plaintext.decode("utf-8")), inner)), project)
 
 
 def _subject(text: str) -> Any:

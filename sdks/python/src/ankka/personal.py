@@ -19,7 +19,7 @@ import re
 import struct
 from collections.abc import Iterator
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar, overload
 
 from ankka.client import CommandError
@@ -110,6 +110,8 @@ class Personal(Generic[T]):
 class Present(Personal[T]):
     subject: DataSubject
     value: T
+    _origin: str | None = field(default=None, init=False, repr=False, compare=False)
+    """The project whose envelope this field was read from, by a codec; None for one a handler made."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.subject, DataSubject):
@@ -124,6 +126,8 @@ class Present(Personal[T]):
 @dataclass(frozen=True, repr=False, slots=True)
 class Erased(Personal[Any]):
     subject: DataSubject
+    _origin: str | None = field(default=None, init=False, repr=False, compare=False)
+    """The project whose envelope this field was read from, by a codec; None for one a handler made."""
 
     def __post_init__(self) -> None:
         if not isinstance(self.subject, DataSubject):
@@ -133,6 +137,19 @@ class Erased(Personal[Any]):
         return f"Personal({self.subject})"
 
     __str__ = __repr__
+
+
+def origin_of(field_: Personal[Any]) -> str | None:
+    """The project whose envelope ``field_`` was read from, or None when a handler made it (FR-027).
+    It goes with this one field, never with an equal value: a field a handler makes from the same
+    value is the service's own."""
+    return field_._origin if isinstance(field_, (Present, Erased)) else None
+
+
+def read_from(field_: Personal[T], project: str) -> Personal[T]:
+    """``field_``, remembered as read from ``project``'s envelope; what a codec does on a read."""
+    object.__setattr__(field_, "_origin", project)
+    return field_
 
 
 def is_personal_type(tp: Any) -> bool:

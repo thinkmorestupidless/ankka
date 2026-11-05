@@ -252,10 +252,18 @@ class Keyring:
 
     async def prefetch_values(self, value: Any) -> None:
         """Fetches, making it when absent, the key of every subject a ``Present`` in ``value`` is
-        about. Raises ``SubjectErased`` for an erased one: nothing may be written."""
+        about. Raises ``SubjectErased`` for an erased one: nothing may be written. A field read from
+        another project's envelope is sealed again under that project's key (FR-027): its key is
+        fetched, never made, and one that can no longer be had writes the field erased."""
         wanted: set[tuple[str, str]] = set()
+        resealed: set[tuple[str, str]] = set()
         for p in personal.present_in(value):
             subject = str(p.subject)
+            origin = personal.origin_of(p)
+            if origin is not None and origin != self.project:
+                if self._needs_fetch((origin, subject)):
+                    resealed.add((origin, subject))
+                continue
             held = self._cache.get((self.project, subject)) if self.project else None
             if held is not None and self._fresh(held):
                 if isinstance(held.entry, bytes):
@@ -263,6 +271,7 @@ class Keyring:
                 if held.entry.final:
                     raise SubjectErased(p.subject)
             wanted.add((OWN, subject))
+        await self._fetch_all(resealed, create=False)
         answered = await self._fetch_all(wanted, create=True)
         for project, subject in answered:
             held = self._cache.get((project, subject))

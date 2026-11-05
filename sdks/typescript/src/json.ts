@@ -8,7 +8,7 @@
 
 import { Duration, Instant, LocalDate, LocalDateTime } from "./time.ts"
 import { done, resolve, describe, type Schema } from "./schema.ts"
-import { associatedData, currentScope, Erased, ENVELOPE_VERSION, open, PersonalError, Present, seal, subjectProblem, type DataSubject, type Scope } from "./personal.ts"
+import { associatedData, currentScope, Erased, ENVELOPE_VERSION, open, originOf, PersonalError, Present, readFrom, seal, subjectProblem, type DataSubject, type Scope } from "./personal.ts"
 import { requireKeyring } from "./keyring.ts"
 
 export class EncodingError extends Error {
@@ -204,7 +204,21 @@ function write(schema: Schema, value: unknown, out: string[], path: string): voi
 function writeEnvelope(inner: Schema, value: Present<unknown> | Erased, scope: Scope, out: string[], path: string): void {
   let project: string
   let c: string | undefined
-  if (value instanceof Present) {
+  const origin = originOf(value)
+  if (origin !== undefined && origin !== requireKeyring().project) {
+    // Read from another project's envelope: kept under that project's key (FR-027), so an erasure
+    // there reaches what this service keeps of it, with no notice of its own. A key it can no longer
+    // have writes the field erased, as it would now be read.
+    project = origin
+    if (value instanceof Present) {
+      const answer = requireKeyring().keyForRead(origin, value.subject)
+      if (answer.kind === "key") {
+        const plaintext: string[] = []
+        write(inner, value.value, plaintext, path)
+        c = base64Encode(seal(answer.key, utf8.encode(plaintext.join("")), associatedData(value.subject, origin, scope.manifest), scope.nonce))
+      }
+    }
+  } else if (value instanceof Present) {
     const { project: own, key } = requireKeyring().keyForWrite(value.subject)
     project = own
     const plaintext: string[] = []
@@ -360,9 +374,9 @@ function decodeEnvelope(inner: Schema, raw: unknown, scope: Scope, path: string)
   if (raw["$personal"] !== ENVELOPE_VERSION) {
     throw PersonalError.corrupt(about, `its version is ${String(raw["$personal"])}, and this reader knows ${ENVELOPE_VERSION}`)
   }
-  if (c === undefined) return new Erased(s)
+  if (c === undefined) return readFrom(new Erased(s), project)
   const answer = requireKeyring().keyForRead(project, about)
-  if (answer.kind === "erased") return new Erased(s)
+  if (answer.kind === "erased") return readFrom(new Erased(s), project)
   if (typeof c !== "string" || !/^[A-Za-z0-9+/]*={0,2}$/.test(c)) throw PersonalError.corrupt(about, "it is not base64")
   const plaintext = open(answer.key, base64Decode(c), associatedData(about, project, scope.manifest))
   if (plaintext === undefined) throw PersonalError.corrupt(about, "it failed authentication")
@@ -372,7 +386,7 @@ function decodeEnvelope(inner: Schema, raw: unknown, scope: Scope, path: string)
   } catch {
     throw PersonalError.corrupt(about, "its plaintext is not JSON")
   }
-  return new Present(s, decode(inner, parsed, path))
+  return readFrom(new Present(s, decode(inner, parsed, path)), project)
 }
 
 function decodeFields(fields: Readonly<Record<string, Schema>>, raw: Record<string, unknown>, path: string): Record<string, unknown> {

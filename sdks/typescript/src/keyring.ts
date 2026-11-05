@@ -10,7 +10,7 @@
 // request for the own project leaves `project` empty, and the answer names the project it is for.
 // The first such answer is the project every envelope the process seals names.
 
-import { ENVELOPE_VERSION, Erased, PersonalError, Present, subjectProblem } from "./personal.ts"
+import { ENVELOPE_VERSION, Erased, originOf, PersonalError, Present, subjectProblem } from "./personal.ts"
 
 /** What the keyring answered for one data subject. */
 export type KeyAnswer = { readonly kind: "key"; readonly key: Uint8Array } | { readonly kind: "erased" }
@@ -204,23 +204,26 @@ export class Keyring {
   /**
    * Fetches, unless held fresh, the key of every present personal field in `value`, for a write. An
    * erased field needs no key, but its envelope names the own project: until an answer has named it, one
-   * is asked for, without `create`. Never throws.
+   * is asked for, without `create`. A field read from another project's envelope is sealed again under
+   * that project's key (FR-027): its key is fetched, never made. Never throws.
    */
   async prefetchValue(value: unknown): Promise<void> {
     const subjects = new Set<string>()
+    const resealed = new Map<string, [string, string]>()
     let erased: string | undefined
     walk(value, (node) => {
-      if (node instanceof Present) {
-        subjects.add(node.subject)
-        return true
-      }
-      if (node instanceof Erased) {
-        erased ??= node.subject
+      if (node instanceof Present || node instanceof Erased) {
+        const origin = originOf(node)
+        if (origin !== undefined && origin !== this.#project) {
+          if (node instanceof Present) resealed.set(cacheKey(origin, node.subject), [origin, node.subject])
+        } else if (node instanceof Present) subjects.add(node.subject)
+        else erased ??= node.subject
         return true
       }
       return false
     })
     const own = this.#project ?? ""
+    await Promise.all([...resealed.values()].map(([project, about]) => this.#ensure(project, about, false)))
     if (subjects.size === 0 && erased !== undefined && this.#project === undefined) return this.#ensure("", erased, false)
     await Promise.all([...subjects].map((s) => this.#ensure(own, s, true)))
   }

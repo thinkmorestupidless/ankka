@@ -351,7 +351,8 @@ class ErasureClusterFeatures
     grantId = Some(makeGrant(Machine, decrypt))
     pastKeyringRefresh()
     // The keyring reads the control plane's keys on first use, in the background, and at most
-    // every 30 seconds: until it has, it knows no key and refuses every token for that alone.
+    // every 30 seconds: until it has, it knows no key and refuses every token for that alone. This
+    // waits for one instance; ask() covers the other.
     var known = ""
     try
       waitFor(2.minutes, "the keyring knowing the machine's key") {
@@ -380,7 +381,15 @@ class ErasureClusterFeatures
   private def ask(): Unit =
     decryptionsBefore = count("decryption", s"machine = '$Machine'")
     refusalsBefore = count("fetch_refusal", s"caller = '$Machine'")
-    asked = Some(decryptName())
+    // Two keyring instances sit behind the Gateway and each reads the control plane's keys on its
+    // own, so the warm-up in machineGrant may have reached only one: the other refuses a token for
+    // its key until it has read it. Only that refusal is asked again.
+    var answer = decryptName()
+    val until  = System.nanoTime() + 2.minutes.toNanos
+    while answer._2.contains("is not one of the installation's") && System.nanoTime() < until do
+      Thread.sleep(1000)
+      answer = decryptName()
+    asked = Some(answer)
 
   When("the machine reads a {string} of {string}") { (event: String, subject: String) =>
     assertEquals((event, subject), ("PlayerRegistered", Subject))

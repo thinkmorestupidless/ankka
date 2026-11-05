@@ -428,6 +428,23 @@ class ErasureRestoreClusterFeatures
 
   private var before: Set[String] = Set.empty
 
+  /** The root key's row and every KEK, as each of the keyring's two databases holds them. */
+  private def rootAndKeks(): String =
+    Vector("keyring-db", Restored)
+      .map { cluster =>
+        def ask(sql: String) =
+          try keyringSql(sql, cluster)
+          catch case e: Throwable => s"($e)"
+        s"== $cluster\n" +
+          ask(
+            "select name, md5(ciphertext), updated_at from ankka_secrets order by name"
+          ) + "\n" +
+          ask(
+            "select project, md5(wrapped), root_ref, created_at from keyring.kek order by project"
+          )
+      }
+      .mkString("\n")
+
   Then("the keyring answers no request for a subject key until it has applied the erasure log") {
     () =>
       waitFor(10.minutes, "two keyring instances on the restored database") {
@@ -511,7 +528,7 @@ class ErasureRestoreClusterFeatures
         case e: munit.FailException =>
           fail(
             s"${e.getMessage}\nentity $codes: $entity\nprofile: $profile\n" +
-              s"${servicePodLogs(brand, "players")}\n${keyringLogs()}"
+              s"${servicePodLogs(brand, "players")}\n${keyringLogs()}\n${rootAndKeks()}"
           )
       assertEquals(
         (field(entity, "email"), field(entity, "name")),

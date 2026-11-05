@@ -143,7 +143,7 @@ Missing, below.
 | endpoint-acls/route-acls.feature | a route's own ACL applies to that route alone, in every language | Go | conformance http.route-acl-overrides-the-endpoint |
 | endpoint-acls/stating-an-acl.feature | an endpoint that states no ACL is refused at registration | Go | `go test sdks/go -run TestWhatMustNotCompileDoesNot` (`endpoint_without_acl.go` does not compile); `go test sdks/go -run TestStartRefusesNamingAllFour` (a nil ACL: "endpoint /open: the endpoint has no ACL") |
 | endpoint-acls/stating-an-acl.feature | an endpoint that states it allows all serves everyone | Go | conformance http.path-params-bind (any route of the `AllowAll` `/carts` and `/conformance` endpoints), e.g. also http.status-passthrough |
-| erasure/languages.feature | an SDK writes the same personal envelope and reads it back into its own personal type | Go | MISSING in every language (spec 042's envelope is not implemented outside Scala; the limitations page says so) |
+| erasure/languages.feature | an SDK writes the same personal envelope and reads it back into its own personal type | Go | conformance personal.envelope-written, personal.envelope-read, personal.erased-decodes, personal.erased-write-refused; `go test sdks/go -run TestEveryPersonalEnvelopeIsWrittenExactlyAndReadBack` (the platform's `envelopes.json` fixture, byte for byte) |
 | go-sdk/installing.feature | the Go SDK fetched from the package registry builds a service with nothing else added | scenario | CI `sdk-go`: `scripts/pack-smoke.sh` (the module as the proxy serves it, built alone, and a stranger's program importing it); the release's proxy smoke (`go get` of the tag, then `Version()`) in `release.yml` `sdk-go` |
 | go-sdk/installing.feature | a service's image holds its one executable and no language runtime | scenario | `go test sdks/go/examples/shopping-cart -run TestTheImageHoldsTheExecutableAndNoRuntime` (slow); SidecarClusterSuite (k3s, `cluster` workflow) "... ready only when both are (Go)" runs the developer's image beside the sidecar and serves requests |
 | graph-deltas/store.feature | the same consumer written in another language fills the store the same way | go | conformance consumer.graph-deltas, consumer.graph-delete-and-recreate, consumer.graph-replay-is-equal (the same deltas the Scala reference publishes); `go test sdks/go -run TestTheBuilderWritesWhatTheSinkReads` (the `graph-deltas` fixtures the sink reads) |
@@ -268,9 +268,7 @@ Missing, below.
 
 ### Missing
 
-Not backed for Go (1), and not for any language:
-
-1. erasure/languages.feature, "an SDK writes the same personal envelope and reads it back into its own personal type": no SDK outside Scala has a personal type. A Go `Personal[T]` reading and writing the platform's envelope fixture, and a conformance case that journals it, would back it.
+None. The erasure row, once missing in every language, is backed by the `personal.*` conformance cases (feature 042) and the envelope fixture's test.
 
 PARTIAL (2):
 
@@ -288,7 +286,6 @@ Backed by a language-independent proof rather than a Go run (2): the session tha
 - "a component of a kind the platform cannot host" cannot be written in Go: `Declaration` has an unexported method, so only the SDK's own constructors make one. `testdata/compilefail/unknown_kind.go` holds that a type of the service's own does not compile; at start, the nearest refusal is a nil declaration ("declaration 5 is nil", `TestStartRefusesWithEveryProblemAtOnce`).
 - "an endpoint that states no ACL" is a compile error in Go (`NewEndpoint` takes the ACL as its second argument); a nil ACL passed explicitly is refused at start. Both are tested.
 - "a service with an authenticated route and no issuer listed": Go's own check is that the code names its issuers (`Authenticate(ankka.Issuer(...))`), not that `ANKKA_AUTH_ISSUERS` is set, so the Go row's "the reason names ... ANKKA_AUTH_ISSUERS" holds only through the sidecar.
-- The erasure row has no backing in any non-Scala language, not only Go.
 - The red proof for "a behaviour broken in an SDK" did not go as T040 planned: no conformance case removes an absent product, so breaking `remove-item` left the suite green; the `refuse` handler is broken instead, and `scripts/conformance-broken.sh` keeps that proof standing.
 - The Secret Manager backend run for Go (`ANKKA_CONFORMANCE_SECRETS=secret-manager`) is wired but not recorded in quickstart.md.
 - `view.stream-named` streams 3 rows, not the scenario's 5000; it is the case the other languages' rows rely on as well.

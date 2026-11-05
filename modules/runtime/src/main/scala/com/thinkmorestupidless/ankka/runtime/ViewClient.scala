@@ -200,6 +200,14 @@ final class ViewQueries[Row] private[ankka] (
 
   private def decode(json: String): Row = serializer.fromBytes(json.getBytes("UTF-8"))
 
+  // A row is decoded off the thread that read it, under this service's keyring
+  // (`ServiceKeyring.decoding` says why).
+  private def decodedAll(payloads: Vector[String]): Future[Vector[Row]] =
+    keyring.ServiceKeyring.decoding(system)(payloads.map(decode))
+
+  private def decoded[M](payloads: Source[String, M]): Source[Row, M] =
+    payloads.mapAsync(1)(json => keyring.ServiceKeyring.decoding(system)(decode(json)))
+
   private def fetchSize: Int = system.settings.config.getInt("ankka.view.fetch-size")
 
   private def statementTimeout: FiniteDuration = ViewQueries.statementTimeout(askTimeout)
@@ -207,11 +215,12 @@ final class ViewQueries[Row] private[ankka] (
   /** The rows of `fragment`, a statement whose `payload` column holds each row, as a stream. */
   private def payloadStream(name: String, fragment: SqlFragment): Source[Row, NotUsed] =
     streamed(name)(
-      database
-        .stream(statementTimeout, fetchSize)(fragment.render, fragment.params.map(_.value))(
-          (row, _) => decode(row.get("payload", classOf[String]))
-        )
-        .mapError { case failure => refusal(name, statementTimeout, failure) }
+      decoded(
+        database
+          .stream(statementTimeout, fetchSize)(fragment.render, fragment.params.map(_.value))(
+            (row, _) => row.get("payload", classOf[String])
+          )
+      ).mapError { case failure => refusal(name, statementTimeout, failure) }
     )
 
   /**
@@ -281,13 +290,14 @@ final class ViewQueries[Row] private[ankka] (
       case Left(refused) => Source.failed(refused)
       case Right(query)  =>
         val rows = streamed(name)(
-          database
-            .stream(statementTimeout, fetchSize)(query.sql, bound(query, values)) {
-              (row, metadata) =>
-                if !metadata.contains("payload") then throw ViewQueries.NoPayload()
-                decode(row.get("payload", classOf[String]))
-            }
-            .mapError { case failure => refusal(name, statementTimeout, failure) }
+          decoded(
+            database
+              .stream(statementTimeout, fetchSize)(query.sql, bound(query, values)) {
+                (row, metadata) =>
+                  if !metadata.contains("payload") then throw ViewQueries.NoPayload()
+                  row.get("payload", classOf[String])
+              }
+          ).mapError { case failure => refusal(name, statementTimeout, failure) }
         )
         limitedTo(rows, limit)
 
@@ -379,10 +389,14 @@ final class ViewQueries[Row] private[ankka] (
             .watch(table, target, watching)(
               rowsNow.mapError { case failure => refusal(name, statementTimeout, failure) }
             )
+            // Decoded in step, not through an asynchronous stage, whose element in hand would
+            // stretch the watcher's unread bound. A stream stage runs on Pekko's threads, never the
+            // driver's, so binding the service's keyring is all it needs.
             .map {
-              case WatchEvent.Row(key, json) => WatchEvent.Row(key, decode(json))
-              case WatchEvent.Removed(key)   => WatchEvent.Removed(key)
-              case WatchEvent.CaughtUp       => WatchEvent.CaughtUp
+              case WatchEvent.Row(key, json) =>
+                WatchEvent.Row(key, keyring.ServiceKeyring.binding(system)(decode(json)))
+              case WatchEvent.Removed(key) => WatchEvent.Removed(key)
+              case WatchEvent.CaughtUp     => WatchEvent.CaughtUp
             }
         )
 
@@ -396,7 +410,7 @@ final class ViewQueries[Row] private[ankka] (
       case _ => Right(())
 
   private def payloads(fragment: SqlFragment): Future[Vector[Row]] =
-    database.query(fragment)(row => decode(row.get("payload", classOf[String]))).map(identity)
+    database.query(fragment)(row => row.get("payload", classOf[String])).flatMap(decodedAll)
 
   /** The row for a source entity id. */
   def getAsync(key: String): Future[Option[Row]] =
@@ -480,9 +494,10 @@ final class ViewQueries[Row] private[ankka] (
             .readOnly(timeout)(
               _.queryUpTo(query.sql, bound(query, values), limit) { (row, metadata) =>
                 if !metadata.contains("payload") then throw ViewQueries.NoPayload()
-                decode(row.get("payload", classOf[String]))
+                row.get("payload", classOf[String])
               }
             )
+            .flatMap(decodedAll)
             .recoverWith { case failure => Future.failed(refusal(name, timeout, failure)) }
         )
 

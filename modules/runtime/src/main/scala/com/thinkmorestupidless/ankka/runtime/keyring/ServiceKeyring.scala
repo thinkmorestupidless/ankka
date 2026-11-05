@@ -28,3 +28,16 @@ object ServiceKeyring:
 
   /** Runs `body` with the keyring of the service on `system` bound on this thread. */
   def binding[T](system: ActorSystem[?])(body: => T): T = Keyring.binding(of(system))(body)
+
+  /**
+   * Decodes what `body` decodes on a virtual thread, with the keyring of the service on `system`
+   * bound. Where a value read from the database is decoded: never in a row mapper, which runs on
+   * the database driver's event loop that every connection of the JVM shares, since a personal
+   * field may wait on the keyring and that wait stalled every database's statements until the fetch
+   * timed out (2026-11-05). The event loop also never saw the service's binding, and read with
+   * whichever keyring was installed last.
+   */
+  def decoding[T](system: ActorSystem[?])(body: => T): scala.concurrent.Future[T] =
+    scala.concurrent.Future(binding(system)(body))(using
+      com.thinkmorestupidless.ankka.runtime.AnkkaExecutors.virtual
+    )

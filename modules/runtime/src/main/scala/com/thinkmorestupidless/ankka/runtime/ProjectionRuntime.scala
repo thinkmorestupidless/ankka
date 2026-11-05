@@ -1569,7 +1569,9 @@ private final class ViewEventHandler[A](
 
     guard
       .inSession(session)
-      .flatMap(_ => ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer))
+      .flatMap(_ =>
+        ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer, system)
+      )
       .flatMap { row =>
         val effect =
           ProjectionSupport
@@ -1621,8 +1623,11 @@ private final class ViewStateHandler(
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
     database
-      .query(ViewStore.selectByKey(table, subject))(r =>
-        descriptor.rowSerializer.fromBytes(r.get("payload", classOf[String]).getBytes("UTF-8"))
+      .query(ViewStore.selectByKey(table, subject))(r => r.get("payload", classOf[String]))
+      .flatMap(payloads =>
+        keyring.ServiceKeyring.decoding(system)(
+          payloads.map(p => descriptor.rowSerializer.fromBytes(p.getBytes("UTF-8")))
+        )
       )
       .flatMap { existing =>
         view._setRow(existing.headOption)

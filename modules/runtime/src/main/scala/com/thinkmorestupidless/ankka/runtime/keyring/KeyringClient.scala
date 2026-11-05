@@ -97,6 +97,7 @@ final class KeyringClient(
     }
 
   private def fetch(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
+    KeyringClient.refuseOnEventLoop()
     val call = fetching.submit(() => store.key(project, subject, create))
     try
       val answer = call.get(settings.fetchTimeout.toMillis, TimeUnit.MILLISECONDS)
@@ -119,6 +120,7 @@ final class KeyringClient(
   /** `project`'s lookup key: asked for once, then held, since an erasure never destroys it. */
   def lookupKey(project: String): IArray[Byte] =
     Option(lookupKeys.get(project)).getOrElse {
+      KeyringClient.refuseOnEventLoop()
       val call = fetching.submit(() => store.lookupKey(project))
       val key  =
         try call.get(settings.fetchTimeout.toMillis, TimeUnit.MILLISECONDS)
@@ -250,3 +252,18 @@ object KeyringClient:
       ownProject: Option[String] = None
   ): KeyringClient =
     new KeyringClient(store, KeyCache(settings), settings, ownProject = ownProject)
+
+  /**
+   * Refuses a fetch on a non-blocking thread: the database driver's event loop, which every
+   * connection of the JVM shares. A fetch waits on the keyring, and waiting there stalled every
+   * database's statements until the fetch timed out (2026-11-05), so a value read from the database
+   * is decoded off it (`ServiceKeyring.decoding`). Failing at once names the caller that forgot.
+   */
+  private[keyring] def refuseOnEventLoop(): Unit =
+    if reactor.core.scheduler.Schedulers.isInNonBlockingThread() then
+      throw CommandError(
+        s"a personal field was decoded on ${Thread.currentThread().getName}, a non-blocking " +
+          "thread, where a key fetch would stall every database statement on it: decode it " +
+          "with ServiceKeyring.decoding",
+        ErrorCode.Internal
+      )

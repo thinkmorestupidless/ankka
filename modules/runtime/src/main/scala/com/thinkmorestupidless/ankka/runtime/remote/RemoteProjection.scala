@@ -271,7 +271,7 @@ private[ankka] final class RemoteViewEventHandler[A](
         val standing = ProjectionSupport.standingOf(read)
         guard
           .inSession(session)
-          .flatMap(_ => ProjectionSupport.loadRow(session, view.table, subject, Serializer.bytes))
+          .flatMap(_ => ProjectionSupport.loadPayload(session, view.table, subject))
           .flatMap { row =>
             view.decide(subject, envelope.sequenceNr, change, row, None, standing).flatMap {
               outcome =>

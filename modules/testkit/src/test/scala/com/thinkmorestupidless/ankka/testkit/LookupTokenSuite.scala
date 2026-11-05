@@ -96,6 +96,53 @@ final class LookupTokenSuite extends munit.FunSuite with LogCapturing:
     finally kit.stop()
   }
 
+  test("a row whose key is no longer held is read by every path") {
+    // Restarted, the service holds no key, so each read below fetches one while decoding its rows,
+    // which happens off the database driver's event loop (`ServiceKeyring.decoding`; whether a row
+    // would reach the decode on the loop is timing, so `ServiceKeyringSuite` is what proves it).
+    val keyring = InMemoryKeyring()
+    val kit     = AnkkaTestKit.start(
+      Seq(MemberEntity.descriptor, Members.descriptor),
+      Seq(ProjectionRuntime()),
+      serviceIdentity = ServiceIdentity.deployed("brand", "members"),
+      keyring = keyring
+    )
+    try
+      kit.componentClient
+        .forEventSourcedEntity(EntityId("8c1f"))
+        .call(MemberEntity.join)
+        .invoke("ada@example.com"): Unit
+      Iterator
+        .continually { Thread.sleep(100); kit.service.viewClient.forView(Members).get("8c1f") }
+        .take(300)
+        .find(_.nonEmpty)
+        .getOrElse(fail("the row was never written"))
+
+      def cold[A](read: => A): A =
+        kit.restartService()
+        read
+      def email(row: MemberRow): String = row.email.orElse("erased")
+      def rows                          = kit.service.viewClient.forView(Members)
+
+      assertEquals(cold(rows.get("8c1f")).map(email), Some("ada@example.com"))
+      assertEquals(
+        cold(rows.ask(Members.byCity, "city" -> "Leeds")).map(email),
+        Vector("ada@example.com")
+      )
+      val streamed = cold(
+        Await.result(
+          rows
+            .askStream(Members.byCity, "city" -> "Leeds")
+            .runWith(org.apache.pekko.stream.scaladsl.Sink.seq)(using
+              org.apache.pekko.stream.Materializer(kit.service.system)
+            ),
+          30.seconds
+        )
+      )
+      assertEquals(streamed.map(email), Vector("ada@example.com"))
+    finally kit.stop()
+  }
+
   test("envelopes are found at their paths, in the order they were written") {
     val json =
       """{"a":{"$personal":1,"project":"p","subject":"s/1","c":"x"},"b":[{"v":{"$personal":1,"project":"p","subject":"s/2"}}],"c":"{\"$personal\":1}"}"""

@@ -64,6 +64,34 @@ final class KeyringClientSuite extends munit.FunSuite:
       new KeyringClient(store, new KeyCache(100, settings.ttl, clock), settings, clock)
     (store, c)
 
+  /** `body` on a thread Reactor marks non-blocking, as the database driver's event loop is. */
+  private def onEventLoop[A](body: => A): scala.util.Try[A] =
+    val loop = reactor.core.scheduler.Schedulers.newSingle("event-loop-standin")
+    try
+      reactor.core.publisher.Mono
+        .fromCallable(() => scala.util.Try(body))
+        .subscribeOn(loop)
+        .block(java.time.Duration.ofSeconds(10))
+    finally loop.dispose()
+
+  test("a key not held is never fetched on a non-blocking thread: refused at once, naming why") {
+    val (store, c) = client(Manual())
+    val refused    = onEventLoop(c.key("brand", ada, create = false))
+    refused.failed.get match
+      case e: CommandError =>
+        assertEquals(e.code, ErrorCode.Internal)
+        assert(e.getMessage.contains("ServiceKeyring.decoding"), e.getMessage)
+      case other => fail(s"expected a CommandError, got $other")
+    assertEquals(store.fetches, 0)
+    val lookup = onEventLoop(c.lookupKey("brand"))
+    assert(lookup.isFailure, lookup.toString)
+    // Off it, the same read is served; and a key held is answered on it, as no fetch waits.
+    c.key("brand", ada, create = false): Unit
+    assertEquals(store.fetches, 1)
+    assert(onEventLoop(c.key("brand", ada, create = false)).isSuccess)
+    assertEquals(store.fetches, 1)
+  }
+
   test("a fresh key is asked for once, then answered from the cache") {
     val (store, c) = client(Manual())
     c.key("brand", ada, create = true)

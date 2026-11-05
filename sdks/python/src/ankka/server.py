@@ -226,9 +226,27 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
         entity_id = ""
         # This installation, for a replicated entity (1.19): None on a service that names none.
         here: str | None = None
+        # The entity's home as its records have named it so far (FR-032): Init.home, then each folded
+        # event's installation, then Command.home. Its personal fields' keys are that installation's.
+        home: str | None = None
+
+        def keys_at() -> str:
+            return "" if home is None or home == here else home
+
         async for message in request_iterator:
             kind = message.WhichOneof("message")
-            unopened = await _opened(message)
+            if kind == "init":
+                here = message.init.installation or None
+                home = message.init.home or None
+            elif kind == "event" and message.event.installation:
+                # A record from before replication names no installation, and reads as written at the home.
+                home = message.event.installation
+            elif kind == "command" and message.command.home:
+                home = message.command.home
+            # A command's input is its caller's, sealed with this installation's keys; a snapshot and
+            # an event are the record's, sealed with its home's.
+            with keyring.at_home("" if kind == "command" else keys_at()):
+                unopened = await _opened(message)
             if unopened is not None:
                 if kind == "command":
                     yield event_sourced_pb2.EventSourcedOut(failure=_refused(message.command.id, unopened))
@@ -237,7 +255,6 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                 yield event_sourced_pb2.EventSourcedOut(failure=_refused(0, unopened))
                 return
             if kind == "init":
-                here = message.init.installation or None
                 cls = self.registry.entities.get(message.init.component_id)
                 if cls is None:
                     yield event_sourced_pb2.EventSourcedOut(
@@ -248,7 +265,8 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                 entity_id = message.init.entity_id
                 entity._bind(entity_id)
                 if message.init.HasField("snapshot"):
-                    state = cls.state_codec.decode(message.init.snapshot.payload.data)
+                    with keyring.at_home(keys_at()):
+                        state = cls.state_codec.decode(message.init.snapshot.payload.data)
                     sequence = message.init.snapshot.sequence
                 else:
                     state = entity.empty_state()
@@ -256,9 +274,11 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
             elif kind == "event":
                 assert entity is not None
                 written = message.event.installation or here
+                with keyring.at_home(keys_at()):
+                    event = type(entity).event_codec.decode(message.event.payload.data)
                 state = entity._apply(
                     state,
-                    type(entity).event_codec.decode(message.event.payload.data),
+                    event,
                     EventContext(
                         written,
                         written == here,
@@ -309,7 +329,8 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                         )
                 reply = event_sourced_pb2.EventSourcedOut.Reply(command_id=cmd.id)
                 if not isinstance(effect.outcome, Fail):
-                    unsealable = await _sealable(effect.events, new_state if cmd.snapshot_requested else None)
+                    with keyring.at_home(keys_at()):
+                        unsealable = await _sealable(effect.events, new_state if cmd.snapshot_requested else None)
                     if unsealable is not None:
                         # Nothing is written: the reply is the refusal, and the state stays.
                         reply.outcome.error.CopyFrom(unsealable)
@@ -321,10 +342,11 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                     reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
                 elif isinstance(effect.outcome, NoReply):
                     reply.outcome.no_reply.SetInParent()
-                    reply.events.extend(
-                        payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(ev))
-                        for ev in effect.events
-                    )
+                    with keyring.at_home(keys_at()):
+                        reply.events.extend(
+                            payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(ev))
+                            for ev in effect.events
+                        )
                 else:
                     assert isinstance(effect.outcome, Reply)
                     try:
@@ -337,18 +359,19 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                         payload_pb2.Payload(content_type=spec.reply_codec.content_type, manifest=spec.reply_codec.manifest, data=encoded)
                     )
                     reply.outcome.reply.metadata.CopyFrom(effect.outcome.metadata.to_pb())
-                    reply.events.extend(
-                        payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(ev))
-                        for ev in effect.events
-                    )
+                    with keyring.at_home(keys_at()):
+                        reply.events.extend(
+                            payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(ev))
+                            for ev in effect.events
+                        )
                 retention = retention_to_pb(effect.retention) if not isinstance(effect.outcome, Fail) else None
                 if retention is not None:
                     reply.retention.CopyFrom(retention)
                 if cmd.snapshot_requested and not isinstance(effect.outcome, Fail):
                     sc = type(entity).state_codec
-                    reply.snapshot.CopyFrom(
-                        payload_pb2.Payload(content_type=sc.content_type, manifest=sc.manifest, data=sc.encode(new_state))
-                    )
+                    with keyring.at_home(keys_at()):
+                        data = sc.encode(new_state)
+                    reply.snapshot.CopyFrom(payload_pb2.Payload(content_type=sc.content_type, manifest=sc.manifest, data=data))
                 if not isinstance(effect.outcome, Fail):
                     state = new_state
                     sequence += len(effect.events)

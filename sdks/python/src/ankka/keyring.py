@@ -24,6 +24,8 @@ it may be the key the notice destroyed, and it is asked for again.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -31,7 +33,7 @@ import socket
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -48,6 +50,33 @@ for its own project (``SubjectKeyReply.project``)."""
 OWN = ""
 """How a key of this service's own project is asked for: the request names no project, and the
 answer names the project it is for."""
+
+_home: contextvars.ContextVar[str] = contextvars.ContextVar("ankka_keyring_home", default="")
+"""The installation whose keyring keeps the keys the code running now reads and writes: a replicated
+entity's home as its records name it (FR-032), "" for this installation's own."""
+
+
+def current_home() -> str:
+    """The home the keys being fetched and read now are kept by; "" for this installation."""
+    return _home.get()
+
+
+@contextlib.contextmanager
+def at_home(home: str | None) -> Iterator[None]:
+    """Fetches and codec calls inside use the keys of ``home``'s keyring ("" or None: this
+    installation's). Another home's keys are asked through the sidecar's relay, never made, and never
+    mix with this installation's keys of the same subject."""
+    token = _home.set(home or "")
+    try:
+        yield
+    finally:
+        _home.reset(token)
+
+
+def _at(pair: tuple[str, str]) -> tuple[str, str, str]:
+    """A cache entry's name: the project, the subject and the home, so two homes' keys of one subject
+    never mix."""
+    return (pair[0], pair[1], _home.get())
 
 
 @dataclass(frozen=True)
@@ -133,7 +162,7 @@ class Keyring:
         self.project = project
         self.settings = settings or KeyringSettings()
         self._clock = clock
-        self._cache: OrderedDict[tuple[str, str], _Held] = OrderedDict()
+        self._cache: OrderedDict[tuple[str, str, str], _Held] = OrderedDict()
         self._flying: dict[int, _Flight] = {}
 
     async def _fetch(self, project: str, subject: str, create: bool) -> tuple[str, bytes | None]:
@@ -171,24 +200,26 @@ class Keyring:
     def _held(self, pair: tuple[str, str]) -> _Held | None:
         """The entry for ``pair`` while it may be used, most recently used now; an expired one is
         forgotten."""
-        held = self._cache.get(pair)
+        held = self._cache.get(_at(pair))
         if held is None:
             return None
         if not self._usable(held):
-            del self._cache[pair]
+            del self._cache[_at(pair)]
             return None
-        self._cache.move_to_end(pair)
+        self._cache.move_to_end(_at(pair))
         return held
 
     def _put(self, pair: tuple[str, str], entry: _Entry) -> None:
-        foreign = self.project is None or pair[0] != self.project
-        self._cache[pair] = _Held(entry, self._clock(), foreign)
-        self._cache.move_to_end(pair)
+        # Another home's key is held as another project's is: no notice of that keyring reaches this
+        # process, so it lives for the foreign TTL and is never served through an outage.
+        foreign = self.project is None or pair[0] != self.project or _home.get() != ""
+        self._cache[_at(pair)] = _Held(entry, self._clock(), foreign)
+        self._cache.move_to_end(_at(pair))
         while len(self._cache) > self.settings.max_keys:
             self._cache.popitem(last=False)
 
     def _needs_fetch(self, pair: tuple[str, str]) -> bool:
-        held = self._cache.get(pair)
+        held = self._cache.get(_at(pair))
         return held is None or not self._fresh(held)
 
     # ── what the codec reads, synchronously ──────────────────────────────────
@@ -264,7 +295,7 @@ class Keyring:
                 if self._needs_fetch((origin, subject)):
                     resealed.add((origin, subject))
                 continue
-            held = self._cache.get((self.project, subject)) if self.project else None
+            held = self._cache.get(_at((self.project, subject))) if self.project else None
             if held is not None and self._fresh(held):
                 if isinstance(held.entry, bytes):
                     continue
@@ -274,7 +305,7 @@ class Keyring:
         await self._fetch_all(resealed, create=False)
         answered = await self._fetch_all(wanted, create=True)
         for project, subject in answered:
-            held = self._cache.get((project, subject))
+            held = self._cache.get(_at((project, subject)))
             if held is not None and isinstance(held.entry, _Erased):
                 raise SubjectErased(subject)
 
@@ -291,12 +322,12 @@ class Keyring:
         for (asked, subject), outcome in zip(pairs, outcomes, strict=True):
             if isinstance(outcome, KeyringUnavailable):
                 named = self.project if asked == OWN else asked
-                held = self._cache.get((named, subject)) if named else None
+                held = self._cache.get(_at((named, subject))) if named else None
                 if held is not None and self._serves_in_outage(held):
                     cached.append((named, subject))  # type: ignore[arg-type]
                     continue
                 if held is not None:
-                    del self._cache[(named, subject)]  # type: ignore[arg-type]
+                    del self._cache[_at((named, subject))]  # type: ignore[arg-type]
                 failure = failure or outcome
             elif isinstance(outcome, BaseException):
                 failure = failure or outcome
@@ -309,6 +340,8 @@ class Keyring:
     async def _fetch_one(self, asked: str, subject: str, create: bool) -> tuple[str, str]:
         """Fetches one pair and caches the answer, unless a notice dropped the subject while the
         fetch was out: that answer may be the destroyed key, so it is asked for again."""
+        # Another installation's keyring is read only to this one: a follower never makes a key.
+        create = create and _home.get() == ""
         for _ in range(_ATTEMPTS):
             flight = _Flight(subject)
             self._flying[id(flight)] = flight
@@ -349,17 +382,19 @@ class Keyring:
             flight.dropped = True
 
     def drop(self, project: str, subject: str) -> None:
-        """Forgets the subject's key, as a notice of its erasure asks."""
-        self._cache.pop((project, subject), None)
-        if project == OWN and self.project:
-            self._cache.pop((self.project, subject), None)
+        """Forgets the subject's key, from whichever home it was fetched, as a notice of its erasure
+        asks."""
+        projects = {project, self.project} if project == OWN and self.project else {project}
+        for name in [k for k in self._cache if k[0] in projects and k[1] == subject]:
+            del self._cache[name]
         for flight in self._flying.values():
             if flight.subject == subject:
                 flight.dropped = True
 
-    def holds(self, project: str, subject: str) -> bool:
-        """Whether an answer for ``subject`` of ``project`` is held and may be used."""
-        held = self._cache.get((project, subject))
+    def holds(self, project: str, subject: str, home: str = "") -> bool:
+        """Whether an answer for ``subject`` of ``project``, from ``home``'s keyring, is held and may
+        be used."""
+        held = self._cache.get((project, subject, home))
         return held is not None and self._usable(held)
 
     def __len__(self) -> int:
@@ -426,7 +461,7 @@ class SidecarKeyring(Keyring):
         from ankka._proto.ankka.protocol.v1 import client_pb2
 
         request = client_pb2.SubjectKeyRequest(
-            subject=subject, create=create, project=OWN if project == self.project else project
+            subject=subject, create=create, project=OWN if project == self.project else project, home=_home.get()
         )
         try:
             reply = await self.client._stub.GetSubjectKey(request)
@@ -531,4 +566,14 @@ def _payloads(message: Any) -> Iterable[bytes]:
                     yield from value
 
 
-__all__ = ["DataSubject", "InMemoryKeyring", "Keyring", "KeyringSettings", "SidecarKeyring", "current", "install"]
+__all__ = [
+    "DataSubject",
+    "InMemoryKeyring",
+    "Keyring",
+    "KeyringSettings",
+    "SidecarKeyring",
+    "at_home",
+    "current",
+    "current_home",
+    "install",
+]

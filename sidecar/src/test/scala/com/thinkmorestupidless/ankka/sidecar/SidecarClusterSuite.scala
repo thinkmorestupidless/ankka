@@ -259,7 +259,34 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
                   .getLog
               )
               .getOrElse("(no log)")
-            s"  [${c.getName}] ready=${c.getReady} restarts=${c.getRestartCount} $state$last\n$log"
+            // The last 30 lines of a container that exits on a failure are its shutdown: the
+            // exception that started it is earlier, in the previous run's log.
+            val cause =
+              if c.getRestartCount == 0 then ""
+              else
+                scala.util
+                  .Try(
+                    k8s
+                      .pods()
+                      .inNamespace(Namespace)
+                      .withName(name)
+                      .inContainer(c.getName)
+                      .terminated()
+                      .getLog
+                  )
+                  .toOption
+                  .map(
+                    _.linesIterator
+                      .filter(l =>
+                        l.contains(" ERROR ") || l.contains("Exception") ||
+                          l.contains("Caused by") || l.contains("OutOfMemory")
+                      )
+                      .take(12)
+                      .mkString("\n")
+                  )
+                  .filter(_.nonEmpty)
+                  .fold("")(errors => s"  previous run's errors:\n$errors\n")
+            s"  [${c.getName}] ready=${c.getReady} restarts=${c.getRestartCount} $state$last\n$cause$log"
           }
           val unmet = p.getStatus.getConditions.asScala
             .filter(_.getStatus != "True")

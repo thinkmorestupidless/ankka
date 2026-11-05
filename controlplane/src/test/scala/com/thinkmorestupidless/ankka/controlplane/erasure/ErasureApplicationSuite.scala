@@ -141,10 +141,11 @@ class ErasureApplicationSuite extends munit.FunSuite with LogCapturing:
       ask(kit, "brand/q1"): Unit
       entity.call(ErasureRequestEntity.logWritten).invoke(1L): Unit
       entity.call(ErasureRequestEntity.keyDestroyed).invoke(t0): Unit
-      Seq("players", "kyc").foreach(s =>
+      // kyc's completion erased something, so its quiet run after it is recorded.
+      Seq("players" -> None, "kyc" -> Some(HandlerReport(1, "immediate"))).foreach((s, h) =>
         entity
           .call(ErasureRequestEntity.recordCompletion)
-          .invoke(RecordCompletion(s, ServiceCompletion(Some(t0)))): Unit
+          .invoke(RecordCompletion(s, ServiceCompletion(Some(t0), handler = h))): Unit
       )
       def run(service: String, at: java.time.Instant, report: HandlerReport) =
         ServiceErasureStatus(service, Some(at), Some(Completion(0, 0, 0, Some(report))))

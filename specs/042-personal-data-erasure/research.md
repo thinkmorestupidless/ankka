@@ -471,3 +471,10 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   stay on this installation's keyring, as the request carries no home for them. A reply at a follower
   that holds a personal field is sealed for the caller here; whether that is right for a field whose
   key only the home holds is left open.
+- **A quiet re-run is recorded only when it changes what that service's last known run did**
+  (review, second round, 2026-11-05): after a run that erased or failed, never after a quiet run or
+  a quiet completion, so a request no longer gains one `RanQuietly` per service per pass. `lastRunAt`
+  and `quietRuns` therefore say when a service last became quiet, not when it last ran; neither is
+  shown anywhere. A failure is deduplicated against the service's last known run, quiet ones and its
+  completion included (`ErasureRequest.lastRun`), so failure, quiet, the same failure is two
+  `HandlerRan` events (FR-016).

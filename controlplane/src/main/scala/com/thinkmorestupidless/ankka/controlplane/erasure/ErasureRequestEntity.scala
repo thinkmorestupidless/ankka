@@ -167,15 +167,14 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
 
   /**
    * A run of a service's handler that erased something or failed (FR-016). The same failure as that
-   * service's last run is no news: a handler failing every re-run for the whole window is one
-   * event, not one each fifteen minutes, as `applyFailed` keeps one a failure.
+   * service's last known run, a quiet one included, is no news: a handler failing every re-run for
+   * the whole window is one event, not one each fifteen minutes, as `applyFailed` keeps one a
+   * failure; a failure after a quiet run is a failure again, and audited.
    */
   def recordHandlerRun(run: HandlerRun): Effect[ErasureRequest] =
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("re-run")
     else if run.report.error.isDefined &&
-      currentState.handlerRuns
-        .findLast(_.service == run.service)
-        .exists(_.report.error == run.report.error)
+      currentState.lastRun(run.service).exists(_._2.exists(_.error == run.report.error))
     then effects.reply(currentState)
     // At when the run reported, which is what the next pass compares the keyring's report with.
     else
@@ -184,12 +183,16 @@ final class ErasureRequestEntity(context: EventSourcedEntityContext)
         .thenReply(identity)
 
   /**
-   * A service's re-run that erased nothing and failed nowhere, reported at `at`; one no later than
-   * that service's last is no news.
+   * A service's re-run that erased nothing and failed nowhere, reported at `at`. It is recorded
+   * only when it changes what that service's last known run did: after a run that erased or failed,
+   * or the first after a completion that did. A quiet run after a quiet one is no news, or every
+   * service would add one each pass for the whole window; nor is one no later than that service's
+   * last.
    */
   def ranQuietly(run: QuietRun): Effect[ErasureRequest] =
+    val last = currentState.lastRun(run.service)
     if !currentState.state.contains(ErasureState.Applied) then stateConflict("re-run")
-    else if currentState.quietRuns.get(run.service).exists(!_.isBefore(run.at)) then
+    else if last.exists((at, report) => !at.isBefore(run.at) || report.isEmpty) then
       effects.reply(currentState)
     else
       effects.persist(RanQuietly(run.at, actor, Some(now), Some(run.service))).thenReply(identity)

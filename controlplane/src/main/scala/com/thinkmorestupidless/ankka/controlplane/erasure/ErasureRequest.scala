@@ -91,6 +91,24 @@ final case class ErasureRequest(
   /** The request's id within its project: `rid` of `<project>/<rid>`. */
   def rid: String = id.substring(id.indexOf('/') + 1)
 
+  /**
+   * `service`'s last known run, its completion, its audited runs and its quiet runs alike: when it
+   * was reported, and its report when it erased something or failed (none for a quiet one).
+   */
+  def lastRun(service: String): Option[(Instant, Option[HandlerReport])] =
+    val completion = completions
+      .get(service)
+      .map(c => (c.at.getOrElse(Instant.EPOCH), c.handler.filter(ErasureRequest.loud)))
+    val audited = handlerRuns
+      .filter(_.service == service)
+      .map(r => (r.at.getOrElse(Instant.EPOCH), Some(r.report)))
+    val quiet = quietRuns.get(service).map(at => (at, None))
+    // The later wins, and of two at one moment the one listed later: a quiet run is recorded only
+    // after what it follows.
+    (completion.toVector ++ audited ++ quiet).foldLeft(
+      Option.empty[(Instant, Option[HandlerReport])]
+    )((last, run) => if last.forall(l => !run._1.isBefore(l._1)) then Some(run) else last)
+
 object ErasureRequest:
   /** At most this long, by FR-014. */
   val ReasonLimit = 500
@@ -99,6 +117,9 @@ object ErasureRequest:
   val CorrelationLimit = 128
 
   def entityId(project: String, rid: String): String = s"$project/$rid"
+
+  /** A run the request audits (FR-016): one that erased something or failed. */
+  def loud(report: HandlerReport): Boolean = report.objectsErased > 0 || report.error.isDefined
 
 /** The events of an erasure request (`data-model.md`), each with who and when. */
 enum ErasureRequestEvent:

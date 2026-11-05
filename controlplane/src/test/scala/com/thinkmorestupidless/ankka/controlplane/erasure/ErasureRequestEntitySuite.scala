@@ -231,3 +231,49 @@ class ErasureRequestEntitySuite extends munit.FunSuite with LogCapturing:
     )
     assertEquals(k.currentState.lastRunAt, Some(later.at.plusSeconds(900)))
   }
+
+  test("a quiet run is recorded only when it changes what the service's last run did") {
+    val k                  = appliedKit()
+    def quiet(at: Instant) =
+      k.call(ErasureRequestEntity.ranQuietly, later.metadata)(QuietRun("players", at)).events.size
+    def erased(at: Instant) =
+      k.call(ErasureRequestEntity.recordHandlerRun, later.metadata)(
+        HandlerRun("players", HandlerReport(2, "immediate"), Some(at))
+      ).events
+        .size
+    k.call(ErasureRequestEntity.recordCompletion, later.metadata)(
+      RecordCompletion(
+        "players",
+        ServiceCompletion(Some(later.at), handler = Some(HandlerReport(0, "immediate")))
+      )
+    ): Unit
+    // After a quiet completion, every quiet re-run of the window is no news.
+    assertEquals((1 to 5).map(i => quiet(later.at.plusSeconds(900L * i))).sum, 0)
+    // After one that erased, the next quiet one is; the ones after it are not.
+    assertEquals(erased(later.at.plusSeconds(6000)), 1)
+    assertEquals(quiet(later.at.plusSeconds(6900)), 1)
+    assertEquals(quiet(later.at.plusSeconds(7800)), 0)
+    assertEquals(k.currentState.quietRuns, Map("players" -> later.at.plusSeconds(6900)))
+  }
+
+  test("a failure again after a quiet run is audited again") {
+    val k                   = appliedKit()
+    def failed(at: Instant) =
+      k.call(ErasureRequestEntity.recordHandlerRun, later.metadata)(
+        HandlerRun("kyc", HandlerReport.failed("no bucket"), Some(at))
+      ).events
+        .size
+    assertEquals(failed(later.at.plusSeconds(900)), 1)
+    assertEquals(
+      k.call(ErasureRequestEntity.ranQuietly, later.metadata)(
+        QuietRun("kyc", later.at.plusSeconds(1800))
+      ).events
+        .size,
+      1
+    )
+    assertEquals(failed(later.at.plusSeconds(2700)), 1, "the same failure after a quiet run")
+    assertEquals(
+      k.currentState.handlerRuns.map(_.at),
+      Vector(Some(later.at.plusSeconds(900)), Some(later.at.plusSeconds(2700)))
+    )
+  }

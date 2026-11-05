@@ -150,7 +150,8 @@ final class ErasureApplication(
   /**
    * Reads each service's latest report from the keyring into the request, for a service that has
    * completed before and reported since (a re-run, FR-015): a run that erased or failed is a
-   * `HandlerRan` (FR-016); runs that did neither set only `lastRunAt`.
+   * `HandlerRan` (FR-016); one that did neither is a `RanQuietly` only when it changes what that
+   * service's last known run did (the entity decides).
    */
   def recordRuns(current: ErasureRequest): Future[ErasureRequest] =
     current.erasureSeq.filter(_ => current.state.contains(ErasureState.Applied)) match

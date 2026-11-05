@@ -62,14 +62,17 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
       val n = keyring.sent.filter(_.subject == subject).last
       keyring.ack(KeyringAck(n.seq, "players", "players-0", Completion(1, 0, 0, Some(handler))))
 
-  private def withSweep(test: Plane => Unit): Unit =
+  private def withSweep(
+      personal: String => Set[String] = _ => Set.empty
+  )(test: Plane => Unit): Unit =
     val keyring = InMemoryKeyring()
     val clock   = MutableClock(Start)
     // "players" is connected, so no request is final before it answers: the kit's own service
     // answers every notice at once, and alone it would make a request final before "players" ran.
     val admin = TestKeyringAdmin(keyring, () => Vector("players"), clock = clock)
-    val plane = ErasurePlane(admin, Some(MemoryErasureLogBucket()), () => clock)
-    val kit   = AnkkaTestKit.start(
+    val plane =
+      ErasurePlane(admin, Some(MemoryErasureLogBucket()), () => clock, (_, p) => personal(p))
+    val kit = AnkkaTestKit.start(
       Seq(ErasureRequestEntity.descriptor, ErasureRequestsView.descriptor),
       Seq(ProjectionRuntime(), plane),
       keyring = keyring
@@ -88,7 +91,7 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
     finally kit.stop()
 
   test("a hold whose date has passed is applied by the control plane, and one before it is left") {
-    withSweep { p =>
+    withSweep() { p =>
       p.ask("brand/due", "player/due", Some(Start.plusSeconds(3600)))
       p.ask("brand/later", "player/later", Some(Start.plusSeconds(7200)))
       p.listed("brand/due", "held")
@@ -110,7 +113,7 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a request left applying is applied on the next pass") {
-    withSweep { p =>
+    withSweep() { p =>
       p.ask("brand/r1", "player/r1")
       p.admin.refuse = Some("the keyring is away")
       intercept[Throwable](
@@ -124,7 +127,7 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("the handlers run again within the window, at its edge, and never after it") {
-    withSweep { p =>
+    withSweep() { p =>
       p.ask("brand/old", "player/old")
       p.applied("brand/old")
       p.clock.advance(Duration.ofMinutes(1))
@@ -144,8 +147,8 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
-  test("a quiet re-run sets only when it ran; one that erased is a line of the history") {
-    withSweep { p =>
+  test("a quiet re-run is recorded only when it changes the last; one that erased is history") {
+    withSweep() { p =>
       p.ask("brand/r1", "player/r1")
       p.applied("brand/r1")
       p.ackLatest("player/r1", HandlerReport(0, "immediate"))
@@ -153,11 +156,13 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
       assert(p.read("brand/r1").completions.contains("players"))
       assertEquals(p.reruns("player/r1"), 1)
 
+      // A quiet re-run after a quiet completion is no news, for players and the kit's own service.
       p.clock.advance(Duration.ofMinutes(15))
       p.ackLatest("player/r1", HandlerReport(0, "immediate"))
       p.pass(): Unit
       val quiet = p.read("brand/r1")
-      assertEquals(quiet.lastRunAt, Some(p.clock.instant()))
+      assertEquals(quiet.quietRuns, Map.empty)
+      assertEquals(quiet.lastRunAt, None)
       assertEquals(quiet.handlerRuns, Vector.empty)
 
       p.clock.advance(Duration.ofMinutes(15))
@@ -168,13 +173,22 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
         loud.handlerRuns.map(r => (r.service, r.report.objectsErased)),
         Vector("players" -> 2L)
       )
-      // players' last quiet run is unchanged by its loud one (the kit's own service runs quietly).
-      assertEquals(loud.quietRuns.get("players"), quiet.quietRuns.get("players"))
+
+      // After one that erased, the next quiet one is recorded, and the one after it is not.
+      p.clock.advance(Duration.ofMinutes(15))
+      p.ackLatest("player/r1", HandlerReport(0, "immediate"))
+      p.pass(): Unit
+      val back = p.read("brand/r1")
+      assertEquals(back.quietRuns.get("players"), Some(p.clock.instant()))
+      p.clock.advance(Duration.ofMinutes(15))
+      p.ackLatest("player/r1", HandlerReport(0, "immediate"))
+      p.pass(): Unit
+      assertEquals(p.read("brand/r1").quietRuns, back.quietRuns)
     }
   }
 
   test("a request not final by the end of the window is read no more") {
-    withSweep { p =>
+    withSweep() { p =>
       p.ask("brand/late", "player/late")
       p.applied("brand/late")
       // players never answered within the window; its answer after it is not read in.

@@ -187,6 +187,25 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  test("a pass reads a project's personal services once, however many of its requests are open") {
+    val reads = java.util.concurrent.atomic.AtomicInteger()
+    withSweep { project =>
+      reads.incrementAndGet(); if project == "brand" then Set("kyc") else Set.empty
+    } { p =>
+      p.ask("brand/a", "player/a")
+      p.ask("brand/b", "player/b")
+      p.applied("brand/a")
+      p.applied("brand/b")
+      reads.set(0)
+      p.pass(): Unit
+      assertEquals(reads.get(), 1, "the personal services were read once per open request")
+      // kyc never answers, so both are still open, and the next pass reads them once again.
+      assertEquals(p.read("brand/a").finalAt, None)
+      p.pass(): Unit
+      assertEquals(reads.get(), 2)
+    }
+  }
+
   test("a request not final by the end of the window is read no more") {
     withSweep() { p =>
       p.ask("brand/late", "player/late")

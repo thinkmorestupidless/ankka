@@ -36,17 +36,24 @@ final class ErasureApplication(
   private def blocking[A](f: => A): Future[A] =
     Future(f)(using com.thinkmorestupidless.ankka.runtime.AnkkaExecutors.virtual)
 
-  /** Carries request `id` (`<project>/<rid>`) as far as it can go now; its state after. */
-  def apply(id: String): Future[ErasureRequest] =
+  /**
+   * Carries request `id` (`<project>/<rid>`) as far as it can go now; its state after. `services`
+   * is the project's personal services, `expected` unless the caller already read them: the sweep
+   * reads them once per project a pass.
+   */
+  def apply(id: String, services: String => Set[String] = expected): Future[ErasureRequest] =
     blocking(request(id).call(ErasureRequestEntity.get).invoke()).flatMap { current =>
       current.state match
-        case Some(ErasureState.Applying) => applying(current)
-        case Some(ErasureState.Applied)  => complete(current)
+        case Some(ErasureState.Applying) => applying(current, services)
+        case Some(ErasureState.Applied)  => complete(current, services)
         case _                           => Future.successful(current)
     }
 
-  private def applying(current: ErasureRequest): Future[ErasureRequest] =
-    attempt(current).recoverWith { case e =>
+  private def applying(
+      current: ErasureRequest,
+      services: String => Set[String]
+  ): Future[ErasureRequest] =
+    attempt(current, services).recoverWith { case e =>
       // Nothing was destroyed: the key is destroyed only after both copies of the log are written.
       // The request says why, and the failure is the caller's still, so the sweep tries again.
       val reason = e match
@@ -73,7 +80,10 @@ final class ErasureApplication(
       Future.failed(ApplyStep(s"$what: ${e.getMessage}", e))
     }
 
-  private def attempt(current: ErasureRequest): Future[ErasureRequest] =
+  private def attempt(
+      current: ErasureRequest,
+      services: String => Set[String]
+  ): Future[ErasureRequest] =
     for
       entry <- step("the erasure log could not be written")(
         log.write(current.project, current.rid, current.subject, Instant.now(clock))
@@ -93,11 +103,14 @@ final class ErasureApplication(
           .withMetadata(attribution())
           .invoke(gone.destroyedAt)
       )
-      done <- complete(after)
+      done <- complete(after, services)
     yield done
 
   /** Reads what the keyring knows of each service's completion into the request. */
-  def complete(current: ErasureRequest): Future[ErasureRequest] =
+  def complete(
+      current: ErasureRequest,
+      services: String => Set[String] = expected
+  ): Future[ErasureRequest] =
     current.erasureSeq match
       case None      => Future.successful(current)
       case Some(seq) =>
@@ -132,7 +145,7 @@ final class ErasureApplication(
                   .call(ErasureRequestEntity.objectsFinal)
                   .withMetadata(attribution())
                   .invoke(objectsFinal.max)
-            val due      = status.services.map(_.service).toSet ++ expected(current.project)
+            val due      = status.services.map(_.service).toSet ++ services(current.project)
             val everyone = due.nonEmpty && due.forall(withObjects.completions.contains)
             val failed = withObjects.completions.values.exists(_.handler.exists(_.error.isDefined))
             if everyone && !failed && withObjects.objectsFinalAt.forall(
@@ -204,6 +217,14 @@ final class ErasureApplication(
     }
 
 object ErasureApplication:
+  /**
+   * `services` read at most once per project for as long as the answer is held: one sweep pass.
+   * Reading a project's personal services is a view query and one entity call per service.
+   */
+  def once(services: String => Set[String]): String => Set[String] =
+    val read = scala.collection.concurrent.TrieMap.empty[String, Set[String]]
+    project => read.getOrElseUpdate(project, services(project))
+
   /**
    * The services request `r` still waits on: those its project expects that have not completed,
    * none once it is final. The request's page and its certificate list them with no completion.

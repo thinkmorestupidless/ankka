@@ -471,6 +471,14 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   stay on this installation's keyring, as the request carries no home for them. A reply at a follower
   that holds a personal field is sealed for the caller here; whether that is right for a field whose
   key only the home holds is left open.
+- **A project's personal services are read once per project per sweep pass, not carried on the
+  service rows** (review, second round, decided 2026-11-05). `personalServices` is a view query and
+  an entity call per service; it ran for every open applied request on every pass. The sweep now
+  holds each project's answer for the pass (`ErasureApplication.once`). Rejected: `personal` on
+  `ServiceRows`' row, filtered in the query: the row is `ServiceStatus`, the control plane's wire
+  type that `services list` and `get` answer, so it would add a field to the API, and the view would
+  need a version, re-reading every service's journal on upgrade, for a cost the pass already bounds.
+  A request's page and certificate still read the set once per GET, which is a person's pace.
 - **A quiet re-run is recorded only when it changes what that service's last known run did**
   (review, second round, 2026-11-05): after a run that erased or failed, never after a quiet run or
   a quiet completion, so a request no longer gains one `RanQuietly` per service per pass. `lastRunAt`

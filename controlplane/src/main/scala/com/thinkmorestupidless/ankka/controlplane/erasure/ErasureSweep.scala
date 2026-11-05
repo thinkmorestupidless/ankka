@@ -67,6 +67,8 @@ final class ErasureSweep(
 
     // Within the window, by when the key was destroyed: the edge itself is within it.
     val since = now.minusMillis(window().toMillis)
+    // A project's personal services, read once this pass however many of its requests are open.
+    val services = ErasureApplication.once(application.expected)
     rows.ask(ErasureRequestsView.open, "since" -> since.toString).foreach { row =>
       row.state match
         case "held" if row.notBefore.exists(!_.isAfter(now)) =>
@@ -75,16 +77,16 @@ final class ErasureSweep(
               .call(ErasureRequestEntity.lapse)
               .withMetadata(plane.attribution())
               .invoke()
-            await(application.apply(row.id)): Unit
+            await(application.apply(row.id, services)): Unit
             result = result.copy(lapsed = result.lapsed :+ row.id)
           }
         case "applying" =>
           attempt(row.id) {
-            await(application.apply(row.id)): Unit
+            await(application.apply(row.id, services)): Unit
             result = result.copy(retried = result.retried :+ row.id)
           }
         case "applied" =>
-          attempt(row.id)(await(application.apply(row.id)): Unit)
+          attempt(row.id)(await(application.apply(row.id, services)): Unit)
         case _ => ()
     }
 

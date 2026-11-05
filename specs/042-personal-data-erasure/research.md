@@ -374,3 +374,20 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   notices channel was confirmed within `outage-bound`; `check()` still drops every key at
   `notice-bound`. The old rule that the outage bound be at least the lifetime is gone; the new one
   refuses an outage bound above the notice bound.
+- **A start says hello from what its database line records as carried out** (2026-11-05, review).
+  `ankka_erasure_replay` gains `carried_through`, read before the notices channel opens and raised
+  by the duties as notices are carried out; it advances only over a contiguous prefix of the
+  notices handed (`CarriedThrough`), counted over the notices themselves, since a project's
+  erasure numbers are the installation's and have gaps. The remote client's reconnect hello uses
+  the same mark, so a notice whose duties failed is handed again however many later ones
+  succeeded. A new line (a restore, a new database) has no row and still asks for everything.
+- **A lookup field inside a collection is refused, not tokened per element** (2026-11-05, review).
+  The lookup column holds one token per path and declared queries compare `lookup ->> '<path>'`;
+  a token array per path would change every lookup query's form for a case no sample needs.
+  `View.Companion.lookup` and `KeyedView.Companion.lookup` refuse a `[*]` path, and a row whose
+  envelopes and sealed values differ in number is refused rather than written with no tokens.
+  With lookup paths plain dotted paths, redaction finds a token's envelope as `payload #> path`
+  and drops only the erased subject's.
+- **The keyring replays every log entry missing from `applied_log`** (2026-11-05, review). Nothing
+  serialises the order entries are applied in: an entry is numbered when the control plane writes
+  it and destroyed afterwards, and a destroy that met an unavailable keyring is retried later.

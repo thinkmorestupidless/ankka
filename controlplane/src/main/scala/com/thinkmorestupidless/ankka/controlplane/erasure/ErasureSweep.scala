@@ -65,7 +65,9 @@ final class ErasureSweep(
           result = result.copy(failed = result.failed :+ id)
           log.warn(s"the erasure sweep could not carry erasure request $id on: ${e.getMessage}")
 
-    rows.ask(ErasureRequestsView.open).foreach { row =>
+    // Within the window, by when the key was destroyed: the edge itself is within it.
+    val since = now.minusMillis(window().toMillis)
+    rows.ask(ErasureRequestsView.open, "since" -> since.toString).foreach { row =>
       row.state match
         case "held" if row.notBefore.exists(!_.isAfter(now)) =>
           attempt(row.id) {
@@ -86,11 +88,7 @@ final class ErasureSweep(
         case _ => ()
     }
 
-    // Within the window, by when the key was destroyed: the edge itself is within it.
-    val since  = now.minusMillis(window().toMillis)
-    val recent = rows
-      .ask(ErasureRequestsView.applied)
-      .filter(_.appliedAt.exists(at => !at.isBefore(since)))
+    val recent   = rows.ask(ErasureRequestsView.applied, "since" -> since.toString)
     val rerunDue = lastRerun.get.forall(at => !now.isBefore(at.plusMillis(rerunEvery.toMillis)))
     recent.foreach { row =>
       attempt(row.id) {

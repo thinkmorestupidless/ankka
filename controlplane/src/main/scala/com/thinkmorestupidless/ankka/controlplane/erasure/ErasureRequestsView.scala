@@ -23,6 +23,8 @@ final case class ErasureRequestRow(
     askedAt: Option[Instant] = None,
     appliedAt: Option[Instant] = None,
     finalAt: Option[Instant] = None,
+    /** When the request's objects are gone for good, once a handler reported a window. */
+    objectsFinalAt: Option[Instant] = None,
     /** Every event of the request, for the project's history (FR-016). */
     history: Vector[ErasureHistoryLine] = Vector.empty
 )
@@ -71,9 +73,9 @@ final class ErasureRequestsRowsView extends View[ErasureRequestEvent, ErasureReq
       effects.updateRow(row.copy(state = ErasureState.Applying.wire))
     case KeyDestroyed(when, _, _) =>
       effects.updateRow(row.copy(state = ErasureState.Applied.wire, appliedAt = Some(when)))
-    case Finalised(_, at) => effects.updateRow(row.copy(finalAt = at))
-    case _: ApplyFailed | _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: ObjectsFinal |
-        _: RanQuietly =>
+    case Finalised(_, at)         => effects.updateRow(row.copy(finalAt = at))
+    case ObjectsFinal(when, _, _) => effects.updateRow(row.copy(objectsFinalAt = Some(when)))
+    case _: ApplyFailed | _: LogWritten | _: ServiceCompleted | _: HandlerRan | _: RanQuietly =>
       effects.updateRow(row)
 
 object ErasureRequestsView
@@ -159,16 +161,24 @@ object ErasureRequestsView
       "AND payload::jsonb->>'subject' = :subject ORDER BY payload::jsonb->>'askedAt' DESC"
   )
 
-  /** What the sweep carries on (T059): held, applying, or applied and not yet final. */
+  /**
+   * What the sweep carries on (T059): held, applying, or applied and not yet final, while applied
+   * since `since` (the re-run window's start) or waiting on its objects' date. One past the window
+   * with no date waits on a service that has not carried it out; it is read no more, and says so on
+   * its page and its certificate.
+   */
   val open = query("open")(
     s"SELECT payload FROM $table WHERE payload::jsonb->>'state' = 'held' " +
       "OR payload::jsonb->>'state' = 'applying' " +
-      "OR (payload::jsonb->>'state' = 'applied' AND payload::jsonb->>'finalAt' IS NULL)"
+      "OR (payload::jsonb->>'state' = 'applied' AND payload::jsonb->>'finalAt' IS NULL " +
+      "AND (CAST(payload::jsonb->>'appliedAt' AS timestamptz) >= CAST(:since AS timestamptz) " +
+      "OR payload::jsonb->>'objectsFinalAt' IS NOT NULL))"
   )
 
-  /** Every applied request, whose handlers the sweep runs again within the window. */
+  /** Every request applied since `since`, whose handlers the sweep runs again (FR-015). */
   val applied = query("applied")(
-    s"SELECT payload FROM $table WHERE payload::jsonb->>'state' = 'applied'"
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'state' = 'applied' " +
+      "AND CAST(payload::jsonb->>'appliedAt' AS timestamptz) >= CAST(:since AS timestamptz)"
   )
 
   val byCorrelation = query("by-correlation")(

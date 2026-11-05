@@ -172,3 +172,18 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
       assertEquals(loud.quietRuns.get("players"), quiet.quietRuns.get("players"))
     }
   }
+
+  test("a request not final by the end of the window is read no more") {
+    withSweep { p =>
+      p.ask("brand/late", "player/late")
+      p.applied("brand/late")
+      // players never answered within the window; its answer after it is not read in.
+      p.clock.advance(Duration.ofDays(30).plusMinutes(1))
+      p.ackLatest("player/late", HandlerReport(0, "immediate"))
+      val past = p.pass()
+      assertEquals(past.rerun, Vector.empty)
+      val late = p.read("brand/late")
+      assert(!late.completions.contains("players"), late.toString)
+      assertEquals(late.finalAt, None)
+    }
+  }

@@ -478,6 +478,8 @@ final class ServiceBuilder private[ankka] (
             .LocalKeyring(keyringProject, Database()(using system))(using system.executionContext)
         )
       )
+    com.thinkmorestupidless.ankka.runtime.keyring.ErasureHandlerHost
+      .requireKeyring(erasureHandler.isDefined, keyringStore.isDefined)
     lazy val keyringCarriedFrom =
       if NoDatabase.declared(system.settings.config) then 0L
       else

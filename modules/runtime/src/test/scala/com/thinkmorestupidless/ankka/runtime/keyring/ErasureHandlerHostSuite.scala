@@ -17,6 +17,15 @@ import scala.concurrent.duration.*
  */
 class ErasureHandlerHostSuite extends FunSuite:
 
+  test("a service with an erasure handler and no keyring is refused at start, saying why") {
+    val e = intercept[IllegalStateException](
+      ErasureHandlerHost.requireKeyring(hasHandler = true, hasKeyring = false)
+    )
+    assert(e.getMessage.contains(""""personal": true"""), e.getMessage)
+    ErasureHandlerHost.requireKeyring(hasHandler = true, hasKeyring = true)
+    ErasureHandlerHost.requireKeyring(hasHandler = false, hasKeyring = false)
+  }
+
   test("a notice heard before the handler's singleton has started waits for it, and is run") {
     // A cluster that has not formed yet: no singleton can start until the member is up.
     val config = ConfigFactory

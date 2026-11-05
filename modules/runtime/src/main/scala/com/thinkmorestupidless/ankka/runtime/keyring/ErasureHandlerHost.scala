@@ -58,6 +58,18 @@ private[ankka] object ErasureHandlerHost:
    * Marks the instance holding it, and answers any ask once it is up (a String, which Pekko
    * serializes).
    */
+  /**
+   * A service with an erasure handler and no keyring hears no notice, so its handler would never
+   * run and every erasure would be certified without it: refused at start, saying what declares it.
+   */
+  def requireKeyring(hasHandler: Boolean, hasKeyring: Boolean): Unit =
+    if hasHandler && !hasKeyring then
+      throw IllegalStateException(
+        "the service declares an erasure handler, but no keyring reaches it, so the handler " +
+          "would never run: declare \"personal\": true in its descriptor, which gives it the " +
+          "installation's keyring (ANKKA_KEYRING_ADDRESS)"
+      )
+
   private def marker(holding: AtomicBoolean): Behavior[ActorRef[String]] =
     Behaviors.setup { _ =>
       holding.set(true)

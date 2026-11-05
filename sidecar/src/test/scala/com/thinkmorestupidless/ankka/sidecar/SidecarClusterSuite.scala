@@ -277,6 +277,8 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
                   .toOption
                   .map(
                     _.linesIterator
+                      // Bootstrap's probes of peers not yet up are expected, and many.
+                      .filterNot(l => l.contains("Probing [") || l.contains("probing-failure"))
                       .filter(l =>
                         l.contains(" ERROR ") || l.contains("Exception") ||
                           l.contains("Caused by") || l.contains("OutOfMemory")

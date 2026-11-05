@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.core.Metadata
+import com.thinkmorestupidless.ankka.runtime.Trace
 import com.thinkmorestupidless.ankka.runtime.remote.{Conversation, RemoteErasureCall}
 import com.thinkmorestupidless.ankka.sdk.{ErasureHandler, ErasureReport, Finality}
 
@@ -17,9 +18,13 @@ object RemoteErasureHandler:
 
   def apply(conversation: Conversation, timeout: FiniteDuration): ErasureHandler =
     ErasureHandler { ctx => subject =>
-      val report = Await.result(
+      // The handler's metadata, as anything the runtime asks a process to do on a handler's behalf
+      // carries (sidecar.md): the trace and the caller current where the handler runs, so a call
+      // the process's handler makes is traced and counted under it.
+      val metadata = Trace.outbound(Metadata.empty)
+      val report   = Await.result(
         conversation.invokeErasure(
-          RemoteErasureCall(subject.value, ctx.erasureSeq, ctx.rerun, Metadata.empty)
+          RemoteErasureCall(subject.value, ctx.erasureSeq, ctx.rerun, metadata)
         ),
         timeout
       )

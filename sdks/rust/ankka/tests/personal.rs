@@ -46,7 +46,11 @@ fn every_subject_in_the_fixture_gets_its_verdict_in_the_fixtures_words() {
     for invalid in subjects["invalid"].as_array().unwrap() {
         let text = invalid.as_str().unwrap();
         let refused = DataSubject::new(text).expect_err(text);
-        assert!(refused.0.ends_with(SUBJECT_RULE), "{refused}");
+        // The refusal names the rule and never repeats the value, which may be personal data.
+        assert_eq!(
+            refused.0,
+            format!("the value given is not a data subject: {SUBJECT_RULE}")
+        );
         let read: Result<DataSubject, _> = serde_json::from_value(invalid.clone());
         assert!(read.is_err(), "{text:?} read as a subject");
     }

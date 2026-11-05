@@ -124,7 +124,7 @@ class PersonalTest {
         val subjects = read(FixtureSubjects::class.java, "subjects.json")
         subjects.invalid.forEach { invalid ->
             val e = runCatching { subject(invalid) }.exceptionOrNull() ?: fail("'$invalid' was accepted")
-            assertEquals("'$invalid' is not a data subject: ${subjects.message}", e.message)
+            assertEquals("the value given is not a data subject: ${subjects.message}", e.message)
         }
         subjects.valid.forEach { assertEquals(it, subject(it).value()) }
     }

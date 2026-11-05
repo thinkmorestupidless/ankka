@@ -121,12 +121,8 @@ impl DataSubject {
                 origin: None,
             })
         } else {
-            let shown: String = value
-                .chars()
-                .map(|c| if c.is_control() { '?' } else { c })
-                .collect();
             Err(InvalidSubject(format!(
-                "'{shown}' is not a data subject: {SUBJECT_RULE}"
+                "the value given is not a data subject: {SUBJECT_RULE}"
             )))
         }
     }

@@ -64,7 +64,7 @@ describe("erasure requests through the client", () => {
 
   test("a subject outside the rule is refused in the control plane's words", async () => {
     const member = await as("member");
-    await assert.rejects(member.askErasure("brand", { subject: "player 8c1f" }), refused(400, /is not a data subject: a data subject is 1 to 253 characters/));
+    await assert.rejects(member.askErasure("brand", { subject: "player 8c1f" }), refused(400, /^the value given is not a data subject: a data subject is 1 to 253 characters/));
   });
 
   test("a held request is replaced and withdrawn by a member, overridden only by an owner, and has no certificate until applied", async () => {

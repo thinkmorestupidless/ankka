@@ -1639,7 +1639,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   });
 
   function askErasure(project: Project, subject: unknown, notBefore: string | undefined, reason: string | undefined, correlation: string | undefined, askedBy: string | undefined): ErasureRecord {
-    if (typeof subject !== "string" || !/^[A-Za-z0-9._/:-]{1,253}$/.test(subject)) throw new HttpError(400, `'${String(subject)}' is not a data subject: ${SubjectRule}`);
+    if (typeof subject !== "string" || !/^[A-Za-z0-9._/:-]{1,253}$/.test(subject)) throw new HttpError(400, `the value given is not a data subject: ${SubjectRule}`);
     if (reason !== undefined && reason.length > 500) throw new HttpError(400, "a reason is at most 500 characters");
     if (correlation !== undefined && !/^[A-Za-z0-9._/:-]{1,128}$/.test(correlation))
       throw new HttpError(400, "a correlation is 1 to 128 characters from letters, digits, '.', '_', '-', '/' and ':'");

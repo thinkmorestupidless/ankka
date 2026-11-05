@@ -146,7 +146,7 @@ class PersonalRecordCodecSuite extends munit.FunSuite:
       val e = intercept[IllegalArgumentException](DataSubject.of(invalid.asText))
       assertEquals(
         e.getMessage,
-        s"'${invalid.asText}' is not a data subject: ${subjects.get("message").asText}"
+        s"the value given is not a data subject: ${subjects.get("message").asText}"
       )
     for valid <- subjects.get("valid").asScala do
       assertEquals(DataSubject.of(valid.asText).value, valid.asText)

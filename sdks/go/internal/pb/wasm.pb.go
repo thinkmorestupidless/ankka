@@ -816,11 +816,17 @@ func (x *StreamTokens) GetTokens() []*StreamToken {
 // field's own JSON; `manifest` the manifest of the record the field is in, which the envelope is
 // bound to. A write for an erased data subject is the reply's Error (CONFLICT), never a trap.
 type KeyringSealRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Subject       string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
-	Manifest      string                 `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
-	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
-	Erased        bool                   `protobuf:"varint,4,opt,name=erased,proto3" json:"erased,omitempty"` // the field written erased: the envelope without
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Subject  string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`
+	Manifest string                 `protobuf:"bytes,2,opt,name=manifest,proto3" json:"manifest,omitempty"`
+	Value    []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	Erased   bool                   `protobuf:"varint,4,opt,name=erased,proto3" json:"erased,omitempty"` // the field written erased: the envelope without
+	// `c`, under the project the runtime holds; `value`
+	// is not read
+	// 1.23: the project of the envelope the field was read from, when another project's (FR-027):
+	// the field is sealed again under that project's key, never made here, and written erased when
+	// that key is no longer given. Empty: the runtime's own project.
+	Project       string `protobuf:"bytes,5,opt,name=project,proto3" json:"project,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -881,6 +887,13 @@ func (x *KeyringSealRequest) GetErased() bool {
 		return x.Erased
 	}
 	return false
+}
+
+func (x *KeyringSealRequest) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
 }
 
 type KeyringSealReply struct {
@@ -1188,12 +1201,13 @@ const file_ankka_protocol_v1_wasm_proto_rawDesc = "" +
 	"\x05value\x18\x01 \x01(\tH\x00R\x05value\x88\x01\x01B\b\n" +
 	"\x06_value\"F\n" +
 	"\fStreamTokens\x126\n" +
-	"\x06tokens\x18\x01 \x03(\v2\x1e.ankka.protocol.v1.StreamTokenR\x06tokens\"x\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x1e.ankka.protocol.v1.StreamTokenR\x06tokens\"\x92\x01\n" +
 	"\x12KeyringSealRequest\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x1a\n" +
 	"\bmanifest\x18\x02 \x01(\tR\bmanifest\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value\x12\x16\n" +
-	"\x06erased\x18\x04 \x01(\bR\x06erased\"k\n" +
+	"\x06erased\x18\x04 \x01(\bR\x06erased\x12\x18\n" +
+	"\aproject\x18\x05 \x01(\tR\aproject\"k\n" +
 	"\x10KeyringSealReply\x12\x1c\n" +
 	"\benvelope\x18\x01 \x01(\fH\x00R\benvelope\x120\n" +
 	"\x05error\x18\x02 \x01(\v2\x18.ankka.protocol.v1.ErrorH\x00R\x05errorB\a\n" +

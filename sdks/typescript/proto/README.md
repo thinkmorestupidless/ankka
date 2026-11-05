@@ -88,7 +88,13 @@ a module the `keyring_seal` and `keyring_open` imports, the `erase` export and `
 op. A process seals and opens envelopes itself (`ENCODING.md`, "Personal fields"), so the sidecar
 never reads a personal value. A sidecar refuses `erasure_handler` from an SDK declaring an earlier
 minor, an SDK using personal fields or a handler refuses discovery from a runtime that states an
-earlier one, and an earlier runtime answers the four rpcs `UNIMPLEMENTED`.
+earlier one, and an earlier runtime answers the four rpcs `UNIMPLEMENTED`. A field read from another project's
+envelope is written again under that project's key (FR-027): a process asks `GetSubjectKey` with
+that `project` and `create` false, a module sets `KeyringSealRequest.project`. A replicated
+entity's keys are its home's (FR-032): a process tracks the home from `Init.home`, each
+`Event.installation` and `Command.home`, and names it as `SubjectKeyRequest.home`; the sidecar
+asks another installation's keyring through the relay, and an unreachable one is `UNAVAILABLE`,
+never erased. A module's home is the host's to know.
 
 `MAJOR.MINOR`. Within a major:
 

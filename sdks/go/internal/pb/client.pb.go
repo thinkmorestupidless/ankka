@@ -3428,12 +3428,21 @@ func (x *ObjectEntry) GetLastKept() string {
 
 // 1.23: a data subject's key. `create` on a write: made when absent, refused for an erased subject.
 // `project` empty: the service's own; another project's only under a consume grant with `decrypt`.
+// A write of a field read from another project's envelope asks that project's key with `create`
+// false, and seals the field under it again (FR-027); a key it is no longer given writes the field
+// erased.
 type SubjectKeyRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Subject       string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`   // 1.23
-	Create        bool                   `protobuf:"varint,2,opt,name=create,proto3" json:"create,omitempty"`    // 1.23
-	Project       string                 `protobuf:"bytes,3,opt,name=project,proto3" json:"project,omitempty"`   // 1.23
-	Metadata      *Metadata              `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"` // 1.23: the trace
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Subject  string                 `protobuf:"bytes,1,opt,name=subject,proto3" json:"subject,omitempty"`   // 1.23
+	Create   bool                   `protobuf:"varint,2,opt,name=create,proto3" json:"create,omitempty"`    // 1.23
+	Project  string                 `protobuf:"bytes,3,opt,name=project,proto3" json:"project,omitempty"`   // 1.23
+	Metadata *Metadata              `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"` // 1.23: the trace
+	// 1.23: the installation whose keyring keeps the key: a replicated entity's home as the record
+	// being read or written names it (EventSourcedIn's `Init.home`, then each `Event.installation`,
+	// and `Command.home`). Empty, or this installation: the service's own keyring. Any other is asked
+	// through the runtime's keyring relay (FR-032), read only: a follower never makes a key, and a
+	// relay that cannot be reached is UNAVAILABLE, never erased.
+	Home          string `protobuf:"bytes,5,opt,name=home,proto3" json:"home,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3494,6 +3503,13 @@ func (x *SubjectKeyRequest) GetMetadata() *Metadata {
 		return x.Metadata
 	}
 	return nil
+}
+
+func (x *SubjectKeyRequest) GetHome() string {
+	if x != nil {
+		return x.Home
+	}
+	return ""
 }
 
 type SubjectKeyReply struct {
@@ -4355,12 +4371,13 @@ const file_ankka_protocol_v1_client_proto_rawDesc = "" +
 	"\vObjectEntry\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06length\x18\x02 \x01(\x04R\x06length\x12\x1b\n" +
-	"\tlast_kept\x18\x03 \x01(\tR\blastKept\"\x98\x01\n" +
+	"\tlast_kept\x18\x03 \x01(\tR\blastKept\"\xac\x01\n" +
 	"\x11SubjectKeyRequest\x12\x18\n" +
 	"\asubject\x18\x01 \x01(\tR\asubject\x12\x16\n" +
 	"\x06create\x18\x02 \x01(\bR\x06create\x12\x18\n" +
 	"\aproject\x18\x03 \x01(\tR\aproject\x127\n" +
-	"\bmetadata\x18\x04 \x01(\v2\x1b.ankka.protocol.v1.MetadataR\bmetadata\"\x94\x01\n" +
+	"\bmetadata\x18\x04 \x01(\v2\x1b.ankka.protocol.v1.MetadataR\bmetadata\x12\x12\n" +
+	"\x04home\x18\x05 \x01(\tR\x04home\"\x94\x01\n" +
 	"\x0fSubjectKeyReply\x12\x12\n" +
 	"\x03key\x18\x01 \x01(\fH\x00R\x03key\x12\x18\n" +
 	"\x06erased\x18\x02 \x01(\bH\x00R\x06erased\x120\n" +

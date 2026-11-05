@@ -391,11 +391,20 @@ message ObjectEntry {
 
 // 1.23: a data subject's key. `create` on a write: made when absent, refused for an erased subject.
 // `project` empty: the service's own; another project's only under a consume grant with `decrypt`.
+// A write of a field read from another project's envelope asks that project's key with `create`
+// false, and seals the field under it again (FR-027); a key it is no longer given writes the field
+// erased.
 message SubjectKeyRequest {
   string subject = 1;                         // 1.23
   bool create = 2;                            // 1.23
   string project = 3;                         // 1.23
   Metadata metadata = 4;                      // 1.23: the trace
+  // 1.23: the installation whose keyring keeps the key: a replicated entity's home as the record
+  // being read or written names it (EventSourcedIn's `Init.home`, then each `Event.installation`,
+  // and `Command.home`). Empty, or this installation: the service's own keyring. Any other is asked
+  // through the runtime's keyring relay (FR-032), read only: a follower never makes a key, and a
+  // relay that cannot be reached is UNAVAILABLE, never erased.
+  string home = 5;
 }
 
 message SubjectKeyReply {

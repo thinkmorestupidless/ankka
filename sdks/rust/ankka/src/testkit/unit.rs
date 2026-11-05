@@ -238,6 +238,8 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     // The unit kit's calls are made by nobody and forwarded from nowhere.
                     attribution: String::new(),
                     forwarded_from: String::new(),
+                    // The host's to know; a module is not told it (FR-032).
+                    home: String::new(),
                 },
             )),
         };
@@ -1095,6 +1097,12 @@ impl InMemoryKeyring {
         use proto::keyring_seal_reply::Reply;
         let mut held = self.held.borrow_mut();
         held.seals.push(request.clone());
+        // A field read from another project's envelope is written under that project (FR-027).
+        let project = if request.project.is_empty() {
+            TEST_PROJECT.to_string()
+        } else {
+            request.project.clone()
+        };
         let reply = if held.unavailable {
             Reply::Error(InMemoryKeyring::unavailable())
         } else if let Err(e) = crate::personal::DataSubject::new(request.subject.clone()) {
@@ -1106,7 +1114,7 @@ impl InMemoryKeyring {
         } else if request.erased {
             let envelope = serde_json::json!({
                 "$personal": 1,
-                "project": TEST_PROJECT,
+                "project": project,
                 "subject": request.subject,
             });
             Reply::Envelope(serde_json::to_vec(&envelope).expect("an envelope encodes"))
@@ -1122,7 +1130,7 @@ impl InMemoryKeyring {
         } else {
             let envelope = serde_json::json!({
                 "$personal": 1,
-                "project": TEST_PROJECT,
+                "project": project,
                 "subject": request.subject,
                 "c": InMemoryKeyring::sealed(&request.manifest, &request.value),
             });

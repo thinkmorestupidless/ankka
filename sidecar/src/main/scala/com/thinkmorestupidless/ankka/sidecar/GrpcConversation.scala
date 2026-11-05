@@ -209,7 +209,8 @@ final class GrpcConversation(
                 init.snapshot.map(s =>
                   EventSourcedIn.Snapshot(s.sequence, Some(toPayload(s.payload)))
                 ),
-                init.installation.getOrElse("")
+                init.installation.getOrElse(""),
+                init.home.getOrElse("")
               )
             )
           )
@@ -266,7 +267,8 @@ final class GrpcConversation(
                         cmd.installation.getOrElse(""),
                         cmd.atHome,
                         cmd.attribution.getOrElse(""),
-                        cmd.forwardedFrom.getOrElse("")
+                        cmd.forwardedFrom.getOrElse(""),
+                        cmd.home.getOrElse("")
                       )
                     )
                   )

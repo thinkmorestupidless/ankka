@@ -375,6 +375,48 @@ fn the_open_request_is_the_envelope_under_the_manifest_and_its_value_is_the_fiel
 }
 
 #[test]
+fn a_field_read_from_another_project_is_sealed_again_under_that_project_and_a_new_one_is_own() {
+    // FR-027: the envelope names its project; written again, the field asks for that project's key.
+    let case = first_case();
+    let host = FixtureHost {
+        open: Some(proto::keyring_open_reply::Reply::Value(
+            case["plaintext"].as_str().unwrap().as_bytes().to_vec(),
+        )),
+        envelope: serde_json::to_vec(&case["envelope"]).unwrap(),
+        ..Default::default()
+    };
+    let producing = case["envelope"]["project"].as_str().unwrap().to_string();
+    let stored = json!({"type": "Registered", "player_id": "8c1f", "email": case["envelope"]});
+    let read = Auto::<PlayerEvent>::named(case["manifest"].as_str().unwrap().to_string());
+    let kept = Auto::<PlayerEvent>::named("player-card");
+    with_native_keyring(host.clone(), || {
+        let PlayerEvent::Registered { email, .. } =
+            read.decode(&serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert_eq!(email.subject().read_from(), Some(producing.as_str()));
+        kept.encode(&registered(email.clone())).unwrap();
+        // A field a handler makes from the same subject is this service's own.
+        let made = Personal::present(email.subject().clone(), "bo@example.com".to_string());
+        assert_eq!(made.subject().read_from(), None);
+        kept.encode(&registered(made)).unwrap();
+        // Read and written erased, it stays the producing project's too.
+        let erased = Personal::<String>::Erased {
+            subject: email.subject().clone(),
+        };
+        kept.encode(&registered(erased)).unwrap();
+    });
+    let seals = host.seals.borrow();
+    let [again, made, erased] = seals.as_slice() else {
+        panic!("{seals:?}")
+    };
+    assert_eq!(again.project, producing, "{again:?}");
+    assert_eq!(again.manifest, "player-card");
+    assert_eq!(again.value, case["plaintext"].as_str().unwrap().as_bytes());
+    assert_eq!(made.project, "", "{made:?}");
+    assert!(erased.erased);
+    assert_eq!(erased.project, producing, "{erased:?}");
+}
+
+#[test]
 fn an_open_answered_erased_reads_as_erased_and_never_fails() {
     let case = first_case();
     let host = FixtureHost {

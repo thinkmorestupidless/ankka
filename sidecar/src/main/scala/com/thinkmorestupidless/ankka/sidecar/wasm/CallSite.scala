@@ -6,7 +6,16 @@ import com.thinkmorestupidless.ankka.core.Metadata
  * What a call into a module is for, as whoever makes it knows: the component, the handler where the
  * call has one, and the metadata sent with it. The part of a `CallSite` the instance does not know.
  */
-final case class Purpose(componentId: String, handler: Option[String], metadata: Metadata)
+final case class Purpose(
+    componentId: String,
+    handler: Option[String],
+    metadata: Metadata,
+    /**
+     * A replicated entity's home, whose keyring keeps the keys of the personal fields this call
+     * seals and opens (feature 042, FR-032); `None` for this installation's own keyring.
+     */
+    home: Option[String] = None
+)
 
 object Purpose:
 

@@ -51,8 +51,43 @@ pub const ENVELOPE_VERSION: u64 = 1;
 
 /// Who a personal field is about: 1 to 253 characters from letters, digits, `.`, `_`, `-`, `/` and
 /// `:` ([`SUBJECT_RULE`]).
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct DataSubject(String);
+///
+/// Two subjects are equal when their text is. A subject read from a field of another project's
+/// envelope also remembers that project, which nothing outside the crate sees: the field is written
+/// again under that project's key (FR-027). [`Personal::present`] makes a field of this service's
+/// own, whatever subject it is given.
+#[derive(Clone)]
+pub struct DataSubject {
+    text: String,
+    /// The project of the envelope the field was read from; `None` for a subject this service made.
+    origin: Option<String>,
+}
+
+impl PartialEq for DataSubject {
+    fn eq(&self, other: &DataSubject) -> bool {
+        self.text == other.text
+    }
+}
+
+impl Eq for DataSubject {}
+
+impl std::hash::Hash for DataSubject {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.text.hash(state)
+    }
+}
+
+impl PartialOrd for DataSubject {
+    fn partial_cmp(&self, other: &DataSubject) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DataSubject {
+    fn cmp(&self, other: &DataSubject) -> std::cmp::Ordering {
+        self.text.cmp(&other.text)
+    }
+}
 
 /// A text that is not a data subject, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +116,10 @@ impl DataSubject {
     pub fn new(value: impl Into<String>) -> Result<DataSubject, InvalidSubject> {
         let value = value.into();
         if (1..=253).contains(&value.len()) && value.chars().all(subject_char) {
-            Ok(DataSubject(value))
+            Ok(DataSubject {
+                text: value,
+                origin: None,
+            })
         } else {
             let shown: String = value
                 .chars()
@@ -95,19 +133,35 @@ impl DataSubject {
 
     /// The subject's text.
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.text
+    }
+
+    /// The project of the envelope this subject's field was read from, when it was read from one
+    /// (FR-027); `None` for a subject this service made.
+    pub fn read_from(&self) -> Option<&str> {
+        self.origin.as_deref()
+    }
+
+    fn from_envelope(mut self, project: &str) -> DataSubject {
+        self.origin = Some(project.to_string());
+        self
+    }
+
+    fn own(mut self) -> DataSubject {
+        self.origin = None;
+        self
     }
 }
 
 impl fmt::Display for DataSubject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.text)
     }
 }
 
 impl fmt::Debug for DataSubject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DataSubject({})", self.0)
+        write!(f, "DataSubject({})", self.text)
     }
 }
 
@@ -127,7 +181,7 @@ impl TryFrom<String> for DataSubject {
 
 impl Serialize for DataSubject {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0)
+        serializer.serialize_str(&self.text)
     }
 }
 
@@ -157,9 +211,13 @@ pub enum Personal<T> {
 }
 
 impl<T> Personal<T> {
-    /// `value`, about `subject`.
+    /// `value`, about `subject`: a field of this service's own, sealed under its project's key
+    /// even when `subject` came from a field read from another project.
     pub fn present(subject: DataSubject, value: T) -> Personal<T> {
-        Personal::Present { subject, value }
+        Personal::Present {
+            subject: subject.own(),
+            value,
+        }
     }
 
     /// Who the field is about.
@@ -347,6 +405,7 @@ pub fn seal_request<T: Serialize>(
         manifest: manifest.to_string(),
         value: json,
         erased: false,
+        project: subject.read_from().unwrap_or_default().to_string(),
     })
 }
 
@@ -381,13 +440,14 @@ fn sealed(subject: &DataSubject, answered: Vec<u8>) -> Result<Envelope, String> 
 }
 
 /// An erased field, written by the runtime as it writes every envelope: under the project it holds,
-/// which a module is never told.
+/// which a module is never told, or under the project of the envelope it was read from.
 fn erased_envelope(subject: &DataSubject, manifest: &str) -> Result<Envelope, String> {
     let request = proto::KeyringSealRequest {
         subject: subject.as_str().to_string(),
         manifest: manifest.to_string(),
         value: Vec::new(),
         erased: true,
+        project: subject.read_from().unwrap_or_default().to_string(),
     };
     sealed(subject, call_keyring_seal(&request.encode_to_vec()))
 }
@@ -428,7 +488,11 @@ fn open<T: DeserializeOwned>(
             envelope.version
         ));
     }
-    let subject = DataSubject::new(envelope.subject.clone()).map_err(|e| e.0)?;
+    // The field remembers the envelope's project, so it is written again under that project's key
+    // when it is another project's (FR-027); the runtime tells its own project from any other.
+    let subject = DataSubject::new(envelope.subject.clone())
+        .map_err(|e| e.0)?
+        .from_envelope(&envelope.project);
     if envelope.c.is_none() {
         return Ok(Personal::Erased { subject });
     }

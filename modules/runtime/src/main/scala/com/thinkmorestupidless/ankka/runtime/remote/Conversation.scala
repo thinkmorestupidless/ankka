@@ -60,7 +60,12 @@ final case class Init(
     entityId: EntityId,
     snapshot: Option[Snapshot],
     /** This installation, for a replicated entity (feature 051). */
-    installation: Option[String] = None
+    installation: Option[String] = None,
+    /**
+     * The home the snapshot was written under, for a replicated entity (feature 042, FR-032): whose
+     * keyring keeps the keys of its personal fields.
+     */
+    home: Option[String] = None
 )
 
 final case class Command(
@@ -75,7 +80,12 @@ final case class Command(
     atHome: Boolean = true,
     /** Who acted, and the installation the command was forwarded from (spec 057; protocol 1.22). */
     attribution: Option[String] = None,
-    forwardedFrom: Option[String] = None
+    forwardedFrom: Option[String] = None,
+    /**
+     * The entity's home as this copy reads it, for a replicated entity (feature 042, FR-032): whose
+     * keyring keeps the keys of the state's personal fields.
+     */
+    home: Option[String] = None
 )
 
 /** The three cases of `core.effect.Outcome`, with the reply already encoded. */

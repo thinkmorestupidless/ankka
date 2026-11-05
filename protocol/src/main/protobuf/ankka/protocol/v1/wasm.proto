@@ -101,6 +101,10 @@ message KeyringSealRequest {
   bool erased = 4;                            // the field written erased: the envelope without
                                               // `c`, under the project the runtime holds; `value`
                                               // is not read
+  // 1.23: the project of the envelope the field was read from, when another project's (FR-027):
+  // the field is sealed again under that project's key, never made here, and written erased when
+  // that key is no longer given. Empty: the runtime's own project.
+  string project = 5;
 }
 
 message KeyringSealReply {

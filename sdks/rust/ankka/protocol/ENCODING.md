@@ -79,6 +79,11 @@ a payload a `Serializer` writes, for any store, it is the **personal envelope**:
   that subject reads as erased whether it has one or not.
 - An envelope whose tag does not verify, under another subject, project, manifest or key, is
   corrupt, never erased.
+- A field read from an envelope of another project, written again by this service, is sealed again
+  under **that** project's key, never made here, and keeps that `project` (FR-027): an erasure there
+  reaches what this service keeps of it. When that key is no longer given (erased there, or the
+  grant revoked) it is written erased, under that project. A field a handler makes, even with the
+  same value, is the service's own.
 
 Where no `Serializer` is writing (an endpoint's reply or a caller's body), the field is its value
 with its subject beside it, `{"subject":"player/8c1f","value":…}`, or `{"subject":"player/8c1f"}`

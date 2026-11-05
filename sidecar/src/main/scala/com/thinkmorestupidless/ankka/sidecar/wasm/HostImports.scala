@@ -260,19 +260,23 @@ final class HostImports(
    * module: an entity's command and its replay write and read them as a step does. Refused, by
    * throwing, only outside a call into the module; a refusal of the field itself is the reply's.
    */
+  // A replicated entity's fields are sealed and opened with its home's keys (FR-032): the home is
+  // the call site's, which the host knows from what it folds and runs, and the module is not told.
   private[sidecar] def keyringSeal(asked: Array[Byte]): Array[Byte] =
-    keyringSite("keyring_seal")
+    val site = keyringSite("keyring_seal")
     logic match
       case None =>
         KeyringSealReply(KeyringSealReply.Reply.Error(notReady)).toByteArray
-      case Some(c) => c.keyringSeal(KeyringSealRequest.parseFrom(asked)).toByteArray
+      case Some(c) =>
+        c.keyringSeal(KeyringSealRequest.parseFrom(asked), site.purpose.home).toByteArray
 
   private[sidecar] def keyringOpen(asked: Array[Byte]): Array[Byte] =
-    keyringSite("keyring_open")
+    val site = keyringSite("keyring_open")
     logic match
       case None =>
         KeyringOpenReply(KeyringOpenReply.Reply.Error(notReady)).toByteArray
-      case Some(c) => c.keyringOpen(KeyringOpenRequest.parseFrom(asked)).toByteArray
+      case Some(c) =>
+        c.keyringOpen(KeyringOpenRequest.parseFrom(asked), site.purpose.home).toByteArray
 
   /**
    * An erasure request asked as this service (protocol 1.23, feature 042), from where a call to
@@ -292,11 +296,12 @@ final class HostImports(
       case Some(c) =>
         await(c.askErasure(AskErasureRequest.parseFrom(asked)), commandTimeout).toByteArray
 
-  private def keyringSite(name: String): Unit =
+  private def keyringSite(name: String): CallSite =
     val site = CallSite.current.getOrElse(
       throw ImportRefused(name, s"$name may not be called outside a call into the module")
     )
     site.mayKeyring(name).left.foreach(reason => throw ImportRefused(name, reason))
+    site
 
   /**
    * A call to another service, as this service (protocol 1.10). Refused, by throwing, anywhere but

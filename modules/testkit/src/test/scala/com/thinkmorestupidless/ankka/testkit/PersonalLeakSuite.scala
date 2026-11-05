@@ -60,6 +60,7 @@ final class ChattyListener extends Consumer[Joined, Nothing]:
   private val log                      = LoggerFactory.getLogger(classOf[ChattyListener])
   def onMessage(event: Joined): Effect =
     log.info(s"handed $event, email ${event.email}")
+    ChattyListener.handed.incrementAndGet(): Unit
     effects.done()
 
 object ChattyListener
@@ -68,6 +69,9 @@ object ChattyListener
       source = ChangeSource.eventsOf(ChattyMember)
     ):
   def create(ctx: ConsumerContext) = new ChattyListener
+
+  /** How many events the listener was handed, so the flow can wait for it as it does the view. */
+  val handed = java.util.concurrent.atomic.AtomicInteger()
 
 /**
  * Feature 042, SC-009: no log line, span or recorder entry of a run of the feature's flows holds a
@@ -138,6 +142,11 @@ class PersonalLeakSuite extends munit.FunSuite with LogCapturing:
           Some(rows.ask(ChattyRows.byEmail, "email" -> Values(0))).filter(_.nonEmpty)
         )
         assertEquals(found.map(_.email.orElse("erased")), Vector(Values(0)))
+        // The consumer runs beside the view, not before it: waited for, or a slow run restarts
+        // before it logs anything, and the case cannot say whether its lines leak.
+        AnkkaTestKit.eventually("the consumer handed every join", 30.seconds)(
+          Option.when(ChattyListener.handed.get >= Values.size)(())
+        ): Unit
         keep()
         kit.restartService()
         assertEquals(member("m0").call(ChattyMember.count).invoke(), 1)

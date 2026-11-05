@@ -110,6 +110,10 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
             log.error(refusal)
             PROBLEMS.append(refusal)
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
+        # Discovered, by a sidecar that may be new: one that stopped before it handed on a notice
+        # hands it never again, and this process may not yet have seen the old notice stream end.
+        # Every key held is forgotten, so an erased subject is asked for again and reads as erased.
+        keyring.current().drop_all()
         spec = self.registry.spec()
         if isinstance(self.storage, DirectoryBuckets):
             # The directory store's signed URLs and public addresses point at the sidecar's port,

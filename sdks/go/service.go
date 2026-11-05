@@ -344,6 +344,10 @@ func (s *Service) discover(_ context.Context, info *pb.SidecarInfo) (*pb.Spec, e
 	s.mu.Lock()
 	s.sidecar = info.GetProtocolVersion()
 	s.mu.Unlock()
+	// Discovered, by a sidecar that may be new: one that stopped before it handed on a notice hands
+	// it never again, and this process may not yet have seen the old notice stream end. Every key
+	// held is forgotten, so an erased subject is asked for again and reads as erased.
+	currentKeyring().dropAll()
 	spec := s.Spec()
 	// A runtime before 1.21 refuses a process's endpoint under /_ankka; the directory store's URLs
 	// then go unanswered, and nothing else of the store needs the runtime.

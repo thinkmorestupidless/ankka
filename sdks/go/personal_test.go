@@ -583,3 +583,31 @@ func TestTheErasureHandlerIsToldTheSubjectAndReportsBack(t *testing.T) {
 		t.Fatal(Immediate.wire())
 	}
 }
+
+func TestADiscoveryForgetsEveryKeyTheProcessHolds(t *testing.T) {
+	// A sidecar that stopped before it handed on a notice hands it never again: the sidecar that
+	// discovers the process next may be that one's successor, so nothing held before is believed.
+	keys := newTestKeys("brand")
+	withKeys(t, keys)
+	codec := CodecFor[pPlayer](Manifest("player"))
+	ada := MustSubject("player/ada")
+	data, err := codec.Encode(pPlayer{
+		ID: "1", Email: PersonalOf(ada, "ada@example.com"), Address: PersonalOf(ada, fxAddress{"1 High St", "Leeds"}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys.mu.Lock()
+	keys.erased[subjectRef{project: "brand", subject: "player/ada"}] = true
+	keys.mu.Unlock()
+	if _, err := NewService().discover(context.Background(), &pb.SidecarInfo{ProtocolVersion: ProtocolVersion}); err != nil {
+		t.Fatal(err)
+	}
+	read, err := codec.Decode(data)
+	if err != nil {
+		t.Fatalf("an erased subject failed decoding: %v", err)
+	}
+	if !read.Email.Erased() || keys.fetches != 2 {
+		t.Fatalf("after a discovery: %d fetches, %+v", keys.fetches, read)
+	}
+}

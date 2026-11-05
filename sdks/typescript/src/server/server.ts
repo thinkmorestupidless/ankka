@@ -171,6 +171,10 @@ export class Server {
   /** Holds the sidecar's subject notices once a runtime speaking 1.23 has discovered a service with personal fields. */
   #followNotices(protocol: string): void {
     const keyring = this.#keyring
+    // Discovered, by a sidecar that may be new: one that stopped before it handed on a notice hands
+    // it never again, and this process may not yet have seen the old notice stream end. Every key
+    // held is forgotten, so an erased subject is asked for again and reads as erased.
+    keyring?.dropAll()
     const channel = channelOf(this.#context.client)
     if (this.#following || !keyring || !channel || olderThan(protocol, PERSONAL_SINCE) || this.#context.registry.personalUsers.length === 0) return
     this.#following = true

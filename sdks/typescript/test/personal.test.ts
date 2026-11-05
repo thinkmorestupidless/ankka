@@ -479,6 +479,52 @@ test("a payload round trip binds the manifest: read under another manifest it is
 
 // ── discovery and the erasure handler ────────────────────────────────────────
 
+test("a discovery forgets every key the process holds: the sidecar may be new, and its notice lost", async () => {
+  const key = b64(fixture("envelopes.json").cases[0].key)
+  const sessions = new Set<ServerHttp2Session>()
+  let following: () => void = () => {}
+  const followed = new Promise<void>((r) => (following = r))
+  const sidecar = createServer(
+    connectNodeAdapter({
+      routes: (router) =>
+        router.service(Client, {
+          async getSubjectKey(req) {
+            return create(SubjectKeyReplySchema, { reply: { case: "key", value: key }, project: req.project || "brand" })
+          },
+          // Held open and silent: the notice the sidecar that stopped meant to send never comes.
+          async *subjectNotices(_req, ctx) {
+            following()
+            await new Promise<void>((r) => ctx.signal.addEventListener("abort", () => r()))
+          },
+        }),
+    }),
+  )
+  sidecar.on("session", (session) => {
+    sessions.add(session)
+    session.once("close", () => sessions.delete(session))
+  })
+  await new Promise<void>((r) => sidecar.listen(0, "127.0.0.1", () => r()))
+  const client = new ComponentClient(`127.0.0.1:${(sidecar.address() as AddressInfo).port}`)
+  const started = await startServer(Ankka.service({ client }).register(Player))
+  try {
+    // The first discovery starts following notices, whose opening forgets everything anyway.
+    await started.discovery.discover({ protocolVersion: "1.23", runtimeVersion: "t" })
+    await followed
+    const one = new Conversation(started)
+    one.init("player", "8c1f")
+    replyOf(await one.call("register", payload(s.string, "ada@example.com")))
+    one.close()
+    assert.ok(currentKeyring()!.holds("brand", "player/8c1f"))
+    // A sidecar discovering the process again, its notice stream still open as far as it knows.
+    await started.discovery.discover({ protocolVersion: "1.23", runtimeVersion: "t" })
+    assert.ok(!currentKeyring()!.holds("brand", "player/8c1f"), "a key held before the discovery is still held")
+  } finally {
+    await started.stop()
+    for (const session of sessions) session.destroy()
+    await new Promise<void>((r) => sidecar.close(() => r()))
+  }
+})
+
 test("discovery: a runtime below 1.23 is refused when the service uses personal fields or a handler", async () => {
   const withFields = await startServer(Ankka.service({ client: new ComponentClient("127.0.0.1:1") }).register(Player))
   try {

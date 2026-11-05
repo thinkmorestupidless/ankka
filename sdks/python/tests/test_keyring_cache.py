@@ -188,3 +188,30 @@ def test_a_write_after_a_dropped_fetch_is_refused_as_erased() -> None:
 
     with pytest.raises(SubjectErased):
         asyncio.run(run())
+
+
+def test_a_discovery_forgets_every_key_the_process_holds() -> None:
+    """A sidecar that stopped before it handed on a notice hands it never again: the sidecar that
+    discovers the process next may be that one's successor, so nothing held before is believed."""
+    from ankka import keyring
+    from ankka._proto.ankka.protocol.v1 import discovery_pb2
+    from ankka.server import DiscoveryServicer
+    from ankka.service import PROTOCOL_VERSION, Registry
+
+    ring = _Counting(_Clock())
+    ring.put("brand", "player/1", KEY)
+    assert _read(ring, "brand", "player/1") == KEY
+    # Destroyed at the keyring, and the notice never handed on: the process still holds the key.
+    ring.keys.pop(("brand", "player/1"))
+    ring.destroyed.add(("brand", "player/1"))
+    before = keyring.install(ring)
+    try:
+        asyncio.run(
+            DiscoveryServicer(Registry()).Discover(
+                discovery_pb2.SidecarInfo(protocol_version=PROTOCOL_VERSION, runtime_version="test"), None
+            )
+        )
+    finally:
+        keyring.install(before)
+    assert _read(ring, "brand", "player/1") is None
+    assert len(ring.asked) == 2

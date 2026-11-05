@@ -55,10 +55,6 @@ private[ankka] object ErasureHandlerHost:
   private val SettleWithin = 30.seconds
 
   /**
-   * Marks the instance holding it, and answers any ask once it is up (a String, which Pekko
-   * serializes).
-   */
-  /**
    * A service with an erasure handler and no keyring hears no notice, so its handler would never
    * run and every erasure would be certified without it: refused at start, saying what declares it.
    */
@@ -70,6 +66,10 @@ private[ankka] object ErasureHandlerHost:
           "installation's keyring (ANKKA_KEYRING_ADDRESS)"
       )
 
+  /**
+   * Marks the instance holding it, and answers any ask once it is up (a String, which Pekko
+   * serializes).
+   */
   private def marker(holding: AtomicBoolean): Behavior[ActorRef[String]] =
     Behaviors.setup { _ =>
       holding.set(true)

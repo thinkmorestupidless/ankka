@@ -560,17 +560,18 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   erased is answered, and nothing of it is recorded.
 - **Workflow steps and timed actions cannot ask for an erasure.** Only endpoints, consumers and erasure
   handlers have `erasures`.
-- **Java and Kotlin services mark personal fields and nothing more.** They have no erasure handler and
-  cannot ask for an erasure from code, and they start no session or autonomous agent's instance with a
-  data subject. The Rust SDK has no function for the subject prefix.
+- **Java and Kotlin services start no session or autonomous agent's instance with a data subject.**
+  They mark personal fields, register an erasure handler and ask for an erasure from code as a Scala
+  service does. The Java, Kotlin and Rust SDKs have no function for the subject prefix; `Bucket.erase`
+  builds it.
 - **A consumer in another project reads an erasure there up to 30 seconds late.** It hears no notice of
   the producing project and holds that project's keys for `ankka.keyring.cache.foreign-ttl`, so an
   erasure or a revoked grant reaches its reads within 30 seconds, not at once; an entity of its own
   already in memory keeps what it decrypted until it is passivated or restarted.
-- **Only a Scala service in another project keeps what it reads under the producing project's keys.** A
-  Java or Kotlin service that writes again a personal field it read from another project's topic seals it
-  under its own project's key, so an erasure in the producing project does not reach that copy; the SDKs
-  behind the sidecar and the Rust SDK are not held to the rule either.
+- **Only a service on the JVM in another project keeps what it reads under the producing project's
+  keys.** A Scala, Java or Kotlin service that writes again a personal field it read from another
+  project's topic keeps it under the producing project's key; the SDKs behind the sidecar and the Rust
+  SDK are not held to the rule.
 - **Neither example overlay runs the keyring.** Erasure is off in both, and a service whose descriptor
   declares `"personal": true` is refused. An installation turns it on by listing `components/keyring`
   and setting `erasure: "on"`; the keyring's decryption is then the one path a machine outside the

@@ -431,6 +431,36 @@ sequence `erasureSeq`, and `rerun`.
 
 ///
 
+/// tab | Java
+
+```java
+Ankka.service("players")
+    .register(Player.class)
+    .withErasureHandler((ctx, subject) ->
+        ErasureReport.of(ctx.storage().bucket("kyc").erase(subject)));
+```
+
+`ErasureHandler`, `ErasureContext` and `ErasureReport` are in `com.thinkmorestupidless.ankka.javasdk.erasure`.
+The context has `componentClient()`, `services()`, `secrets()`, `storage()` and `erasures()`, the
+erasure's sequence `erasureSeq()`, and `rerun()`. A report is `ErasureReport.immediate(count)`,
+`ErasureReport.after(count, within)`, or `ErasureReport.of(...)` over what `Bucket.erase` answered.
+
+///
+
+/// tab | Kotlin
+
+```kotlin
+Ankka.service("players")
+    .register(Player::class.java)
+    .withErasureHandler { ctx, subject ->
+        ErasureReport.of(ctx.storage().bucket("kyc").erase(subject))
+    }
+```
+
+The handler and its context are the Java SDK's.
+
+///
+
 /// tab | Python
 
 ```python
@@ -487,7 +517,7 @@ Service::new("players").erasure_handler(|ctx, subject| {
 ///
 
 A handler that erases from a bucket the service's descriptor does not give is refused, naming the bucket,
-and the service's completion says so. Java and Kotlin services have no erasure handler.
+and the service's completion says so.
 
 An object written under a subject prefix after the erasure is erased by the next re-run, for as long as
 the installation re-runs handlers after an erasure (30 days unless the installation says otherwise). After
@@ -512,6 +542,34 @@ val asked = clients.erasures.ask(
 ```
 
 An endpoint reaches it as `clients.erasures`, a consumer and an erasure handler as `ctx.erasures`.
+
+///
+
+/// tab | Java
+
+```java
+ErasureAsked asked = erasures().ask(
+    DataSubject.of("player/8c1f"),
+    ErasureAsk.defaults()
+        .withNotBefore(LocalDate.parse("2031-10-08"))
+        .withReason("aml-retention")
+        .withCorrelation("closure-4411"));
+// asked.id(), asked.state(): "held", "applying" or "applied"
+```
+
+An endpoint and a consumer reach it as `erasures()`, an erasure handler as `ctx.erasures()`;
+`ErasureAsk.inProject("payments")` asks in another project. A refusal is a `CommandException`.
+
+///
+
+/// tab | Kotlin
+
+```kotlin
+val asked = erasures().ask(
+    subject("player/8c1f"),
+    ErasureAsk.defaults().withReason("aml-retention").withCorrelation("closure-4411"),
+)
+```
 
 ///
 

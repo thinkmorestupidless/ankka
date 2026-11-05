@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.runtime.SqlSyntax.sql
 import com.thinkmorestupidless.ankka.controlplane.erasure.*
 import com.thinkmorestupidless.ankka.core.{
   Codecs,
@@ -1237,6 +1238,16 @@ class ErasureFeatures(
       .call(PlayerEntity.currency)
       .invoke()
 
+  /** The version `componentId`'s view is recorded at in `k`'s database, if any. */
+  private def viewVersion(k: AnkkaTestKit, componentId: String): Option[Int] =
+    Await.result(
+      database(k).queryOne(
+        SqlFragment.raw("SELECT version FROM ankka_view_versions WHERE component_id = ") ++
+          sql"$componentId"
+      )(_.get("version", classOf[Integer]).intValue),
+      30.seconds
+    )
+
   private def rowOf(k: AnkkaTestKit, subject: String): Option[ProfileRow] =
     k.service.viewClient.forView(Profiles).get(idOf(subject))
 
@@ -1489,9 +1500,15 @@ class ErasureFeatures(
 
   Then("the rebuild finishes") { () =>
     val (k, subject) = recovered
-    eventually("the view rebuilt", 60.seconds)(rowOf(k, subject)): Unit
-    // Every row of the source is back, not only the erased data subject's.
-    eventually("every row rebuilt", 60.seconds)(rowOf(k, "player/9d2e")): Unit
+    // The rows before the rebuild empties the table are the old version's: wait for version 2 to
+    // be recorded, which happens with the emptying, and then for every row to be back, in one
+    // retry, so a row read here is a rebuilt one.
+    eventually("the view rebuilt at version 2", 60.seconds)(
+      Option.when(
+        viewVersion(k, Profiles.descriptor.componentId).contains(2) &&
+          rowOf(k, subject).isDefined && rowOf(k, "player/9d2e").isDefined
+      )(())
+    ): Unit
   }
 
   Then("its rows hold erased in each personal field of {string}") { (subject: String) =>

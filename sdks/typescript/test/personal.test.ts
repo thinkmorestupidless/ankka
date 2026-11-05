@@ -286,6 +286,24 @@ test("the textual form names the subject and never the value", () => {
   assert.ok(inspect({ email: p }).includes("Personal(player/8c1f)"))
 })
 
+test("JSON.stringify of a value holding a personal field prints the subject and never the value", () => {
+  const event = { type: "Registered", email: personal(subject("player/8c1f"), "ada@example.com") }
+  const text = JSON.stringify(event)
+  assert.ok(!text.includes("ada@example.com"), text)
+  assert.equal(text, `{"type":"Registered","email":{"subject":"player/8c1f"}}`)
+  assert.equal(JSON.stringify(new Erased(subject("player/8c1f"))), `{"subject":"player/8c1f"}`)
+})
+
+test("a tool's result holding a personal field reaches the model without the value", async () => {
+  const { runTool } = await import("../src/server/agent.ts")
+  const { tool } = await import("../src/handlers.ts")
+  const lookup = tool("lookup", "Looks up a player.", s.string, () => ({ email: personal(subject("player/8c1f"), "ada@example.com") }))
+  const registered = { tools: new Map([["lookup", lookup]]) } as unknown as Parameters<typeof runTool>[0]
+  const text = await runTool(registered, {} as Parameters<typeof runTool>[1], "lookup", `"x"`)
+  assert.ok(!text.includes("ada@example.com"), text)
+  assert.ok(text.includes("player/8c1f"), text)
+})
+
 // ── the edge ──────────────────────────────────────────────────────────────────
 
 for (const c of fixture("edge.json").cases) {

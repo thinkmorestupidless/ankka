@@ -61,9 +61,13 @@ export class Present<T> {
   [inspect](): string {
     return this.toString()
   }
-  /** The edge form, which is what an endpoint returns. */
-  toJSON(): { subject: string; value: T } {
-    return { subject: this.subject, value: this.value }
+  /**
+   * The subject alone, never the value: `JSON.stringify` is how an object is logged, and a personal
+   * field's textual form holds no value (FR-029). A payload's and an endpoint's forms come from the
+   * field's schema, which never calls this.
+   */
+  toJSON(): { subject: string } {
+    return { subject: this.subject }
   }
 }
 

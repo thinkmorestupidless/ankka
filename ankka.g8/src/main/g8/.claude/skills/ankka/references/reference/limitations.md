@@ -567,11 +567,10 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   Java or Kotlin service that writes again a personal field it read from another project's topic seals it
   under its own project's key, so an erasure in the producing project does not reach that copy; the SDKs
   behind the sidecar and the Rust SDK are not held to the rule either.
-- **No overlay runs the keyring, and nothing gives a deployed service its address.** On a Kubernetes
-  installation a service whose descriptor declares `"personal": true` reaches no keyring, and every read or
-  write of a personal field it makes is refused as unavailable. No gateway route reaches the keyring's
-  decryption for a machine outside the installation. Personal fields and erasures work end to end on a
-  developer's machine, against the local keyring, and in tests.
+- **Neither example overlay runs the keyring.** Erasure is off in both, and a service whose descriptor
+  declares `"personal": true` is refused. An installation turns it on by listing `components/keyring`
+  and setting `erasure: "on"`; the keyring's decryption is then the one path a machine outside the
+  installation reaches, at `https://keyring.<base domain>/v1/decrypt`.
 - **The local keyring is for development.** It keeps its keys in the service's own database, so a backup
   of that database holds the keys beside what they encrypt.
 

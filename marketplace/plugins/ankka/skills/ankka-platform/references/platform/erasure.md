@@ -51,6 +51,7 @@ refuses to start:
 | `ANKKA_SECRET_KEY` | | The key that keeps the root key on Postgres, when no KMS key is named. |
 | `ANKKA_KEYRING_GRANTS_DIR` | | A directory of `<project>/grants.json`, in place of the cluster's project grants. |
 | `ANKKA_MACHINE_ISSUER`, `ANKKA_MACHINE_JWKS_URL` | | Where machine tokens are verified; set together or not at all. |
+| `ANKKA_BASE_DOMAIN`, `ANKKA_HTTPS_PORT` | `443` for the port | With no machine issuer named, the issuer is the control plane's, `https://api.<base>[:port]`, its keys read on the control plane's `keys` port. Without a base domain no machine is admitted. |
 
 Its certificate is read from `/var/run/secrets/ankka/service`, its database from the same `ANKKA_DB_*`
 variables a service's is, and the erasure log's second copy from the platform bucket
@@ -227,7 +228,8 @@ later counts at once.
 
 A **machine outside the installation** is never given a key. The keyring answers `POST /v1/decrypt` for a
 machine token whose grant allows decryption, field by field, and records every decryption against the
-machine and the grant, never with a value:
+machine and the grant, never with a value. The machine reaches it through the installation's gateway at
+`https://keyring.<base domain>/v1/decrypt`, the one path routed there, with its token as a bearer:
 
 ```json
 {"grant": "g-warehouse", "project": "brand", "manifest": "player-event",

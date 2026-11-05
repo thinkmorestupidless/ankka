@@ -286,7 +286,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T103 [P] Changed pages: `docs/reference/limitations.md` (erasure stated; a live entity keeps what it decrypted until it is passivated or restarted; not physical deletion, not a classifier, not across installations beyond followers, not re-encryption, not rotation; the local keyring is for development; ankka-replication must implement the relay; a write under the subject prefix after the re-run window needs a new erasure request; what a model provider received is beyond the edge), `docs/reference/service-descriptor.md`, `docs/reference/configuration.md`, `docs/operate/backups.md`, `docs/build/views.md`, `docs/build/agents.md`, `docs/build/object-storage.md`, `mkdocs.yml`
 - [X] T104 [P] Skills: `ankka-entities`, `ankka-views-consumers`, `ankka-agents`, `ankka-platform`, `ankka-deploy` in `tools/docs/skill/*/SKILL.md`; `just docs-sync`
 - [X] T105 Rule-file traps learned during the build, in `.claude/rules/runtime.md`, `sidecar.md`, `kubernetes.md` and a new section in `control-plane.md` for erasure requests
-- [ ] T106 `just features` (0 findings), `just docs`, `sbt scalafmtCheckAll`, then `caffeinate -i sbt buildAll`; the four SDKs' end-to-end commands from `CLAUDE.md`; `just test-console`; a full `gh workflow run cluster --ref 042-personal-data-erasure-design`
+- [X] T106 `just features` (0 findings), `just docs`, `sbt scalafmtCheckAll`, then `caffeinate -i sbt buildAll`; the four SDKs' end-to-end commands from `CLAUDE.md`; `just test-console`; a full `gh workflow run cluster --ref 042-personal-data-erasure-design`
 
 ---
 

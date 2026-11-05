@@ -48,6 +48,17 @@ abstract class View[Src, Row]:
 object View:
 
   /**
+   * A field inside a collection (`contacts[*].email`) cannot be a lookup field (feature 042): a
+   * row's lookup column holds one token per path, so only one element could ever be found.
+   */
+  private[ankka] def refuseCollectionLookup(view: ComponentId, path: String): Unit =
+    if path.contains("[*]") then
+      throw IllegalArgumentException(
+        s"view '$view' marks '$path' for lookup, which is a field inside a collection; a lookup " +
+          "field is one value of the row, so mark a field outside any collection"
+      )
+
+  /**
    * Declares a view to the runtime.
    *
    * {{{
@@ -89,6 +100,7 @@ object View:
           s"view '$componentId' marks '$path' for lookup, which is not a personal field of its row" +
             personal.paths.mkString(" (its personal fields: ", ", ", ")")
         )
+      View.refuseCollectionLookup(componentId, path)
       if !lookups.contains(path) then lookups += path
     }
 

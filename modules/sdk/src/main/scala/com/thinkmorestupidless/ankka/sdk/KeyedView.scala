@@ -113,6 +113,7 @@ object KeyedView:
             s"view '$componentId' marks '$path' for lookup, which is not a personal field of its " +
               personal.paths.mkString("row (its personal fields: ", ", ", ")")
           )
+        View.refuseCollectionLookup(componentId, path)
         if !lookups.contains(path) then lookups += path
       }
 

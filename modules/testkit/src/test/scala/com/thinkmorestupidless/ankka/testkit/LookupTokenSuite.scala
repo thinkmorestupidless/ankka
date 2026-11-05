@@ -115,6 +115,53 @@ final class LookupTokenSuite extends munit.FunSuite with LogCapturing:
     assert(refused.left.exists(_.contains("view 'notes'")), refused.toString)
   }
 
+  test(
+    "a row whose envelopes and sealed values differ in number is refused, not written tokenless"
+  ) {
+    val json =
+      """{"email":{"$personal":1,"project":"p","subject":"s/1","c":"x"},"alt":{"$personal":1,"project":"p","subject":"s/1","c":"y"}}"""
+    val fields  = ViewFields(Vector("email", "alt"), Vector("email"))
+    val refused = LookupTokens.forRow(
+      ComponentId("notes"),
+      json,
+      Vector(Some("\"a@b\"".getBytes)),
+      fields,
+      IArray.fill[Byte](32)(3)
+    )
+    assert(refused.left.exists(_.contains("2 personal envelopes")), refused.toString)
+    // Paired, the one lookup field is tokened.
+    val paired = LookupTokens.forRow(
+      ComponentId("notes"),
+      json,
+      Vector(Some("\"a@b\"".getBytes), Some("\"c@d\"".getBytes)),
+      fields,
+      IArray.fill[Byte](32)(3)
+    )
+    assert(
+      paired.exists(_.exists(l => l.contains("\"email\"") && !l.contains("alt"))),
+      paired.toString
+    )
+  }
+
+  test("a field inside a collection cannot be marked for lookup") {
+    final case class Contact(email: Personal[String])
+    final case class Card(id: String, contacts: Vector[Contact])
+    final class Cards extends View[Joined, Card]:
+      def onChange(event: Joined): Effect = effects.ignore()
+    val refused = intercept[IllegalArgumentException] {
+      object CardsView
+          extends View.Companion[Cards, Joined, Card](
+            componentId = ComponentId("cards"),
+            source = ChangeSource.eventsOf(MemberEntity),
+            rowSerializer = Codecs.serializer[Card]("card")
+          ):
+        def create(ctx: ViewComponentContext) = new Cards
+        lookupAt("contacts[*].email")
+      CardsView.descriptor
+    }
+    assert(refused.getMessage.contains("inside a collection"), refused.getMessage)
+  }
+
   test("a token binds the field's path, and a string field is tokened as its text") {
     val key = IArray.fill[Byte](32)(3)
     assertEquals(

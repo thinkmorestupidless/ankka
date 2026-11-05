@@ -291,7 +291,9 @@ comparing the token of the value the caller gives with the row's token; the valu
 compared, and never stored in the clear. A `LIKE`, a range, an `ORDER BY`, a literal in the statement or a
 comparison inside a subquery on a personal field is refused at start, as is any comparison on a field not
 marked for lookup. The data subject beside an envelope is in the clear and may be compared
-(`payload::jsonb->'email'->>'subject'`).
+(`payload::jsonb->'email'->>'subject'`). A lookup field is one value of the row: a field inside a
+collection (`contacts[*].email`) cannot be marked for lookup, and marking one fails when the companion is
+built.
 
 **A lookup token leaks equality.** Two rows with the same email have the same token, so anyone holding
 the table learns which rows share a value, and anyone holding both the table and the lookup key can test a
@@ -299,8 +301,9 @@ guess. Mark for lookup only the fields a query must find by, and keep the lookup
 would a subject key: it never leaves the keyring and no dump holds it.
 
 When a data subject is erased, each view of the service rewrites the rows that hold that subject's
-fields: each of its envelopes is reduced to the data subject alone, and the row's lookup tokens are
-dropped. Every other field of the row, another data subject's fields included, is left as it was. A view
+fields: each of its envelopes is reduced to the data subject alone, and the row's lookup tokens of that
+subject's fields are dropped. Every other field of the row, another data subject's fields and their
+lookup tokens included, is left as it was. A view
 rebuilt by raising its version after an erasure writes its rows with erased in that subject's fields.
 
 Lookup fields are declared in the Scala SDK, on a view's or a keyed view's companion.

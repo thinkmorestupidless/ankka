@@ -44,6 +44,11 @@ private[ankka] object LookupTokens:
    * The row's lookup column, from the row as written and the fields sealed while writing it, or a
    * refusal naming an envelope at a path the view does not declare as personal (a hand-written
    * codec). `None` when the row holds no lookup field.
+   *
+   * A lookup field is never inside a collection (`View.Companion.lookup` refuses a `[*]` path), so
+   * each lookup path is at most one envelope of the row and one token. The envelopes are paired
+   * with the values sealed while writing, in order; a row whose counts differ cannot be paired, and
+   * its write is refused rather than written with no tokens a query could find.
    */
   def forRow(
       view: ComponentId,
@@ -63,15 +68,17 @@ private[ankka] object LookupTokens:
               fields.personal.mkString(" (its personal fields: ", ", ", ")") +
               "; a personal field is declared by its type, Personal[...]"
           )
+        case None if fields.lookup.nonEmpty && found.size != sealedFields.size =>
+          Left(
+            s"view '$view' wrote a row holding ${found.size} personal envelopes, of which " +
+              s"${sealedFields.size} were sealed while writing it; its lookup tokens cannot be " +
+              "paired with its fields, so the row is not written"
+          )
         case None =>
-          val paired =
-            if found.size == sealedFields.size then found.zip(sealedFields) else Vector.empty
-          val tokens = paired
-            .collect {
-              case (f, Some(value)) if fields.lookup.contains(f.path) =>
-                f.path -> token(key, f.path, canonical(value))
-            }
-            .distinctBy(_._1)
+          val tokens = found.zip(sealedFields).collect {
+            case (f, Some(value)) if fields.lookup.contains(f.path) =>
+              f.path -> token(key, f.path, canonical(value))
+          }
           if tokens.isEmpty then Right(None)
           else Right(Some(tokens.map((p, t) => s"\"$p\":\"$t\"").mkString("{", ",", "}")))
 

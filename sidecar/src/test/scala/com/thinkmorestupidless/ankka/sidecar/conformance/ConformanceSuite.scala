@@ -164,10 +164,14 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   // ── Discovery ──────────────────────────────────────────────────────────────
 
   test("discovery.lists-every-component") {
-    // A module declares no agent that waits for a person: the crate cannot declare one yet.
-    val expected =
+    // A module declares no agent that waits for a person: the crate cannot declare one yet. A
+    // reference that declares no personal field (the Java and Kotlin ones, whose erasure is proven
+    // by their own suites) declares no `personal-contact` either.
+    val withoutModule =
       if target.isModule then ConformanceReference.ComponentIds - "approver"
       else ConformanceReference.ComponentIds
+    val expected =
+      if target.declaresPersonal then withoutModule else withoutModule - "personal-contact"
     assertEquals(target.componentIds, expected)
     val routes = target.endpointRoutes
     Seq(

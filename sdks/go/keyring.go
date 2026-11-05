@@ -23,9 +23,12 @@ import (
 // the sidecar says a subject was erased (Client.SubjectNotices). A codec has no context, so the
 // keyring is the one piece of process-wide state the SDK keeps, as Scala's Keyring.current is.
 
-// subjectRef is a subject key's name: the project whose key it is and the data subject. An empty
-// project, in a request only, is the process's own.
-type subjectRef struct{ project, subject string }
+// subjectRef is a subject key's name: the project whose key it is, the data subject, and the
+// installation whose keyring keeps it. An empty project, in a request only, is the process's own.
+// An empty home is this installation's keyring; any other is a replicated entity's home elsewhere
+// (FR-032), asked through the sidecar's relay and never made there, whose keys never mix with this
+// installation's keys of the same subject.
+type subjectRef struct{ project, subject, home string }
 
 // keyAnswer is a key, or that the subject is erased, and the project the answer is for: the
 // process's own when the request left it empty, which is how a process learns its project.
@@ -168,7 +171,9 @@ func (k *keyring) remove(ref subjectRef) {
 // put holds key for ref, letting the least recently used go when full; held with k.mu.
 func (k *keyring) put(ref subjectRef, key []byte) {
 	k.remove(ref)
-	c := &cachedKey{ref: ref, key: key, at: k.now(), foreign: k.own == "" || ref.project != k.own}
+	// Another home's key is held as another project's is: no notice of that keyring reaches this
+	// process, so it lives for the foreign TTL and is never served through an outage.
+	c := &cachedKey{ref: ref, key: key, at: k.now(), foreign: k.own == "" || ref.project != k.own || ref.home != ""}
 	k.cache[ref] = k.recency.PushFront(c)
 	for len(k.cache) > k.settings.maxKeys {
 		eldest := k.recency.Back()
@@ -202,7 +207,8 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 	ctx, cancel := context.WithTimeout(context.Background(), keyFetchBound)
 	defer cancel()
 	for _, r := range missing {
-		a, err := k.fetchOne(ctx, r, create)
+		// Another installation's keyring is read only to this one: a follower never makes a key.
+		a, err := k.fetchOne(ctx, r, create && r.home == "")
 		if err != nil {
 			var refusal *RefusalError
 			if !errors.As(err, &refusal) || refusal.Code != Unavailable {
@@ -229,7 +235,7 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 			// An answer for the own project that names none: nothing to seal under, or cache by.
 			continue
 		}
-		named := subjectRef{project: a.project, subject: r.subject}
+		named := subjectRef{project: a.project, subject: r.subject, home: r.home}
 		out[named] = a
 		k.mu.Lock()
 		if r.project == "" && k.own == "" {
@@ -276,10 +282,15 @@ func (k *keyring) dropAll() {
 	k.mu.Unlock()
 }
 
-// drop forgets the key of (project, subject): its subject was erased.
+// drop forgets the key of (project, subject), from whichever home it was fetched: its subject was
+// erased.
 func (k *keyring) drop(project, subject string) {
 	k.mu.Lock()
-	k.remove(subjectRef{project: project, subject: subject})
+	for ref := range k.cache {
+		if ref.project == project && ref.subject == subject {
+			k.remove(ref)
+		}
+	}
 	for f := range k.flights {
 		if f.subject == subject {
 			f.dropped = true
@@ -334,7 +345,7 @@ func (s *sidecarKeys) fetch(ctx context.Context, ref subjectRef, create bool) (k
 	if err != nil {
 		return keyAnswer{}, keyringUnavailable(err.Error())
 	}
-	reply, err := rpc.GetSubjectKey(ctx, &pb.SubjectKeyRequest{Subject: ref.subject, Create: create, Project: ref.project})
+	reply, err := rpc.GetSubjectKey(ctx, &pb.SubjectKeyRequest{Subject: ref.subject, Create: create, Project: ref.project, Home: ref.home})
 	if err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Unimplemented {
 			return keyAnswer{}, keyringUnavailable("the sidecar beside this process speaks a protocol before 1.23, which has no keys")

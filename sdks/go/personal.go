@@ -233,6 +233,7 @@ func openField(key, boxed, ad []byte) ([]byte, bool) {
 type sealScope struct {
 	manifest string
 	project  string // the project this process writes under; "" when nothing is written
+	home     string // the installation whose keyring keeps the keys (FR-032); "" for this one
 	keys     map[subjectRef]keyAnswer
 }
 
@@ -262,7 +263,7 @@ func writePersonal(p *plan, v reflect.Value, buf *bytes.Buffer, path string, sc 
 	}
 	var boxed []byte
 	if !erased {
-		answer, ok := sc.keys[subjectRef{project: project, subject: subject}]
+		answer, ok := sc.keys[subjectRef{project: project, subject: subject, home: sc.home}]
 		switch {
 		case !ok:
 			return keyringUnavailable(fmt.Sprintf("no key was fetched for '%s'", subject))
@@ -333,6 +334,7 @@ func readPersonal(p *plan, raw any, target reflect.Value, path string, sc *sealS
 		set.personalSet(ref.subject, true, ref.project)
 		return nil
 	}
+	ref.home = sc.home
 	answer, fetched := sc.keys[ref]
 	if !fetched {
 		return keyringUnavailable(fmt.Sprintf("no key was fetched for '%s'", ref.subject))
@@ -532,17 +534,18 @@ func envelopesInJSON(p *plan, raw any, out map[subjectRef]bool) {
 
 // sealJSON is a codec's encoding under manifest: a personal field as its envelope, its key fetched
 // first. A write for an erased subject fails before anything is written.
-func sealJSON(p *plan, v reflect.Value, manifest string) ([]byte, error) {
+func sealJSON(p *plan, v reflect.Value, manifest, home string) ([]byte, error) {
 	if !p.personal {
 		return encodeJSON(p, v)
 	}
 	kr := currentKeyring()
 	known, _ := kr.ownProject() // "" until an answer has named it
 	wanted := map[subjectRef]bool{}
-	sc := &sealScope{manifest: manifest, keys: map[subjectRef]keyAnswer{}}
+	sc := &sealScope{manifest: manifest, home: home, keys: map[subjectRef]keyAnswer{}}
 	ownAny := personalInValue(p, v, known, wanted)
 	var own, resealed []subjectRef
 	for r := range wanted {
+		r.home = home
 		if r.project == "" {
 			own = append(own, r)
 		} else {
@@ -568,7 +571,7 @@ func sealJSON(p *plan, v reflect.Value, manifest string) ([]byte, error) {
 			return nil, err
 		}
 		for _, ref := range own {
-			if sc.keys[subjectRef{project: sc.project, subject: ref.subject}].erased {
+			if sc.keys[subjectRef{project: sc.project, subject: ref.subject, home: home}].erased {
 				return nil, subjectErased(ref.subject)
 			}
 		}
@@ -582,7 +585,7 @@ func sealJSON(p *plan, v reflect.Value, manifest string) ([]byte, error) {
 
 // openJSON is a codec's decoding under manifest: every envelope's key fetched first, an erased
 // subject's field read as erased.
-func openJSON(p *plan, data []byte, target reflect.Value, manifest string) error {
+func openJSON(p *plan, data []byte, target reflect.Value, manifest, home string) error {
 	if !p.personal {
 		return decodeJSON(p, data, target)
 	}
@@ -592,10 +595,11 @@ func openJSON(p *plan, data []byte, target reflect.Value, manifest string) error
 	}
 	found := map[subjectRef]bool{}
 	envelopesInJSON(p, raw, found)
-	sc := &sealScope{manifest: manifest, keys: map[subjectRef]keyAnswer{}}
+	sc := &sealScope{manifest: manifest, home: home, keys: map[subjectRef]keyAnswer{}}
 	if len(found) > 0 {
 		refs := make([]subjectRef, 0, len(found))
 		for r := range found {
+			r.home = home
 			refs = append(refs, r)
 		}
 		if sc.keys, err = currentKeyring().prefetch(refs, false); err != nil {

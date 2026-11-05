@@ -56,7 +56,7 @@ func readKey(t *testing.T, k *keyring, project, subject string) keyAnswer {
 
 func TestAnOwnProjectsKeyIsAskedForAgainAfterTheTTL(t *testing.T) {
 	keys := newTestKeys("brand")
-	keys.keys[subjectRef{"brand", "player/1"}] = bytes.Repeat([]byte{1}, 32)
+	keys.keys[subjectRef{project: "brand", subject: "player/1"}] = bytes.Repeat([]byte{1}, 32)
 	k, clock := cacheUnderTest(t, keys)
 	before := keys.fetches
 	readKey(t, k, "brand", "player/1")
@@ -74,7 +74,7 @@ func TestAnOwnProjectsKeyIsAskedForAgainAfterTheTTL(t *testing.T) {
 
 func TestAnotherProjectsKeyIsHeldForTheForeignTTLOnly(t *testing.T) {
 	keys := newTestKeys("brand")
-	ref := subjectRef{"casino", "player/1"}
+	ref := subjectRef{project: "casino", subject: "player/1"}
 	keys.keys[ref] = bytes.Repeat([]byte{2}, 32)
 	k, clock := cacheUnderTest(t, keys)
 	before := keys.fetches
@@ -98,7 +98,7 @@ func TestAnotherProjectsKeyIsHeldForTheForeignTTLOnly(t *testing.T) {
 func TestTheCacheHoldsAtMostMaxKeysAndEvictsTheLeastRecentlyUsedOne(t *testing.T) {
 	keys := newTestKeys("brand")
 	for _, s := range []string{"player/1", "player/2", "player/3"} {
-		keys.keys[subjectRef{"brand", s}] = bytes.Repeat([]byte{3}, 32)
+		keys.keys[subjectRef{project: "brand", subject: s}] = bytes.Repeat([]byte{3}, 32)
 	}
 	k, _ := cacheUnderTest(t, keys)
 	k.settings.maxKeys = 2
@@ -114,7 +114,7 @@ func TestTheCacheHoldsAtMostMaxKeysAndEvictsTheLeastRecentlyUsedOne(t *testing.T
 
 func TestInAnOutageAnOwnKeyServesUntilTheOutageBound(t *testing.T) {
 	source := &flaky{testKeys: newTestKeys("brand")}
-	source.keys[subjectRef{"brand", "player/1"}] = bytes.Repeat([]byte{4}, 32)
+	source.keys[subjectRef{project: "brand", subject: "player/1"}] = bytes.Repeat([]byte{4}, 32)
 	k, clock := cacheUnderTest(t, source)
 	k.settings.ttl, k.settings.outageBound = 20*time.Second, 50*time.Second
 	readKey(t, k, "brand", "player/1")
@@ -124,19 +124,19 @@ func TestInAnOutageAnOwnKeyServesUntilTheOutageBound(t *testing.T) {
 		t.Fatal("an own key did not serve within the outage bound")
 	}
 	clock.advance(25 * time.Second)
-	if _, err := k.prefetch([]subjectRef{{"brand", "player/1"}}, false); err == nil || !strings.Contains(err.Error(), "unavailable") {
+	if _, err := k.prefetch([]subjectRef{{project: "brand", subject: "player/1"}}, false); err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Fatalf("past the outage bound: %v, want unavailable", err)
 	}
 }
 
 func TestInAnOutageAnotherProjectsKeyDoesNotOutliveTheForeignTTL(t *testing.T) {
 	source := &flaky{testKeys: newTestKeys("brand")}
-	source.keys[subjectRef{"casino", "player/1"}] = bytes.Repeat([]byte{5}, 32)
+	source.keys[subjectRef{project: "casino", subject: "player/1"}] = bytes.Repeat([]byte{5}, 32)
 	k, clock := cacheUnderTest(t, source)
 	readKey(t, k, "casino", "player/1")
 	source.down = true
 	clock.advance(31 * time.Second)
-	if _, err := k.prefetch([]subjectRef{{"casino", "player/1"}}, false); err == nil {
+	if _, err := k.prefetch([]subjectRef{{project: "casino", subject: "player/1"}}, false); err == nil {
 		t.Fatal("another project's key served in an outage past the foreign ttl")
 	}
 }
@@ -187,7 +187,7 @@ func TestAFetchInFlightWhenItsSubjectIsDroppedIsNotBelieved(t *testing.T) {
 	for _, how := range []string{"subject", "all"} {
 		t.Run(how, func(t *testing.T) {
 			keys := newTestKeys("brand")
-			ref := subjectRef{"brand", "player/1"}
+			ref := subjectRef{project: "brand", subject: "player/1"}
 			keys.keys[ref] = bytes.Repeat([]byte{6}, 32)
 			k, _ := cacheUnderTest(t, keys)
 			source := &held{testKeys: keys, started: make(chan struct{}), release: make(chan struct{})}

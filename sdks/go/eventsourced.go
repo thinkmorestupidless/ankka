@@ -214,7 +214,22 @@ type esInstance[S, E any] struct {
 	state        S
 	sequence     int64
 	installation string
+	// home is the entity's home as its records have named it so far (FR-032): Init.home, then each
+	// folded event's installation, then Command.home. Its keys are that installation's.
+	home string
 }
+
+// keysAt is the home whose keyring keeps the keys this copy reads and writes: "" for this
+// installation, as for an entity not replicated.
+func (i *esInstance[S, E]) keysAt() string {
+	if i.home == i.installation {
+		return ""
+	}
+	return i.home
+}
+
+func (i *esInstance[S, E]) stateCodec() Codec[S] { return atHome(i.e.stateCodec, i.keysAt()) }
+func (i *esInstance[S, E]) eventCodec() Codec[E] { return atHome(i.e.eventCodec, i.keysAt()) }
 
 func (e *EventSourcedEntity[S, E]) instance(entityID string) *esInstance[S, E] {
 	return &esInstance[S, E]{e: e, entityID: entityID}
@@ -222,8 +237,9 @@ func (e *EventSourcedEntity[S, E]) instance(entityID string) *esInstance[S, E] {
 
 func (i *esInstance[S, E]) Recover(_ context.Context, init *pb.EventSourcedIn_Init) error {
 	i.installation = init.GetInstallation()
+	i.home = init.GetHome()
 	if snap := init.GetSnapshot(); snap != nil {
-		s, err := valueOf(i.e.stateCodec, snap.GetPayload())
+		s, err := valueOf(i.stateCodec(), snap.GetPayload())
 		if err != nil {
 			return fmt.Errorf("the snapshot cannot be read as a %s: %w", reflect.TypeFor[S](), err)
 		}
@@ -235,7 +251,11 @@ func (i *esInstance[S, E]) Recover(_ context.Context, init *pb.EventSourcedIn_In
 }
 
 func (i *esInstance[S, E]) Apply(ctx context.Context, ev *pb.EventSourcedIn_Event) error {
-	event, err := valueOf(i.e.eventCodec, ev.GetPayload())
+	// A record from before replication names no installation, and reads as written at the home.
+	if ev.GetInstallation() != "" {
+		i.home = ev.GetInstallation()
+	}
+	event, err := valueOf(i.eventCodec(), ev.GetPayload())
 	if err != nil {
 		return fmt.Errorf("event %d cannot be read as a %s: %w", ev.GetSequence(), reflect.TypeFor[E](), err)
 	}
@@ -249,6 +269,9 @@ func (i *esInstance[S, E]) Apply(ctx context.Context, ev *pb.EventSourcedIn_Even
 }
 
 func (i *esInstance[S, E]) Command(ctx context.Context, cmd *pb.EventSourcedIn_Command) (*pb.EventSourcedOut_Reply, error) {
+	if cmd.GetHome() != "" {
+		i.home = cmd.GetHome()
+	}
 	md := metadataFromPb(cmd.GetMetadata())
 	ctx = withMetadata(withoutSecrets(ctx, "an entity"), md)
 	ctx = withCommand(ctx, CommandScope{
@@ -269,7 +292,7 @@ func (i *esInstance[S, E]) Command(ctx context.Context, cmd *pb.EventSourcedIn_C
 		}
 		reply := &pb.EventSourcedOut_Reply{Outcome: o}
 		if cmd.GetSnapshotRequested() {
-			if reply.Snapshot, err = payloadOf(i.e.stateCodec, i.state); err != nil {
+			if reply.Snapshot, err = payloadOf(i.stateCodec(), i.state); err != nil {
 				return nil, fmt.Errorf("the state cannot be encoded for a snapshot: %w", err)
 			}
 		}
@@ -287,7 +310,7 @@ func (i *esInstance[S, E]) Command(ctx context.Context, cmd *pb.EventSourcedIn_C
 			return nil, err
 		}
 		apply := func(s S, ev E) S { return i.e.apply(ctx, s, ev) }
-		after, reply, err := run.materialise(i.state, apply, i.e.stateCodec, i.e.eventCodec, cmd.GetSnapshotRequested())
+		after, reply, err := run.materialise(i.state, apply, i.stateCodec(), i.eventCodec(), cmd.GetSnapshotRequested())
 		if err != nil {
 			return nil, err
 		}

@@ -30,7 +30,7 @@ type originSetup struct {
 
 func newOriginSetup(t *testing.T) originSetup {
 	t.Helper()
-	casino := subjectRef{"casino", "player/8c1f"}
+	casino := subjectRef{project: "casino", subject: "player/8c1f"}
 	producer := newTestKeys("casino")
 	producer.keys[casino] = bytes.Repeat([]byte{1}, 32)
 	withKeys(t, producer)
@@ -68,7 +68,7 @@ func TestAFieldReadFromAnotherProjectIsKeptUnderThatProjectsKey(t *testing.T) {
 	if e := envelopeOf(t, kept); e["project"] != "casino" || e["c"] == nil || bytes.Contains(kept, []byte("ada@example.com")) {
 		t.Fatalf("kept %s", kept)
 	}
-	if _, made := s.keys.keys[subjectRef{"brand", "player/8c1f"}]; made {
+	if _, made := s.keys.keys[subjectRef{project: "brand", subject: "player/8c1f"}]; made {
 		t.Fatal("this project made a key of its own for the subject")
 	}
 	again, err := CodecFor[fxCopy](Manifest("copy")).Decode(kept)
@@ -85,7 +85,7 @@ func TestAnErasureInTheProducingProjectReachesTheKeptCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 'casino' erases the subject; no notice reaches 'brand'.
-	casino := subjectRef{"casino", "player/8c1f"}
+	casino := subjectRef{project: "casino", subject: "player/8c1f"}
 	delete(s.keys.keys, casino)
 	s.keys.erased[casino] = true
 	s.clock.advance(31 * time.Second)

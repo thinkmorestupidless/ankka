@@ -121,7 +121,7 @@ type fxAddress struct {
 func roundTrip[T any](t *testing.T, c fxEnvelopeCase, value T) {
 	t.Helper()
 	keys := newTestKeys(c.Project)
-	keys.keys[subjectRef{c.Project, c.Subject}] = b64(t, c.Key)
+	keys.keys[subjectRef{project: c.Project, subject: c.Subject}] = b64(t, c.Key)
 	withKeys(t, keys)
 	withNonce(t, b64(t, c.Nonce))
 	codec := CodecFor[Personal[T]](Manifest(c.Manifest))
@@ -231,7 +231,7 @@ func TestACorruptEnvelopeFailsAsCorruptNeverErased(t *testing.T) {
 		}
 		_ = json.Unmarshal(c.Envelope, &env)
 		keys := newTestKeys(env.Project)
-		keys.keys[subjectRef{env.Project, env.Subject}] = b64(t, c.Key)
+		keys.keys[subjectRef{project: env.Project, subject: env.Subject}] = b64(t, c.Key)
 		withKeys(t, keys)
 		_, err := CodecFor[Personal[string]](Manifest(c.Manifest)).Decode([]byte(c.Envelope))
 		r, ok := AsRefusal(err)
@@ -397,7 +397,7 @@ func TestKeysAreFetchedOnceBeforeTheCodecAndDroppedOnANotice(t *testing.T) {
 	// A notice drops the key: the next read asks again, and the destroyed key reads as erased.
 	k.drop("brand", "player/bob")
 	keys.mu.Lock()
-	keys.erased[subjectRef{"brand", "player/bob"}] = true
+	keys.erased[subjectRef{project: "brand", subject: "player/bob"}] = true
 	keys.mu.Unlock()
 	read, err = codec.Decode(data)
 	if err != nil {
@@ -449,7 +449,7 @@ func TestTheSidecarsKeysAreAskedOverTheProtocol(t *testing.T) {
 	if _, err := k.ownProject(); err == nil {
 		t.Fatal("a process no answer told its project wrote under one")
 	}
-	_, err := k.source.fetch(context.Background(), subjectRef{"brand", "player/8c1f"}, false)
+	_, err := k.source.fetch(context.Background(), subjectRef{project: "brand", subject: "player/8c1f"}, false)
 	if r, ok := AsRefusal(err); !ok || r.Code != Unavailable || !strings.Contains(r.Message, "1.23") {
 		t.Fatalf("a sidecar with no keys answered %v", err)
 	}

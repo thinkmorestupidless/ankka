@@ -40,9 +40,14 @@ object RootKey:
    * platform schema (its tables are made by code, as the role that owns them), so the store's table
    * is made here, under the root key's lock, before the first read. `RootKeySuite` holds it to the
    * platform's file.
+   *
+   * In `public`, by name. The keyring connects as the role `keyring`, whose search path begins with
+   * the schema `keyring` that `KeyStore` makes after this: an unqualified create made the table in
+   * `public` on the first start and an empty one in `keyring` on the next, which the store then
+   * read, and every restart made a new root key that unwrapped no KEK.
    */
   val SecretsTable: String =
-    """CREATE TABLE IF NOT EXISTS ankka_secrets (
+    """CREATE TABLE IF NOT EXISTS public.ankka_secrets (
       |  name       TEXT PRIMARY KEY,
       |  ciphertext BYTEA NOT NULL,
       |  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

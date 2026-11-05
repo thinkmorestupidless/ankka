@@ -368,7 +368,11 @@ ConfigMap for nothing.
   needs `ankka_secrets`: every instance refused to start on the first k3s run, while every offline
   suite passed against the test kit's databases, which carry the platform DDL. A process that uses a
   runtime store on such a database makes the store's table itself (`RootKey.SecretsTable`, held to
-  `40-secrets-postgres.sql` by `RootKeySuite`).
+  `40-secrets-postgres.sql` by `RootKeySuite`), **qualified with its schema**: the role's search path
+  begins with `"$user"`, and the keyring's code makes a schema `keyring` for the role `keyring`, so an
+  unqualified `CREATE TABLE IF NOT EXISTS` made the table in `public` on the first start and an empty
+  one in `keyring` on the next. Every restart then made a new root key that unwrapped no KEK, which
+  only a k3s restore showed; a `psql` as `postgres` reads `public` and showed the row unchanged.
 - **A k3s suite's dump of a crash-looping pod keeps only JSON log fields** (2026-11-04). It is written
   for CNPG; a pod that logs plain lines shows its name and nothing else. The erasure suites print the
   keyring's `--previous` logs themselves (`ErasureClusterSteps.keyringLogs`).

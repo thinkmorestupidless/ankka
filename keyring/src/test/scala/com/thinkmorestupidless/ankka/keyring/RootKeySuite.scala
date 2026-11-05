@@ -90,5 +90,34 @@ class RootKeySuite extends munit.FunSuite with LogCapturing:
     finally stream.close()
     def words(text: String) = text.split("\\s+").filter(_.nonEmpty).mkString(" ")
     val statement           = words(ddl.linesIterator.filterNot(_.startsWith("--")).mkString(" "))
-    assertEquals(statement.stripSuffix(";").trim, words(RootKey.SecretsTable))
+    assertEquals(
+      statement.stripSuffix(";").trim,
+      words(RootKey.SecretsTable).replace("public.ankka_secrets", "ankka_secrets")
+    )
+  }
+
+  test("a keyring started again, beside a schema named for its role, reads the same root key") {
+    def sql(text: String) = Await.result(database.execute(SqlFragment.raw(text)), 30.seconds)
+    val role              = Await
+      .result(
+        database
+          .query(SqlFragment.raw("SELECT current_user AS who"))(_.get("who", classOf[String])),
+        30.seconds
+      )
+      .head
+    // As a fresh keyring database: no secret store, and no schema of the role's own name yet.
+    sql("DROP TABLE IF EXISTS ankka_secrets")
+    sql(s"""DROP SCHEMA IF EXISTS "$role" CASCADE""")
+    try
+      val first   = RootKey.postgres(secrets, database)
+      val wrapped = first.wrap("kek".getBytes, "brand".getBytes)
+      // What KeyStore does for the keyring's role: a schema its search path finds first.
+      sql(s"""CREATE SCHEMA "$role"""")
+      val again = RootKey.postgres(secrets, database)
+      assertEquals(
+        scala.util.Try(String(again.unwrap(wrapped, "brand".getBytes))).toOption,
+        Some("kek"),
+        "the keyring started again with another root key"
+      )
+    finally sql(s"""DROP SCHEMA IF EXISTS "$role" CASCADE"""): Unit
   }

@@ -224,7 +224,11 @@ final class Notices(
       )
       .map(_ => ())
 
-  /** Records an acknowledgement; a later one of the same instance (a re-run) replaces it. */
+  /**
+   * Records an acknowledgement; a later one of the same instance (a re-run) replaces it. Only an
+   * erasure of the instance's own project can be acknowledged: an ack naming another project's
+   * erasure is refused, so no tenant writes into another's completion and certificate.
+   */
   def acknowledge(project: String, ack: KeyringAck): Future[Unit] =
     val c       = ack.completion
     val handler = c.handler
@@ -235,6 +239,16 @@ final class Notices(
     val at      = clock.instant()
     store
       .ensure()
+      .flatMap(_ => store.applied(ack.seq))
+      .flatMap {
+        case Some((p, _)) if p == project => Future.unit
+        case _                            =>
+          Future.failed(
+            IllegalArgumentException(
+              s"${ack.instance} acknowledged erasure ${ack.seq}, which is not an erasure of $project"
+            )
+          )
+      }
       .flatMap(_ =>
         database
           .execute(
@@ -255,12 +269,19 @@ final class Notices(
    * its instances' work, the handler's report from the one that ran it, at the last of its acks.
    */
   def status(seq: Long): Future[ErasureStatus] =
+    store.applied(seq).flatMap {
+      case None               => Future.successful(ErasureStatus(Vector.empty))
+      case Some((project, _)) => statusOf(seq, project)
+    }
+
+  /** The status of `seq`, an erasure of `project`: only that project's services count. */
+  private def statusOf(seq: Long, project: String): Future[ErasureStatus] =
     store.ensure().flatMap { _ =>
       val expected = database.query(
-        sql"SELECT service, instance FROM keyring.notice_expect WHERE erasure_seq = $seq"
+        sql"SELECT service, instance FROM keyring.notice_expect WHERE erasure_seq = $seq AND project = $project"
       )(r => r.get("service", classOf[String]) -> r.get("instance", classOf[String]))
       val acked = database.query(
-        sql"SELECT * FROM keyring.notice_ack WHERE erasure_seq = $seq"
+        sql"SELECT * FROM keyring.notice_ack WHERE erasure_seq = $seq AND project = $project"
       ) { r =>
         val finality = Option(r.get("finality", classOf[String]))
         (
@@ -283,7 +304,7 @@ final class Notices(
       }
       val since = clock.instant().minusMillis(Notices.GoneAfter.toMillis)
       val alive = database.query(
-        sql"SELECT instance FROM keyring.notice_connection WHERE seen_at > $since"
+        sql"SELECT instance FROM keyring.notice_connection WHERE seen_at > $since AND project = $project"
       )(_.get("instance", classOf[String]))
       for
         e <- expected

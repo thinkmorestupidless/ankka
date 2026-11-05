@@ -111,6 +111,28 @@ class NoticesSuite extends munit.FunSuite with LogCapturing:
     assert(i.heard.asScala.exists(_.isInstanceOf[NoticeFrame.Heartbeat]))
   }
 
+  test("an instance of another project cannot acknowledge an erasure, nor count in its status") {
+    val store    = KeyStore(database)
+    val notices  = Notices(database, store)
+    val own      = Instance("p6", "players", "players-a").connect(notices)
+    val intruder = Instance("p7", "players", "players-x").connect(notices)
+    val phantom  = Instance("p7", "ledger", "ledger-x").connect(notices)
+    await(store.destroy(501, "p6", "player/1", at)): Unit
+    await(notices.publish(501, "p6", "player/1", rerun = false))
+    // Another project's instances, one named as p6's service, one not: both are refused.
+    intercept[IllegalArgumentException](ack(intruder, 501))
+    intercept[IllegalArgumentException](ack(phantom, 501))
+    // An erasure that was never applied cannot be acknowledged either.
+    intercept[IllegalArgumentException](ack(own, 599))
+    assertEquals(await(notices.status(501)).services.map(_.service), Vector("players"))
+    assertEquals(await(notices.status(501)).services.head.completedAt, None)
+    ack(own, 501)
+    assertEquals(
+      await(notices.status(501)).services.map(s => s.service -> s.completion),
+      Vector("players" -> Some(Completion(1, 0, 0)))
+    )
+  }
+
   test(
     "a notice published by one replica of the keyring reaches an instance connected to another"
   ) {

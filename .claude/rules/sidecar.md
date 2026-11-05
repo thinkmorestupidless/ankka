@@ -52,6 +52,12 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   on the call site. A key request without it is answered by the follower's own keyring, which holds
   none of the home's keys and reads every field erased, silently. `ClientPersonalSuite`'s follower
   case fails without the routing.
+- **A process SDK keys its key cache by home as well as project** (2026-11-05, FR-032). Python,
+  TypeScript and Go track the home from `Init.home`, each `Event.installation` and `Command.home`,
+  and run the snapshot, event and persisted-event codecs under it (Go's `atHome` codec, TypeScript's
+  `Keyring.within`, Python's `keyring.at_home`). A cache keyed by project alone opened the home's
+  envelope with the follower's own key of the same subject and read it corrupt; another home's key
+  is foreign (its TTL, never served through an outage), and is never asked for with `create`.
 
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
   runtime does not know is read as absent, so a period added to `ScheduleRequest` would have been a timer

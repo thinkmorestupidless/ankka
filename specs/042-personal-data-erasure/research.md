@@ -458,3 +458,16 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   The refusal reads the requests' listing, so a second ask in the moment before it lists the held
   request is not refused. That is accepted, as for an ask repeated after an applied request: the
   hold is no boundary against a member, who may withdraw it and ask again (FR-014).
+### Process SDK follower keys (2026-11-05)
+
+- **A process asks another home's keyring with `create` false, always** (FR-032, review). The sidecar
+  already answers a follower's absent key as unavailable when `create` is set; the Python, TypeScript
+  and Go SDKs do not send it at all for another home, so "a follower never makes a key" holds at both
+  ends. A follower's write of a subject its home holds no key for is therefore refused (Go: erased;
+  TypeScript and Python: unavailable), never sealed under a key made at the follower.
+- **What is the record's is sealed with the home's keys; what is the call's, with this
+  installation's** (FR-032, review). A process uses the home for the snapshot, each event, the events
+  it persists and the snapshot it is asked for; a command's input and its reply are its caller's and
+  stay on this installation's keyring, as the request carries no home for them. A reply at a follower
+  that holds a personal field is sealed for the caller here; whether that is right for a field whose
+  key only the home holds is left open.

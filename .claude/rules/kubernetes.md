@@ -363,6 +363,15 @@ ConfigMap for nothing.
   is copied onto the operator and the control plane after the components, so an overlay that lists
   `components/keyring` must also set `erasure: "on"`, or the component's own patch is replaced by the
   overlay's `off`. The component and the cloud overlay both say so; `RemoteOverlaySuite` renders it.
+- **A platform database made by CNPG with no schema has none of the platform's tables** (2026-11-04,
+  feature 042). The keyring's database is `bootstrap.initdb` with no DDL, and its root key's store
+  needs `ankka_secrets`: every instance refused to start on the first k3s run, while every offline
+  suite passed against the test kit's databases, which carry the platform DDL. A process that uses a
+  runtime store on such a database makes the store's table itself (`RootKey.SecretsTable`, held to
+  `40-secrets-postgres.sql` by `RootKeySuite`).
+- **A k3s suite's dump of a crash-looping pod keeps only JSON log fields** (2026-11-04). It is written
+  for CNPG; a pod that logs plain lines shows its name and nothing else. The erasure suites print the
+  keyring's `--previous` logs themselves (`ErasureClusterSteps.keyringLogs`).
 - **The personal namespace label is applied under its own field manager** (2026-11-04).
   `ankka.cloud/personal=true` is written by `LabelNamespace` as `ankka-operator-labels`, so a later
   server-side apply of the namespace by the service pass, which does not name the label, does not

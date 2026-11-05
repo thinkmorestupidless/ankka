@@ -1774,6 +1774,32 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     )
   }
 
+  test("the keyring and the control plane each find the erasure log's bucket by its name") {
+    // What the runtime makes of each Deployment's literal ANKKA_S3_ values, a key beside them.
+    for deployment <- Vector("ankka-keyring", "ankka-controlplane") do
+      val literal = Vector(
+        "ANKKA_S3_ENDPOINT",
+        "ANKKA_S3_REGION",
+        s"ANKKA_S3_BUCKET_${com.thinkmorestupidless.ankka.core.PlatformVariables
+            .bucketVariableSuffix(com.thinkmorestupidless.ankka.crd.Buckets.ErasureLog)}"
+      ).flatMap(name => variablesNamed(withKeyring, deployment, name).map(v => name -> v.getValue))
+        .toMap
+      val settings = com.thinkmorestupidless.ankka.runtime.storage.StorageSettings
+        .from(
+          com.typesafe.config.ConfigFactory.load(),
+          literal ++ Map("ANKKA_S3_ACCESS_KEY" -> "key", "ANKKA_S3_SECRET_KEY" -> "secret"),
+          false
+        )
+        .fold(p => fail(s"$deployment: $p"), identity)
+      assertEquals(
+        settings.named
+          .find(_.name == com.thinkmorestupidless.ankka.crd.Buckets.ErasureLog)
+          .map(_.target.bucket),
+        Some("platform.erasure-log"),
+        s"$deployment knows no bucket named platform.erasure-log: $literal"
+      )
+  }
+
   test("the keyring's door admits personal namespaces, the control plane and the gateway") {
     val policy = io.fabric8.kubernetes.client.utils.Serialization.unmarshal(
       documentsOfKind(withKeyring, "NetworkPolicy")

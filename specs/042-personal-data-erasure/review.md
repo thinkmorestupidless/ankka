@@ -1,0 +1,228 @@
+# Review: feat(042): personal data erasure by crypto-shredding per data subject
+
+**Verdict:** Request changes
+**What it does:** It adds `Personal` in all seven SDKs. Its codec seals each personal field under a per-subject key fetched from a new standalone keyring component. Erasure is a control plane request with holds, overrides, a two-copy erasure log, a sweep and a certificate. On an erasure the keyring destroys the subject's key and pushes a destroyed notice to every instance. Each instance then drops the key, redacts its view rows and lookup tokens, ends the subject's agent sessions, runs the service's erasure handler and acknowledges. The CLI, console and MCP server carry the request in full.
+**Should it exist:** yes. The append-only journal, topics and backups cannot otherwise forget a person (GDPR Article 17). Putting the cryptography in the codec, so every store passes through one place, is the right layer, and the spec argues it well.
+**Read:**
+- **Read in full:** `modules/core` (`Personal.scala`, `Keyring.scala`, `Serializer.scala`, `KeyringWire.scala`, `Serializers.scala`); `modules/runtime/.../keyring/` (`KeyringClient`, `KeyCache`, `KeyringSettings`, `KeyringSupervision`, `ErasureDuties`, `ErasureReplay`, `ErasureHandlerHost`, `ViewRedaction`, and `RemoteKeyStoreClient`'s notices half); `LookupTokens.scala`; the `ViewStore.redact` diff; the `EventSourcedEntityHost` diff; `sdk/PersonalFields.scala`; `keyring/` (`KeyStore`, `Admission`, `KeyringServer`, `KeyringService`, `Notices`, `ErasureLogReplay`, `Main`); `docs/reference/limitations.md` (the diff, and lines 44-52 around it); the spec, plan and tasks; research.md's *Found during implementation*.
+- **Read by three parallel reviewers**, each finding confirmed against HEAD:
+  - The Python, TypeScript and Go SDKs.
+  - The sidecar, `protocol/`, the Rust crate, and Java and Kotlin.
+  - `controlplane/`, `controlplane-api/`, `cli/`, `console/`, `operator/`, `crd/`, `kustomization/`, `build.sbt` and `.github/`.
+- **Context opened outside the diff:** `.github/workflows/release.yml`, `Rendering.scala` (`StorageEnv.softDelete`), and the KeyringClientSuite and KeyringOutageSuite cases.
+- **Skipped:**
+  - The generated `*.pb.go`, `uv.lock`, and the fixture copies under each SDK.
+  - The skill mirrors under `marketplace/` and `ankka.g8/`, which repeat `docs/`.
+  - The golden file `operator/.../personal-service.txt`.
+- **Read only lightly, worth a second reviewer:**
+  - The agent module's sealing (`Sealing.scala`, `SessionMemoryEntity`, `TaskEntity`).
+  - The k3s suites (`ErasureClusterFeatures`, `ErasureRestoreClusterFeatures`).
+  - The console's `project.tsx` and the CLI's `Main`/`Output`.
+- **Needs specialist review:** a cryptography reviewer for the envelope and the key hierarchy, and a database reviewer for the keyring schema and the redaction SQL.
+
+**Size:** 619 files, about +43,946 −887 hand-written lines across 109 commits. That is far past the point where line-by-line defect-finding holds up. The spec decided on one pull request, so there is no release with personal fields but without erasure. That decision can stand while review still goes in slices. The slices this review was cut along would be acceptable:
+1. Core and runtime.
+2. The keyring.
+3. The control plane and its surfaces.
+4. The process SDKs and the sidecar.
+5. Rust and Wasm.
+6. Agents.
+
+The findings below are dense in the parts read in full, which suggests the lightly read parts hold more.
+
+## Blocking
+
+- `.github/workflows/release.yml:150` and `:178` — issue (blocking): the `ankka-keyring` image is never published.
+  - `IMAGES` and the `Docker/publish` step list every other platform image but not this one.
+  - The cloud overlay names `ghcr.io/thinkmorestupidless/ankka-keyring` at the release tag. So an installation that turns erasure on after a release sits in ImagePullBackOff, and erasure cannot be turned on anywhere but kind.
+  - Suggestion: add `ankka-keyring` to `IMAGES` and `keyring/Docker/publish` to the publish step, and check the multi-arch manifest loop at `:202` and `:233` too.
+
+- `sdks/typescript/src/personal.ts:65-67` — issue (blocking): `Present.toJSON()` returns `{subject, value}`, so `JSON.stringify(event)` prints the plaintext.
+  - This breaks FR-029: "`Personal`'s textual form in every SDK MUST be `Personal(<subject>)` and nothing else". It also breaks SC-009, since logging a whole event is exactly the case that SC names, and `JSON.stringify` is how TypeScript code logs an object.
+  - The codec never uses `toJSON`, because the edge form comes from the schema. The only other caller is the agent tool result in `server/agent.ts:99`.
+  - `personal.test.ts:285` checks only `util.inspect`, so it passes with this leak.
+  - Suggestion: make `toJSON` return `{ subject }` (or the `Personal(<subject>)` string), encode tool results through their schema, and add a `JSON.stringify` assertion.
+
+- `sdks/python/src/ankka/keyring.py:57,164` and `sdks/typescript/src/keyring.ts:2-3,41,170` — issue (blocking): the process caches hold every key with no expiry, no bound and no outage bound, and treat another project's keys the same way.
+  - No notice of another project ever reaches a process. The JVM bounds that case with `foreign-ttl` (30 s), but these two SDKs have no equivalent.
+  - So a Python or TypeScript consumer in project B, reading project A's subjects under a decrypt grant, keeps decrypting after A erases the subject or revokes the grant, until the process restarts or its stream reconnects.
+  - This breaks FR-020, FR-022, SC-004, FR-027 and `other-projects.feature`'s revoked-grant scenario. The TypeScript header says "cached for the life of the process" outright.
+  - The same caches also hold a read's erased answer forever (`keyring.py:164`, `keyring.ts:146,171`), so a decrypt grant made later is never honoured.
+  - Suggestion:
+    - Stamp each entry with its fetch time.
+    - Expire own-project keys at `ttl` (5 min) and other projects' at `foreign-ttl` (30 s), and bound the size at `max-keys`.
+    - Hold read-side erased answers for `foreign-ttl` at most.
+    - Test each rule with an injected clock.
+
+- `sdks/go/keyring.go:43,89` — issue (blocking): Go holds another project's keys for the own-project lifetime (5 min).
+  - With no notices from that project, a Go consumer decrypts an erased subject for up to 5 minutes, past SC-004's 60 seconds.
+  - Suggestion: use `foreign-ttl` for a key whose project is not this process's own, and add a cache-lifetime test (none exists in Go).
+
+- `operator/src/main/scala/com/thinkmorestupidless/ankka/operator/Rendering.scala:920`, `:958`, `:2338` — issue (blocking): `StorageEnv.softDelete` renders `ANKKA_S3_SOFT_DELETE_DAYS` on every service with a cloud bucket on a GCS installation, whether it is personal or not.
+  - `softDeleteDays` is never 0 on GCS, so every bucket-holding service there rolls on the operator upgrade.
+  - This breaks the plan's constraint "nothing rendered for a service without `personal` differs" and kubernetes.md's "never render what must not roll".
+  - `RenderingUnchangedSuite` has no cloud-bucket fixture, so it passes while the property it guards is false.
+  - Suggestion: gate the variable on `spec.personal` (or on an erasure handler being declared), and add a GCS-bucket fixture to `RenderingUnchangedSuite`.
+
+- `keyring/src/main/scala/com/thinkmorestupidless/ankka/keyring/Notices.scala:54-56` and `:257-312` — issue (blocking): an acknowledgement is recorded for any `seq` the instance names, and `status(seq)` groups acks by service name without the project.
+  - The instance's project is admitted at hello, but nothing checks that `ack.seq` is an erasure of `hello.project`.
+  - So any service of any project can write `notice_ack` rows for another project's erasure. That adds a phantom service to its status, or completes a same-named service whose expected instances have gone.
+  - The control plane turns that status into completions and the erasure certificate, so one tenant can corrupt another tenant's compliance record.
+  - Suggestion:
+    - In `received`, refuse an ack whose `seq` is not in `applied_log` for `hello.project` (the backlog query already reads that table).
+    - Filter both `notice_expect` and `notice_ack` by project in `status`.
+    - Add an `AdmissionSuite` or `NoticesSuite` case with an instance of another project.
+
+## Should fix
+
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/keyring/KeyringClient.scala:173-185` with `KeyCache.scala:38-43` — issue (non-blocking): in a real outage the outage bound (`cache.outage-bound = 15m`) cannot take effect.
+  - The notices channel goes unconfirmed in an outage, so `check()` calls `dropAll()` after `notice-bound` (60 s), and `stale()` has nothing left to serve.
+  - SC-010 ("keeps answering reads of cached subjects for the outage bound") therefore holds for 60 s, not 15 minutes.
+  - `KeyringClientSuite`'s outage case (line 115) never calls `check()`, and `KeyringOutageSuite` runs within the first second, so neither can see this.
+  - FR-020 and FR-022 genuinely pull against each other here. Suggestion: decide which wins and record it in the spec. Then either make `outage-bound` ≤ `notice-bound` a settings rule and document it, or keep stale keys only while every fetch also fails (and say why that is safe). Add a test that composes `check()` with the outage.
+
+- `modules/runtime/.../keyring/KeyringClient.scala:43,144` with `RemoteKeyStoreClient.scala:141-142` — issue (non-blocking): every instance starts with `lastSeq = 0`, so its hello asks for the project's whole erasure history on every start.
+  - `ErasureDuties` then reruns, for every erasure ever applied:
+    - a `jsonb_path_exists` scan of every view table;
+    - the agent duty;
+    - the erasure handler, on whichever instance holds the singleton, beyond FR-015's 30-day window ("and not after").
+  - At a casino's volume of erasures, start-up cost grows without bound.
+  - Separately, `flush` advances `acked` to the highest acked seq (`:186`), so a notice whose duties failed is skipped by the next hello once a later one succeeds.
+  - Suggestion: start the hello from what the service's own database records as carried out. `ankka_erasure_replay` already holds a line's high-water mark, so store the seq there per line. Advance `acked` only over a contiguous prefix.
+
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ViewStore.scala` (`redact`, `lookup = NULL`) — issue (non-blocking): redacting one subject from a row drops the row's whole `lookup` column, including other subjects' tokens.
+  - The spec's edge case "One event, two subjects" says erasing one leaves the other's fields readable. Here the other subject's row stops matching declared lookup queries until the projection happens to rewrite it.
+  - Suggestion: drop only the paths whose envelope belongs to the erased subject (`lookup - <paths>`). Add a two-subject row to `ViewRedactionSuite`.
+
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/LookupTokens.scala` (`forRow`, `.distinctBy(_._1)`) — issue (non-blocking) (if-minor): a lookup field inside a collection (`contacts[*].email`, which `PersonalFields` derives) keeps only the first element's token, so a lookup query for any other element finds nothing.
+  - When `found.size != sealedFields.size`, every token is silently dropped.
+  - Suggestion: refuse `lookup` on a `[*]` path at registration, or store a token array per path. Fail loudly on a size mismatch.
+
+- `keyring/.../Notices.scala:258-311` with `controlplane/.../erasure/ErasureApplication.scala:129-140` — issue (non-blocking): a service counts toward completion and finality only if it was connected when the notice was written.
+  - A paused or crash-looping service, or one with no channel, is simply absent, and the request is certified final without it.
+  - `Rendering.scala:340` renders `ANKKA_KEYRING_ADDRESS` only for `spec.personal`. A service whose only part is an erasure handler (US7's KYC bucket service) therefore never connects, its handler never runs, and the certificate says final.
+  - Suggestion:
+    - Finalise against the project's service rows, or list on the certificate the services that did not complete.
+    - Render the keyring address for any service that declares an erasure handler.
+    - Say this in `docs/build/personal-data.md`.
+
+- `controlplane/.../erasure/ErasureRoutes.scala:55-100` with `ProjectEntity.recordErasureRefused` — issue (non-blocking): any service certificate in the installation can make any project persist an unbounded number of `ErasureAskRefused` events.
+  - A project that does not exist answers 404, not 403, which confirms project ids.
+  - Suggestion: record one refusal per caller and subject per window, and answer 403 for an unknown project.
+
+- `controlplane/.../domain/events.scala:345` — todo: `ErasureAskRefused` is not pinned in `EventCompatibilitySuite`, which control-plane.md requires for every new control plane event. Add its fixture.
+
+- `controlplane/.../erasure/ErasureApplication.scala:168-178` with `ErasureRequestEntity.scala:155` — issue (non-blocking): a handler that keeps failing records a `HandlerRan` event every 15 minutes for 30 days.
+  - That is about 2,880 events per service, each one appended to the entity's state and to the audit.
+  - Suggestion: dedupe on an unchanged error, as `applyFailed` already does.
+
+- `controlplane/.../erasure/ErasureApplication.scala:156-159` — issue (non-blocking): `known(service)` folds the request-wide `lastRunAt` into every service's high-water mark.
+  - One service's quiet run, recorded first, hides another service's earlier failing run, which is then never audited (FR-016).
+  - Suggestion: keep a last-run time per service.
+
+- `controlplane/.../erasure/ErasureRoutes.scala:172-193` — issue (non-blocking): FR-014 makes a held request "withdrawable and replaceable by its filer or a member". Withdraw and replace need a principal, and the protocol has only `AskErasure`, so the service that filed a held request (US8's players service) cannot withdraw or replace it.
+  - Suggestion: admit the filing service on both routes, or amend FR-014.
+
+- `sidecar/src/main/scala/com/thinkmorestupidless/ankka/sidecar/ClientLogic.scala:663-669` and `:791-798` — issue (non-blocking): when the keyring cannot be reached, a process or module receives `INTERNAL` instead of `UNAVAILABLE`.
+  - The cause: `KeyringUnavailable` is a `RuntimeException`, not a `CommandError`, so it falls through to the `NonFatal` case.
+  - The proto comment and Rust's `from_host` both expect `UNAVAILABLE` with `personal=unavailable`.
+  - Suggestion: add `case e: KeyringUnavailable => refused(error(e.error))` in both places, plus a `ClientPersonalSuite` case with the kit's keyring in an outage. That suite also lacks a `Refused` case.
+
+- `sidecar/src/main/scala/com/thinkmorestupidless/ankka/sidecar/ProcessNotices.scala:551,591-592` — issue (non-blocking): when a stream reopens under the same instance name, the old stream's termination deregisters the new one.
+  - The cause: `close(instance)` removes by key, not by queue.
+  - Python reconnects under the same instance name, so the process can end up with a live stream that never hears another notice, while `notify` reads "no stream" as done. That breaks FR-022.
+  - Suggestion: `streams.remove(instance, queue)`, and settle waiters only on that removal. Add a test that opens twice and then notifies.
+
+- `sidecar/.../ProcessNotices.scala:561-582` — issue (non-blocking): nothing bounds the wait for a process's acknowledgement.
+  - A hung process leaves `ErasureDuties.run` pending forever, so the service never completes.
+  - Suggestion: give each instance a deadline at `notice-bound`, then fail its stream (which every SDK answers with `drop_all`) and settle it.
+
+- `modules/runtime/.../keyring/KeyringClient.scala:50-59`, Python `_fetch_all`, TypeScript `#ensure` (`keyring.ts:170`), Go `prefetch` (`keyring.go:123`) — issue (non-blocking): if a fetch is in flight when the destroyed notice arrives, it puts the old key back after the drop.
+  - The JVM then holds it as fresh for `ttl` (5 min), and the process caches without expiry hold it for good.
+  - The window is narrow, but it is exactly the case FR-022's bound exists for.
+  - Suggestion: keep a drop generation, and discard any answer whose fetch began before the latest drop of its subject or of the whole cache.
+
+- `sdks/python/src/ankka/storage.py` (`parse_versions`), `sdks/typescript/src/storage.ts:1093`, `sdks/go/storage_s3.go:536` — issue (non-blocking): a listed version id of `null` (an object written before versioning was enabled) is deleted without a version id.
+  - On a versioned S3-compatible store that only adds a delete marker, so the object stays recoverable and is left out of the count.
+  - Suggestion: send `versionId=null` explicitly.
+
+- `docs/reference/limitations.md:48-50` and the new *Personal data and erasure* section — issue (non-blocking): the honest list now contradicts the code three times.
+  - "The installation does not report erasure … which the platform does not yet provide" is false since FR-033.
+  - "A store's soft-delete window is reported only when the service is told it … the platform does not set it" was written before `97a183377`, which renders it.
+  - "the relay … is not defined yet" contradicts the `KeyringRelay` SPI this change ships.
+  - Suggestion: rewrite all three to say what is true today.
+
+- `Description` / `specs/042-personal-data-erasure/spec.md` — issue (non-blocking): several MUSTs are not implemented and are recorded only in `limitations.md` and research.md, while tasks.md marks all 106 tasks done and the spec says "one pull request with every story, requirement and SDK".
+  - **FR-010 and FR-008:** Java and Kotlin have no erasure handler and cannot ask for an erasure.
+  - **FR-027:** Java, Kotlin, the process SDKs and Rust seal a field read from another project under their own project's key. An erasure in the producing project then never reaches that copy, which is the privacy property story 5 exists for.
+  - **FR-032:** a follower behind the sidecar is not routed. It reads with its own installation's keyring, which holds no key, so it reads `Erased` rather than retrying, against the outage edge case's "never decodes as Erased".
+  - Suggestion: for each one, either implement it or have the person decide and amend the spec. This is expected before merge.
+
+- `.claude/rules/sdk-go.md` — todo: it still says no SDK outside Scala has a personal type, and lists `erasure/languages.feature` as unbacked. Point the row at the `personal.*` conformance cases.
+
+- `controlplane/.../erasure/KeyringAdmin.scala:67-71` — suggestion (if-minor): `Door.call` builds an `HttpClient` per call, and the sweep calls it for every open request every pass. Build one per `Door`, rebuilt on rotation.
+
+- `controlplane/.../erasure/ErasureSweep.scala:68,91` with `ErasureRequestsView.scala:163-172` — suggestion (if-minor): every pass runs unindexed jsonb scans and filters the 30-day window in memory. A request that never finalises stays in `open` and is polled forever. Filter `appliedAt` in SQL, and stop polling past the window.
+
+## Nits
+
+- `modules/core/src/main/scala/com/thinkmorestupidless/ankka/core/Personal.scala:118` — nitpick (non-blocking): `PersonalScope.within(manifest, nonce)` is public API that lets any caller fix the GCM nonce. A nonce used twice under one subject key breaks GCM. Make the `nonce` overload `private[ankka]` and give the fixture suites a test-only door.
+- `Personal.scala:32` and the subject-rule errors in the Python, TypeScript and Go SDKs — nitpick (non-blocking): the refusal repeats the refused value. A caller who passes an email as the subject puts the email in an error message, which FR-029 covers. Name the rule, not the value.
+- `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/mcp/AnkkaTools.scala` — nitpick (non-blocking): `erasure_file` is annotated `idempotent = true`, but two calls before the request is applied make two requests. Mark it `false`.
+- `sidecar/.../ClientLogic.scala` — nitpick (non-blocking): fully qualified `com.thinkmorestupidless.ankka.core.*` names repeat through the personal block. Imports would read better. `EventSourcedEntityHost` does the same.
+- `sdks/go/keyring.go:120-121` — nitpick (non-blocking): a full cache is cleared all at once, which causes a burst of refetches. Evict one entry.
+- `specs/042-personal-data-erasure/spec.md` (story 7, FR-026) — nitpick (non-blocking): the prefix is still given as `subjects/player/8c1f…/`. The code and docs use the escaped `subjects/player%2F8c1f/` that research decided on.
+
+## Questions
+
+- `keyring/src/main/scala/com/thinkmorestupidless/ankka/keyring/ErasureLogReplay.scala:89` — question: replay starts after `max(erasure_seq)` in `applied_log`.
+  - If the control plane can order two erasures concurrently, a keyring database restored to a point holding seq 6 but not 5 skips 5, and that subject's key comes back.
+  - Is the order serialised (one sweep, one at a time)? If yes, say so where `lastApplied` is read. If no, replay every log entry missing from `applied_log` rather than everything above a high-water mark.
+- `keyring/.../KeyStore.scala:83-125` — question: the comment says the vacuum leaves "no dead row" that keeps the key.
+  - `VACUUM` frees the tuple but does not overwrite the page. The WAL, and CNPG's WAL archive and base backups, keep the wrapped key, and the KEK and root key are what unwrap it.
+  - Replay covers a restore. Does `docs/platform/erasure.md` say plainly that whoever holds a keyring backup and the root key can recover an erased subject's key until that backup ages out? If not, it should, and the comment should claim less.
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/Ankka.scala:586-606` — question: the remote (process and module) entity hosts are not wrapped in `KeyringSupervision`, so a replay that needs an uncached key during an outage rejects the command and drops the session. Is the next command's re-open meant to be the retry R4 describes? If so, the docs should say so.
+- `sidecar/.../ClientLogic.scala:230` — question: `LocalDate.parse(text.take(10))` accepts `2026-01-01garbage` and drops any time or offset. Is not-before meant to be a date only? Then refuse anything longer than 10 characters.
+- `sidecar/.../RemoteErasureHandler.scala:624` — question: the process's erasure handler is sent `Metadata.empty`, so its calls lose the trace and the caller. sidecar.md's trap says anything the runtime asks a process to do carries the handler's metadata, and the Wasm side stamps it. Should this too?
+- `controlplane/.../erasure/ErasureRequestEntity.scala:38` — question: `Replaced(notBefore = None)` leaves the request held with no date, so it lapses on the next pass. Is replacing a hold without a date meant to release it? If not, refuse it.
+- `features/erasure/holds.feature:36-45` against `ErasureRoutes.scala:113` — question: the scenario reads "whoever asked for it asks for an erasure request", but it is bound to `PUT …/{rid}`. Meanwhile a second `POST` for a subject with a held request makes a second held request. Which behaviour is meant?
+- `controlplane/.../erasure/ErasureRoutes.scala` (`certificate`) — question: the certificate carries the hold and override reasons, which are free text a member typed, while FR-016 says it holds nothing personal. Should the docs tell members to keep personal data out of a reason?
+- `keyring/.../Admission.scala:74-77` and `:87-89` — thought: a decrypt grant on one topic admits keys, or decryption, for every subject of the producing project, since an envelope does not carry its topic. That matches FR-018 as written. The docs should say that `decrypt` is project-wide in effect.
+
+## Praise
+
+- `modules/core/src/main/scala/com/thinkmorestupidless/ankka/core/Personal.scala:153-200` — praise: the envelope is tight.
+  - AES-256-GCM with a fresh CSPRNG nonce.
+  - Length-prefixed associated data binding subject, project and manifest, so a spliced envelope fails as corrupt, never as erased.
+  - `Destroyed`, `Absent`, `Refused` and `Unavailable` are kept apart all the way through `KeyringUnavailable`.
+  - The Python, TypeScript and Go copies match it byte for byte against an independent generator.
+- `controlplane/.../erasure/ErasureApplication.scala:70-91` with `ErasureLog.scala:72-88` — praise: the entity refuses `keyDestroyed` without a `LogWritten`, which makes "an erasure whose log write failed destroys no subject key" hold by construction. Every step is safe to rerun.
+- `keyring/.../KeyStore.scala:48-80` — praise: create and destroy share one per-subject advisory lock and check the tombstone first, so FR-005's "once, whichever instance writes first" and "a tombstoned subject is never minted again" are one transaction, not a convention.
+- `modules/runtime/.../EventSourcedEntityHost.scala` (`encodeEvents`) — praise: sealing before persisting turns a keyring refusal into the command's answer rather than a journal failure that times out. The new runtime.md trap explains why, so the next host will copy it.
+- `sdks/rust/ankka/src/abi/imports.rs` — praise: each new import has its own link block, so a module with no personal field still runs on an older runtime, exactly as wasm.md's trap asks.
+- `RemoteEntitySuite` (`personal.sidecar-reads-nothing`) — praise: it sends the sidecar bytes that are not JSON, which proves FR-006 by construction. It is a check that would go red if the property were false.
+- `controlplane/.../erasure/ErasureRoutes.scala:197` — praise: override is owner-only on the server, not merely hidden in the console. The keyring's network policy and the gateway route expose only `POST /v1/decrypt`.
+
+## Out of scope
+
+- note: `ProjectGrants.fromDirectory` and `KubernetesGrants` re-read grants on each ask. This is fine for a revocation, but each `POST /v1/keys` from another project's consumer is a read of the file or the API. If the keyring is load-tested, consider an interval cache with the five-minute resync bound the operator already has.
+
+## Checks applied
+
+- **General checklist groups applied:** Correctness, Design and scope, Error handling, Concurrency and state, Security, Data and migrations, Performance, Tests, Observability and operability, API and compatibility, Dependencies and build, Documentation, Commit and PR hygiene. None was skipped.
+- **Commit and PR hygiene:**
+  - All 109 commit headers parse as Conventional Commits, scoped `042` and under 72 characters.
+  - The branch is up to date with `origin/main`.
+  - There is no PR yet, so the description and CI were not checked against `.github/pull_request_template.md`. The PR title should be `feat(042): …`.
+- **Language skills:**
+  - `pr-review-scala`: concurrency, codecs, totality, error handling, tests and sbt.
+  - `pr-review-python`, `pr-review-typescript`, `pr-review-go`: the SDK caches, the codecs, the textual forms and storage.
+  - `pr-review-rust`: the crate's codec and imports.
+  - `pr-review-java` and `pr-review-kotlin`: the record codec and the facade.
+  - No repository-local `pr-review-<language>` skills or `REVIEW.md` exist.
+- **Project rules read:**
+  - The root CLAUDE.md, plus the workspace CLAUDE.md files and brains.
+  - Rule files: `runtime.md` (the four 042 traps), `messaging.md`, `secrets.md`, `cluster-and-tls.md`, `observability.md`, `testing.md`, `sidecar.md`, `wasm.md`, `sdk-java.md`, `control-plane.md` (its *Erasure requests* section), `kubernetes.md` and `console.md`.
+  - The new traps were recorded in runtime.md, testing.md and sidecar.md, as CLAUDE.md asks. `sdk-go.md` was not updated (above).
+- **Enforced by tooling and not reviewed:** formatting (`.scalafmt.conf` and the pre-commit hook), compile warnings (`-Werror`), and the commit-message hook.
+- **Tests:** not run. The instructions said not to run sbt, and every suite the diff touches needs containers (Postgres, the sidecar image) or k3s. "Could this pass while false" was asked of the tests read: four suites were found that can pass while the property they hold is false (the outage-bound, `JSON.stringify`, `RenderingUnchangedSuite` and Rust host-unavailable cases above).

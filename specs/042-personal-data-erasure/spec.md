@@ -619,8 +619,9 @@ and a listing by correlation id returns both; assert a service without the grant
 - **FR-020**: A service instance MAY cache subject keys. The cache MUST be bounded (default 10,000 keys,
   a platform setting), MUST expire a key at most 5 minutes after it was fetched while the keyring
   answers, MUST keep serving reads from cached keys while the keyring does not answer for at most the
-  outage bound (default 15 minutes, a platform setting) and then drop them, and MUST drop a key at once
-  on a destroyed notice.
+  outage bound (default 60 seconds, a platform setting that MUST NOT exceed FR-022's notice bound,
+  so a service that cannot hear the keyring's notices never reads past it) and then drop them, and
+  MUST drop a key at once on a destroyed notice.
 - **FR-021**: After a restore of the keyring's database, the keyring MUST replay the union of both
   erasure log copies before answering any request, and MUST report any copy that was behind. After a
   restore of a project's database (spec 041), each service switched to it MUST apply the erasure log's

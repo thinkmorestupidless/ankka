@@ -347,3 +347,18 @@ None yet.
 - **The erasure log bucket is named on both Deployments** (2026-11-05): the keyring component gave the keyring and the control plane the store's endpoint and the `ankka-erasure-log` key but never the bucket, so neither runtime knew a bucket called `platform.erasure-log` and the keyring could not read the log's second copy (it waited, never ready). Both carry `ANKKA_S3_BUCKET_PLATFORM.ERASURE_LOG`, a platform-made bucket's variable, and `RemoteOverlaySuite` reads each Deployment's literals through `StorageSettings` to find it.
 - **A restarted keyring read an empty secret store in its own schema** (2026-11-05): the table the keyring makes for its root key is `public.ankka_secrets`, by name, since the role `keyring` finds its schema `keyring` first; unqualified, the second start made the table again there, empty, and a new root key. Found by T057 case B, the first scenario in which the keyring restarts. `RootKeySuite` creates a schema named for its role and starts the keyring twice.
 - **SC-004 is held on what decrypts, and an entity in memory is read after a restart** (2026-11-05, T099): the bound applies to the view rows of `players` and `engagement` and to `cardholders` in another project under its decrypt grant, which are opened on every read. `players'` entity, recovered before the erasure, keeps its name until it is passivated or restarted, as FR-022 records; the suite restarts it and reads the name as erased.
+
+### Review findings put to the person (2026-11-05)
+
+The review before the pull request (`review.md`) found spec MUSTs unbuilt that implementation had
+recorded only in `limitations.md` and here, and two requirements that pull against each other.
+
+- **Q: FR-008/FR-010 (Java and Kotlin erasure handler and asking), FR-027 (a field read from another
+  project sealed under its own project's key outside Scala) and FR-032 (a follower behind the sidecar
+  reading `Erased`): implement, or amend the spec? → A: build all of them in this pull request**, as
+  the spec's "one pull request with every story, requirement and SDK" says.
+- **Q: FR-022's notice bound (60 s) or SC-010's outage bound (15 min): which wins while the keyring
+  does not answer? → A: the notice bound.** Erasure comes first: a service that cannot hear the
+  keyring's notices drops its keys at the notice bound. FR-020 now says the outage bound defaults to
+  60 seconds and MUST NOT exceed the notice bound; the settings refuse an outage bound above it, and
+  a test composes the outage with the notice check.

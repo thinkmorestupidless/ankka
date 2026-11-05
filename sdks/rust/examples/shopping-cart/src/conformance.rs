@@ -2277,8 +2277,13 @@ pub fn build() -> Service {
         .endpoint(CallersEndpoint)
         .endpoint(AutonomousEndpoint)
         .endpoint(McpKeysEndpoint)
-        .mcp_endpoint(CartMcp)
-        .erasure_handler(erase_nothing);
+        .mcp_endpoint(CartMcp);
+    // Every reference declares an erasure handler to the conformance suite. A runtime refuses one
+    // that no keyring reaches, so a module deployed where erasure is off is told to leave it out.
+    let service = match ankka::config("ANKKA_CONFORMANCE_ERASURE").as_deref() {
+        Some("off") => service,
+        _ => service.erasure_handler(erase_nothing),
+    };
     // What a suite drives to see a module call another service from a consumer and a step, and
     // read the time and random bytes. Rust's alone, so they are registered only where the module
     // is told to: every reference declares the same components to the conformance suite.

@@ -1000,7 +1000,10 @@ spec:
         EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
         EnvEntry("GREETING", Some("hello from the descriptor"), None, None),
         // Has the reference register what the suite drives to see it call another service.
-        EnvEntry("ANKKA_CONFORMANCE_CALLS", Some("on"), None, None)
+        EnvEntry("ANKKA_CONFORMANCE_CALLS", Some("on"), None, None),
+        // This installation has erasure off, so no keyring reaches the module, and a runtime
+        // refuses a service whose erasure handler would never run (feature 042).
+        EnvEntry("ANKKA_CONFORMANCE_ERASURE", Some("off"), None, None)
       ) ++ issuerEnv,
       provisionDatabase = false,
       autoscaling = AutoscalingSpec(minInstances = instances, maxInstances = instances),

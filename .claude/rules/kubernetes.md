@@ -400,6 +400,11 @@ gains goes in `ErasureReplay.Table` and its own `ALTER`, never in a DDL file.
   silently drops a tar whose only manifest is another platform's and the pod reports a plain
   `ErrImagePull` for an image that "imported" fine.
 
+- **The API server lists a service's pods by name, and a name ends in its template's hash**
+  (2026-11-05). `podProblems` took them in that order, so the detail named whichever pod sorted
+  first: in `OperatorClusterSuite` 10b a pod left from generation 5's unpullable image came before
+  generation 6's wrong-architecture one once a rendering change moved the hashes, on both
+  architectures. `PodProblem.newestFirst` orders by creation time; `PodProblemSuite` holds it.
 - **A controller that judges "already done" from an event's copy does it twice.** The informer
   delivers the resource as it was when the event fired, and fires again on the operator's next
   server-side apply of the same spec and on every resync; a copy queued behind the controller's

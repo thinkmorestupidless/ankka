@@ -938,7 +938,7 @@ final class Fabric8Executor(
       .getItems
       .asScala
       .toVector
-    pods.flatMap { pod =>
+    PodProblem.newestFirst(pods).flatMap { pod =>
       PodProblem
         .of(pod)
         .map(p => if p.wrongArchitecture then p.copy(architecture = nodeArchitecture(pod)) else p)

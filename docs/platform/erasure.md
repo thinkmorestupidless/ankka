@@ -92,6 +92,16 @@ Every key-encryption key is wrapped by the **root key**, which is never in a pro
   encrypt and decrypt with it, as the identity its pod runs as, and never reads it. An installation that
   keeps real money or regulated records uses this.
 
+**A backup of the keyring's database can recover an erased data subject's key until that backup ages
+out.** Destroying a key deletes its row and vacuums the table, which frees the row but does not overwrite
+the page it was on, and the write-ahead log, its archive and every base backup taken before the erasure
+still hold the wrapped key. Whoever holds such a backup and the root key (on Postgres, the keyring's
+secret store and `ANKKA_SECRET_KEY`; on Google Cloud, the right to use the KMS key) can unwrap it. A
+keyring restored from such a backup is safe, since it replays the erasure log before it answers and
+destroys the key again; the exposure is a copy of the backup read outside the keyring. Erasure is final
+for backups only when the oldest backup and archived log taken before it have aged out of the keyring's
+retention, so keep that retention as short as recovery allows, and the root key apart from the backups.
+
 ## Asking for an erasure
 
 A member asks for an erasure of one data subject in one project, by hand:
@@ -227,7 +237,12 @@ ankka projects grants make service:payments/cardholders topic players consume --
 ```
 
 The keyring reads every project's grants, admits the consumer's service because of that grant, and
-records each key it gives with the grant it was given under. What the consumer keeps of the field (a
+records each key it gives with the grant it was given under. **A grant with decryption is project-wide in
+effect.** An envelope does not say which topic it came from, so the keyring cannot tell a key asked for
+to read the granted topic from one asked for any other field of the producing project: a consumer granted
+decryption on one topic can be given the key of every data subject of that project, and a machine granted
+decryption can have any of the project's fields decrypted. Grant decryption only to a consumer you would
+trust with every personal field of the project. What the consumer keeps of the field (a
 view's row, an entity's state, a message it publishes again) stays encrypted under the producing
 project's keys, so an erasure in the producing project reaches it with no erasure request of its own.
 A consumer whose grant does not allow decryption reads every personal field of the producing project as

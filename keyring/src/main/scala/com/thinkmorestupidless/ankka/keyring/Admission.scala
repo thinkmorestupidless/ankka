@@ -71,6 +71,8 @@ final class Admission(
       case (Service(Caller.Service(p, _)), LookupKey(project)) if p == project => Right(())
       case (Service(Caller.Service(p, _)), Notices(project)) if p == project   => Right(())
       // A consumer in another project reads with a grant to consume one of its topics, with decrypt.
+      // An envelope does not carry its topic, so the grant admits every subject's key of the project:
+      // project-wide in effect, as FR-018 is written and the docs say.
       case (Service(Caller.Service(p, s)), Key(project, _, create)) =>
         if create then Left(s"a service of $p may not make a key of $project")
         else if grants.decrypts(project, s"service:$p/$s") then Right(())

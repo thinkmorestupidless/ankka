@@ -81,8 +81,13 @@ final class KeyStore(database: Database)(using ExecutionContext):
 
   /**
    * Destroys `subject`'s key for erasure log entry `seq`: the key's row deleted, the tombstone and
-   * the applied entry written, in one transaction, then the table vacuumed so no dead row keeps the
-   * key. Applying an entry already applied changes nothing and answers when it was.
+   * the applied entry written, in one transaction, then the table vacuumed, so the live table
+   * offers the dead row to nothing. That is all the vacuum does: it frees the tuple without
+   * overwriting its page, and the write-ahead log, its archive and earlier base backups keep the
+   * wrapped key, which the KEK and the root key unwrap. A restore is covered by the erasure log's
+   * replay; a backup read outside the keyring is covered only by its retention
+   * (`docs/platform/erasure.md`). Applying an entry already applied changes nothing and answers
+   * when it was.
    */
   def destroy(seq: Long, project: String, subject: String, at: Instant): Future[Instant] =
     ensure().flatMap { _ =>

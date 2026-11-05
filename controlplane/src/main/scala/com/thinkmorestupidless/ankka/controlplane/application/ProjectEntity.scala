@@ -581,10 +581,17 @@ final class ProjectEntity(context: EventSourcedEntityContext)
    */
   /** A service's erasure ask refused for want of the grant (feature 042), into the history. */
   def recordErasureRefused(request: RecordErasureRefused): Effect[Done] =
+    val when = at.getOrElse(java.time.Instant.now())
     if !currentState.exists then notFound
+    else if currentState.erasureRefusedSince(
+        request.service,
+        request.subject,
+        when.minus(Project.ErasureRefusalWindow)
+      )
+    then effects.reply(Done)
     else
       effects
-        .persist(ErasureAskRefused(request.service, request.subject, actor, at))
+        .persist(ErasureAskRefused(request.service, request.subject, actor, Some(when)))
         .thenReply(_ => Done)
 
   def recordGrantChange(request: RecordGrantChange): Effect[Done] =

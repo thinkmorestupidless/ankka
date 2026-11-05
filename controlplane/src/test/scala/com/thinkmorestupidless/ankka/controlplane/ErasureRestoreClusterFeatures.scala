@@ -498,12 +498,21 @@ class ErasureRestoreClusterFeatures
       waitFor(8.minutes, "players restarted")(isReady(brand, "players"))
       var entity  = ""
       var profile = ""
-      waitFor(2.minutes, "8c1f read again") {
-        val (a, b) = (read(s"/players/$Id"), read(s"/players/$Id/profile"))
-        entity = a._2
-        profile = b._2
-        a._1 == 200 && b._1 == 200
-      }
+      var codes   = (0, 0)
+      try
+        waitFor(2.minutes, "8c1f read again") {
+          val (a, b) = (read(s"/players/$Id"), read(s"/players/$Id/profile"))
+          entity = a._2
+          profile = b._2
+          codes = (a._1, b._1)
+          a._1 == 200 && b._1 == 200
+        }
+      catch
+        case e: munit.FailException =>
+          fail(
+            s"${e.getMessage}\nentity $codes: $entity\nprofile: $profile\n" +
+              s"${servicePodLogs(brand, "players")}\n${keyringLogs()}"
+          )
       assertEquals(
         (field(entity, "email"), field(entity, "name")),
         (Some("erased"), Some("erased"))

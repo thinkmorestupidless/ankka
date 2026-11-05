@@ -350,6 +350,15 @@ class ErasureClusterFeatures
     }
     grantId = Some(makeGrant(Machine, decrypt))
     pastKeyringRefresh()
+    // The keyring reads the control plane's keys on first use, in the background, and at most
+    // every 30 seconds: until it has, it knows no key and refuses every token for that alone.
+    var known = ""
+    try
+      waitFor(2.minutes, "the keyring knowing the machine's key") {
+        known = decryptName()._2
+        !known.contains("is not one of the installation's")
+      }
+    catch case e: munit.FailException => fail(s"${e.getMessage}\n$known")
     if decrypt then
       // Admitted, as the keyring reads the grant now: the refusals that follow are its own.
       waitFor(2.minutes, "the keyring decrypting for the machine")(decryptName()._1 == 200)

@@ -338,6 +338,24 @@ abstract class ErasureClusterSteps(feature: String) extends BackupClusterSteps(f
       }
       .mkString("\n")
 
+  /** The last lines of a service's instances, its platform container's. */
+  protected def servicePodLogs(project: String, service: String): String =
+    pods(project, service)
+      .map(_.getMetadata.getName)
+      .take(2)
+      .map { pod =>
+        val r = PkiStack.exec(
+          k3s,
+          30.seconds,
+          "sh",
+          "-c",
+          s"kubectl logs -n ${namespace(project)} $pod --all-containers --tail 80 | " +
+            "grep -vE ' DEBUG ' | tail -60"
+        )
+        s"== $pod\n${r.getStdout}${r.getStderr}"
+      }
+      .mkString("\n")
+
   protected def readyKeyringPods(): Vector[String] =
     keyringPods()
       .filter(p =>

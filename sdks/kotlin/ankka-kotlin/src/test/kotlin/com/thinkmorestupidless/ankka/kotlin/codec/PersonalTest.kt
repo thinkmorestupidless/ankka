@@ -163,4 +163,67 @@ class PersonalTest {
             assertEquals("erased", email())
         }
     }
+
+    // A field read from another project's envelope stays under that project's key when a Kotlin
+    // service writes it again, as a Scala service's does; one it makes itself is its own.
+
+    private val playersKey = ByteArray(32) { 3 }
+    private val ownKey = ByteArray(32) { 7 }
+
+    private fun twoProjects(own: String, playersErased: Boolean = false): Keyring =
+        object : Keyring {
+            override fun project(): String = own
+
+            override fun key(project: String, subject: String, create: Boolean): KeyAnswer =
+                when {
+                    project != "players" -> KeyAnswer.key(ownKey)
+                    // `Destroyed`, which Kotlin reaches only by its ordinal.
+                    playersErased -> KeyAnswer.fromOrdinal(1)
+                    else -> KeyAnswer.key(playersKey)
+                }
+        }
+
+    private val strings = Serializer.of(PersonalString::class.java)
+
+    private fun <T> scoped(keyring: Keyring, manifest: String, body: () -> T): T =
+        Keyring.binding(keyring) { PersonalScope.within(manifest, scala.Option.empty()) { body() } }
+
+    private fun fromPlayers(): ByteArray =
+        scoped(twoProjects("players"), "player-registered") {
+            strings.toBytes(PersonalString(personal(subject("player/8c1f"), "ada@example.com")))
+        }
+
+    private val envelope = Regex("\\{\"\\\$personal\":1,\"project\":\"([^\"]*)\",\"subject\":\"[^\"]*\"(?:,\"c\":\"([^\"]*)\")?}")
+
+    @Test
+    fun `a field read from another project is written again under that project's key`() {
+        val bytes = fromPlayers()
+        val engagement = twoProjects("engagement")
+        val read = scoped(engagement, "player-registered") { strings.fromBytes(bytes) }
+        assertEquals("ada@example.com", read.field.valueOrNull)
+        val again = String(scoped(engagement, "engaged") { strings.toBytes(read.copy()) })
+        val m = envelope.find(again) ?: fail("no envelope in $again")
+        assertEquals("players", m.groupValues[1])
+        val opened =
+            com.thinkmorestupidless.ankka.core.PersonalCipher.open(
+                playersKey,
+                Base64.getDecoder().decode(m.groupValues[2]),
+                com.thinkmorestupidless.ankka.core.PersonalCipher.associatedData("player/8c1f", "players", "engaged"),
+            )
+        assertEquals("\"ada@example.com\"", String(opened.get() as ByteArray))
+
+        val made = String(scoped(engagement, "engaged") { strings.toBytes(PersonalString(personal(subject("player/8c1f"), "ada@example.com"))) })
+        assertEquals("engagement", envelope.find(made)?.groupValues?.get(1))
+    }
+
+    @Test
+    fun `a field of another project whose key is gone is written erased under that project`() {
+        val bytes = fromPlayers()
+        val engagement = twoProjects("engagement", playersErased = true)
+        val read = scoped(engagement, "player-registered") { strings.fromBytes(bytes) }
+        assertTrue(read.field.isErased)
+        val again = String(scoped(engagement, "engaged") { strings.toBytes(read) })
+        val m = envelope.find(again) ?: fail("no envelope in $again")
+        assertEquals("players" to "", m.groupValues[1] to m.groupValues[2])
+    }
 }

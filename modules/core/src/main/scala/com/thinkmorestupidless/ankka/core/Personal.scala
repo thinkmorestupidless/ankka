@@ -398,12 +398,15 @@ object PersonalCodec:
         ): Unit
         gone = queue.poll()
 
-  /** Remembers that `field` was read from an envelope of `project`, another project's. */
-  private[core] def remember(field: Personal[?], project: String): Unit =
+  /**
+   * Remembers that `field` was read from an envelope of `project`, another project's. `field` is a
+   * `Personal`, or the Java SDK's personal type that `PersonalJson` read it into.
+   */
+  private[core] def remember(field: AnyRef, project: String): Unit =
     Origins.remember(field, project)
 
   /** The other project `field` was read from, when it was read from one. */
-  private[core] def originOf(field: Personal[?]): Option[String] = Origins.of(field)
+  private[core] def originOf(field: AnyRef): Option[String] = Origins.of(field)
 
   /** `answer`, with the keyring's unavailability rethrown as `KeyringUnavailable`. */
   private[core] inline def ask(answer: => KeyAnswer): KeyAnswer =
@@ -418,8 +421,12 @@ object PersonalCodec:
  */
 object PersonalJson:
 
-  /** A field read back: `value` is the field's own JSON, or `null` when the subject is erased. */
-  final class Read(val subject: String, val value: Array[Byte])
+  /**
+   * A field read back: `value` is the field's own JSON, or `null` when the subject is erased;
+   * `project` is the other project whose envelope it was read from, or `null` for this project's
+   * own (and for the edge form).
+   */
+  final class Read(val subject: String, val value: Array[Byte], val project: String = null)
 
   private val Raw: JsonValueCodec[Array[Byte]] = new JsonValueCodec[Array[Byte]]:
     def nullValue: Array[Byte]                                         = null
@@ -432,13 +439,33 @@ object PersonalJson:
   def subjectProblem(subject: String): String = DataSubject.from(subject).left.toOption.orNull
 
   /** The field holding `value` (its own JSON), or the erased field when `value` is `null`. */
-  def write(subject: String, value: Array[Byte]): Array[Byte] =
+  def write(subject: String, value: Array[Byte]): Array[Byte] = write(subject, value, null)
+
+  /**
+   * The field holding `value`, sealed again under `origin`'s key when it is another project's
+   * (FR-027): a field read from that project's envelope is kept under that project's key, as a
+   * Scala field is, so an erasure there reaches it. `null` is this project's own.
+   */
+  def write(subject: String, value: Array[Byte], origin: String): Array[Byte] =
     val s = DataSubject(subject)
     val p = if value == null then Personal.Erased(s) else Personal.Present(s, value)
+    if origin != null then PersonalCodec.remember(p, origin)
     writeToArrayReentrant(p)(using codec)
 
   /** The field `json` holds. */
   def read(json: Array[Byte]): Read =
-    readFromArrayReentrant(json)(using codec) match
-      case Personal.Present(s, value) => Read(s.value, value)
-      case Personal.Erased(s)         => Read(s.value, null)
+    val p       = readFromArrayReentrant(json)(using codec)
+    val project = PersonalCodec.originOf(p).orNull
+    p match
+      case Personal.Present(s, value) => Read(s.value, value, project)
+      case Personal.Erased(s)         => Read(s.value, null, project)
+
+  /**
+   * Remembers that `field`, the SDK's own personal value, was read from `project`'s envelope (a
+   * `Read`'s `project`), by its identity and weakly, so that writing it again keeps it there.
+   */
+  def remember(field: AnyRef, project: String): Unit =
+    if field != null && project != null then PersonalCodec.remember(field, project)
+
+  /** The other project `field` was read from, or `null` when it is this project's own. */
+  def originOf(field: AnyRef): String = PersonalCodec.originOf(field).orNull

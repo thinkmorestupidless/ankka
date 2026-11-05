@@ -180,11 +180,14 @@ final class JsonReader {
     }
     com.thinkmorestupidless.ankka.javasdk.DataSubject subject =
         new com.thinkmorestupidless.ankka.javasdk.DataSubject(read.subject());
-    if (read.value() == null) {
-      return new com.thinkmorestupidless.ankka.javasdk.Personal.Erased<>(subject);
-    }
-    return new com.thinkmorestupidless.ankka.javasdk.Personal.Present<>(
-        subject, read(plan.inner(), read.value(), path));
+    Object personal =
+        read.value() == null
+            ? new com.thinkmorestupidless.ankka.javasdk.Personal.Erased<>(subject)
+            : new com.thinkmorestupidless.ankka.javasdk.Personal.Present<>(
+                subject, read(plan.inner(), read.value(), path));
+    // Read from another project's envelope: written again under that project's key (FR-027).
+    com.thinkmorestupidless.ankka.core.PersonalJson.remember(personal, read.project());
+    return personal;
   }
 
   private Object enumeration(Plan.Enumeration enumeration, String path) {

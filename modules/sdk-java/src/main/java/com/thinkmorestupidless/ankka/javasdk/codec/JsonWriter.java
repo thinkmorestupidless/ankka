@@ -132,7 +132,10 @@ final class JsonWriter {
           case com.thinkmorestupidless.ankka.javasdk.Personal.Erased<?> erased -> null;
         };
     byte[] written =
-        com.thinkmorestupidless.ankka.core.PersonalJson.write(field.subject().value(), inner);
+        com.thinkmorestupidless.ankka.core.PersonalJson.write(
+            field.subject().value(),
+            inner,
+            com.thinkmorestupidless.ankka.core.PersonalJson.originOf(field));
     out.append(new String(written, StandardCharsets.UTF_8));
   }
 

@@ -166,3 +166,80 @@ class PersonalRecordCodecSuite extends munit.FunSuite:
     assertEquals(error.code, ErrorCode.Unavailable)
     assert(error.getMessage.contains("keyring"), error.getMessage)
   }
+
+  // ── FR-027: a field read from another project stays under that project's key ──────────────────
+
+  private val Envelope =
+    """\{"\$personal":1,"project":"([^"]*)","subject":"([^"]*)"(?:,"c":"([^"]*)")?\}""".r
+
+  /**
+   * Own project `own`; `players`' key is `foreign` (or destroyed), every other project's `mine`.
+   */
+  private def twoProjects(own: String, foreign: Option[IArray[Byte]]): Keyring =
+    val mine = IArray.fill[Byte](32)(7)
+    new Keyring:
+      def project: String                                            = own
+      def key(p: String, s: CoreSubject, create: Boolean): KeyAnswer =
+        if p == "players" then foreign.fold(KeyAnswer.Destroyed)(KeyAnswer.Key(_))
+        else KeyAnswer.Key(mine)
+
+  private val playersKey = IArray.fill[Byte](32)(3)
+  private val ofString   = Serializer.of(classOf[OfString])
+
+  /** What `players` journals: its own envelope, under its own key. */
+  private def fromPlayers(): Array[Byte] =
+    Keyring.binding(twoProjects("players", Some(playersKey)))(
+      PersonalScope.within("player-registered")(
+        ofString.toBytes(
+          new OfString(Personal.of(DataSubject.of("player/8c1f"), "ada@example.com"))
+        )
+      )
+    )
+
+  test("a field read from another project's envelope is written again under that project's key") {
+    val engagement = twoProjects("engagement", Some(playersKey))
+    val written    = Keyring.binding(engagement)(
+      PersonalScope.within("engaged") {
+        val read = PersonalScope.within("player-registered")(ofString.fromBytes(fromPlayers()))
+        assertEquals(read.field.orElse("none"), "ada@example.com")
+        new String(ofString.toBytes(read), UTF_8)
+      }
+    )
+    val m = Envelope.findFirstMatchIn(written).getOrElse(fail(s"no envelope in $written"))
+    assertEquals(m.group(1), "players")
+    val opened = com.thinkmorestupidless.ankka.core.PersonalCipher.open(
+      playersKey,
+      Base64.getDecoder.decode(m.group(3)),
+      com.thinkmorestupidless.ankka.core.PersonalCipher
+        .associatedData("player/8c1f", "players", "engaged")
+    )
+    assertEquals(opened.map(new String(_, UTF_8)), Some("\"ada@example.com\""))
+  }
+
+  test("a field a handler makes, with the same value, is sealed under the service's own key") {
+    val written = Keyring.binding(twoProjects("engagement", Some(playersKey)))(
+      PersonalScope.within("engaged") {
+        PersonalScope.within("player-registered")(ofString.fromBytes(fromPlayers())): Unit
+        new String(
+          ofString.toBytes(
+            new OfString(Personal.of(DataSubject.of("player/8c1f"), "ada@example.com"))
+          ),
+          UTF_8
+        )
+      }
+    )
+    assertEquals(Envelope.findFirstMatchIn(written).map(_.group(1)), Some("engagement"))
+  }
+
+  test("a field of another project whose key is gone is written erased, under that project") {
+    val bytes   = fromPlayers()
+    val written = Keyring.binding(twoProjects("engagement", None))(
+      PersonalScope.within("engaged") {
+        val read = PersonalScope.within("player-registered")(ofString.fromBytes(bytes))
+        assertEquals(read.field.isErased, true)
+        new String(ofString.toBytes(read), UTF_8)
+      }
+    )
+    val m = Envelope.findFirstMatchIn(written).getOrElse(fail(s"no envelope in $written"))
+    assertEquals((m.group(1), Option(m.group(3))), ("players", None))
+  }

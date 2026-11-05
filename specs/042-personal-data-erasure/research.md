@@ -350,6 +350,39 @@ None yet.
 - **Java and Kotlin keep another project's envelope by the field's identity** (2026-11-05, review, FR-027): `PersonalJson.read` now answers the other project a field was read from, the Java reader remembers it against the `Personal` it makes (by identity and weakly, in the same table Scala's codec uses), and the writer hands it back to `PersonalJson.write`. A record copied with the same `Personal` keeps it; a `Personal.of` with the same value is the service's own. `limitations.md`'s entry now names only the process SDKs and Rust.
 - **The Java erasure handler and asks are the Scala SDK's, wrapped** (2026-11-05, review, FR-008/FR-010): `ServiceBuilder.withErasureHandler(ErasureHandler)` hands the runtime a Scala `ErasureHandler` built in the bridge (`JavaErasures`), so the re-run window, the singleton, the retries and the report are the runtime's; `erasures()` on `HttpEndpoint` and `Consumer` and `ctx.erasures()` wrap the Scala `Erasures`. The API is in `javasdk.erasure`, with `Bucket.erase(DataSubject)` answering `storage.ErasedObjects`; finality is an `Optional<Duration>` (empty is immediate) rather than a sum, so a Java caller needs no `switch`. Kotlin uses the Java types through SAM conversion. MCP endpoints, workflow steps and timed actions get no `erasures()`, as in Scala.
 
+- **A follower behind the sidecar reads with its home's keys, named on the wire** (2026-11-05,
+  review FR-032). The sidecar cannot tell which entity a `GetSubjectKey` is for, so the home rides on
+  the protocol (1.23): `EventSourcedIn.Init.home` (the home the snapshot was written under, kept on
+  `RemoteStored.snapshotHome`), `Command.home` (as the copy reads it), each `Event.installation`,
+  and `SubjectKeyRequest.home`, which a process sends back. `ClientLogic.keyringFor` answers another
+  home through `RoutedKeyring` over the service's `KeyringRelay`, so a follower makes no key and an
+  unreachable relay is `UNAVAILABLE`, never erased. A module is told nothing: the host keeps the home
+  on its `CallSite.Purpose` (from `Init.home`, each folded event's installation, each command's
+  `home`) and `HostImports` routes `keyring_seal`/`keyring_open` by it. Alternative declined: a
+  per-entity registry in the sidecar, which a process's own calls could not be matched to.
+- **A module writes another project's field under that project's key** (2026-11-05, review FR-027).
+  `KeyringSealRequest.project` names the envelope's project; the sidecar's `keptUnder` asks that
+  project's key with `create` false and seals under it, or writes the field erased under it when the
+  key is no longer given, as Scala's codec does. The Rust crate keeps the project on `DataSubject`
+  (not part of its equality, hash or order) from the envelope it read, and `Personal::present` makes
+  a field the service's own. A process needs no protocol change: `GetSubjectKey` with that `project`
+  and `create` false is already the key.
+- **A not-before is exactly a date, or an instant at midnight UTC** (2026-11-05, review question).
+  `text.take(10)` read `2027-01-31garbage` and `2027-01-31T15:00:00Z` as the 31st. The sidecar now
+  refuses anything else `BAD_REQUEST`, naming both forms; a later time on the day is refused rather
+  than rounded, since an erasure's day is the service's to say.
+- **A process's notice ack is bounded by the notice bound** (2026-11-05, review). An instance that
+  holds its stream and never acks would hold the erasure's duty open forever. `ProcessNotices`
+  schedules a deadline at `ankka.keyring.notice-bound` per notice: past it the stream is failed (the
+  process reconnects and drops every key, R15) and the wait settled. A stream opened again under the
+  same instance replaces the old one, and the old one's end removes only itself and settles only the
+  waits handed on it.
+- **A remote entity is not wrapped in `KeyringSupervision`, by design** (2026-11-05, review question
+  on `Ankka.scala:586-606`). The runtime never decrypts a process's or a module's journal, so
+  `KeyringUnavailable` is never thrown in the host's recovery and a supervisor would restart nothing.
+  The process (or the module's import) is answered `UNAVAILABLE`, the command is refused and the
+  conversation dropped, and the next command's re-open is R4's retry. `limitations.md` says so.
+
 ### Review findings put to the person (2026-11-05)
 
 The review before the pull request (`review.md`) found spec MUSTs unbuilt that implementation had

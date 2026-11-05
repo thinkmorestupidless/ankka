@@ -42,6 +42,16 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   needs no new case; a write under a refused key is `Forbidden`. A new `KeyAnswer` case is a
   non-exhaustive match in `ClientLogic`, which `-Werror` turns into a sidecar that does not compile:
   every SDK's conformance run then fails at once, which is how the first run after `Refused` read.
+- **A stream keyed by an instance name must be removed by the pair, never by the name**
+  (2026-11-05, feature 042). A process that reconnects opens its notices stream again under the same
+  instance before the old one has ended; `ProcessNotices` removed by name on the old one's end, so the
+  new stream was deregistered, heard no notice, and every erasure waited on an ack that could not
+  come. `streams.remove(instance, queue)`, and only the waits handed on that queue are settled.
+- **The sidecar cannot tell which entity a key is asked for, so a replicated entity's home is on the
+  wire** (2026-11-05, FR-032). `SubjectKeyRequest.home` from a process; for a module the host keeps it
+  on the call site. A key request without it is answered by the follower's own keyring, which holds
+  none of the home's keys and reads every field erased, silently. `ClientPersonalSuite`'s follower
+  case fails without the routing.
 
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
   runtime does not know is read as absent, so a period added to `ScheduleRequest` would have been a timer

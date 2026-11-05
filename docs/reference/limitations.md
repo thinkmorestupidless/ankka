@@ -568,10 +568,11 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   the producing project and holds that project's keys for `ankka.keyring.cache.foreign-ttl`, so an
   erasure or a revoked grant reaches its reads within 30 seconds, not at once; an entity of its own
   already in memory keeps what it decrypted until it is passivated or restarted.
-- **Only a service on the JVM in another project keeps what it reads under the producing project's
-  keys.** A Scala, Java or Kotlin service that writes again a personal field it read from another
-  project's topic keeps it under the producing project's key; the SDKs behind the sidecar and the Rust
-  SDK are not held to the rule.
+- **A process or a module retries a keyring outage with its caller's next command.** An entity behind the
+  sidecar decrypts in the process or through the module's imports, never in the runtime, so a recovery
+  that needs a key the keyring cannot give refuses the command, never reads the field as erased, and
+  the next command recovers again. Nothing is retried until a command comes: an entity
+  in process waits in its mailbox, with backoff, until the keyring answers.
 - **Neither example overlay runs the keyring.** Erasure is off in both, and a service whose descriptor
   declares `"personal": true` is refused. An installation turns it on by listing `components/keyring`
   and setting `erasure: "on"`; the keyring's decryption is then the one path a machine outside the

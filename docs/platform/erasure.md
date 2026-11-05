@@ -126,11 +126,15 @@ from code, under the project's `erasure` grant (see
 A request is **held** while it has a not-before date that has not passed, **applying** while it is being
 carried out, **applied** once its key is destroyed, and **withdrawn** if it was withdrawn while held.
 
-- Whoever asked, or any member, may withdraw a held request, or replace its date and reason. Whoever
+- Whoever asked, or any member, may withdraw a held request, or replace its date and reason; a service
+  that asked does so with its own certificate, while it holds the grant. A replacement names a date still
+  to come: a request is released early only by an owner's override. Whoever
   asked may also ask again for the same data subject, which replaces the held request; the request's
   history keeps both.
 - Only an owner may **override** a hold, with a reason, which is recorded with the owner's name; the
   request is applied at once. A member is refused.
+- A reason, of a hold or of an override, is kept in the request, its history and its certificate, and
+  is not erased with the data subject. Write why, never who: no name, email or account number.
 - An applied request cannot be withdrawn, by anyone. Asking again for a data subject already erased
   answers the applied request and applies it again.
 - `GET /erasures?correlation=<id>` lists the requests carrying one correlation id in every project the
@@ -150,12 +154,14 @@ Applying a request, in order:
    the agent sessions and instances of the data subject, runs the service's erasure handler (on one
    instance of the service), and acknowledges with what it did.
 4. The control plane records each service's **completion**, and when the erasure became **final**: when
-   every service has completed and every object a handler erased is gone for good, which on a store with a
+   every service of the project that declares `"personal": true` has completed, whether or not it was
+   running when the key was destroyed, and every object a handler erased is gone for good, which on a store with a
    soft-delete window is when that window has passed.
 
 `ankka projects erasures certificate` gives the **erasure certificate** of an applied request: the request,
 the data subject, who asked, the hold and any override, when the key was destroyed, each service's
-completion, and when the erasure became final. It holds no personal field.
+completion, and when the erasure became final. A personal service that has not completed is listed with no
+completion, on the certificate and on the request. It holds no personal field.
 
 The control plane's **sweep** runs every five minutes: it applies each held request whose not-before date
 has passed, with no one acting, tries again each request left applying, and reads completions. Every
@@ -273,6 +279,7 @@ answered before the erasure is the partner's to erase.
 ## Replicated entities
 
 A data subject's keys are kept by one installation's keyring, and its notices reach the services of that
-installation. An installation holding a copy of a replicated entity has its own keyring, which holds none
-of the home's keys. See [Limitations](../reference/limitations.md#personal-data-and-erasure) before marking
+installation. A copy of a replicated entity at another installation reads its keys from the home's keyring,
+through a keyring relay that a replication layer supplies (`ankka-replication`); its own keyring never makes
+one. With no relay, the copy's fetch is unavailable and retried, and never reads a field as erased. See [Limitations](../reference/limitations.md#personal-data-and-erasure) before marking
 personal fields in a replicated entity.

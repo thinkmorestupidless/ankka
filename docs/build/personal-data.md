@@ -237,7 +237,9 @@ Where the keys come from depends on where the service runs:
 
 - **On an installation**, from the installation's keyring. A service that holds personal fields says so
   in its descriptor, `"personal": true` (see the [service descriptor](../reference/service-descriptor.md)),
-  and an installation whose erasure is off refuses it.
+  and an installation whose erasure is off refuses it. So does a service with an erasure handler, even one
+  that holds no personal field: the declaration is what gives it the keyring's notices, and the store's
+  soft-delete window, and an erasure request in its project waits for its completion.
 - **On your machine**, with a database, from a local keyring in the schema `ankka_keyring` of the
   service's own database, made on first use. It is for development only: its keys are in the same
   database, and the same backups, as what they encrypt.
@@ -412,7 +414,8 @@ in Scala, `subject_prefix` in Python, `subjectPrefix` in TypeScript, `ankka.Subj
 
 `bucket.erase(subject)` deletes every object under the subject prefix, and on a store that keeps versions
 every version of each, and answers how many it removed and when they are gone for good: at once, or after
-the store's soft-delete window (`ANKKA_S3_SOFT_DELETE_DAYS`, when it is set). Objects outside the prefix
+the store's soft-delete window (`ANKKA_S3_SOFT_DELETE_DAYS`, which the platform sets for a service that
+declares `"personal": true` on a store that keeps one). Objects outside the prefix
 are kept. Run again, it erases what was kept there since, and answers 0 when nothing was.
 
 ## The erasure handler
@@ -422,7 +425,9 @@ one instance of the service for each application of an erasure in its project, a
 (see [Erasure on the platform](../platform/erasure.md#applying-an-erasure)), so it must do nothing the second
 time that it did not do the first. It reports how many objects it erased and when they are gone. A run that
 throws is recorded as failed, with why, in the service's completion, and runs again on the next pass; the
-platform's own duties (keys, rows, tokens, sessions) do not wait for it. A service has at most one.
+platform's own duties (keys, rows, tokens, sessions) do not wait for it. A service has at most one. A service
+with one declares `"personal": true` in its descriptor, or on an installation it hears no notice and
+its handler never runs.
 
 /// tab | Scala
 

@@ -76,6 +76,21 @@ final class ErasureReplaySuite extends munit.FunSuite with LogCapturing:
       30.seconds
     )
 
+  test("instances cold-starting together on one database all make the table") {
+    // `CREATE TABLE IF NOT EXISTS` from several sessions at once fails one of them on pg_type's
+    // unique index; CI saw it as two kits of this suite starting together.
+    given scala.concurrent.ExecutionContext = scala.concurrent.ExecutionContext.global
+    (1 to 5).foreach { _ =>
+      Await.result(
+        database.execute(SqlFragment.raw("DROP TABLE IF EXISTS ankka_erasure_replay")),
+        30.seconds
+      ): Unit
+      val makes = Vector.fill(16)(Future(ErasureReplay.make(database)).flatten)
+      Await.result(Future.sequence(makes), 30.seconds): Unit
+    }
+    assertEquals(recordedLines, Vector.empty)
+  }
+
   test("not ready until the backlog is handed over and every notice in it is carried out") {
     val store    = Store(Vector(KeyringNotice(1, "brand", "player/8c1f", rerun = false)))
     val sessions = Promise[Long]()

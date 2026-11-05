@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime.keyring
 
-import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, Database, SqlFragment}
+import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, Database, SqlFragment, ViewStore}
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.sql
 import org.slf4j.LoggerFactory
 
@@ -44,8 +44,7 @@ final class ErasureReplay(
   def start(): Future[Instant] =
     val applied =
       for
-        _     <- database().execute(ErasureReplay.Table)
-        _     <- database().execute(ErasureReplay.Column)
+        _     <- ErasureReplay.make(database())
         found <- recorded()
         when  <- found match
           case Some(at) => Future.successful(at)
@@ -96,6 +95,20 @@ object ErasureReplay:
     "CREATE TABLE IF NOT EXISTS ankka_erasure_replay (line text PRIMARY KEY, " +
       "replayed_at timestamptz NOT NULL, carried_through bigint NOT NULL DEFAULT 0)"
   )
+
+  /**
+   * Makes the table and its column under ankka's schema lock, in one transaction: two instances
+   * cold-starting on one database otherwise race `CREATE TABLE IF NOT EXISTS`, and the loser fails
+   * on `pg_type`'s unique index (`ViewStore.schemaLock` says why).
+   */
+  def make(database: Database)(using ExecutionContext): Future[Unit] =
+    database.inTransaction { tx =>
+      for
+        _ <- tx.query(ViewStore.schemaLock)(_ => ())
+        _ <- tx.execute(Table)
+        _ <- tx.execute(Column)
+      yield ()
+    }
 
   /** The mark's column, on a table made before it existed. */
   val Column: SqlFragment = SqlFragment.raw(

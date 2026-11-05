@@ -207,11 +207,18 @@ A write can be refused, and nothing is written when it is:
 The refusal's details carry `personal` with `erased`, `unavailable` or `corrupt`. An entity whose
 recovery is refused as unavailable is recovered again with backoff, never read as erased.
 
+While the keyring cannot be reached, a key the instance already holds keeps serving for at most 60 seconds
+(`ankka.keyring.cache.outage-bound`, which may not exceed `ankka.keyring.notice-bound`): an instance that
+cannot hear the keyring cannot hear an erasure, so it drops every key it holds then, and reads and writes of
+personal fields are refused as unavailable until the keyring answers again.
+
 Where the keys come from depends on where the service runs:
 
 - **On an installation**, from the installation's keyring. A service that holds personal fields says so
   in its descriptor, `"personal": true` (see the [service descriptor](../reference/service-descriptor.md)),
-  and an installation whose erasure is off refuses it.
+  and an installation whose erasure is off refuses it. So does a service with an erasure handler, even one
+  that holds no personal field: the declaration is what gives it the keyring's notices, and the store's
+  soft-delete window, and an erasure request in its project waits for its completion.
 - **On your machine**, with a database, from a local keyring in the schema `ankka_keyring` of the
   service's own database, made on first use. It is for development only: its keys are in the same
   database, and the same backups, as what they encrypt.
@@ -265,7 +272,9 @@ comparing the token of the value the caller gives with the row's token; the valu
 compared, and never stored in the clear. A `LIKE`, a range, an `ORDER BY`, a literal in the statement or a
 comparison inside a subquery on a personal field is refused at start, as is any comparison on a field not
 marked for lookup. The data subject beside an envelope is in the clear and may be compared
-(`payload::jsonb->'email'->>'subject'`).
+(`payload::jsonb->'email'->>'subject'`). A lookup field is one value of the row: a field inside a
+collection (`contacts[*].email`) cannot be marked for lookup, and marking one fails when the companion is
+built.
 
 **A lookup token leaks equality.** Two rows with the same email have the same token, so anyone holding
 the table learns which rows share a value, and anyone holding both the table and the lookup key can test a
@@ -273,8 +282,9 @@ guess. Mark for lookup only the fields a query must find by, and keep the lookup
 would a subject key: it never leaves the keyring and no dump holds it.
 
 When a data subject is erased, each view of the service rewrites the rows that hold that subject's
-fields: each of its envelopes is reduced to the data subject alone, and the row's lookup tokens are
-dropped. Every other field of the row, another data subject's fields included, is left as it was. A view
+fields: each of its envelopes is reduced to the data subject alone, and the row's lookup tokens of that
+subject's fields are dropped. Every other field of the row, another data subject's fields and their
+lookup tokens included, is left as it was. A view
 rebuilt by raising its version after an erasure writes its rows with erased in that subject's fields.
 
 Lookup fields are declared in the Scala SDK, on a view's or a keyed view's companion.
@@ -373,7 +383,8 @@ in Scala, `subject_prefix` in Python, `subjectPrefix` in TypeScript, `ankka.Subj
 
 `bucket.erase(subject)` deletes every object under the subject prefix, and on a store that keeps versions
 every version of each, and answers how many it removed and when they are gone for good: at once, or after
-the store's soft-delete window (`ANKKA_S3_SOFT_DELETE_DAYS`, when it is set). Objects outside the prefix
+the store's soft-delete window (`ANKKA_S3_SOFT_DELETE_DAYS`, which the platform sets for a service that
+declares `"personal": true` on a store that keeps one). Objects outside the prefix
 are kept. Run again, it erases what was kept there since, and answers 0 when nothing was.
 
 ## The erasure handler
@@ -383,7 +394,9 @@ one instance of the service for each application of an erasure in its project, a
 (see [Erasure on the platform](../platform/erasure.md#applying-an-erasure)), so it must do nothing the second
 time that it did not do the first. It reports how many objects it erased and when they are gone. A run that
 throws is recorded as failed, with why, in the service's completion, and runs again on the next pass; the
-platform's own duties (keys, rows, tokens, sessions) do not wait for it. A service has at most one.
+platform's own duties (keys, rows, tokens, sessions) do not wait for it. A service has at most one. A service
+with one declares `"personal": true` in its descriptor, or on an installation it hears no notice and
+its handler never runs.
 
 **Scala**
 
@@ -397,6 +410,32 @@ Ankka.service
 
 The context has the service's `client`, `secrets`, `services`, `storage` and `erasures`, the erasure's
 sequence `erasureSeq`, and `rerun`.
+
+**Java**
+
+```java
+Ankka.service("players")
+    .register(Player.class)
+    .withErasureHandler((ctx, subject) ->
+        ErasureReport.of(ctx.storage().bucket("kyc").erase(subject)));
+```
+
+`ErasureHandler`, `ErasureContext` and `ErasureReport` are in `com.thinkmorestupidless.ankka.javasdk.erasure`.
+The context has `componentClient()`, `services()`, `secrets()`, `storage()` and `erasures()`, the
+erasure's sequence `erasureSeq()`, and `rerun()`. A report is `ErasureReport.immediate(count)`,
+`ErasureReport.after(count, within)`, or `ErasureReport.of(...)` over what `Bucket.erase` answered.
+
+**Kotlin**
+
+```kotlin
+Ankka.service("players")
+    .register(Player::class.java)
+    .withErasureHandler { ctx, subject ->
+        ErasureReport.of(ctx.storage().bucket("kyc").erase(subject))
+    }
+```
+
+The handler and its context are the Java SDK's.
 
 **Python**
 
@@ -446,7 +485,7 @@ Service::new("players").erasure_handler(|ctx, subject| {
 `service!` exports the handler as `ankka1_erase`.
 
 A handler that erases from a bucket the service's descriptor does not give is refused, naming the bucket,
-and the service's completion says so. Java and Kotlin services have no erasure handler.
+and the service's completion says so.
 
 An object written under a subject prefix after the erasure is erased by the next re-run, for as long as
 the installation re-runs handlers after an erasure (30 days unless the installation says otherwise). After
@@ -471,6 +510,30 @@ val asked = clients.erasures.ask(
 ```
 
 An endpoint reaches it as `clients.erasures`, a consumer and an erasure handler as `ctx.erasures`.
+
+**Java**
+
+```java
+ErasureAsked asked = erasures().ask(
+    DataSubject.of("player/8c1f"),
+    ErasureAsk.defaults()
+        .withNotBefore(LocalDate.parse("2031-10-08"))
+        .withReason("aml-retention")
+        .withCorrelation("closure-4411"));
+// asked.id(), asked.state(): "held", "applying" or "applied"
+```
+
+An endpoint and a consumer reach it as `erasures()`, an erasure handler as `ctx.erasures()`;
+`ErasureAsk.inProject("payments")` asks in another project. A refusal is a `CommandException`.
+
+**Kotlin**
+
+```kotlin
+val asked = erasures().ask(
+    subject("player/8c1f"),
+    ErasureAsk.defaults().withReason("aml-retention").withCorrelation("closure-4411"),
+)
+```
 
 **Python**
 

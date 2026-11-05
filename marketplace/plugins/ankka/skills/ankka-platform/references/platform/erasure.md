@@ -88,6 +88,16 @@ Every key-encryption key is wrapped by the **root key**, which is never in a pro
   encrypt and decrypt with it, as the identity its pod runs as, and never reads it. An installation that
   keeps real money or regulated records uses this.
 
+**A backup of the keyring's database can recover an erased data subject's key until that backup ages
+out.** Destroying a key deletes its row and vacuums the table, which frees the row but does not overwrite
+the page it was on, and the write-ahead log, its archive and every base backup taken before the erasure
+still hold the wrapped key. Whoever holds such a backup and the root key (on Postgres, the keyring's
+secret store and `ANKKA_SECRET_KEY`; on Google Cloud, the right to use the KMS key) can unwrap it. A
+keyring restored from such a backup is safe, since it replays the erasure log before it answers and
+destroys the key again; the exposure is a copy of the backup read outside the keyring. Erasure is final
+for backups only when the oldest backup and archived log taken before it have aged out of the keyring's
+retention, so keep that retention as short as recovery allows, and the root key apart from the backups.
+
 ## Asking for an erasure
 
 A member asks for an erasure of one data subject in one project, by hand:
@@ -112,11 +122,15 @@ from code, under the project's `erasure` grant (see
 A request is **held** while it has a not-before date that has not passed, **applying** while it is being
 carried out, **applied** once its key is destroyed, and **withdrawn** if it was withdrawn while held.
 
-- Whoever asked, or any member, may withdraw a held request, or replace its date and reason. Whoever
-  asked may also ask again for the same data subject, which replaces the held request; the request's
-  history keeps both.
+- Whoever asked, or any member, may withdraw a held request, or replace its date and reason; a service
+  that asked does so with its own certificate, while it holds the grant. A replacement names a date still
+  to come: a request is released early only by an owner's override. A further request for a data
+  subject that has a held one is refused (409), naming the held request; the request's history keeps
+  each replacement.
 - Only an owner may **override** a hold, with a reason, which is recorded with the owner's name; the
   request is applied at once. A member is refused.
+- A reason, of a hold or of an override, is kept in the request, its history and its certificate, and
+  is not erased with the data subject. Write why, never who: no name, email or account number.
 - An applied request cannot be withdrawn, by anyone. Asking again for a data subject already erased
   answers the applied request and applies it again.
 - `GET /erasures?correlation=<id>` lists the requests carrying one correlation id in every project the
@@ -136,12 +150,14 @@ Applying a request, in order:
    the agent sessions and instances of the data subject, runs the service's erasure handler (on one
    instance of the service), and acknowledges with what it did.
 4. The control plane records each service's **completion**, and when the erasure became **final**: when
-   every service has completed and every object a handler erased is gone for good, which on a store with a
+   every service of the project that declares `"personal": true` has completed, whether or not it was
+   running when the key was destroyed, and every object a handler erased is gone for good, which on a store with a
    soft-delete window is when that window has passed.
 
 `ankka projects erasures certificate` gives the **erasure certificate** of an applied request: the request,
 the data subject, who asked, the hold and any override, when the key was destroyed, each service's
-completion, and when the erasure became final. It holds no personal field.
+completion, and when the erasure became final. A personal service that has not completed is listed with no
+completion, on the certificate and on the request. It holds no personal field.
 
 The control plane's **sweep** runs every five minutes: it applies each held request whose not-before date
 has passed, with no one acting, tries again each request left applying, and reads completions. Every
@@ -171,8 +187,12 @@ Each service instance keeps the keys it has used in a cache:
 - `ankka.keyring.cache.foreign-ttl` (`30s`): how long a key of another project's data subject, read under
   a grant that allows decryption, is held. No notice of that project reaches this one, so this is how
   long an erasure or a revoked grant there takes to reach a read here.
-- `ankka.keyring.cache.outage-bound` (`15m`): how long a held key still serves while the keyring cannot
-  be reached. Past it, every read and write of a personal field is refused as unavailable.
+- `ankka.keyring.cache.outage-bound` (`60s`): how long a held key still serves while the keyring cannot
+  be reached, counted from when the keyring was last heard (a fetch answered, or the notices channel
+  confirmed). Past it, a read or write that needs a key the instance must ask for is refused as
+  unavailable. It may not exceed `ankka.keyring.notice-bound`, and a service whose settings say otherwise
+  does not start: an instance that cannot hear the keyring cannot hear an erasure either, and drops every
+  key it holds at the notice bound, so no outage keeps an erased data subject readable past 60 seconds.
 - `ankka.keyring.fetch-timeout` (`2s`): how long one fetch waits.
 
 While the keyring cannot be reached no erasure applies, since no key can be destroyed; an entity whose
@@ -193,8 +213,10 @@ A restore must not bring an erased data subject back. Three cases:
   service on a new database waits once.
 - **The keyring's own database restored to before an erasure.** It would hold the destroyed key again.
   Before it answers anything, the keyring reads both copies of the erasure log (the control plane's,
-  through `GET /internal/erasure-log`, which only the keyring may call, and the bucket's), applies the
-  union of the two, and reports on `/status` a copy that was behind. With either copy unreadable it applies
+  through `GET /internal/erasure-log`, which only the keyring may call, and the bucket's), applies every
+  entry of the union its database has not applied, whatever its number, and reports on `/status` a copy
+  that was behind. Entries are not necessarily applied in the order they are numbered (a destroy that met
+  an unavailable keyring is retried later), so a backup can hold a later entry and lack an earlier one. With either copy unreadable it applies
   nothing and answers nothing, and tries again every five seconds; `/ready` holds until it has applied the
   log.
 - **The control plane's database restored.** Its copy of the log is made whole again from the bucket
@@ -217,7 +239,12 @@ ankka projects grants make service:payments/cardholders topic players consume --
 ```
 
 The keyring reads every project's grants, admits the consumer's service because of that grant, and
-records each key it gives with the grant it was given under. What the consumer keeps of the field (a
+records each key it gives with the grant it was given under. **A grant with decryption is project-wide in
+effect.** An envelope does not say which topic it came from, so the keyring cannot tell a key asked for
+to read the granted topic from one asked for any other field of the producing project: a consumer granted
+decryption on one topic can be given the key of every data subject of that project, and a machine granted
+decryption can have any of the project's fields decrypted. Grant decryption only to a consumer you would
+trust with every personal field of the project. What the consumer keeps of the field (a
 view's row, an entity's state, a message it publishes again) stays encrypted under the producing
 project's keys, so an erasure in the producing project reaches it with no erasure request of its own.
 A consumer whose grant does not allow decryption reads every personal field of the producing project as
@@ -248,6 +275,7 @@ answered before the erasure is the partner's to erase.
 ## Replicated entities
 
 A data subject's keys are kept by one installation's keyring, and its notices reach the services of that
-installation. An installation holding a copy of a replicated entity has its own keyring, which holds none
-of the home's keys. See [Limitations](../reference/limitations.md#personal-data-and-erasure) before marking
+installation. A copy of a replicated entity at another installation reads its keys from the home's keyring,
+through a keyring relay that a replication layer supplies (`ankka-replication`); its own keyring never makes
+one. With no relay, the copy's fetch is unavailable and retried, and never reads a field as erased. See [Limitations](../reference/limitations.md#personal-data-and-erasure) before marking
 personal fields in a replicated entity.

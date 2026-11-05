@@ -41,9 +41,9 @@ feature also says what that feature does not do.
   entity admits a write forwarded from an installation in its own list of installations and refuses any
   other, naming it. Admitting an installation of another organization, by granting it access as any
   other caller is granted, is `ankka-replication`'s, not the platform's.
-- **The installation does not report erasure.** `GET /installation` reports its broker, its longest topic
-  retention and its backups; it states nothing about erasure, which the platform does not yet provide, so
-  a requirement that names erasure reads it as not stated.
+- **The installation reports erasure as on or off, and nothing more.** `GET /installation` reports
+  `erasure: {enabled, keyringInstances}` beside its broker, its longest topic retention and its backups. It
+  does not say where the keyring keeps its keys or how they are backed up.
 - **Only an event sourced entity's context carries a call's attribution.** An event sourced entity's
   command and event contexts say who acted on a call and, for a forwarded write, which installation
   forwarded it. A workflow's or key value entity's context does not yet expose the attribution of a
@@ -539,34 +539,38 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   personal field only by equality with a given value, on a field marked for lookup; anything else is
   refused at start. Lookup fields are declared in the Scala SDK only.
 - **An erasure applies in one project.** A person known to two projects is two data subjects, and needs an
-  erasure request in each. Nothing reaches another installation: the subject keys of a replicated entity
-  are not shared with its followers, whose own keyrings hold none of them, and the relay through which a
-  follower would fetch the home's keys and hear its notices is not defined yet; `ankka-replication` must
-  implement it. Do not mark personal fields in a replicated entity until it does.
+  erasure request in each. A replicated entity's subject keys are its home's, in every language: a
+  follower fetches them through a keyring relay, which the platform defines and does not supply, and
+  never makes one. `ankka-replication` supplies one. With none, a follower's fetch is unavailable and
+  retried, and a field is never read as erased because the relay could not be reached. A follower holds
+  a key of its home's for `ankka.keyring.cache.foreign-ttl`, as it holds another project's, so an
+  erasure at the home reaches its reads within 30 seconds.
 - **An object written under a subject prefix after the re-run window is kept.** Erasure handlers are run
   again for 30 days after an erasure (`ANKKA_ERASURE_RERUN_WINDOW`); after that only a new erasure request
   for the same data subject runs them again.
-- **A store's soft-delete window is reported only when the service is told it.** A bucket's erasure is
-  reported final at once unless `ANKKA_S3_SOFT_DELETE_DAYS` is set in the service's environment, and the
-  platform does not set it, so on Google Cloud Storage an erasure is reported final before the store's
-  soft-delete window has passed.
+- **A store's soft-delete window is told only to a personal service on Google Cloud Storage.** The
+  operator sets `ANKKA_S3_SOFT_DELETE_DAYS` for a service that declares `"personal": true` and has a bucket
+  there, so its erasure is reported final when the window has passed. A service that does not declare
+  `"personal"` is not told it, and on a store with no window an erasure is reported final at once.
 - **What left the installation is beyond an erasure.** What a session sent to its model provider, a value a
   machine outside the installation was answered before the erasure, an export, an email: none is reached.
 - **A session started with no data subject cannot be erased.** A turn in a session whose data subject was
   erased is answered, and nothing of it is recorded.
 - **Workflow steps and timed actions cannot ask for an erasure.** Only endpoints, consumers and erasure
   handlers have `erasures`.
-- **Java and Kotlin services mark personal fields and nothing more.** They have no erasure handler and
-  cannot ask for an erasure from code, and they start no session or autonomous agent's instance with a
-  data subject. The Rust SDK has no function for the subject prefix.
+- **Java and Kotlin services start no session or autonomous agent's instance with a data subject.**
+  They mark personal fields, register an erasure handler and ask for an erasure from code as a Scala
+  service does. The Java, Kotlin and Rust SDKs have no function for the subject prefix; `Bucket.erase`
+  builds it.
 - **A consumer in another project reads an erasure there up to 30 seconds late.** It hears no notice of
   the producing project and holds that project's keys for `ankka.keyring.cache.foreign-ttl`, so an
   erasure or a revoked grant reaches its reads within 30 seconds, not at once; an entity of its own
   already in memory keeps what it decrypted until it is passivated or restarted.
-- **Only a Scala service in another project keeps what it reads under the producing project's keys.** A
-  Java or Kotlin service that writes again a personal field it read from another project's topic seals it
-  under its own project's key, so an erasure in the producing project does not reach that copy; the SDKs
-  behind the sidecar and the Rust SDK are not held to the rule either.
+- **A process or a module retries a keyring outage with its caller's next command.** An entity behind the
+  sidecar decrypts in the process or through the module's imports, never in the runtime, so a recovery
+  that needs a key the keyring cannot give refuses the command, never reads the field as erased, and
+  the next command recovers again. Nothing is retried until a command comes: an entity
+  in process waits in its mailbox, with backoff, until the keyring answers.
 - **Neither example overlay runs the keyring.** Erasure is off in both, and a service whose descriptor
   declares `"personal": true` is refused. An installation turns it on by listing `components/keyring`
   and setting `erasure: "on"`; the keyring's decryption is then the one path a machine outside the

@@ -190,6 +190,9 @@ The model server's keeper is `ankka-model-keeper`, named by the `models` compone
 overlay that lists the component renames it in the same `images:` block. The component's other image,
 Ollama's, is already pinned to a version and pulled from Docker Hub.
 
+The keyring is `ankka-keyring`, named by the `keyring` component's manifests and published with every
+release beside the others; an overlay that lists the component renames it in the same `images:` block.
+
 Pin a release tag rather than `latest`. A cluster should run a version that was built, tested and
 published as one.
 

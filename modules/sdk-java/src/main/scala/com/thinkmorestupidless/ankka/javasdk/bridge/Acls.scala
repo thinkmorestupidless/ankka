@@ -126,9 +126,12 @@ final class EndpointCell private[bridge] (
     secretStore: SecretStore = Stores.noSecrets,
     objectStorage: ObjectStorage = Stores.noStorage,
     keys: com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = Mcp.noKeys,
-    timerz: () => com.thinkmorestupidless.ankka.javasdk.timer.Timers = () => JavaTimers.unavailable
+    timerz: () => com.thinkmorestupidless.ankka.javasdk.timer.Timers = () => JavaTimers.unavailable,
+    erasurez: com.thinkmorestupidless.ankka.javasdk.erasure.Erasures = JavaErasures.unavailable
 ):
   def timers(): com.thinkmorestupidless.ankka.javasdk.timer.Timers = timerz()
+
+  def erasures(): com.thinkmorestupidless.ankka.javasdk.erasure.Erasures = erasurez
 
   def clientKeys(): com.thinkmorestupidless.ankka.javasdk.mcp.ClientKeys = keys
 

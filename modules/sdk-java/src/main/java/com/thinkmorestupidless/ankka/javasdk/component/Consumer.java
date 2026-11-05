@@ -84,6 +84,14 @@ public abstract class Consumer<Src, Out> {
     return cell.storage();
   }
 
+  /**
+   * Erasure requests asked as this service: in its own project, or in another under that
+   * project's grant.
+   */
+  protected final com.thinkmorestupidless.ankka.javasdk.erasure.Erasures erasures() {
+    return cell.erasures();
+  }
+
   @SuppressWarnings("unchecked")
   protected final ConsumerEffects<Out> effects() {
     return (ConsumerEffects<Out>) Effects.consumer();

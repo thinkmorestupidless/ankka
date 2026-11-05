@@ -90,6 +90,13 @@ private final class JavaBucket(scala: sdk.Bucket) extends Bucket:
 
   def url(name: String): URI = javaFailures(scala.url(name))
 
+  def erase(
+      subject: com.thinkmorestupidless.ankka.javasdk.DataSubject
+  ): com.thinkmorestupidless.ankka.javasdk.storage.ErasedObjects =
+    JavaErasures.erased(
+      javaFailures(scala.erase(com.thinkmorestupidless.ankka.core.DataSubject(subject.value)))
+    )
+
   private def scalaAccess(access: SignedAccess): sdk.SignedAccess = access match
     case SignedAccess.READ => sdk.SignedAccess.Read
     case SignedAccess.KEEP => sdk.SignedAccess.Keep

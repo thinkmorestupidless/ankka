@@ -17,7 +17,8 @@ final class ViewCell private[bridge] (
     client: ComponentClient = Clients.unavailable,
     serviceClients: ServiceClients = Services.unavailable,
     secretStore: SecretStore = Stores.noSecrets,
-    objectStorage: ObjectStorage = Stores.noStorage
+    objectStorage: ObjectStorage = Stores.noStorage,
+    erasurez: com.thinkmorestupidless.ankka.javasdk.erasure.Erasures = JavaErasures.unavailable
 ):
   private var current: Any                  = null
   private var change: Option[ChangeContext] = None
@@ -40,6 +41,8 @@ final class ViewCell private[bridge] (
   def secrets(): SecretStore = secretStore
 
   def storage(): ObjectStorage = objectStorage
+
+  def erasures(): com.thinkmorestupidless.ankka.javasdk.erasure.Erasures = erasurez
 
 object ViewCell:
   private val constructing = ThreadLocal[ViewCell]()

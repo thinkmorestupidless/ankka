@@ -42,4 +42,12 @@ public interface Bucket {
 
   /** The unsigned address of {@code name} in a public bucket. */
   URI url(String name);
+
+  /**
+   * Erases every object kept under {@code subject}'s prefix ({@code subjects/<subject>/}, the
+   * subject escaped as a path segment), answering how many and when they are gone for good.
+   * Objects outside it are kept, those of another data subject included. Run again, it erases what
+   * was kept there since and nothing else; nothing kept there is not an error.
+   */
+  ErasedObjects erase(com.thinkmorestupidless.ankka.javasdk.DataSubject subject);
 }

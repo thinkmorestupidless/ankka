@@ -44,7 +44,8 @@ final case class JavaServiceBuilder private (
     grpc: Option[(String, Int)] = None,
     grpcClients: Boolean = false,
     mcpEndpoints: Vector[Class[?]] = Vector.empty,
-    modules: Vector[JavaModule] = Vector.empty
+    modules: Vector[JavaModule] = Vector.empty,
+    erasureHandler: Option[com.thinkmorestupidless.ankka.javasdk.erasure.ErasureHandler] = None
 ) extends ServiceBuilder:
 
   def this(name: String) = this(name, Vector.empty, Vector.empty, Map.empty, None)
@@ -77,6 +78,12 @@ final case class JavaServiceBuilder private (
     val java = Modules.asJava(module)
     copy(modules = modules.filterNot(_.name == java.name) :+ java)
 
+  def withErasureHandler(
+      handler: com.thinkmorestupidless.ankka.javasdk.erasure.ErasureHandler
+  ): ServiceBuilder =
+    java.util.Objects.requireNonNull(handler, "handler")
+    copy(erasureHandler = Some(handler))
+
   def start(): AnkkaService =
     val read =
       JavaServiceBuilder.read(
@@ -91,9 +98,18 @@ final case class JavaServiceBuilder private (
       JavaServiceBuilder
         .scalaBuilder(read, http)
         .pipe(b => read.grpcExtensions(grpc, grpcClients).foldLeft(b)(_.withExtension(_)))
+        .pipe(b => withErasureHandlerOf(read)(b))
         .start()
     }
     JavaAnkkaService(name, service, read)
+
+  /** The Scala service given this service's erasure handler, when it has one. */
+  private[ankka] def withErasureHandlerOf(read: JavaServiceBuilder.Read)(
+      builder: runtime.ServiceBuilder
+  ): runtime.ServiceBuilder =
+    erasureHandler.fold(builder)(h =>
+      builder.withErasureHandler(JavaErasures.handler(h, read.refs, read.serializers))
+    )
 
 private[ankka] object JavaServiceBuilder:
 
@@ -237,7 +253,8 @@ private[ankka] object JavaServiceBuilder:
               Stores.secrets(clients.secrets),
               Stores.storage(clients.storage),
               keys(clients),
-              timers
+              timers,
+              JavaErasures.of(clients.erasures)
             )
           )(plan.construct())
           served ++ Routes.scalaRoutes(plan, instance.asInstanceOf[HttpEndpoint], serializers)

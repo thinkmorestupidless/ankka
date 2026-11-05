@@ -128,9 +128,9 @@ carried out, **applied** once its key is destroyed, and **withdrawn** if it was 
 
 - Whoever asked, or any member, may withdraw a held request, or replace its date and reason; a service
   that asked does so with its own certificate, while it holds the grant. A replacement names a date still
-  to come: a request is released early only by an owner's override. Whoever
-  asked may also ask again for the same data subject, which replaces the held request; the request's
-  history keeps both.
+  to come: a request is released early only by an owner's override. A further request for a data
+  subject that has a held one is refused (409), naming the held request; the request's history keeps
+  each replacement.
 - Only an owner may **override** a hold, with a reason, which is recorded with the owner's name; the
   request is applied at once. A member is refused.
 - A reason, of a hold or of an override, is kept in the request, its history and its certificate, and

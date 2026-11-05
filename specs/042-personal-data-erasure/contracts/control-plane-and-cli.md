@@ -4,7 +4,7 @@
 
 | Method and path | Who | Body / answer |
 |---|---|---|
-| `POST /projects/{id}/erasures` | member; service with the `erasure` grant of `{id}` | `{subject, notBefore?, reason?, correlation?}` → 201 the request; 200 an applied one already for the subject; 400 a subject outside FR-002 |
+| `POST /projects/{id}/erasures` | member; service with the `erasure` grant of `{id}` | `{subject, notBefore?, reason?, correlation?}` → 201 the request; 200 an applied one already for the subject; 409 a held one for the subject, named (replace it, withdraw it, or an owner overrides; decided 2026-11-05); 400 a subject outside FR-002 |
 | `GET /projects/{id}/erasures?subject=&state=&correlation=` | member | list, newest first, paged |
 | `GET /projects/{id}/erasures/{rid}` | member | the request with completions, and `lastFailure: {reason, at}` while an attempt to apply it has failed |
 | `PUT /projects/{id}/erasures/{rid}` | filer or member | replace a held request's `notBefore`/`reason`; 409 if not held |

@@ -343,6 +343,7 @@ it applies at once and the override is recorded; attempt the same as a member an
 - added `features/erasure/holds.feature`: a held erasure request is applied when its not-before date passes, without anyone acting
 - added `features/erasure/holds.feature`: a held erasure request is withdrawn before its not-before date
 - added `features/erasure/holds.feature`: a held erasure request is replaced by a later one from whoever asked for it
+- added `features/erasure/holds.feature`: asking again for a data subject with a held erasure request is refused
 - added `features/erasure/holds.feature`: an owner overrides a hold with a reason and the erasure request is applied at once
 - added `features/erasure/holds.feature`: a member who is not an owner cannot override a hold
 - added `features/erasure/holds.feature`: an applied erasure request cannot be withdrawn
@@ -581,7 +582,8 @@ and a listing by correlation id returns both; assert a service without the grant
   error naming the subject as erased, and nothing MUST be persisted.
 - **FR-014**: An erasure request MAY carry a not-before date and a reason; it MUST then be held and
   applied by the platform when the date passes. A held request MUST be withdrawable and replaceable by
-  its filer or a member; an applied one MUST NOT be. An owner MUST be able to override a hold with a
+  its filer or a member; an applied one MUST NOT be. A further request for a data subject with a held
+  request MUST be refused, naming the held one, so a hold is released only by its date or an owner. An owner MUST be able to override a hold with a
   recorded reason, applying the erasure at once; a member MUST NOT.
 - **FR-015**: The platform MUST check held requests at least every 15 minutes, and MUST re-run an
   applied erasure's service handlers at least every 15 minutes for the re-run window after it was

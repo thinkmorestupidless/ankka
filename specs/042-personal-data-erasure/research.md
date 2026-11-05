@@ -449,3 +449,12 @@ recorded only in `limitations.md` and here, and two requirements that pull again
 - **The sweep reads only the window it acts on.** Both of its queries take the window's start; an
   applied request past the window is read only while it waits on its objects' date, so one that a
   service never completed is no longer polled for ever. It stays not final, and says so.
+
+- **Q: a second ask for a data subject with a held request (`holds.feature` read "asks again …
+  replaces"; the code filed a second request, which with no date applied at once and so bypassed
+  the owner-only override) → A: refuse it** (the person, 2026-11-05). `POST …/erasures` answers 409
+  naming the held request; it is replaced through `PUT …/{rid}`, withdrawn, or released by an owner's
+  override. The contract row, FR-014, the scenario and `erasure.md` say so.
+  The refusal reads the requests' listing, so a second ask in the moment before it lists the held
+  request is not refused. That is accepted, as for an ask repeated after an applied request: the
+  hold is no boundary against a member, who may withdraw it and ask again (FR-014).

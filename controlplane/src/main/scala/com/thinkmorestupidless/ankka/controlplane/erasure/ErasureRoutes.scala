@@ -149,9 +149,26 @@ trait ErasureRoutes extends HttpEndpoint:
     // entity: one applied a moment ago is listed as applying. One asked in the moment before the
     // listing has it at all is not found, and a second request is made; applying it destroys a
     // key already gone and runs every handler again, which is what the re-send does.
-    val applied = rows
+    val inPlay = rows
       .ask(ErasureRequestsView.bySubject, "project" -> projectId, "subject" -> ask.subject)
-      .iterator
+      .toVector
+    // Asked again while a request for the subject is held: refused (decided 2026-11-05). A second
+    // request with no date would apply at once what the hold keeps, which only an owner's override
+    // may do; the held one is replaced through its own route. The check reads the listing, so a
+    // second ask in the moment before it lists the held one is not refused. That is no way round
+    // the hold: any member may withdraw a held request and ask again (FR-014). The refusal keeps
+    // one request in play per subject and says what to do instead.
+    inPlay
+      .find(_.state == ErasureState.Held.wire)
+      .foreach { held =>
+        throw CommandError(
+          s"data subject '${ask.subject}' has held erasure request '${held.rid}': replace its date " +
+            s"(PUT /projects/$projectId/erasures/${held.rid}), withdraw it, or have an owner " +
+            "override its hold",
+          ErrorCode.Conflict
+        )
+      }
+    val applied = inPlay.iterator
       .filter(r => r.state == ErasureState.Applied.wire || r.state == ErasureState.Applying.wire)
       .map(r => request(projectId, r.rid).call(ErasureRequestEntity.get).invoke())
       .find(_.state.contains(ErasureState.Applied))

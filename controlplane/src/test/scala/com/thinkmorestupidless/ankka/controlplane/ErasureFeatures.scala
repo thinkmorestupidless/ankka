@@ -1994,9 +1994,9 @@ class ErasureFeatures(
   }
 
   When(
-    "whoever asked for it asks for an erasure request for {string} in {string} with the not-before date {string}"
-  ) { (subject: String, in: String, date: String) =>
-    assertEquals(in, project)
+    "whoever asked for it replaces the held erasure request with the not-before date {string}"
+  ) { (date: String) =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
     replacedWith = date
     answered = harness.send(
       "PUT",
@@ -2007,6 +2007,37 @@ class ErasureFeatures(
   }
 
   private var replacedWith = ""
+
+  When(
+    "a member asks again for an erasure request for {string} in {string} with no not-before date"
+  ) { (subject: String, in: String) =>
+    assertEquals(in, project)
+    // The refusal reads the requests' listing: ask once it lists the held request.
+    eventually("the list shows the held request") {
+      val (_, list) =
+        harness.send("GET", s"/projects/$planeProject/erasures?subject=$subject", as = "ada")
+      Option.when(list.contains(requestOf(subject)))(())
+    }
+    answered = askErasure(subject)
+  }
+
+  Then("the ask is refused, naming the held erasure request") { () =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    assertEquals(answered._1, 409, answered._2)
+    assert(answered._2.contains(requestOf(subject)), answered._2)
+  }
+
+  Then("the erasure request is still held with the not-before date {string}") { (date: String) =>
+    val subject = asked.keys.headOption.getOrElse(fail("nothing was asked"))
+    sweepOnce()
+    val reply = readRequest(subject)
+    assert(reply.contains(""""state":"held""""), reply)
+    assert(reply.contains(s""""notBefore":"${date}T00:00:00Z""""), reply)
+    // Nothing else was asked for the subject: still one request.
+    val (_, list) =
+      harness.send("GET", s"/projects/$planeProject/erasures?subject=$subject", as = "ada")
+    assertEquals(RequestId.findAllMatchIn(list).size, 1, list)
+  }
 
   Then("the new erasure request replaces the held one") { () =>
     assertEquals(answered._1, 200, answered._2)

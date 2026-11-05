@@ -543,10 +543,12 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   personal field only by equality with a given value, on a field marked for lookup; anything else is
   refused at start. Lookup fields are declared in the Scala SDK only.
 - **An erasure applies in one project.** A person known to two projects is two data subjects, and needs an
-  erasure request in each. A replicated entity's subject keys are its home's: a follower fetches them
-  through a keyring relay, which the platform defines and does not supply. `ankka-replication` supplies
-  one. With none, a follower's fetch is unavailable and retried, and a field is never read as erased
-  because the relay could not be reached.
+  erasure request in each. A replicated entity's subject keys are its home's, in every language: a
+  follower fetches them through a keyring relay, which the platform defines and does not supply, and
+  never makes one. `ankka-replication` supplies one. With none, a follower's fetch is unavailable and
+  retried, and a field is never read as erased because the relay could not be reached. A follower holds
+  a key of its home's for `ankka.keyring.cache.foreign-ttl`, as it holds another project's, so an
+  erasure at the home reaches its reads within 30 seconds.
 - **An object written under a subject prefix after the re-run window is kept.** Erasure handlers are run
   again for 30 days after an erasure (`ANKKA_ERASURE_RERUN_WINDOW`); after that only a new erasure request
   for the same data subject runs them again.

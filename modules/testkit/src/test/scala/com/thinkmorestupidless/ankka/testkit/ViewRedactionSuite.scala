@@ -44,13 +44,15 @@ final class ViewRedactionSuite extends munit.FunSuite with LogCapturing:
         .head
       val both =
         s"""{"memberId":"both","email":${envelope("member/a", Some("AAAA"))},"city":"Leeds",""" +
+          s""""partner":${envelope("member/b", Some("EEEE"))},""" +
           s""""friends":[{"email":${envelope("member/b", Some("BBBB"))}},{"email":${envelope(
               "member/a",
               Some("CCCC")
             )}}]}"""
       val other =
         s"""{"memberId":"other","email":${envelope("member/b", Some("DDDD"))},"city":"York"}"""
-      val t = """{"email":"t"}"""
+      // Two subjects' lookup tokens in one row: member/a's email, member/b's partner.
+      val t = """{"email":"t","partner":"p"}"""
       val u = """{"email":"u"}"""
       run(
         sql"INSERT INTO ankka_view_members (row_key, payload, lookup) VALUES ('both', $both, $t::jsonb)"
@@ -66,7 +68,7 @@ final class ViewRedactionSuite extends munit.FunSuite with LogCapturing:
       assert(!after.contains("AAAA") && !after.contains("CCCC"), after)
       assert(after.contains("BBBB"), after)
       assert(after.contains("\"city\": \"Leeds\""), after)
-      assertEquals(lookup, None)
+      assertEquals(lookup, Some("""{"partner": "p"}"""), "the other subject's token stays")
       assertEquals(payload("other"), (other, Some("""{"email": "u"}""")))
 
       // Again: nothing left of the subject to rewrite.
@@ -79,6 +81,13 @@ final class ViewRedactionSuite extends munit.FunSuite with LogCapturing:
         Await.result(ViewRedaction.redact(db, tables, "elsewhere", "member/b"), 30.seconds),
         ViewRedaction.Redacted.none
       )
+      // The other subject erased too: its tokens go, in both rows.
+      assertEquals(
+        Await.result(ViewRedaction.redact(db, tables, "brand", "member/b"), 30.seconds),
+        ViewRedaction.Redacted(rows = 2, tokens = 2)
+      )
+      assertEquals(payload("both")._2, None)
+      assertEquals(payload("other")._2, None)
     finally kit.stop()
   }
 

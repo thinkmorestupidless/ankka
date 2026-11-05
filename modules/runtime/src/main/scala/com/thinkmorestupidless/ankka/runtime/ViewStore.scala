@@ -131,8 +131,12 @@ private[ankka] object ViewStore:
 
   /**
    * Redacts `subject` of `project` from every row of `table` that holds a sealed value of it, and
-   * drops those rows' lookup tokens when the view keeps any; each rewritten row announced. Answers
-   * one row of two counts: rows rewritten, and how many of them held tokens.
+   * drops the row's lookup tokens of that subject's fields when the view keeps any, another
+   * subject's in the same row staying; each rewritten row announced. Answers one row of two counts:
+   * rows rewritten, and how many of them had tokens dropped.
+   *
+   * A lookup path is a field's dotted path, never inside a collection, so the envelope it tokens is
+   * `payload #> <path>`, which still names its subject after redaction drops its ciphertext.
    */
   def redact(table: String, project: String, subject: String, lookup: Boolean): SqlFragment =
     val holds =
@@ -141,16 +145,29 @@ private[ankka] object ViewStore:
           "'$.** ? (@.\"$personal\" == 1 && @.project == $p && @.subject == $s && exists(@.c))', " +
           "jsonb_build_object('p', "
       ) ++ sql"$project" ++ SqlFragment.raw(", 's', ") ++ sql"$subject" ++ SqlFragment.raw("))")
-    val had  = if lookup then "lookup IS NOT NULL" else "false"
-    val drop = if lookup then ", lookup = NULL" else ""
-    SqlFragment.raw(
-      s"WITH target AS (SELECT row_key, $had AS had FROM $table WHERE "
+    // The row's lookup paths whose envelope is the subject's.
+    val paths =
+      SqlFragment.raw(
+        "ARRAY(SELECT k FROM jsonb_object_keys(coalesce(lookup, '{}'::jsonb)) AS l(k) " +
+          "WHERE payload::jsonb #> string_to_array(k, '.') ->> '$personal' IS NOT NULL " +
+          "AND payload::jsonb #> string_to_array(k, '.') ->> 'project' = "
+      ) ++ sql"$project" ++ SqlFragment.raw(
+        " AND payload::jsonb #> string_to_array(k, '.') ->> 'subject' = "
+      ) ++ sql"$subject" ++ SqlFragment.raw(")")
+    val gone =
+      if lookup then SqlFragment.raw("") ++ paths
+      else SqlFragment.raw("ARRAY[]::text[]")
+    val drop =
+      if lookup then ", lookup = nullif(t.lookup - target.gone, '{}'::jsonb)"
+      else ""
+    SqlFragment.raw("WITH target AS (SELECT row_key, ") ++ gone ++ SqlFragment.raw(
+      s" AS gone FROM $table WHERE "
     ) ++ holds ++ SqlFragment.raw(
       s" FOR UPDATE), written AS (UPDATE $table t SET payload = " +
         "ankka_redact_personal(t.payload::jsonb, "
     ) ++ sql"$project" ++ SqlFragment.raw(", ") ++ sql"$subject" ++ SqlFragment.raw(
       s")::text$drop, updated_at = now() FROM target WHERE t.row_key = target.row_key " +
-        "RETURNING t.row_key, target.had) " +
+        "RETURNING t.row_key, cardinality(target.gone) > 0 AS had) " +
         "SELECT count(*) AS rows, count(*) FILTER (WHERE had) AS tokens, " +
         s"count(pg_notify('$Channel', '$table|' || row_key)) " +
         s"FILTER (WHERE octet_length(row_key) < $AnnouncedKeyBytes) AS announced FROM written"

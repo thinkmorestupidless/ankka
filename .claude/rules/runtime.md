@@ -325,3 +325,13 @@ answering `Forbidden` naming both installations, which the forwarder returns unc
   it starts anywhere every instance would answer "no handler", and the first completion would
   record no run. An instance not holding it asks the singleton's proxy first, which keeps the ask
   until it is up (at most 30s). `ErasureHandlerHostSuite` holds a notice across the cluster's join.
+- **Never decode a stored value inside an r2dbc row mapper** (2026-11-05, feature 042). The mapper
+  runs on the Postgres driver's event loop, which every connection in the JVM shares, one loop per
+  core. Decoding a personal field there can fetch a key, and the fetch blocks for up to
+  `fetch-timeout`. While it waits, every database on that loop stalls, the keyring server's own
+  included, and that is how a fetch came to wait on itself for exactly 10s. It struck only when rows
+  arrived before the stream asked for them: 5 of 242 fetches in a full `controlPlane/test`, and more
+  often on 4-core CI. Map a row to its payload; decode with `ServiceKeyring.decoding(system)`, which
+  also binds the service's keyring, something the event loop never saw. `KeyringClient` now refuses
+  a fetch on a non-blocking thread at once, naming the cause (`KeyringClientSuite`,
+  `ServiceKeyringSuite`).

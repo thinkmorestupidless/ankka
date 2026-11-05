@@ -40,8 +40,13 @@ trait KeyStoreClient:
    */
   def caughtUp: scala.concurrent.Future[Unit]
 
-  /** Tells the keyring this instance carried out a notice. */
-  def ack(ack: KeyringAck): Unit
+  /**
+   * Tells the keyring this instance carried out a notice. Completes once the keyring has the
+   * acknowledgement (for the installation's, once its frame was sent), which may be long after the
+   * call in an outage; only then may the service record the notice as carried through, or a restart
+   * before it would say hello past a notice the keyring never heard was done (R15).
+   */
+  def ack(ack: KeyringAck): scala.concurrent.Future[Unit]
 
   /** Releases what the client holds. */
   def close(): Unit = ()

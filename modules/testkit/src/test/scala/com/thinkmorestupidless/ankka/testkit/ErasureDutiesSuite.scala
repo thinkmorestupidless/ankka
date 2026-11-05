@@ -2,8 +2,13 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.keyring.{HandlerReport, KeyringNotice}
-import com.thinkmorestupidless.ankka.runtime.{ProjectionRuntime, ServiceIdentity}
-import com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks
+import com.thinkmorestupidless.ankka.runtime.{
+  Database,
+  HistoryLines,
+  ProjectionRuntime,
+  ServiceIdentity
+}
+import com.thinkmorestupidless.ankka.runtime.keyring.{ErasureHooks, ErasureReplay}
 
 import scala.concurrent.Future
 import scala.concurrent.duration.*
@@ -81,5 +86,49 @@ final class ErasureDutiesSuite extends munit.FunSuite with LogCapturing:
       val done   = kit.erase(DataSubject("member/b"))
       eventually("the second acknowledgement")(keyring.acks.find(_.seq == done))
       assertEquals(keyring.acks.find(_.seq == failed), None)
+    finally kit.stop()
+  }
+
+  test("a notice whose ack the keyring never had is handed again to an instance restarted") {
+    val keyring = InMemoryKeyring()
+    val kit     = AnkkaTestKit.start(
+      Seq(MemberEntity.descriptor, Members.descriptor),
+      Seq(ProjectionRuntime()),
+      serviceIdentity = ServiceIdentity.deployed("brand", "members"),
+      keyring = keyring
+    )
+    // What the database records this service carried through: what a start says hello from.
+    def mark(): Long =
+      given system: org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
+      ErasureReplay.carriedThrough(() => Database(), HistoryLines(system).current)
+    try
+      val first = kit.erase(DataSubject("member/first"))
+      eventually("the first acknowledgement")(keyring.acks.find(_.seq == first))
+      eventually("the first mark")(Option.when(mark() >= first)(()))
+
+      // The duties of the next notice end in an outage: the ack waits in the instance's client.
+      val gate = java.util.concurrent.CountDownLatch(1)
+      ErasureHooks
+        .of(kit.service.system)
+        .onHandler(_ =>
+          Future {
+            gate.await()
+            None
+          }(using scala.concurrent.ExecutionContext.global)
+        )
+      val seq = kit.erase(DataSubject("member/second"))
+      keyring.outage(1.hour)
+      gate.countDown()
+      eventually("the acknowledgement held")(keyring.heldAcks.find(_.seq == seq))
+      Thread.sleep(500)
+      assertEquals(mark(), first, "recorded as carried through before the keyring had the ack")
+
+      // The instance stops with its ack unsent; the keyring comes back while nothing runs.
+      kit.restartService(whileStopped = {
+        keyring.forgetHeldAcks()
+        keyring.recover()
+      })
+      eventually("the notice handed again, and acknowledged")(keyring.acks.find(_.seq == seq))
+      eventually("the mark")(Option.when(mark() >= seq)(()))
     finally kit.stop()
   }

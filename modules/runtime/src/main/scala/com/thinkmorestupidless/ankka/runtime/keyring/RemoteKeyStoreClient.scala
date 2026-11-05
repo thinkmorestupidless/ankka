@@ -124,8 +124,9 @@ final class RemoteKeyStoreClient(
 
   private val confirmed = AtomicReference[Option[Instant]](None)
   // What a hello says this instance carried out: never past a notice whose duties failed.
-  private val carried   = CarriedThrough()
-  private val pending   = ConcurrentLinkedQueue[KeyringAck]()
+  private val carried = CarriedThrough()
+  // Acknowledgements not yet sent, each with what completes once its frame has been.
+  private val pending   = ConcurrentLinkedQueue[(KeyringAck, scala.concurrent.Promise[Unit])]()
   private val socket    = AtomicReference[Option[WebSocket]](None)
   private val closed    = AtomicBoolean(false)
   private val reopening = Executors.newSingleThreadScheduledExecutor(r =>
@@ -187,19 +188,23 @@ final class RemoteKeyStoreClient(
     var next = pending.peek()
     while next != null do
       try
+        val (ack, sent) = next
         // As the instance that said hello: the keyring holds a connection to one instance.
-        send(ws, NoticeFrame.Ack(next.seq, service, instance, next.completion))
+        send(ws, NoticeFrame.Ack(ack.seq, service, instance, ack.completion))
         pending.poll(): Unit
-        carried.carried(next.seq): Unit
+        carried.carried(ack.seq): Unit
+        sent.trySuccess(()): Unit
         next = pending.peek()
       catch
         case NonFatal(e) =>
           log.warn(s"an acknowledgement waits for the notices to reopen: ${e.getMessage}")
           next = null
 
-  def ack(ack: KeyringAck): Unit =
-    pending.add(ack): Unit
+  def ack(ack: KeyringAck): scala.concurrent.Future[Unit] =
+    val sent = scala.concurrent.Promise[Unit]()
+    pending.add(ack -> sent): Unit
     socket.get.foreach(flush)
+    sent.future
 
   private final class Listening(listener: KeyringNotice => Unit) extends WebSocket.Listener:
     private val text = StringBuilder()

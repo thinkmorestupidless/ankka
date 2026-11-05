@@ -78,10 +78,10 @@ class PersonalRecoveryBenchmark extends munit.FunSuite with LogCapturing:
     def lookupKey(project: String)                                      = inner.lookupKey(project)
     def subscribe(after: Long)(listener: keyring.KeyringNotice => Unit) =
       inner.subscribe(after)(listener)
-    def confirmedAt()                      = inner.confirmedAt()
-    def caughtUp                           = inner.caughtUp
-    def ack(ack: keyring.KeyringAck): Unit = inner.ack(ack)
-    override def close(): Unit             = inner.close()
+    def confirmedAt()                                               = inner.confirmedAt()
+    def caughtUp                                                    = inner.caughtUp
+    def ack(ack: keyring.KeyringAck): scala.concurrent.Future[Unit] = inner.ack(ack)
+    override def close(): Unit                                      = inner.close()
 
   @volatile private var counting: Option[Counting] = None
 

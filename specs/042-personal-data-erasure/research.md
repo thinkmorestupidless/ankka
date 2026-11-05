@@ -489,3 +489,17 @@ recorded only in `limitations.md` and here, and two requirements that pull again
 - **The sweep reads an applied request waiting on its objects' date for a window past that date**
   (review, second round, 2026-11-05), and no longer: one that also waits on a service that never
   completes was polled for ever.
+### The carried-through mark and an unsent ack (2026-11-05, second review)
+
+- **The database's `carried_through` moves only once the keyring has the ack** (R15, second-round
+  review of `ErasureDuties.scala:80-83`). `KeyStoreClient.ack` answers a `Future` that the
+  installation's client completes once the ack frame has been sent (`RemoteKeyStoreClient.flush`,
+  where its own hello mark moves), and `ErasureDuties` records the mark from it. The alternative, a
+  keyring backlog that hands every applied notice the service has no ack for, was not taken: it is
+  the keyring's change (another area, and a contract change in what a hello means), and it makes
+  every hello after an outage ask the keyring to join the notices with every instance's acks.
+  Recording later is correct across a restart during an outage: the duties' work is lost with the
+  unsent ack, the mark is still below the notice, the next start's hello asks for it again, and
+  every duty is safe to run twice. A mark held back by an ack that failed (a local keyring's
+  database error) stays back, conservatively, until the notice is handed again.
+  `ErasureDutiesSuite` stops an instance with the ack held in an outage and sees it handed again.

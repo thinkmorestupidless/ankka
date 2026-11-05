@@ -234,21 +234,23 @@ final class LocalKeyring(
 
   def confirmedAt(): Option[Instant] = confirmed.get
 
-  def ack(ack: KeyringAck): Unit =
-    ensure()
-    val c       = ack.completion
-    val handler = c.handler
-    // Bound as sentinels the statement reads as null: a parameter is never an Option.
-    val objects = handler.fold(-1L)(_.objectsErased)
-    val final_  = handler.fold("")(_.finality)
-    val error   = handler.flatMap(_.error).getOrElse("")
-    await("record an acknowledgement")(
-      database.execute(
-        sql"INSERT INTO ankka_keyring.notice_ack (erasure_seq, service, instance, rows_redacted, tokens_dropped, sessions_ended, objects_erased, finality, error) " ++
-          sql"VALUES (${ack.seq}, ${ack.service}, ${ack.instance}, ${c.rowsRedacted}, ${c.tokensDropped}, ${c.sessionsEnded}, NULLIF($objects, -1), NULLIF($final_, ''), NULLIF($error, '')) " ++
-          SqlFragment.raw("ON CONFLICT (erasure_seq, instance) DO NOTHING")
-      )
-    ): Unit
+  def ack(ack: KeyringAck): scala.concurrent.Future[Unit] =
+    scala.concurrent.Future.fromTry(scala.util.Try {
+      ensure()
+      val c       = ack.completion
+      val handler = c.handler
+      // Bound as sentinels the statement reads as null: a parameter is never an Option.
+      val objects = handler.fold(-1L)(_.objectsErased)
+      val final_  = handler.fold("")(_.finality)
+      val error   = handler.flatMap(_.error).getOrElse("")
+      await("record an acknowledgement")(
+        database.execute(
+          sql"INSERT INTO ankka_keyring.notice_ack (erasure_seq, service, instance, rows_redacted, tokens_dropped, sessions_ended, objects_erased, finality, error) " ++
+            sql"VALUES (${ack.seq}, ${ack.service}, ${ack.instance}, ${c.rowsRedacted}, ${c.tokensDropped}, ${c.sessionsEnded}, NULLIF($objects, -1), NULLIF($final_, ''), NULLIF($error, '')) " ++
+            SqlFragment.raw("ON CONFLICT (erasure_seq, instance) DO NOTHING")
+        )
+      ): Unit
+    })
 
   /** The acknowledgements of notice `seq`, from every instance that has carried it out. */
   def acks(seq: Long): Vector[KeyringAck] =

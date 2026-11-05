@@ -45,9 +45,9 @@ final class ErasureReplaySuite extends munit.FunSuite with LogCapturing:
       helloAfter = Some(after)
       backlog.filter(_.seq > after).foreach(l)
       () => ()
-    def confirmedAt(): Option[Instant] = Some(Instant.now())
-    def caughtUp: Future[Unit]         = ended.future
-    def ack(ack: KeyringAck): Unit     = ()
+    def confirmedAt(): Option[Instant]                      = Some(Instant.now())
+    def caughtUp: Future[Unit]                              = ended.future
+    def ack(ack: KeyringAck): scala.concurrent.Future[Unit] = scala.concurrent.Future.unit
 
   private val settings = KeyringSettings(
     address = None,

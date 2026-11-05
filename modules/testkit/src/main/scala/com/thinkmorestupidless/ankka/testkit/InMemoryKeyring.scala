@@ -43,9 +43,16 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
       Map(Personal.ErrorKey -> Personal.Unavailable)
     )
 
-  private def checkUp(): Unit = synchronized {
-    down.foreach(until => if clock.instant().isBefore(until) then unavailable() else down = None)
-  }
+  private def checkUp(): Unit =
+    val ended = synchronized {
+      down match
+        case Some(until) if clock.instant().isBefore(until) => unavailable()
+        case Some(_)                                        =>
+          down = None
+          true
+        case None => false
+    }
+    if ended then release()
 
   def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
     checkUp()
@@ -84,7 +91,30 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
   /** At once after the first subscription, which hands its backlog before it returns. */
   def caughtUp: scala.concurrent.Future[Unit] = subscribed.future
 
-  def ack(ack: KeyringAck): Unit = acked.add(ack): Unit
+  // Acknowledgements made in an outage: the instance's client holds them until the keyring is back.
+  private val held = mutable.ArrayBuffer.empty[(KeyringAck, scala.concurrent.Promise[Unit])]
+
+  /** Received at once, or in an outage held until it ends, as a client holds an unsent ack. */
+  def ack(ack: KeyringAck): scala.concurrent.Future[Unit] = synchronized {
+    if down.exists(until => clock.instant().isBefore(until)) then
+      val sent = scala.concurrent.Promise[Unit]()
+      held += ack -> sent
+      sent.future
+    else
+      acked.add(ack): Unit
+      scala.concurrent.Future.unit
+  }
+
+  private def release(): Unit =
+    val now = synchronized {
+      val all = held.toVector
+      held.clear()
+      all
+    }
+    now.foreach { (ack, sent) =>
+      acked.add(ack)
+      sent.trySuccess(()): Unit
+    }
 
   /** Confirmed now, as an in-process channel always is, except in an outage: since it began. */
   def confirmedAt(): Option[Instant] = synchronized {
@@ -128,8 +158,19 @@ final class InMemoryKeyring(clock: Clock = Clock.systemUTC()) extends KeyStoreCl
     downSince = Some(clock.instant())
   }
 
-  /** Ends an outage now. */
-  def recover(): Unit = synchronized { down = None }
+  /** Ends an outage now; the acknowledgements held through it arrive. */
+  def recover(): Unit =
+    synchronized { down = None }
+    release()
+
+  /** The acknowledgements held in an outage, not yet received. */
+  def heldAcks: Vector[KeyringAck] = synchronized(held.map(_._1).toVector)
+
+  /**
+   * Forgets the acknowledgements held in an outage, as an instance that stopped before the keyring
+   * came back loses the ones its client had not sent.
+   */
+  def forgetHeldAcks(): Unit = synchronized(held.clear())
 
   /** How many times `subject`'s key was asked for in `project`. */
   def fetches(project: String, subject: DataSubject): Int =

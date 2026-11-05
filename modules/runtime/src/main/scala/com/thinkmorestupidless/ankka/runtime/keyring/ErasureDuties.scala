@@ -42,8 +42,9 @@ final class ErasureDuties(
   private val carried = CarriedThrough(carriedFrom)
 
   /**
-   * Every notice handed here up to this one has been carried out: what the line's record holds, so
-   * a start says hello from it rather than asking for the project's whole history.
+   * Every notice handed here up to this one has been carried out and its ack is the keyring's: what
+   * the line's record holds, so a start says hello from it rather than asking for the project's
+   * whole history.
    */
   def carriedThrough: Long = carried.value
 
@@ -77,10 +78,22 @@ final class ErasureDuties(
     done.andThen {
       case Success(ack) =>
         outstanding.remove(notice.seq): Unit
-        val before = carried.value
-        val after  = carried.carried(notice.seq)
-        if after > before then record(after)
-        client.store.ack(ack)
+        // The database's mark moves only once the keyring has the ack: a mark recorded before it
+        // would make a restart in an outage say hello past a notice the keyring never heard was
+        // done, and the keyring would not hand it again (decided 2026-11-05, research.md).
+        client.store
+          .ack(ack)
+          .onComplete {
+            case Success(_) =>
+              val before = carried.value
+              val after  = carried.carried(notice.seq)
+              if after > before then record(after)
+            case Failure(e) =>
+              log.warn(
+                s"erasure notice ${notice.seq}'s acknowledgement did not reach the keyring",
+                e
+              )
+          }
         log.info(
           s"erasure notice ${notice.seq} carried out: ${ack.completion.rowsRedacted} rows " +
             s"redacted, ${ack.completion.tokensDropped} rows' tokens dropped, " +

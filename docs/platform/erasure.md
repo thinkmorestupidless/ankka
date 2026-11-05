@@ -201,8 +201,10 @@ A restore must not bring an erased data subject back. Three cases:
   service on a new database waits once.
 - **The keyring's own database restored to before an erasure.** It would hold the destroyed key again.
   Before it answers anything, the keyring reads both copies of the erasure log (the control plane's,
-  through `GET /internal/erasure-log`, which only the keyring may call, and the bucket's), applies the
-  union of the two, and reports on `/status` a copy that was behind. With either copy unreadable it applies
+  through `GET /internal/erasure-log`, which only the keyring may call, and the bucket's), applies every
+  entry of the union its database has not applied, whatever its number, and reports on `/status` a copy
+  that was behind. Entries are not necessarily applied in the order they are numbered (a destroy that met
+  an unavailable keyring is retried later), so a backup can hold a later entry and lack an earlier one. With either copy unreadable it applies
   nothing and answers nothing, and tries again every five seconds; `/ready` holds until it has applied the
   log.
 - **The control plane's database restored.** Its copy of the log is made whole again from the bucket

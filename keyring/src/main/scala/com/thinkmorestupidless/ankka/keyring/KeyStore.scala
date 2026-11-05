@@ -132,6 +132,16 @@ final class KeyStore(database: Database)(using ExecutionContext):
       )(r => r.get("project", classOf[String]) -> r.get("subject", classOf[String]))
     )
 
+  /** Every erasure log entry this database applied. */
+  def appliedSeqs(): Future[Set[Long]] =
+    ensure().flatMap(_ =>
+      database
+        .query(SqlFragment.raw("SELECT erasure_seq FROM keyring.applied_log"))(
+          _.get("erasure_seq", classOf[java.lang.Long]).longValue
+        )
+        .map(_.toSet)
+    )
+
   /** The last erasure log entry this database applied; 0 before the first. */
   def lastApplied(): Future[Long] =
     ensure().flatMap(_ =>

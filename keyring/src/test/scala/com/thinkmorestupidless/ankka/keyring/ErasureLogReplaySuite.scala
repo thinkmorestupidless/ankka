@@ -62,6 +62,24 @@ class ErasureLogReplaySuite extends munit.FunSuite with LogCapturing:
     assertEquals(await(ErasureLogReplay(store, Vector(table, bucket)).run()).applied, 0)
   }
 
+  test("an entry below the highest applied is replayed too: entries are applied out of order") {
+    val store = KeyStore(database)
+    val base  = await(store.lastApplied()) + 100
+    await(store.subjectKey("r3", "player/5", create = true)(Array.fill(32)(5))): Unit
+    await(store.subjectKey("r3", "player/6", create = true)(Array.fill(32)(6))): Unit
+    // Entry base+6 was applied; base+5's destroy failed and was retried after the backup was taken.
+    await(store.destroy(base + 6, "r3", "player/6", at)): Unit
+    assert(key(store, "r3", "player/5").isInstanceOf[KeyStore.Stored.Key])
+    val both =
+      Vector(entry(base + 5, "r3", "player/5"), entry(base + 6, "r3", "player/6"))
+    val report =
+      await(
+        ErasureLogReplay(store, Vector(Copy("control plane", both), Copy("bucket", both))).run()
+      )
+    assertEquals(report.applied, 1)
+    assertEquals(key(store, "r3", "player/5"), KeyStore.Stored.Destroyed)
+  }
+
   test(
     "a copy that cannot be read keeps the keyring unready, and the replay finishes once it can"
   ) {

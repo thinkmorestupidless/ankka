@@ -69,10 +69,16 @@ object LogCopy:
 
 /**
  * FR-021's keyring half (R22): before the keyring answers anything, every entry of either copy of
- * the erasure log after the last one its database applied is applied again, in order. A database
- * restored from before an erasure therefore destroys the key again before it can serve it. A copy
- * that lacked an entry the other held was behind, and is reported. Until both copies have been read
- * the union is unknown, so the keyring is not ready: a key is never served on half the log.
+ * the erasure log that its database has not applied is applied, in order. A database restored from
+ * before an erasure therefore destroys the key again before it can serve it. A copy that lacked an
+ * entry the other held was behind, and is reported. Until both copies have been read the union is
+ * unknown, so the keyring is not ready: a key is never served on half the log.
+ *
+ * Every entry missing from `applied_log` is replayed, not only those above the highest applied:
+ * nothing serialises the order in which entries are applied. The control plane numbers an entry
+ * when it writes it and asks the keyring to destroy afterwards, and a destroy that failed (the
+ * keyring unavailable) is retried later, so entry 6 can be applied before entry 5, and a backup
+ * taken between the two holds 6 and not 5.
  */
 final class ErasureLogReplay(store: KeyStore, copies: Vector[LogCopy])(using ExecutionContext):
 
@@ -86,9 +92,9 @@ final class ErasureLogReplay(store: KeyStore, copies: Vector[LogCopy])(using Exe
 
   /** One attempt: reads both copies, applies their union in order, and reports. */
   def run(): Future[ErasureLogReplay.Report] =
-    store.lastApplied().flatMap { last =>
+    store.lastApplied().zip(store.appliedSeqs()).flatMap { (last, applied) =>
       val read = copies.map(c =>
-        c -> (try Right(c.after(last))
+        c -> (try Right(c.after(0))
         catch case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.getClass.getSimpleName)))
       )
       val unread = read.collect { case (c, Left(why)) => ErasureLogReplay.Unread(c.name, why) }
@@ -99,7 +105,9 @@ final class ErasureLogReplay(store: KeyStore, copies: Vector[LogCopy])(using Exe
         state.set(r)
         Future.successful(r)
       else
-        val held   = read.collect { case (c, Right(es)) => c.name -> es.filter(_.seq > last) }
+        val held = read.collect { case (c, Right(es)) =>
+          c.name -> es.filterNot(e => applied(e.seq))
+        }
         val union  = held.flatMap(_._2).groupBy(_.seq).values.map(_.head).toVector.sortBy(_.seq)
         val behind = held.flatMap { (name, es) =>
           val seqs    = es.map(_.seq).toSet
@@ -118,7 +126,10 @@ final class ErasureLogReplay(store: KeyStore, copies: Vector[LogCopy])(using Exe
           )
           .map { _ =>
             if union.nonEmpty then
-              log.info(s"the keyring replayed ${union.size} erasure log entries after ${last}")
+              log.info(
+                s"the keyring replayed ${union.size} erasure log entries it had not applied " +
+                  s"(${union.map(_.seq).mkString(", ")}); the highest it held was $last"
+              )
             val r = ErasureLogReplay.Report(last, union.size, behind, Vector.empty, finished = true)
             state.set(r)
             r

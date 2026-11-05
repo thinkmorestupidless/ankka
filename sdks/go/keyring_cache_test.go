@@ -220,3 +220,19 @@ func TestAFetchInFlightWhenItsSubjectIsDroppedIsNotBelieved(t *testing.T) {
 		})
 	}
 }
+
+func TestADropAfterTheAnswerAndBeforeItIsHandedOnLeavesNoKeyHeld(t *testing.T) {
+	keys := newTestKeys("brand")
+	ref := subjectRef{project: "brand", subject: "player/1"}
+	keys.keys[ref] = bytes.Repeat([]byte{7}, 32)
+	k, _ := cacheUnderTest(t, keys)
+	// The notice arrives once the fetch has found itself not overtaken: the window in which a put
+	// made after the check once put the destroyed key back.
+	k.afterFetch = func() { k.drop("brand", "player/1") }
+	if _, err := k.prefetch([]subjectRef{ref}, false); err != nil {
+		t.Fatal(err)
+	}
+	if k.cached("brand", "player/1") {
+		t.Fatal("the key a notice dropped was put back")
+	}
+}

@@ -115,6 +115,9 @@ type keyring struct {
 	flights  map[*flight]struct{}
 	own      string
 	now      func() time.Time
+	// afterFetch, in a test only, runs once a fetch has been answered and before prefetch hands the
+	// answer on: where a notice could once arrive between the check and the put.
+	afterFetch func()
 }
 
 func newKeyring(source keySource) *keyring {
@@ -228,30 +231,41 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 			out[named] = keyAnswer{key: c.key, project: named.project}
 			continue
 		}
-		if a.project == "" {
-			a.project = r.project
+		if k.afterFetch != nil {
+			k.afterFetch()
 		}
 		if a.project == "" {
 			// An answer for the own project that names none: nothing to seal under, or cache by.
 			continue
 		}
-		named := subjectRef{project: a.project, subject: r.subject, home: r.home}
-		out[named] = a
-		k.mu.Lock()
-		if r.project == "" && k.own == "" {
-			k.own = a.project
-		}
-		if !a.erased {
-			k.put(named, a.key)
-		} else {
-			k.remove(named)
-		}
-		k.mu.Unlock()
+		out[subjectRef{project: a.project, subject: r.subject, home: r.home}] = a
 	}
 	return out, nil
 }
 
-// fetchOne asks the source for r, again when a notice dropped its subject while the fetch was out.
+// settle names the project a's answer is for and holds or forgets its key; held with k.mu, in the
+// same hold that found the fetch not overtaken by a notice, so no drop can come between the check
+// and the put and leave the destroyed key held.
+func (k *keyring) settle(r subjectRef, a *keyAnswer) {
+	if a.project == "" {
+		a.project = r.project
+	}
+	if a.project == "" {
+		return
+	}
+	named := subjectRef{project: a.project, subject: r.subject, home: r.home}
+	if r.project == "" && k.own == "" {
+		k.own = a.project
+	}
+	if !a.erased {
+		k.put(named, a.key)
+	} else {
+		k.remove(named)
+	}
+}
+
+// fetchOne asks the source for r, again when a notice dropped its subject while the fetch was out,
+// and settles the answer in the cache under the lock that read whether it was dropped.
 func (k *keyring) fetchOne(ctx context.Context, r subjectRef, create bool) (keyAnswer, error) {
 	for range fetchAttempts {
 		f := &flight{subject: r.subject}
@@ -262,6 +276,9 @@ func (k *keyring) fetchOne(ctx context.Context, r subjectRef, create bool) (keyA
 		k.mu.Lock()
 		delete(k.flights, f)
 		dropped := f.dropped
+		if err == nil && !dropped {
+			k.settle(r, &a)
+		}
 		k.mu.Unlock()
 		if err != nil || !dropped {
 			return a, err

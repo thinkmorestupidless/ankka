@@ -60,7 +60,9 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
       keyring.sent.count(n => n.rerun && n.subject == subject)
     def ackLatest(subject: String, handler: HandlerReport): Unit =
       val n = keyring.sent.filter(_.subject == subject).last
-      keyring.ack(KeyringAck(n.seq, "players", "players-0", Completion(1, 0, 0, Some(handler))))
+      keyring.ack(
+        KeyringAck(n.seq, "players", "players-0", Completion(1, 0, 0, Some(handler)))
+      ): Unit
 
   private def withSweep(
       personal: String => Set[String] = _ => Set.empty

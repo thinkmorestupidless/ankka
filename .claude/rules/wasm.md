@@ -60,6 +60,12 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
 
 ## Traps
 
+- **Compiling a module is the sidecar's peak of heap, and the JVM's default was a quarter of the
+  pod** (2026-11-05, feature 042). Chicory compiled the Rust conformance reference in about 100 MiB
+  alone, against a 128 MiB heap at the default 512Mi; 042's cases added 8 MiB and the wasm pod ran
+  out of heap during start, never ready, in every `SidecarClusterSuite` wasm case. The image states
+  half the container (`Universal / javaOptions` in `build.sbt`) and exits on an exhausted heap.
+  Measure a module with `ModuleLoader.load` under `-Xmx` before blaming the cluster.
 - **`await_end` has a link block of its own** (`call_await`), so a module that never waits does not import
   it; `WasmHostSuite` checks the plain example does not and the conformance reference does.
 - **A Rust import referenced from a shared `match` is imported by every module.** `abi::imports::call`

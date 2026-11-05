@@ -735,6 +735,17 @@ lazy val sidecar = project
     // /opt/docker, is not the image user's to write, and a store it cannot write stops the start. A
     // mounted ANKKA_STORAGE_DIR replaces it; in a cluster the store is S3 and this is never read.
     dockerEnvVars := Map("ANKKA_STORAGE_DIR" -> "/tmp/ankka-storage"),
+    // The heap is half the container's memory, stated (2026-11-05, feature 042). Left to the JVM it
+    // was a quarter, 128 MiB at the default 512Mi, and Chicory's compile of a module is the peak:
+    // the Rust conformance reference needs about 110 MiB for it alone (97 to 104 before 042's
+    // cases), so the wasm pod ran out of heap during start and was never ready. An exhausted heap
+    // ends the process, so the kubelet restarts it and the reason reaches the service's status,
+    // rather than leaving the thread it hit dead.
+    Universal / javaOptions ++= Seq(
+      "-J-XX:MaxRAMPercentage=50",
+      "-J-XX:MinRAMPercentage=50",
+      "-J-XX:+ExitOnOutOfMemoryError"
+    ),
     // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own
     // Postgres and copies the DDL out of this image, so a test can never pass against a schema
     // the platform does not have — the same rule as AnkkaTestKit, from the other side.

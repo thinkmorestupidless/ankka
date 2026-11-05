@@ -33,6 +33,19 @@ object RootKey:
   /** The secret's name in the keyring's own store. */
   val SecretName = "keyring-root-key"
 
+  /**
+   * The secret store's table, `40-secrets-postgres.sql`'s statement: the keyring's database gets no
+   * platform schema (its tables are made by code, as the role that owns them), so the store's table
+   * is made here, under the root key's lock, before the first read. `RootKeySuite` holds it to the
+   * platform's file.
+   */
+  val SecretsTable: String =
+    """CREATE TABLE IF NOT EXISTS ankka_secrets (
+      |  name       TEXT PRIMARY KEY,
+      |  ciphertext BYTEA NOT NULL,
+      |  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      |)""".stripMargin
+
   /** A root key held in memory: what the Postgres root is once read. */
   final class Local(key: IArray[Byte], val ref: String) extends RootKey:
     def wrap(plain: Array[Byte], ad: Array[Byte]): Array[Byte] =
@@ -51,18 +64,25 @@ object RootKey:
   ): RootKey =
     def read(): Option[IArray[Byte]] =
       secrets.get(SecretName).map(text => IArray.unsafeFromArray(Base64.getDecoder.decode(text)))
+    val lock = SqlFragment.raw("SELECT pg_advisory_xact_lock(hashtext('ankka-keyring-root'))")
+    // Committed before the read: the store reads and writes on connections of its own.
+    Await.result(
+      database.inTransaction(tx =>
+        tx.query(lock)(_ => ()).flatMap(_ => tx.execute(SqlFragment.raw(SecretsTable)))
+      ),
+      timeout
+    ): Unit
     val key = Await.result(
       database.inTransaction { tx =>
-        tx.query(SqlFragment.raw("SELECT pg_advisory_xact_lock(hashtext('ankka-keyring-root'))"))(
-          _ => ()
-        ).flatMap(_ =>
-          Future(read().getOrElse {
-            val made = new Array[Byte](32)
-            SecureRandom().nextBytes(made)
-            secrets.put(SecretName, Base64.getEncoder.encodeToString(made))
-            read().getOrElse(throw IllegalStateException("the root key was not kept"))
-          })(using com.thinkmorestupidless.ankka.runtime.AnkkaExecutors.virtual)
-        )
+        tx.query(lock)(_ => ())
+          .flatMap(_ =>
+            Future(read().getOrElse {
+              val made = new Array[Byte](32)
+              SecureRandom().nextBytes(made)
+              secrets.put(SecretName, Base64.getEncoder.encodeToString(made))
+              read().getOrElse(throw IllegalStateException("the root key was not kept"))
+            })(using com.thinkmorestupidless.ankka.runtime.AnkkaExecutors.virtual)
+          )
       },
       timeout
     )

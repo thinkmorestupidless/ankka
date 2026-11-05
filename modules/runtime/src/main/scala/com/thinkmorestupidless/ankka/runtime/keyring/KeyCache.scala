@@ -49,12 +49,42 @@ final class KeyCache(maxKeys: Int, ttl: FiniteDuration, clock: Clock):
     case other            =>
       synchronized(held.put((project, subject.value), Held(other, clock.instant()))): Unit
 
+  // How many drops there have been: a fetch notes it when it starts, and its answer is held only
+  // when no drop came while it was in flight (an answer read before an erasure must not be put
+  // back after the notice dropped it). Counted across all subjects: drops are rare, and a fetch
+  // that loses the race is only asked again.
+  private var drops = 0L
+
+  /** The drop generation now, which a fetch notes before it asks the keyring. */
+  def generation: Long = synchronized(drops)
+
+  /**
+   * Holds what the keyring answered, as `put`, when no drop has come since `generation`; answers
+   * whether it was held. A fetch whose answer is refused here began before a notice was handled.
+   */
+  def putIfUndropped(
+      project: String,
+      subject: DataSubject,
+      answer: KeyAnswer,
+      generation: Long
+  ): Boolean = synchronized {
+    if drops != generation then false
+    else
+      put(project, subject, answer)
+      true
+  }
+
   /** Drops `subject`'s key, as a notice says to. */
-  def drop(project: String, subject: DataSubject): Unit =
-    synchronized(held.remove((project, subject.value))): Unit
+  def drop(project: String, subject: DataSubject): Unit = synchronized {
+    drops += 1
+    held.remove((project, subject.value)): Unit
+  }
 
   /** Drops every key, as losing the notices channel says to. */
-  def dropAll(): Unit = synchronized(held.clear())
+  def dropAll(): Unit = synchronized {
+    drops += 1
+    held.clear()
+  }
 
   /** How many keys are held. */
   def size: Int = synchronized(held.size)

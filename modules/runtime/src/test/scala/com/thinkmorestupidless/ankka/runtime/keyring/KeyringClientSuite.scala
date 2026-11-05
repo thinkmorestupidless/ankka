@@ -25,10 +25,20 @@ final class KeyringClientSuite extends munit.FunSuite:
     @volatile var confirmed: Option[Instant]              = Some(clock.instant())
     @volatile var fetches                                 = 0
     @volatile var listener: Option[KeyringNotice => Unit] = None
+    // One fetch held mid-flight: it reads its answer, says it has, and waits to be let go.
+    @volatile var gate
+        : Option[(java.util.concurrent.CountDownLatch, java.util.concurrent.CountDownLatch)] =
+      None
     def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
       fetches += 1
+      val read = answer
+      gate.foreach { (entered, release) =>
+        gate = None
+        entered.countDown()
+        release.await()
+      }
       if delay > Duration.Zero then Thread.sleep(delay.toMillis)
-      answer
+      read
     def lookupKey(project: String): IArray[Byte]                        = IArray.fill[Byte](32)(0)
     def subscribe(after: Long)(l: KeyringNotice => Unit): AutoCloseable =
       listener = Some(l)
@@ -74,6 +84,30 @@ final class KeyringClientSuite extends munit.FunSuite:
       assertEquals(heldWhenHeard.asScala.toList, List(0))
       assertEquals(c.key("brand", ada, create = false), KeyAnswer.Destroyed)
       assertEquals(c.lastNotice, 1L)
+    finally c.close()
+  }
+
+  test("a fetch in flight when a destroyed notice arrives puts no key back, and asks again") {
+    val clock      = Manual()
+    val (store, c) = client(clock)
+    c.start()
+    try
+      val entered = java.util.concurrent.CountDownLatch(1)
+      val release = java.util.concurrent.CountDownLatch(1)
+      store.gate = Some(entered -> release)
+      val reading = scala.concurrent.Future(c.key("brand", ada, create = false))(using
+        scala.concurrent.ExecutionContext.global
+      )
+      entered.await()
+      // The fetch has read the key the keyring held; the erasure and its notice come now.
+      store.answer = KeyAnswer.Destroyed
+      store.send(KeyringNotice(1, "brand", ada.value, rerun = false))
+      release.countDown()
+      val answered = scala.concurrent.Await.result(reading, 5.seconds)
+      assertEquals(answered, KeyAnswer.Destroyed, "the in-flight answer predates the erasure")
+      assertEquals(store.fetches, 2, "the keyring is asked again")
+      assertEquals(c.key("brand", ada, create = false), KeyAnswer.Destroyed)
+      assertEquals(store.fetches, 2, "what is held is the destroyed answer")
     finally c.close()
   }
 

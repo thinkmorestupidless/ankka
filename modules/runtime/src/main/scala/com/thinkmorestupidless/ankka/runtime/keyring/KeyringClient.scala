@@ -50,9 +50,17 @@ final class KeyringClient(
   private def ownKey(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
     cache.fresh(project, subject).getOrElse {
       try
+        val since  = cache.generation
         val answer = fetch(project, subject, create)
-        cache.put(project, subject, answer)
-        answer
+        if cache.putIfUndropped(project, subject, answer, since) then answer
+        else
+          // A notice (or the channel's loss) dropped keys while this fetch was in flight, so its
+          // answer may have been read before an erasure: it is neither held nor answered, and the
+          // keyring is asked again, which answers Destroyed for an erased subject (FR-022).
+          val again = cache.generation
+          val fresh = fetch(project, subject, create)
+          cache.putIfUndropped(project, subject, fresh, again): Unit
+          fresh
       catch
         case unavailable: CommandError if unavailable.code == ErrorCode.Unavailable =>
           (if withinOutageBound() then cache.stale(project, subject) else None)

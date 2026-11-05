@@ -14,16 +14,19 @@ final class InstallationsKit private (group: stk.AnkkaTestKit.Installations):
   def names(): java.util.List[String] = group.names.asJava
 
   def start(name: String, service: ServiceBuilder, settings: Settings): ServiceKit =
-    val kit = ServiceKit.startWith(service, settings) { (descriptors, extensions, config, _, _) =>
-      group.start(name, descriptors, extensions, settings = config)
+    // `configure` carries what the builder declared beside its components: its erasure handler.
+    val kit = ServiceKit.startWith(service, settings) {
+      (descriptors, extensions, config, _, configure) =>
+        group.start(name, descriptors, extensions, configure = configure, settings = config)
     }
     kits.put(name, kit): Unit
     kit
 
   def restart(name: String, service: ServiceBuilder): ServiceKit =
     val kit =
-      ServiceKit.startWith(service, Settings.defaults()) { (descriptors, extensions, _, _, _) =>
-        group.restart(name, descriptors, extensions)
+      ServiceKit.startWith(service, Settings.defaults()) {
+        (descriptors, extensions, _, _, configure) =>
+          group.restart(name, descriptors, extensions, configure = configure)
       }
     kits.put(name, kit): Unit
     kit

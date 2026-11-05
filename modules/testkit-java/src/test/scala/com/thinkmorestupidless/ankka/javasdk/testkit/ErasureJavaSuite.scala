@@ -71,6 +71,28 @@ class ErasureJavaSuite extends munit.FunSuite with LogCapturing:
     finally kit.close()
   }
 
+  test("a Java erasure handler runs in a group of installations, restarted ones included") {
+    val group = AnkkaTestKit.installations("a", "b")
+    try
+      def service = Ankka
+        .service("players")
+        .register(classOf[Players])
+        .withErasureHandler((_, _) => ErasureReport.immediate(4))
+      def ranAt(kit: AnkkaTestKit) =
+        val scala = kit.bridge().scalaKit
+        val seq   = kit.erase("player/8c1f")
+        eventually("the acknowledgement")(scala.keyring.acks.find(_.seq == seq)).completion.handler
+      assertEquals(
+        ranAt(group.start("a", service)),
+        Some(HandlerReport(4, HandlerReport.Immediate))
+      )
+      assertEquals(
+        ranAt(group.restart("a", service)),
+        Some(HandlerReport(4, HandlerReport.Immediate))
+      )
+    finally group.close()
+  }
+
   test("a Java handler's report says when what it erased is gone for good") {
     val kit = AnkkaTestKit.start(
       Ankka

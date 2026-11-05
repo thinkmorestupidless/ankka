@@ -486,3 +486,6 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   shown anywhere. A failure is deduplicated against the service's last known run, quiet ones and its
   completion included (`ErasureRequest.lastRun`), so failure, quiet, the same failure is two
   `HandlerRan` events (FR-016).
+- **The sweep reads an applied request waiting on its objects' date for a window past that date**
+  (review, second round, 2026-11-05), and no longer: one that also waits on a service that never
+  completes was polled for ever.

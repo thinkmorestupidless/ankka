@@ -163,16 +163,16 @@ object ErasureRequestsView
 
   /**
    * What the sweep carries on (T059): held, applying, or applied and not yet final, while applied
-   * since `since` (the re-run window's start) or waiting on its objects' date. One past the window
-   * with no date waits on a service that has not carried it out; it is read no more, and says so on
-   * its page and its certificate.
+   * since `since` (the re-run window's start) or while its objects' date is no more than a window
+   * past. One past both waits on a service that has not carried it out; it is read no more, and
+   * says so on its page and its certificate.
    */
   val open = query("open")(
     s"SELECT payload FROM $table WHERE payload::jsonb->>'state' = 'held' " +
       "OR payload::jsonb->>'state' = 'applying' " +
       "OR (payload::jsonb->>'state' = 'applied' AND payload::jsonb->>'finalAt' IS NULL " +
       "AND (CAST(payload::jsonb->>'appliedAt' AS timestamptz) >= CAST(:since AS timestamptz) " +
-      "OR payload::jsonb->>'objectsFinalAt' IS NOT NULL))"
+      "OR CAST(payload::jsonb->>'objectsFinalAt' AS timestamptz) >= CAST(:since AS timestamptz)))"
   )
 
   /** Every request applied since `since`, whose handlers the sweep runs again (FR-015). */

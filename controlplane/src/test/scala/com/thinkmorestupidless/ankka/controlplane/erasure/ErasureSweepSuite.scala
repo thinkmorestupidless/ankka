@@ -206,6 +206,38 @@ class ErasureSweepSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  test("a request whose objects' date is a window past is read no more") {
+    withSweep(project => if project == "brand" then Set("kyc") else Set.empty) { p =>
+      p.ask("brand/obj", "player/obj")
+      p.applied("brand/obj")
+      // players' objects are final in a day; kyc never answers, so the request is never final.
+      p.ackLatest("player/obj", HandlerReport(1, "after:P1D"))
+      p.pass(): Unit
+      val objectsAt = p.read("brand/obj").objectsFinalAt.getOrElse(fail("no objects date"))
+      p.listed("brand/obj", "applied")
+      val views             = p.plane.viewClient.getOrElse(fail("no views"))
+      def open(at: Instant) =
+        def ids = views
+          .forView(ErasureRequestsView)
+          .ask(ErasureRequestsView.open, "since" -> at.minus(Duration.ofDays(30)).toString)
+          .map(_.id)
+        // The row carries the objects' date once the view has read it.
+        val deadline = System.nanoTime() + 30.seconds.toNanos
+        while !views
+            .forView(ErasureRequestsView)
+            .ask(ErasureRequestsView.bySubject, "project" -> "brand", "subject" -> "player/obj")
+            .exists(_.objectsFinalAt.isDefined)
+        do
+          if System.nanoTime() > deadline then fail("the objects' date never reached the view")
+          Thread.sleep(50)
+        ids
+      // Past the application's window, within the objects' date's: still read.
+      assert(open(objectsAt.plus(Duration.ofDays(30)).minusSeconds(1)).contains("brand/obj"))
+      // A window past the objects' date: read no more.
+      assert(!open(objectsAt.plus(Duration.ofDays(30)).plusSeconds(1)).contains("brand/obj"))
+    }
+  }
+
   test("a request not final by the end of the window is read no more") {
     withSweep() { p =>
       p.ask("brand/late", "player/late")

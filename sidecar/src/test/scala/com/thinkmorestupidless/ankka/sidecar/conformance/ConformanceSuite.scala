@@ -2031,7 +2031,10 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     onlyWherePersonal()
     val subject = freshSubject()
     assertEquals(personal(recordContact("pe1", subject.value, "ada@example.com"))._1, "ok")
-    target.keyring.erase(target.project, subject): Unit
+    val seq = target.keyring.erase(target.project, subject)
+    // The erasure is carried out once acked, which a process's instances are owed first: a
+    // restart before it can leave a process holding the key (the restart sends no Discover).
+    eventually(30.seconds)(target.keyring.acks.find(_.seq == seq)): Unit
     target.restart()
     assertEquals(readContact("pe1")._1, "erased")
   }

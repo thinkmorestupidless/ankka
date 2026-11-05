@@ -633,11 +633,18 @@ object ConformanceTarget:
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
     def system: ActorSystem[?] = kit.service.system
     def recordedReads: Vector[ReadRecord] = kit.recordedReads
-    def restart(): Unit                   = kit.restartService()
-    def isProcess: Boolean                = true
-    def keyring                           = kit.keyring
-    def project: String                   = kit.project
-    def problems: Vector[String]          =
+    // A sidecar that starts discovers the process, as Main does: what the process held from the
+    // runtime before (its subject keys) is dropped then, and nothing held across a restart that
+    // no sidecar would make is relied on.
+    def restart(): Unit =
+      kit.restartService()
+      Discovery.discover(channel, settings, BuildInfo.version) match
+        case Left(problems) => throw IllegalStateException(s"rediscovery failed: $problems")
+        case Right(_)       => ()
+    def isProcess: Boolean       = true
+    def keyring                  = kit.keyring
+    def project: String          = kit.project
+    def problems: Vector[String] =
       val client = HttpClient.newHttpClient()
       val r      = client.send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/conformance/problems")).GET().build(),

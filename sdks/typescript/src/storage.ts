@@ -1080,23 +1080,30 @@ export interface VersionsPage {
   readonly truncated: boolean
   readonly nextKey: string | undefined
   readonly nextVersion: string | undefined
+  /** The answer named versions as Google Cloud Storage does (`Generation`, `NextGenerationMarker`); its next page is asked for by `generation-marker`. */
+  readonly generations: boolean
 }
 
 /** A `ListObjectVersions` answer: its versions and delete markers, and where the next page starts while it is truncated. */
 export function parseVersions(xml: string): VersionsPage {
   const versions: (readonly [string, string])[] = []
+  let generations = false
   for (const m of xml.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)) {
     const block = m[2]!
     const key = element(block, "Key")
     if (key === undefined) throw new Error(`a version listing's ${m[1]} has no Key`)
-    const id = element(block, "VersionId")?.trim() ?? ""
+    const versionId = element(block, "VersionId")
+    const generation = versionId === undefined ? element(block, "Generation") : undefined
+    if (generation !== undefined) generations = true
+    const id = (versionId ?? generation)?.trim() ?? ""
     versions.push([key, id])
   }
   return {
     versions,
     truncated: element(xml, "IsTruncated")?.trim() === "true",
     nextKey: element(xml, "NextKeyMarker"),
-    nextVersion: element(xml, "NextVersionIdMarker"),
+    nextVersion: element(xml, "NextVersionIdMarker") ?? element(xml, "NextGenerationMarker"),
+    generations: generations || element(xml, "NextGenerationMarker") !== undefined,
   }
 }
 
@@ -1218,13 +1225,15 @@ export class S3Bucket implements Bucket {
     const found: (readonly [string, string])[] = []
     let keyMarker: string | undefined
     let versionMarker: string | undefined
+    let generations = false
     for (;;) {
       const query: [string, string][] = [
         ["prefix", prefix],
         ["versions", ""],
       ]
       if (keyMarker !== undefined) query.push(["key-marker", keyMarker])
-      if (versionMarker !== undefined) query.push(["version-id-marker", versionMarker])
+      // Google pages by generation and names the next one `generation-marker`.
+      if (versionMarker !== undefined) query.push([generations ? "generation-marker" : "version-id-marker", versionMarker])
       const { status, response } = await this.#send("GET", `/${this.#target.bucket}`, query)
       const text = await textOf(response, 64 << 20)
       if (status === 501 || text.includes("<Code>NotImplemented</Code>")) return undefined
@@ -1238,6 +1247,7 @@ export class S3Bucket implements Bucket {
       found.push(...page.versions)
       keyMarker = page.nextKey
       versionMarker = page.nextVersion
+      generations = page.generations
       if (!page.truncated) return found
     }
   }

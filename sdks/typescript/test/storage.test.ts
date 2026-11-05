@@ -635,6 +635,13 @@ describe("the S3 store", () => {
     assert.deepEqual(page.versions, [["subjects/p/a & b", "v1"], ["subjects/p/b", "v2"], ["subjects/p/c", "null"]])
     assert.deepEqual([page.truncated, page.nextKey, page.nextVersion], [true, "subjects/p/b", "v9"])
     assert.deepEqual(parseVersions("<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>").versions, [])
+    assert.equal(page.generations, false)
+  })
+
+  test("a version listing from Google names generations, and pages by them", () => {
+    const page = parseVersions("<ListBucketResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextGenerationMarker>1700000000000002</NextGenerationMarker><Version><Key>subjects/p/a</Key><Generation>1700000000000001</Generation></Version><Version><Key>subjects/p/b</Key><Generation>1700000000000002</Generation></Version></ListBucketResult>")
+    assert.deepEqual(page.versions, [["subjects/p/a", "1700000000000001"], ["subjects/p/b", "1700000000000002"]])
+    assert.deepEqual([page.truncated, page.nextKey, page.nextVersion, page.generations], [true, "subjects/p/b", "1700000000000002", true])
   })
 
   test("a subject's prefix writes each slash, and a string that is no data subject is refused", async () => {

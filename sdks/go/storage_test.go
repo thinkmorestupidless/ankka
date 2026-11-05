@@ -906,8 +906,15 @@ func TestAVersionListingIsReadWithItsMarkers(t *testing.T) {
 		t.Fatalf("%+v %v", page, err)
 	}
 	last, err := parseVersions([]byte("<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>"))
-	if err != nil || len(last.versions) != 0 || last.truncated {
+	if err != nil || len(last.versions) != 0 || last.truncated || page.generations {
 		t.Fatalf("%+v %v", last, err)
+	}
+}
+
+func TestAVersionListingFromGoogleNamesGenerations(t *testing.T) {
+	page, err := parseVersions([]byte("<ListBucketResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextGenerationMarker>1700000000000002</NextGenerationMarker><Version><Key>subjects/p/a</Key><Generation>1700000000000001</Generation></Version><Version><Key>subjects/p/b</Key><Generation>1700000000000002</Generation></Version></ListBucketResult>"))
+	if err != nil || fmt.Sprint(page.versions) != "[[subjects/p/a 1700000000000001] [subjects/p/b 1700000000000002]]" || !page.truncated || page.nextKey != "subjects/p/b" || page.nextVersion != "1700000000000002" || !page.generations {
+		t.Fatalf("%+v %v", page, err)
 	}
 }
 

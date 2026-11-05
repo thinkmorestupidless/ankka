@@ -1222,12 +1222,14 @@ class S3Bucket(Bucket):
         found: list[tuple[str, str]] = []
         key_marker: str | None = None
         version_marker: str | None = None
+        generations = False
         while True:
             query: tuple[tuple[str, str], ...] = (("prefix", prefix), ("versions", ""))
             if key_marker is not None:
                 query += (("key-marker", key_marker),)
             if version_marker is not None:
-                query += (("version-id-marker", version_marker),)
+                # Google pages by generation and names the next one `generation-marker`.
+                query += (("generation-marker" if generations else "version-id-marker", version_marker),)
             status, _headers, body = await asyncio.to_thread(self._call, "GET", f"/{self._target.bucket}", query)
             if status == 501 or b"<Code>NotImplemented</Code>" in body:
                 return None
@@ -1239,6 +1241,7 @@ class S3Bucket(Bucket):
                 raise StorageRefusals.unreadable(self._target.endpoint, str(e)) from e
             found.extend(page.versions)
             key_marker, version_marker = page.next_key, page.next_version
+            generations = page.generations
             if not page.truncated:
                 return found
 
@@ -1351,6 +1354,9 @@ class Versions:
     truncated: bool
     next_key: str | None
     next_version: str | None
+    #: the answer named versions as Google Cloud Storage does, ``Generation`` and
+    #: ``NextGenerationMarker``, and its next page is asked for by ``generation-marker``
+    generations: bool = False
 
 
 def parse_versions(xml: bytes) -> Versions:
@@ -1365,11 +1371,14 @@ def parse_versions(xml: bytes) -> Versions:
     truncated = False
     next_key: str | None = None
     next_version: str | None = None
+    generations = False
     for child in root:
         tag = local(child.tag)
         if tag in ("Version", "DeleteMarker"):
             fields = {local(c.tag): (c.text or "") for c in child}
-            version = fields.get("VersionId", "").strip()
+            if "Generation" in fields and "VersionId" not in fields:
+                generations = True
+            version = fields.get("VersionId", fields.get("Generation", "")).strip()
             versions.append((fields.get("Key", ""), version))
         elif tag == "IsTruncated":
             truncated = (child.text or "").strip() == "true"
@@ -1377,7 +1386,10 @@ def parse_versions(xml: bytes) -> Versions:
             next_key = child.text or ""
         elif tag == "NextVersionIdMarker":
             next_version = child.text or ""
-    return Versions(versions, truncated, next_key, next_version)
+        elif tag == "NextGenerationMarker":
+            next_version = child.text or ""
+            generations = True
+    return Versions(versions, truncated, next_key, next_version, generations)
 
 
 class S3Buckets(Buckets):

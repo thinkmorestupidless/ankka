@@ -1000,6 +1000,18 @@ def test_a_version_listing_is_read_from_list_object_versions() -> None:
     assert (page.truncated, page.next_key, page.next_version) == (True, "subjects/p/b", "v9")
     last = parse_versions(b"<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>")
     assert (last.versions, last.truncated) == ([], False)
+    assert not page.generations
+
+
+def test_a_version_listing_from_google_names_generations() -> None:
+    page = parse_versions(b'<ListBucketResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextGenerationMarker>1700000000000002</NextGenerationMarker><Version><Key>subjects/p/a</Key><Generation>1700000000000001</Generation></Version><Version><Key>subjects/p/b</Key><Generation>1700000000000002</Generation></Version></ListBucketResult>')
+    assert page.versions == [("subjects/p/a", "1700000000000001"), ("subjects/p/b", "1700000000000002")]
+    assert (page.truncated, page.next_key, page.next_version, page.generations) == (
+        True,
+        "subjects/p/b",
+        "1700000000000002",
+        True,
+    )
 
 
 def test_the_soft_delete_window_is_read_in_whole_days_from_one() -> None:

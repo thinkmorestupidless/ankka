@@ -504,16 +504,21 @@ type versionsPage struct {
 	truncated   bool
 	nextKey     string
 	nextVersion string
+	// generations is true when the answer named versions as Google Cloud Storage does, Generation
+	// and NextGenerationMarker; its next page is asked for by generation-marker.
+	generations bool
 }
 
 type versionListing struct {
-	IsTruncated         bool   `xml:"IsTruncated"`
-	NextKeyMarker       string `xml:"NextKeyMarker"`
-	NextVersionIDMarker string `xml:"NextVersionIdMarker"`
+	IsTruncated         bool    `xml:"IsTruncated"`
+	NextKeyMarker       string  `xml:"NextKeyMarker"`
+	NextVersionIDMarker string  `xml:"NextVersionIdMarker"`
+	NextGeneration      *string `xml:"NextGenerationMarker"`
 	Entries             []struct {
-		XMLName   xml.Name
-		Key       *string `xml:"Key"`
-		VersionID string  `xml:"VersionId"`
+		XMLName    xml.Name
+		Key        *string `xml:"Key"`
+		VersionID  *string `xml:"VersionId"`
+		Generation *string `xml:"Generation"`
 	} `xml:",any"`
 }
 
@@ -525,6 +530,9 @@ func parseVersions(data []byte) (versionsPage, error) {
 		return versionsPage{}, err
 	}
 	page := versionsPage{truncated: l.IsTruncated, nextKey: l.NextKeyMarker, nextVersion: l.NextVersionIDMarker}
+	if l.NextGeneration != nil {
+		page.nextVersion, page.generations = *l.NextGeneration, true
+	}
 	for _, e := range l.Entries {
 		if e.XMLName.Local != "Version" && e.XMLName.Local != "DeleteMarker" {
 			continue
@@ -534,7 +542,13 @@ func parseVersions(data []byte) (versionsPage, error) {
 		}
 		// A version written before versioning was on is listed as "null", and deleted by that id: a
 		// plain delete would only add a marker above it.
-		id := strings.TrimSpace(e.VersionID)
+		id := ""
+		switch {
+		case e.VersionID != nil:
+			id = strings.TrimSpace(*e.VersionID)
+		case e.Generation != nil:
+			id, page.generations = strings.TrimSpace(*e.Generation), true
+		}
 		page.versions = append(page.versions, [2]string{*e.Key, id})
 	}
 	return page, nil
@@ -575,13 +589,19 @@ func (b *s3Bucket) Erase(ctx context.Context, subject DataSubject) (ErasedObject
 func (b *s3Bucket) versionsUnder(ctx context.Context, prefix string) ([][2]string, bool, error) {
 	var found [][2]string
 	keyMarker, versionMarker := "", ""
+	generations := false
 	for {
 		query := [][2]string{{"prefix", prefix}, {"versions", ""}}
 		if keyMarker != "" {
 			query = append(query, [2]string{"key-marker", keyMarker})
 		}
 		if versionMarker != "" {
-			query = append(query, [2]string{"version-id-marker", versionMarker})
+			// Google pages by generation and names the next one generation-marker.
+			name := "version-id-marker"
+			if generations {
+				name = "generation-marker"
+			}
+			query = append(query, [2]string{name, versionMarker})
 		}
 		res, err := b.send(ctx, http.MethodGet, "/"+b.target.bucket, query, nil, "", nil, 0)
 		if err != nil {
@@ -610,7 +630,7 @@ func (b *s3Bucket) versionsUnder(ctx context.Context, prefix string) ([][2]strin
 		if !page.truncated {
 			return found, true, nil
 		}
-		keyMarker, versionMarker = page.nextKey, page.nextVersion
+		keyMarker, versionMarker, generations = page.nextKey, page.nextVersion, page.generations
 	}
 }
 

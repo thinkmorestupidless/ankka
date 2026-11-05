@@ -1,9 +1,11 @@
 package ankka
 
 import (
+	"container/list"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -38,30 +40,83 @@ type keySource interface {
 	fetch(ctx context.Context, ref subjectRef, create bool) (keyAnswer, error)
 }
 
-const (
-	keyCacheMax   = 10000
-	keyCacheTTL   = 5 * time.Minute
-	keyFetchBound = 30 * time.Second
-)
-
-type cachedKey struct {
-	key []byte
-	at  time.Time
+// keyringSettings is how a process holds the keys it fetched: the runtime's ankka.keyring settings,
+// by the same names and defaults.
+type keyringSettings struct {
+	maxKeys     int           // ankka.keyring.cache.max-keys: the least recently used goes first
+	ttl         time.Duration // ankka.keyring.cache.ttl: an own project's key, before it is asked again
+	foreignTTL  time.Duration // ankka.keyring.cache.foreign-ttl: another project's key, which no notice reaches
+	outageBound time.Duration // ankka.keyring.cache.outage-bound: an own key still served after its fetch while the keyring cannot be reached
+	noticeBound time.Duration // ankka.keyring.notice-bound: what the outage bound may not exceed
 }
 
-// keyring is a key source with a cache. Only keys are cached: "erased" on a read may be a subject
-// no key was ever made for, which a later write makes. own is the project this process writes
+var defaultKeyringSettings = keyringSettings{
+	maxKeys:     10000,
+	ttl:         5 * time.Minute,
+	foreignTTL:  30 * time.Second,
+	outageBound: 60 * time.Second,
+	noticeBound: 60 * time.Second,
+}
+
+// check is why s cannot be used, naming the setting, or nil.
+func (s keyringSettings) check() error {
+	if s.maxKeys < 1 {
+		return fmt.Errorf("ankka.keyring.cache.max-keys must be at least 1, was %d", s.maxKeys)
+	}
+	for _, d := range []struct {
+		name string
+		v    time.Duration
+	}{{"cache.ttl", s.ttl}, {"cache.foreign-ttl", s.foreignTTL}, {"cache.outage-bound", s.outageBound}, {"notice-bound", s.noticeBound}} {
+		if d.v <= 0 {
+			return fmt.Errorf("ankka.keyring.%s must be positive, was %s", d.name, d.v)
+		}
+	}
+	if s.outageBound > s.noticeBound {
+		return fmt.Errorf("ankka.keyring.cache.outage-bound (%s) must not exceed ankka.keyring.notice-bound (%s)", s.outageBound, s.noticeBound)
+	}
+	return nil
+}
+
+const keyFetchBound = 30 * time.Second
+
+// fetchAttempts is how many times a fetch overtaken by a notice is made again before it is
+// unavailable.
+const fetchAttempts = 3
+
+type cachedKey struct {
+	ref     subjectRef
+	key     []byte
+	at      time.Time
+	foreign bool
+}
+
+// flight is one fetch out: dropped once a notice (or the end of the stream) dropped its subject
+// while it was, so its answer may be the destroyed key and is not believed.
+type flight struct {
+	subject string
+	dropped bool
+}
+
+// keyring is a key source with a cache under the runtime's rules: at most maxKeys, the least
+// recently used going first; an own project's key fresh for ttl, and served while the keyring
+// cannot be reached until outageBound after its fetch; another project's for foreignTTL and no
+// longer. Only keys are cached: "erased" on a read may be a subject no key was ever made for, or a
+// grant refused, which a later read asks again about. own is the project this process writes
 // envelopes under, learned from the first answer to a request for its own project.
 type keyring struct {
-	source keySource
-	mu     sync.Mutex
-	cache  map[subjectRef]cachedKey
-	own    string
-	now    func() time.Time
+	source   keySource
+	settings keyringSettings
+	mu       sync.Mutex
+	cache    map[subjectRef]*list.Element // of *cachedKey
+	recency  *list.List                   // front: most recently used
+	flights  map[*flight]struct{}
+	own      string
+	now      func() time.Time
 }
 
 func newKeyring(source keySource) *keyring {
-	return &keyring{source: source, cache: map[subjectRef]cachedKey{}, now: time.Now}
+	return &keyring{source: source, settings: defaultKeyringSettings, cache: map[subjectRef]*list.Element{},
+		recency: list.New(), flights: map[*flight]struct{}{}, now: time.Now}
 }
 
 // ownProject is the project this process writes envelopes under, once a key answer has said it.
@@ -72,6 +127,54 @@ func (k *keyring) ownProject() (string, error) {
 		return "", keyringUnavailable("no key answer has told this process its project yet")
 	}
 	return k.own, nil
+}
+
+// lifetime is how long c is believed without asking; held with k.mu.
+func (k *keyring) lifetime(c *cachedKey) time.Duration {
+	if c.foreign {
+		return k.settings.foreignTTL
+	}
+	return k.settings.ttl
+}
+
+// lookup is the key held for ref while it is fresh, or, with outage, while the outage bound still
+// lets it serve; held with k.mu.
+func (k *keyring) lookup(ref subjectRef, outage bool) (*cachedKey, bool) {
+	e, ok := k.cache[ref]
+	if !ok {
+		return nil, false
+	}
+	c := e.Value.(*cachedKey)
+	age := k.now().Sub(c.at)
+	if age < k.lifetime(c) || (outage && !c.foreign && age < k.settings.outageBound) {
+		k.recency.MoveToFront(e)
+		return c, true
+	}
+	if !outage {
+		return nil, false
+	}
+	k.remove(ref)
+	return nil, false
+}
+
+// remove forgets ref; held with k.mu.
+func (k *keyring) remove(ref subjectRef) {
+	if e, ok := k.cache[ref]; ok {
+		k.recency.Remove(e)
+		delete(k.cache, ref)
+	}
+}
+
+// put holds key for ref, letting the least recently used go when full; held with k.mu.
+func (k *keyring) put(ref subjectRef, key []byte) {
+	k.remove(ref)
+	c := &cachedKey{ref: ref, key: key, at: k.now(), foreign: k.own == "" || ref.project != k.own}
+	k.cache[ref] = k.recency.PushFront(c)
+	for len(k.cache) > k.settings.maxKeys {
+		eldest := k.recency.Back()
+		k.recency.Remove(eldest)
+		delete(k.cache, eldest.Value.(*cachedKey).ref)
+	}
 }
 
 // prefetch answers every ref, from the cache or the source, before a codec runs. A ref with an
@@ -86,7 +189,7 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 		if named.project == "" {
 			named.project = k.own
 		}
-		if c, ok := k.cache[named]; ok && named.project != "" && k.now().Sub(c.at) < keyCacheTTL {
+		if c, ok := k.lookup(named, false); ok && named.project != "" {
 			out[named] = keyAnswer{key: c.key, project: named.project}
 		} else {
 			missing = append(missing, r)
@@ -99,9 +202,25 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 	ctx, cancel := context.WithTimeout(context.Background(), keyFetchBound)
 	defer cancel()
 	for _, r := range missing {
-		a, err := k.source.fetch(ctx, r, create)
+		a, err := k.fetchOne(ctx, r, create)
 		if err != nil {
-			return nil, err
+			var refusal *RefusalError
+			if !errors.As(err, &refusal) || refusal.Code != Unavailable {
+				return nil, err
+			}
+			// The keyring cannot be reached: a held own key serves within the outage bound.
+			k.mu.Lock()
+			named := r
+			if named.project == "" {
+				named.project = k.own
+			}
+			c, ok := k.lookup(named, true)
+			k.mu.Unlock()
+			if !ok || named.project == "" {
+				return nil, err
+			}
+			out[named] = keyAnswer{key: c.key, project: named.project}
+			continue
 		}
 		if a.project == "" {
 			a.project = r.project
@@ -117,14 +236,32 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 			k.own = a.project
 		}
 		if !a.erased {
-			if len(k.cache) >= keyCacheMax {
-				clear(k.cache)
-			}
-			k.cache[named] = cachedKey{key: a.key, at: k.now()}
+			k.put(named, a.key)
+		} else {
+			k.remove(named)
 		}
 		k.mu.Unlock()
 	}
 	return out, nil
+}
+
+// fetchOne asks the source for r, again when a notice dropped its subject while the fetch was out.
+func (k *keyring) fetchOne(ctx context.Context, r subjectRef, create bool) (keyAnswer, error) {
+	for range fetchAttempts {
+		f := &flight{subject: r.subject}
+		k.mu.Lock()
+		k.flights[f] = struct{}{}
+		k.mu.Unlock()
+		a, err := k.source.fetch(ctx, r, create)
+		k.mu.Lock()
+		delete(k.flights, f)
+		dropped := f.dropped
+		k.mu.Unlock()
+		if err != nil || !dropped {
+			return a, err
+		}
+	}
+	return keyAnswer{}, keyringUnavailable(fmt.Sprintf("the key of '%s' was dropped by a notice each time it was fetched", r.subject))
 }
 
 // dropAll forgets every key: what the process does when its notice stream ends or opens again, since
@@ -132,21 +269,30 @@ func (k *keyring) prefetch(refs []subjectRef, create bool) (map[subjectRef]keyAn
 func (k *keyring) dropAll() {
 	k.mu.Lock()
 	clear(k.cache)
+	k.recency.Init()
+	for f := range k.flights {
+		f.dropped = true
+	}
 	k.mu.Unlock()
 }
 
 // drop forgets the key of (project, subject): its subject was erased.
 func (k *keyring) drop(project, subject string) {
 	k.mu.Lock()
-	delete(k.cache, subjectRef{project: project, subject: subject})
+	k.remove(subjectRef{project: project, subject: subject})
+	for f := range k.flights {
+		if f.subject == subject {
+			f.dropped = true
+		}
+	}
 	k.mu.Unlock()
 }
 
-// cached reports whether the key of (project, subject) is held.
+// cached reports whether the key of (project, subject) is held and fresh.
 func (k *keyring) cached(project, subject string) bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	_, ok := k.cache[subjectRef{project: project, subject: subject}]
+	_, ok := k.lookup(subjectRef{project: project, subject: subject}, false)
 	return ok
 }
 

@@ -6,8 +6,8 @@ error[E0308]: mismatched types
    |                      |
    |                      expected due to this
    |
-   = note: expected struct `Storage`
-                found enum `std::option::Option<Storage>`
+   = note: expected struct `ankka::Storage`
+                found enum `std::option::Option<ankka::Storage>`
 help: consider using `Option::expect` to unwrap the `std::option::Option<ankka::Storage>` value, panicking if the value is an `Option::None`
    |
 21 |         let storage: Storage = ctx.storage().expect("REASON");

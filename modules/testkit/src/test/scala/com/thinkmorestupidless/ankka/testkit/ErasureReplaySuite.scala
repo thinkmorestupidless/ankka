@@ -38,9 +38,11 @@ final class ErasureReplaySuite extends munit.FunSuite with LogCapturing:
   /** A keyring whose backlog ends when the test says, holding the notices it is given. */
   private final class Store(backlog: Vector[KeyringNotice]) extends KeyStoreClient:
     val ended                                                           = Promise[Unit]()
+    @volatile var helloAfter: Option[Long]                              = None
     def key(project: String, subject: DataSubject, create: Boolean)     = KeyAnswer.Absent
     def lookupKey(project: String): IArray[Byte]                        = IArray.fill[Byte](32)(0)
     def subscribe(after: Long)(l: KeyringNotice => Unit): AutoCloseable =
+      helloAfter = Some(after)
       backlog.filter(_.seq > after).foreach(l)
       () => ()
     def confirmedAt(): Option[Instant] = Some(Instant.now())
@@ -103,6 +105,70 @@ final class ErasureReplaySuite extends munit.FunSuite with LogCapturing:
     val again = replay("restored-2", Store(Vector.empty))
     Await.result(again.start(), 30.seconds): Unit
     assertEquals(again.readiness(), Right(()))
+  }
+
+  test(
+    "a start says hello from what its line records as carried out, never past a failed notice"
+  ) {
+    val line   = "carried-1"
+    val notice = (seq: Long) => KeyringNotice(seq, "brand", s"player/$seq", rerun = false)
+    // Notice 9's duties fail until the test lets them succeed.
+    @volatile var nineFails             = true
+    def start(store: Store, from: Long) =
+      val client = KeyringClient(store, settings)
+      client.start(from)
+      val hooks = ErasureHooks()
+      hooks.onSessions(n =>
+        if n.seq == 9 && nineFails then Future.failed(IllegalStateException("a duty failed"))
+        else Future.successful(0L)
+      )
+      val duties = ErasureDuties(
+        "players",
+        "players-0",
+        client,
+        () => database,
+        Vector.empty,
+        hooks,
+        Some(line),
+        from
+      )
+      duties.start()
+      (
+        client,
+        duties,
+        ErasureReplay(() => database, line, "brand", client, duties, every = 20.millis)
+      )
+    def mark                       = ErasureReplay.carriedThrough(() => database, line)
+    def eventually(expected: Long) =
+      val deadline = System.nanoTime() + 10.seconds.toNanos
+      while mark != expected && System.nanoTime() < deadline do Thread.sleep(20)
+      assertEquals(mark, expected)
+
+    assertEquals(mark, 0L, "a line with no record is asked for everything")
+    val first = Store(Vector(notice(5)))
+    first.ended.success(())
+    val (_, duties, r) = start(first, mark)
+    assertEquals(first.helloAfter, Some(0L))
+    Await.result(r.start(), 30.seconds): Unit
+    eventually(5L)
+    // 9 fails, 12 succeeds: the mark stays at 5, so 9 is handed again on the next hello.
+    Await.ready(duties.run(notice(9)), 30.seconds): Unit
+    Await.result(duties.run(notice(12)), 30.seconds): Unit
+    Thread.sleep(200)
+    assertEquals(mark, 5L, "a failed notice holds the mark back")
+    // A start now says hello after 5, and is handed 9 again.
+    val second = Store(Vector(notice(5), notice(9), notice(12)))
+    second.ended.success(())
+    nineFails = false
+    val (client2, _, again) = start(second, mark)
+    assertEquals(second.helloAfter, Some(5L))
+    Await.result(again.start(), 30.seconds): Unit
+    eventually(12L)
+    assertEquals(client2.lastNotice, 12L)
+    // And a start after that is handed nothing it carried out.
+    val third = Store(Vector(notice(5), notice(9), notice(12)))
+    start(third, mark)
+    assertEquals(third.helloAfter, Some(12L))
   }
 
   test("another line, as a restore is, waits again") {

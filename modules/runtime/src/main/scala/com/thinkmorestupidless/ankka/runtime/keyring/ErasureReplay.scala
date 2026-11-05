@@ -45,6 +45,7 @@ final class ErasureReplay(
     val applied =
       for
         _     <- database().execute(ErasureReplay.Table)
+        _     <- database().execute(ErasureReplay.Column)
         found <- recorded()
         when  <- found match
           case Some(at) => Future.successful(at)
@@ -58,8 +59,11 @@ final class ErasureReplay(
               end = client.lastNotice
               _ <- until(duties.doneThrough(end))
               _ <- database().execute(
-                sql"INSERT INTO ankka_erasure_replay (line, replayed_at) VALUES ($line, ${clock
-                    .instant()}) " ++ SqlFragment.raw("ON CONFLICT (line) DO NOTHING")
+                sql"INSERT INTO ankka_erasure_replay (line, replayed_at, carried_through) VALUES ($line, ${clock
+                    .instant()}, ${duties.carriedThrough}) " ++ SqlFragment.raw(
+                  "ON CONFLICT (line) DO UPDATE SET carried_through = " +
+                    "GREATEST(ankka_erasure_replay.carried_through, EXCLUDED.carried_through)"
+                )
               )
               at <- recorded().map(_.getOrElse(clock.instant()))
             yield
@@ -89,8 +93,44 @@ final class ErasureReplay(
 object ErasureReplay:
   /** Made by the runtime beside its view tables, as `ankka_view_versions` is. */
   val Table: SqlFragment = SqlFragment.raw(
-    "CREATE TABLE IF NOT EXISTS ankka_erasure_replay (line text PRIMARY KEY, replayed_at timestamptz NOT NULL)"
+    "CREATE TABLE IF NOT EXISTS ankka_erasure_replay (line text PRIMARY KEY, " +
+      "replayed_at timestamptz NOT NULL, carried_through bigint NOT NULL DEFAULT 0)"
   )
+
+  /** The mark's column, on a table made before it existed. */
+  val Column: SqlFragment = SqlFragment.raw(
+    "ALTER TABLE ankka_erasure_replay ADD COLUMN IF NOT EXISTS carried_through bigint NOT NULL DEFAULT 0"
+  )
+
+  /** Raises `line`'s mark to `through`; nothing when the line has no record yet. */
+  private[keyring] def advance(line: String, through: Long): SqlFragment =
+    sql"UPDATE ankka_erasure_replay SET carried_through = GREATEST(carried_through, $through) WHERE line = $line"
+
+  /**
+   * How far this service has carried out the erasure notices on database `line`: every notice up to
+   * it. Read at start, before the notices channel opens, so the hello asks only for what came
+   * after; 0 when the line has no record (a new database, or a restore, which must replay all) or
+   * the table cannot be read. Blocking, bounded.
+   */
+  def carriedThrough(database: () => Database, line: String): Long =
+    try
+      scala.concurrent.Await
+        .result(
+          database().queryOne(
+            sql"SELECT carried_through FROM ankka_erasure_replay WHERE line = $line"
+          )(_.get("carried_through", classOf[java.lang.Long]).longValue),
+          scala.concurrent.duration.DurationInt(10).seconds
+        )
+        .getOrElse(0L)
+    catch
+      case scala.util.control.NonFatal(e) =>
+        LoggerFactory
+          .getLogger(classOf[ErasureReplay])
+          .info(
+            s"erasure replay: no record of how far '$line' carried out the notices ($e); " +
+              "every notice of the project is asked for"
+          )
+        0L
 
   /** The readiness check's name, which the probe's reason begins with. */
   val Name = "erasure-replay"

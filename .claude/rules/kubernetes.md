@@ -355,7 +355,10 @@ record database (`components/secret-reads`, its own CNPG cluster with no schema 
 literal either: the control plane creates the table as the role that owns it), and `ankka_secret_moves`, a
 service's ledger of a move to Secret Manager, created only in a database that has moved. Neither is service
 schema every database needs, and listing either in the seven lists would roll every project's schema
-ConfigMap for nothing.
+ConfigMap for nothing. `ankka_erasure_replay` (feature 042) is made by code too, as `ankka_view_versions`
+is, by a service that holds personal fields: a line's record of the erasure log's replay and how far the
+service has carried out the notices (`carried_through`, added by `ADD COLUMN IF NOT EXISTS`). A column it
+gains goes in `ErasureReplay.Table` and its own `ALTER`, never in a DDL file.
 
 ## Traps
 

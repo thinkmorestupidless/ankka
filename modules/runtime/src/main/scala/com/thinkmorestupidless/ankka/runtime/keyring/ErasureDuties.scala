@@ -30,10 +30,22 @@ final class ErasureDuties(
     client: KeyringClient,
     database: () => Database,
     tables: Vector[ViewRedaction.Table],
-    hooks: ErasureHooks
+    hooks: ErasureHooks,
+    /** The database line whose record says how far this service has carried out the notices. */
+    line: Option[String] = None,
+    /** What that record said at start. */
+    carriedFrom: Long = 0L
 )(using ExecutionContext):
 
   private val log = LoggerFactory.getLogger(classOf[ErasureDuties])
+
+  private val carried = CarriedThrough(carriedFrom)
+
+  /**
+   * Every notice handed here up to this one has been carried out: what the line's record holds, so
+   * a start says hello from it rather than asking for the project's whole history.
+   */
+  def carriedThrough: Long = carried.value
 
   // The notices handed here and not yet carried out; one that failed stays until it is carried out.
   private val outstanding = java.util.concurrent.ConcurrentSkipListSet[java.lang.Long]()
@@ -47,6 +59,7 @@ final class ErasureDuties(
   /** Carries out one notice; its acknowledgement once it is done. */
   def run(notice: KeyringNotice): Future[KeyringAck] =
     outstanding.add(notice.seq): Unit
+    carried.handed(notice.seq)
     val done =
       for
         _        <- hooks.process(notice)
@@ -64,6 +77,9 @@ final class ErasureDuties(
     done.andThen {
       case Success(ack) =>
         outstanding.remove(notice.seq): Unit
+        val before = carried.value
+        val after  = carried.carried(notice.seq)
+        if after > before then record(after)
         client.store.ack(ack)
         log.info(
           s"erasure notice ${notice.seq} carried out: ${ack.completion.rowsRedacted} rows " +
@@ -75,6 +91,17 @@ final class ErasureDuties(
         // The subject is named; nothing personal is.
         log.warn(s"erasure notice ${notice.seq} of '${notice.subject}' was not carried out", e)
     }
+
+  // The line's record, once the erasure log has been replayed on it (`ErasureReplay` writes the row):
+  // before that there is no row and nothing is written, and the replay writes the mark it reaches.
+  private def record(through: Long): Unit = line.foreach { l =>
+    database()
+      .execute(ErasureReplay.advance(l, through))
+      .failed
+      .foreach(e =>
+        log.warn(s"how far this service carried out the erasure notices was not recorded: $e")
+      )
+  }
 
 /**
  * The duties a notice runs that belong to other parts of the runtime: the agents' sessions and

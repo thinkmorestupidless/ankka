@@ -12,7 +12,7 @@ import java.net.http.{HttpClient, HttpRequest, HttpResponse, WebSocket}
 import java.time.{Clock, Duration, Instant}
 import java.util.Base64
 import java.util.concurrent.{CompletionStage, ConcurrentLinkedQueue, Executors, TimeUnit}
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import javax.net.ssl.SSLParameters
 import scala.concurrent.duration.FiniteDuration
 import scala.util.control.NonFatal
@@ -123,7 +123,8 @@ final class RemoteKeyStoreClient(
   // ── notices ──────────────────────────────────────────────────────────────
 
   private val confirmed = AtomicReference[Option[Instant]](None)
-  private val acked     = AtomicLong(0)
+  // What a hello says this instance carried out: never past a notice whose duties failed.
+  private val carried   = CarriedThrough()
   private val pending   = ConcurrentLinkedQueue[KeyringAck]()
   private val socket    = AtomicReference[Option[WebSocket]](None)
   private val closed    = AtomicBoolean(false)
@@ -139,7 +140,7 @@ final class RemoteKeyStoreClient(
   def caughtUp: scala.concurrent.Future[Unit] = firstBeat.future
 
   def subscribe(after: Long)(listener: KeyringNotice => Unit): AutoCloseable =
-    acked.accumulateAndGet(after, math.max): Unit
+    carried.atLeast(after)
     open(listener)
     () =>
       closed.set(true)
@@ -161,7 +162,7 @@ final class RemoteKeyStoreClient(
             reopenLater(listener)
           else
             socket.set(Some(ws))
-            send(ws, NoticeFrame.Hello(project, service, instance, acked.get))
+            send(ws, NoticeFrame.Hello(project, service, instance, carried.value))
             flush(ws)
         }: Unit
 
@@ -189,7 +190,7 @@ final class RemoteKeyStoreClient(
         // As the instance that said hello: the keyring holds a connection to one instance.
         send(ws, NoticeFrame.Ack(next.seq, service, instance, next.completion))
         pending.poll(): Unit
-        acked.accumulateAndGet(next.seq, math.max): Unit
+        carried.carried(next.seq): Unit
         next = pending.peek()
       catch
         case NonFatal(e) =>
@@ -211,6 +212,7 @@ final class RemoteKeyStoreClient(
         scala.util.Try(readFromString[NoticeFrame](frame)).toOption match
           case Some(n: NoticeFrame.Notice) =>
             confirmed.set(Some(clock.instant()))
+            carried.handed(n.seq)
             try listener(n.notice)
             catch case NonFatal(e) => log.warn(s"notice ${n.seq} was not handled: ${e.getMessage}")
           case Some(_: NoticeFrame.Heartbeat) =>

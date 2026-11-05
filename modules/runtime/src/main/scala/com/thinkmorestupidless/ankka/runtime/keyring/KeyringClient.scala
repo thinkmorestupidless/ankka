@@ -164,9 +164,14 @@ final class KeyringClient(
   /** The last notice this instance was handed. */
   def lastNotice: Long = lastSeq
 
-  /** Opens the notices channel, and checks it is confirmed every quarter of `notice-bound`. */
-  def start(): Unit =
+  /**
+   * Opens the notices channel, saying this instance carried out every notice up to `after` (what
+   * the service's own database records, `ErasureReplay.carriedThrough`), and checks it is confirmed
+   * every quarter of `notice-bound`.
+   */
+  def start(after: Long = 0L): Unit =
     if channel.get.isEmpty then
+      lastSeq = math.max(lastSeq, after)
       channel.set(Some(store.subscribe(lastSeq)(handle)))
       opened.completeWith(store.caughtUp)
       val every     = math.max(settings.noticeBound.toMillis / 4, 50L)

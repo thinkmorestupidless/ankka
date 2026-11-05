@@ -478,14 +478,20 @@ final class ServiceBuilder private[ankka] (
             .LocalKeyring(keyringProject, Database()(using system))(using system.executionContext)
         )
       )
+    lazy val keyringCarriedFrom =
+      if NoDatabase.declared(system.settings.config) then 0L
+      else
+        com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay
+          .carriedThrough(() => Database()(using system), HistoryLines(system).current)
     val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringStore match
       case Some(client) =>
         val keyringClient =
           com.thinkmorestupidless.ankka.runtime.keyring
             .KeyringClient(client, keyringSettings, Some(keyringProject))
         // The notices are heard from the start, before any component recovers: a key dropped by
-        // an erasure is never served from the cache after its notice.
-        keyringClient.start()
+        // an erasure is never served from the cache after its notice. The hello says what this
+        // database's line records as carried out, so a start is not handed the whole history.
+        keyringClient.start(keyringCarriedFrom)
         com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(keyringProject, keyringClient)
       case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
     com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)
@@ -687,7 +693,9 @@ final class ServiceBuilder private[ankka] (
           handle.client,
           () => Database()(using system),
           tables,
-          ErasureHooks.of(system)
+          ErasureHooks.of(system),
+          Option.unless(NoDatabase.declared(system.settings.config))(HistoryLines(system).current),
+          keyringCarriedFrom
         )(using system.executionContext)
         duties.start()
         // A database line the erasure log has not been applied to (a restore's, or a new one):

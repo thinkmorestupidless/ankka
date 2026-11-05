@@ -1243,7 +1243,8 @@ class S3Bucket(Bucket):
                 return found
 
     async def _delete_version(self, name: str, version: str) -> None:
-        """One version, or a delete marker; ``version`` empty is the plain delete."""
+        """One version, or a delete marker; ``version`` empty is the plain delete. The store's
+        ``null`` version is deleted as ``versionId=null``: a plain delete would only add a marker."""
         query: tuple[tuple[str, str], ...] = (("versionId", version),) if version else ()
         status, _headers, body = await asyncio.to_thread(self._call, "DELETE", self._object_path(name), query)
         if status not in (200, 204, 404):
@@ -1343,7 +1344,8 @@ def parse_listing(xml: bytes) -> tuple[list[ObjectEntry], str | None]:
 @dataclass(frozen=True)
 class Versions:
     """One page of a ``ListObjectVersions`` answer: each version and delete marker as its key and
-    version id (empty for the store's ``null``), and the markers for the next page."""
+    version id (``null`` for one written before versioning was on), and the markers for the next
+    page."""
 
     versions: list[tuple[str, str]]
     truncated: bool
@@ -1368,7 +1370,7 @@ def parse_versions(xml: bytes) -> Versions:
         if tag in ("Version", "DeleteMarker"):
             fields = {local(c.tag): (c.text or "") for c in child}
             version = fields.get("VersionId", "").strip()
-            versions.append((fields.get("Key", ""), "" if version == "null" else version))
+            versions.append((fields.get("Key", ""), version))
         elif tag == "IsTruncated":
             truncated = (child.text or "").strip() == "true"
         elif tag == "NextKeyMarker":

@@ -598,6 +598,19 @@ describe("the S3 store", () => {
     assert.equal((await bucket.erase(SUBJECT)).count, 0)
   })
 
+  test("erase deletes a version written before versioning by its null id", async () => {
+    const bucket = buckets.bucket("photos")
+    const name = subjectPrefix(SUBJECT) + "before-versioning.txt"
+    const path = `/shop-photos/${name}`
+    fake.objects.set(path, { type: "text/plain", body: Buffer.from("x") })
+    fake.history.set(path, [["null", false]])
+    fake.seen.length = 0
+    const erased = await bucket.erase(SUBJECT)
+    assert.equal(erased.count, 1)
+    assert.ok(!fake.history.has(path) && !fake.objects.has(path), JSON.stringify([...fake.history.entries()]))
+    assert.ok(fake.seen.some((s) => s.method === "DELETE" && s.url.includes("versionId=null")))
+  })
+
   test("a store that lists no versions is listed plainly and each object deleted", async () => {
     fake.versions = "none"
     try {
@@ -619,7 +632,7 @@ describe("the S3 store", () => {
         "<DeleteMarker><Key>subjects/p/b</Key><VersionId>v2</VersionId></DeleteMarker>" +
         "<Version><Key>subjects/p/c</Key><VersionId>null</VersionId></Version></ListVersionsResult>",
     )
-    assert.deepEqual(page.versions, [["subjects/p/a & b", "v1"], ["subjects/p/b", "v2"], ["subjects/p/c", ""]])
+    assert.deepEqual(page.versions, [["subjects/p/a & b", "v1"], ["subjects/p/b", "v2"], ["subjects/p/c", "null"]])
     assert.deepEqual([page.truncated, page.nextKey, page.nextVersion], [true, "subjects/p/b", "v9"])
     assert.deepEqual(parseVersions("<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>").versions, [])
   })

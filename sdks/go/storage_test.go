@@ -868,12 +868,41 @@ func TestAnS3StoreThatListsNoVersionsIsListedPlainly(t *testing.T) {
 	}
 }
 
+func TestAnEraseDeletesAVersionWrittenBeforeVersioningByItsNullID(t *testing.T) {
+	f, srv := newFakeS3(t)
+	b, err := s3StoreOf(t, s3Env(srv.URL)).Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "/shop-default/" + SubjectPrefix(erasedSubject) + "before-versioning.txt"
+	f.mu.Lock()
+	f.objects[key] = storedFake{contentType: "text/plain", body: []byte("x")}
+	f.history[key] = []fakeVersion{{id: "null"}}
+	f.mu.Unlock()
+	erased, err := b.Erase(context.Background(), erasedSubject)
+	if err != nil || erased.Count != 1 {
+		t.Fatalf("erased %+v %v", erased, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, kept := f.history[key]; kept {
+		t.Fatalf("the null version is kept: %v", f.history[key])
+	}
+	byNull := false
+	for _, s := range f.seen {
+		byNull = byNull || (s.method == "DELETE" && strings.Contains(s.url, "versionId=null"))
+	}
+	if !byNull {
+		t.Fatal("no delete named versionId=null")
+	}
+}
+
 func TestAVersionListingIsReadWithItsMarkers(t *testing.T) {
 	page, err := parseVersions([]byte("<ListVersionsResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextVersionIdMarker>v9</NextVersionIdMarker>" +
 		"<Version><Key>subjects/p/a &amp; b</Key><VersionId>v1</VersionId><IsLatest>true</IsLatest></Version>" +
 		"<DeleteMarker><Key>subjects/p/b</Key><VersionId>v2</VersionId></DeleteMarker>" +
 		"<Version><Key>subjects/p/c</Key><VersionId>null</VersionId></Version></ListVersionsResult>"))
-	if err != nil || fmt.Sprint(page.versions) != "[[subjects/p/a & b v1] [subjects/p/b v2] [subjects/p/c ]]" || !page.truncated || page.nextKey != "subjects/p/b" || page.nextVersion != "v9" {
+	if err != nil || fmt.Sprint(page.versions) != "[[subjects/p/a & b v1] [subjects/p/b v2] [subjects/p/c null]]" || !page.truncated || page.nextKey != "subjects/p/b" || page.nextVersion != "v9" {
 		t.Fatalf("%+v %v", page, err)
 	}
 	last, err := parseVersions([]byte("<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>"))

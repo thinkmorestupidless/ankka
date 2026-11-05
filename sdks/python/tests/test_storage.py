@@ -958,6 +958,19 @@ def test_an_s3_erase_deletes_every_version_and_marker_by_its_id(fake_s3: FakeS3)
     assert any("versionId=" in p for m, p, _ in fake_s3.seen if m == "DELETE")
 
 
+def test_an_s3_erase_deletes_a_version_written_before_versioning_by_its_null_id(fake_s3: FakeS3) -> None:
+    bucket = fake_s3.bucket()
+    name = "subjects/player/before-versioning.txt"
+    fake_s3.objects[("shop.cart", name)] = ("text/plain", b"x")
+    fake_s3.history[("shop.cart", name)] = [("null", False)]
+
+    erased = asyncio.run(bucket.erase(SUBJECT))
+    assert erased.count == 1
+    assert ("shop.cart", name) not in fake_s3.history and ("shop.cart", name) not in fake_s3.objects
+    deletes = [p for m, p, _ in fake_s3.seen if m == "DELETE"]
+    assert any("versionId=null" in p for p in deletes), deletes
+
+
 def test_an_s3_store_with_no_versions_is_listed_plainly_and_each_object_deleted() -> None:
     fake = FakeS3(versions="none")
     try:
@@ -983,7 +996,7 @@ def test_a_version_listing_is_read_from_list_object_versions() -> None:
         b"<DeleteMarker><Key>subjects/p/b</Key><VersionId>v2</VersionId></DeleteMarker>"
         b"<Version><Key>subjects/p/c</Key><VersionId>null</VersionId></Version></ListVersionsResult>"
     )
-    assert page.versions == [("subjects/p/a & b", "v1"), ("subjects/p/b", "v2"), ("subjects/p/c", "")]
+    assert page.versions == [("subjects/p/a & b", "v1"), ("subjects/p/b", "v2"), ("subjects/p/c", "null")]
     assert (page.truncated, page.next_key, page.next_version) == (True, "subjects/p/b", "v9")
     last = parse_versions(b"<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>")
     assert (last.versions, last.truncated) == ([], False)

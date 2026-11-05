@@ -532,10 +532,9 @@ func parseVersions(data []byte) (versionsPage, error) {
 		if e.Key == nil {
 			return versionsPage{}, fmt.Errorf("a version listing's %s has no Key", e.XMLName.Local)
 		}
+		// A version written before versioning was on is listed as "null", and deleted by that id: a
+		// plain delete would only add a marker above it.
 		id := strings.TrimSpace(e.VersionID)
-		if id == "null" {
-			id = ""
-		}
 		page.versions = append(page.versions, [2]string{*e.Key, id})
 	}
 	return page, nil

@@ -1075,7 +1075,7 @@ export function parseListing(xml: string): { readonly entries: ObjectEntry[]; re
 
 /** One page of a `ListObjectVersions` answer: each version and delete marker as its key and version id. */
 export interface VersionsPage {
-  /** `[key, versionId]`; the id is empty for the store's `null`. */
+  /** `[key, versionId]`; the id is `null` for a version written before versioning was on. */
   readonly versions: readonly (readonly [string, string])[]
   readonly truncated: boolean
   readonly nextKey: string | undefined
@@ -1090,7 +1090,7 @@ export function parseVersions(xml: string): VersionsPage {
     const key = element(block, "Key")
     if (key === undefined) throw new Error(`a version listing's ${m[1]} has no Key`)
     const id = element(block, "VersionId")?.trim() ?? ""
-    versions.push([key, id === "null" ? "" : id])
+    versions.push([key, id])
   }
   return {
     versions,
@@ -1242,7 +1242,10 @@ export class S3Bucket implements Bucket {
     }
   }
 
-  /** One version, or a delete marker; `version` empty is the plain delete. */
+  /**
+   * One version, or a delete marker; `version` empty is the plain delete. The store's `null` version is
+   * deleted as `versionId=null`: a plain delete would only add a marker above it.
+   */
   async #deleteVersion(objectName: string, version: string): Promise<void> {
     const { status, response } = await this.#send("DELETE", this.#objectPath(objectName), version === "" ? [] : [["versionId", version]])
     const text = await textOf(response)

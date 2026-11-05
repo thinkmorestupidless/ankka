@@ -62,13 +62,29 @@ object KeyringAdmin:
 
     private lazy val tls = RotatingTls(directory, 1.minute)
 
+    // One client while the certificate stands: `contextRequiring` answers the same context until
+    // the files rotate, and a new context is a new client. The sweep calls for every open request
+    // every pass, and a client per call was a connection pool and a selector thread per call.
+    private val client =
+      java.util.concurrent.atomic.AtomicReference[Option[(javax.net.ssl.SSLContext, HttpClient)]](
+        None
+      )
+
+    private[erasure] def http: HttpClient =
+      val context = tls.contextRequiring(ServerIdentity)
+      client.get match
+        case Some((held, http)) if held eq context => http
+        case _                                     =>
+          val made = HttpClient
+            .newBuilder()
+            .sslContext(context)
+            .connectTimeout(Duration.ofMillis(timeout.toMillis))
+            .build()
+          client.set(Some(context -> made))
+          made
+
     private def call(request: HttpRequest.Builder): Future[String] =
       Future {
-        val http = HttpClient
-          .newBuilder()
-          .sslContext(tls.contextRequiring(ServerIdentity))
-          .connectTimeout(Duration.ofMillis(timeout.toMillis))
-          .build()
         val response = http.send(
           request.timeout(Duration.ofMillis(timeout.toMillis)).build(),
           HttpResponse.BodyHandlers.ofString()

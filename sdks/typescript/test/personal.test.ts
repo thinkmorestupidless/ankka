@@ -89,7 +89,12 @@ test("subjects: every valid subject is accepted and every invalid one refused wi
   const f = fixture("subjects.json")
   assert.equal(f.message, DATA_SUBJECT_RULE)
   for (const v of f.valid) assert.equal(subject(v), v)
-  for (const v of f.invalid) assert.throws(() => subject(v), { name: "TypeError", message: `'${v}' is not a data subject: ${f.message}` })
+  for (const v of f.invalid) assert.throws(() => subject(v), { name: "TypeError", message: `the value given is not a data subject: ${f.message}` })
+})
+
+test("a refused subject is not repeated in the refusal", () => {
+  // A caller who passes an email as the subject must not find the email in an error message.
+  assert.throws(() => subject("ada@example.com"), (e: unknown) => e instanceof TypeError && !e.message.includes("ada@example.com"))
 })
 
 // ── the envelope, byte for byte ───────────────────────────────────────────────

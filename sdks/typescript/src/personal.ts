@@ -21,10 +21,13 @@ export const DATA_SUBJECT_RULE = "a data subject is 1 to 253 characters from let
 
 const SUBJECT = /^[A-Za-z0-9._/:-]{1,253}$/
 
-/** Why `value` is not a data subject, or `undefined` when it is one. */
+/**
+ * Why `value` is not a data subject, or `undefined` when it is one. The reason names the rule and never
+ * the value, which may be the personal data a caller meant to protect (FR-029).
+ */
 export function subjectProblem(value: unknown): string | undefined {
   if (typeof value === "string" && SUBJECT.test(value)) return undefined
-  return `'${String(value)}' is not a data subject: ${DATA_SUBJECT_RULE}`
+  return `the value given is not a data subject: ${DATA_SUBJECT_RULE}`
 }
 
 /** `value` as a data subject; throws a `TypeError` naming the rule when it is not one. */

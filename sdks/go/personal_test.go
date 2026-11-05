@@ -268,6 +268,11 @@ func TestEverySubjectIsHeldToTheRule(t *testing.T) {
 			t.Fatalf("%q was not refused with the rule: %v", s, err)
 		}
 	}
+	// The refusal names the rule, never the value: a caller who passed an email as the subject
+	// would otherwise put the email in an error message.
+	if _, err := Subject("ada@example.com"); err == nil || strings.Contains(err.Error(), "ada@example.com") {
+		t.Fatalf("the refusal repeats the value: %v", err)
+	}
 }
 
 type fxEdgeRecord struct {

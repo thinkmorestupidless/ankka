@@ -33,7 +33,8 @@ type DataSubject struct{ value string }
 // Subject is value as a data subject, or why it cannot be one.
 func Subject(value string) (DataSubject, error) {
 	if !subjectPattern.MatchString(value) {
-		return DataSubject{}, fmt.Errorf("'%s' is not a data subject: %s", value, SubjectRule)
+		// The rule, never the value: it may be the personal data the caller meant to protect.
+		return DataSubject{}, fmt.Errorf("the value given is not a data subject: %s", SubjectRule)
 	}
 	return DataSubject{value: value}, nil
 }

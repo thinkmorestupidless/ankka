@@ -63,10 +63,11 @@ class DataSubject(str):
 
 
 def subject_problem(value: object) -> str | None:
-    """Why ``value`` is not a data subject, or None when it is one."""
+    """Why ``value`` is not a data subject, or None when it is one. The reason names the rule and
+    never the value, which may be the personal data a caller meant to protect (FR-029)."""
     if isinstance(value, str) and _PATTERN.fullmatch(value) is not None:
         return None
-    return f"'{value}' is not a data subject: {RULE}"
+    return f"the value given is not a data subject: {RULE}"
 
 
 class Personal(Generic[T]):

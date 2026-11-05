@@ -95,6 +95,14 @@ def test_an_invalid_subject_is_refused_with_the_rule(subject: str) -> None:
         Personal.of(subject, "x")
 
 
+def test_a_refused_subject_is_not_repeated_in_the_refusal() -> None:
+    # A caller who passes an email as the subject must not find the email in an error message.
+    with pytest.raises(ValueError) as refused:
+        DataSubject("ada@example.com")
+    assert "ada@example.com" not in str(refused.value)
+    assert SUBJECTS["message"] in str(refused.value)
+
+
 def test_the_textual_form_names_the_subject_and_never_the_value() -> None:
     field = Personal.of(DataSubject("player/8c1f"), "ada@example.com")
 

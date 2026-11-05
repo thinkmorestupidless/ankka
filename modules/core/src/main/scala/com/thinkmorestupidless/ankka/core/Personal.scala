@@ -26,10 +26,14 @@ object DataSubject:
 
   private val Pattern = "^[A-Za-z0-9._/:-]{1,253}$".r
 
-  /** `value` as a data subject, or why it cannot be one. */
+  /**
+   * `value` as a data subject, or why it cannot be one. The refusal names the rule, never the
+   * value: a caller who passed an email as the subject would otherwise put the email in an error
+   * message, and from there in a log (FR-029).
+   */
   def from(value: String): Either[String, DataSubject] =
     if value != null && Pattern.matches(value) then Right(value)
-    else Left(s"'${String.valueOf(value)}' is not a data subject: $Rule")
+    else Left(s"the value given is not a data subject: $Rule")
 
   /**
    * `value` as a data subject; throws `IllegalArgumentException` with the rule when it is not one.
@@ -110,12 +114,15 @@ object PersonalScope:
   /** The scope bound on this thread, if any. */
   def current: Option[Scope] = Option(bound.get)
 
+  /** Runs `body` under `manifest`: every envelope written in it binds the manifest. */
+  def within[T](manifest: String)(body: => T): T = within(manifest, None)(body)
+
   /**
-   * Runs `body` under `manifest`. `nonce` fixes the nonce every envelope written in `body` is
-   * sealed with, which only the fixtures' tests may do: a nonce used twice under one key breaks
-   * GCM.
+   * As `within`, with `nonce` fixing the nonce every envelope written in `body` is sealed with: the
+   * door the encoding fixtures' tests use, and nothing else may, since a nonce used twice under one
+   * subject key breaks GCM. Not public API.
    */
-  def within[T](manifest: String, nonce: Option[Array[Byte]] = None)(body: => T): T =
+  private[ankka] def within[T](manifest: String, nonce: Option[Array[Byte]])(body: => T): T =
     val before = bound.get
     bound.set(Scope(manifest, nonce))
     try body

@@ -159,6 +159,9 @@ final class PersonalSuite extends munit.FunSuite:
       assert(e.getMessage.contains(subjects.message), e.getMessage)
       assert(DataSubject.from(v).isLeft, v)
     }
+    // The refusal names the rule, never the value refused (FR-029).
+    val email = DataSubject.from("ada@example.com?")
+    assert(email.left.exists(!_.contains("ada@example.com")), email.toString)
   }
 
   test("a derived codec finds a personal field in an Option, a List and a nested record") {

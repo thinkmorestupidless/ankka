@@ -494,6 +494,10 @@ final class ServiceBuilder private[ankka] (
         // an erasure is never served from the cache after its notice. The hello says what this
         // database's line records as carried out, so a start is not handed the whole history.
         keyringClient.start(keyringCarriedFrom)
+        // A lapsed channel drops the keys a process holds too, through the hook its host sets.
+        keyringClient.onDropAll(() =>
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks.of(system).dropAll()
+        )
         com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(keyringProject, keyringClient)
       case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
     com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)

@@ -81,6 +81,27 @@ final class ProcessNotices(ackBound: FiniteDuration = 60.seconds):
   def ack(seq: Long, instance: String): Boolean =
     Option(awaiting.remove((seq, instance))).exists(_.acked.trySuccess(()))
 
+  /**
+   * Ends every stream held now, which each SDK answers by dropping every key it holds: the
+   * keyring's channel went unconfirmed past the notice bound, so no instance can know it missed no
+   * notice (FR-022). The waits handed on them are settled as each ends.
+   */
+  def endAll(why: String): Unit =
+    streams.asScala.toVector.foreach { (instance, queue) =>
+      log.warn(s"process instance $instance's erasure notices end: $why")
+      queue.fail(IllegalStateException(why))
+    }
+
+  /** Hears the runtime's notices and its lapses through `hooks`, as the sidecar does. */
+  def attach(hooks: com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks): Unit =
+    hooks.onProcess(notify)
+    hooks.onDropAll(() =>
+      endAll(
+        "the keyring's notices channel was not confirmed within the notice bound " +
+          "(ankka.keyring.notice-bound); every key is dropped"
+      )
+    )
+
   /** Whether `instance` holds a stream now. */
   def holding(instance: String): Boolean = streams.containsKey(instance)
 

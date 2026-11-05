@@ -128,6 +128,16 @@ final class ErasureHooks:
     AtomicReference[KeyringNotice => Future[Option[HandlerReport]]](_ => Future.successful(None))
   private val processHook =
     AtomicReference[KeyringNotice => Future[Unit]](_ => Future.unit)
+  private val dropAllHook = AtomicReference[() => Unit](() => ())
+
+  /**
+   * Every key held outside the runtime's cache is to be dropped: the notices channel went
+   * unconfirmed past the notice bound (`KeyringClient.check`).
+   */
+  def dropAll(): Unit = dropAllHook.get()()
+
+  /** Sets what drops the keys a process beside the runtime holds (its notices streams ended). */
+  def onDropAll(f: () => Unit): Unit = dropAllHook.set(f)
 
   /** A process beside the runtime dropping the subject's key: done once every instance has. */
   def process(notice: KeyringNotice): Future[Unit] = processHook.get()(notice)

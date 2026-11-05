@@ -337,6 +337,39 @@ class ClientPersonalSuite extends munit.FunSuite with LogCapturing:
     assert(!notices.holding("hung"))
   }
 
+  test("a channel unconfirmed past the notice bound ends every process stream, so it drops all") {
+    val keyring = com.thinkmorestupidless.ankka.testkit.InMemoryKeyring()
+    val kit     = AnkkaTestKit.start(
+      Seq.empty,
+      settings = com.typesafe.config.ConfigFactory.parseString(
+        "ankka.keyring.notice-bound = 1s\nankka.keyring.cache.outage-bound = 1s"
+      ),
+      keyring = keyring
+    )
+    try
+      given ActorSystem[?] = kit.service.system
+      val notices          = ProcessNotices()
+      notices.attach(ErasureHooks.of(kit.service.system))
+      val held = await(
+        ClientLogic(kit.service, settings, () => None)
+          .getSubjectKey(SubjectKeyRequest("player/lapse", true))
+      ).reply
+      assert(held.key.isDefined, s"no key: $held")
+      val heard = notices.open("p").runWith(Sink.queue[SubjectNotice]())
+      while !notices.holding("p") do Thread.sleep(10)
+      // The keyring stops confirming the channel; within the bound and a check, the stream ends.
+      keyring.outage(1.hour)
+      val ended = scala.util.Try(Await.result(heard.pull(), 10.seconds))
+      assert(
+        ended.failed.toOption.exists(!_.isInstanceOf[java.util.concurrent.TimeoutException]),
+        s"the stream did not end: $ended"
+      )
+      val deadline = System.nanoTime() + 5.seconds.toNanos
+      while notices.holding("p") && System.nanoTime() < deadline do Thread.sleep(10)
+      assert(!notices.holding("p"))
+    finally kit.stop()
+  }
+
   // ── An erasure request's not-before ─────────────────────────────────────────
 
   test("a not-before is exactly a date, or an instant at midnight UTC, and nothing else") {

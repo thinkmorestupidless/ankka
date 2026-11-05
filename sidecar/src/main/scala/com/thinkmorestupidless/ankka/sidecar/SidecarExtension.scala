@@ -72,9 +72,9 @@ final class SidecarExtension(
           )
           .getOrElse(60.seconds)
         val notices = ProcessNotices(bound)
-        com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks
-          .of(service.system)
-          .onProcess(notices.notify)
+        notices.attach(
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks.of(service.system)
+        )
         val client = ClientService(service, settings, scheduler, declaredProtocol, notices)
         server = Some(CallbackServer.start(client, settings.callbackBind, settings.callbackPort))
         log.info(

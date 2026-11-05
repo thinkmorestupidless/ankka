@@ -197,23 +197,45 @@ final class KeyringClient(
       case NonFatal(e) =>
         log.warn(s"an erasure notice's duty failed: notice ${notice.seq} of ${notice.subject}", e)
 
+  private val dropListeners = new AtomicReference[Vector[() => Unit]](Vector.empty)
+  // Whether the listeners were told since the channel was last confirmed: once each time it lapses.
+  @volatile private var lapseTold = false
+
   /**
-   * Drops every key held when the channel has not been confirmed within `notice-bound`; answers
-   * whether it did. Run on a schedule; a test calls it after moving its clock.
+   * Runs `listener` whenever `check()` finds the channel unconfirmed past `notice-bound`: what
+   * holds keys outside this cache (a process beside the runtime) drops them too, or the bound would
+   * hold for the JVM alone (FR-022).
+   */
+  def onDropAll(listener: () => Unit): Unit = dropListeners.updateAndGet(_ :+ listener): Unit
+
+  /**
+   * Drops every key held when the channel has not been confirmed within `notice-bound`, and tells
+   * the `onDropAll` listeners, once each time the channel lapses and again whenever keys were held;
+   * answers whether keys were dropped. Run on a schedule; a test calls it after moving its clock.
    */
   def check(): Boolean =
     val unconfirmed = store.confirmedAt() match
       case None     => true
       case Some(at) =>
         JDuration.between(at, clock.instant()).toMillis > settings.noticeBound.toMillis
-    if unconfirmed && cache.size > 0 then
-      log.warn(
-        s"the keyring's notices channel has not been confirmed within ${settings.noticeBound}: " +
-          s"every key this instance held (${cache.size}) is dropped and will be asked for again"
-      )
-      cache.dropAll()
-      true
-    else false
+    if !unconfirmed then
+      lapseTold = false
+      false
+    else
+      val held = cache.size
+      if held > 0 then
+        log.warn(
+          s"the keyring's notices channel has not been confirmed within ${settings.noticeBound}: " +
+            s"every key this instance held ($held) is dropped and will be asked for again"
+        )
+        cache.dropAll()
+      if held > 0 || !lapseTold then
+        lapseTold = true
+        dropListeners.get.foreach(l =>
+          try l()
+          catch case NonFatal(e) => log.warn(s"a holder of keys did not drop them: $e")
+        )
+      held > 0
 
   def close(): Unit =
     checker.getAndSet(None).foreach(_.shutdownNow(): Unit)

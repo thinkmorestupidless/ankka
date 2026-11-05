@@ -503,3 +503,12 @@ recorded only in `limitations.md` and here, and two requirements that pull again
   every duty is safe to run twice. A mark held back by an ack that failed (a local keyring's
   database error) stays back, conservatively, until the notice is handed again.
   `ErasureDutiesSuite` stops an instance with the ack held in an outage and sees it handed again.
+- **A lapsed notices channel ends every process stream** (FR-022, second-round review). When
+  `KeyringClient.check()` finds the channel unconfirmed past the notice bound it tells its
+  `onDropAll` listeners; the runtime's is `ErasureHooks.dropAll`, and the sidecar's
+  `ProcessNotices.attach` sets it to `endAll`, which fails every `SubjectNotices` stream, so each
+  SDK runs its drop-all as it does when a stream ends. The listeners are told once each time the
+  channel lapses, even with nothing in the JVM's cache (a process's cache need not mirror it: the
+  cache's own eviction and lifetime are separate), and again on every check that drops keys
+  fetched during the lapse; a process that reconnects in a lapse is not ended again until keys are
+  held again, so it does not loop reconnecting every quarter bound.

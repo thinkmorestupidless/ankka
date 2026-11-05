@@ -59,6 +59,12 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   envelope with the follower's own key of the same subject and read it corrupt; another home's key
   is foreign (its TTL, never served through an outage), and is never asked for with `create`.
 
+- **The notice bound holds for a process only through its stream** (2026-11-05, feature 042). The
+  JVM's `KeyringClient.check()` dropping its cache drops nothing a process holds; `ProcessNotices`
+  ends every notices stream on the runtime's `ErasureHooks.dropAll`, which `ProcessNotices.attach`
+  wires. A new holder of keys outside the runtime's cache hooks `KeyringClient.onDropAll` too, or
+  the bound holds for the JVM alone.
+
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
   runtime does not know is read as absent, so a period added to `ScheduleRequest` would have been a timer
   that fires once, silently. `ScheduleRecurring` is its own rpc (1.12), which an older runtime answers

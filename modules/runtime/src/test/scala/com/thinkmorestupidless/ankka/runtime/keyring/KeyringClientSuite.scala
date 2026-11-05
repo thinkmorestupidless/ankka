@@ -129,6 +129,27 @@ final class KeyringClientSuite extends munit.FunSuite:
     assertEquals(c.cache.size, 1)
   }
 
+  test("a lapsed channel tells what holds keys outside the cache, once a lapse and per drop") {
+    val clock      = Manual()
+    val (store, c) = client(clock)
+    val told       = java.util.concurrent.atomic.AtomicInteger()
+    c.onDropAll(() => told.incrementAndGet(): Unit)
+    clock.move(61.seconds)
+    // Nothing held here: a process beside the runtime may still hold keys.
+    assert(!c.check())
+    assertEquals(told.get, 1)
+    assert(!c.check())
+    assertEquals(told.get, 1, "told again within the same lapse with nothing held")
+    c.key("brand", ada, create = true)
+    assert(c.check())
+    assertEquals(told.get, 2, "keys held in the lapse are dropped, and so are the process's")
+    store.confirmed = Some(clock.instant())
+    assert(!c.check())
+    clock.move(61.seconds)
+    c.check(): Unit
+    assertEquals(told.get, 3, "a new lapse is told")
+  }
+
   test("a channel never confirmed holds nothing past a check") {
     val (store, c) = client(Manual())
     store.confirmed = None

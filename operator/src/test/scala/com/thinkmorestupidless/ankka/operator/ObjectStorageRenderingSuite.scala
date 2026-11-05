@@ -777,16 +777,19 @@ class ObjectStorageRenderingSuite extends munit.FunSuite:
   }
 
   test(
-    "cloud: a service is told how long its bucket keeps a deleted object, and nothing for none"
+    "cloud: a personal service is told how long its bucket keeps a deleted object, and nothing " +
+      "for none or for a service that is not personal"
   ) {
-    def told(days: Int) =
+    def told(days: Int, spec: AnkkaServiceSpec = asks.copy(personal = true)) =
       val installation = withCloud.copy(gcs = Some(GcsSettings("t", days)))
       storageVariables(
-        developers(asks, containers(renderCloud(asks, cloudReady, installation = installation)))
+        developers(spec, containers(renderCloud(spec, cloudReady, installation = installation)))
       )
         .get("ANKKA_S3_SOFT_DELETE_DAYS")
     assertEquals(told(30), Some("30"))
     assertEquals(told(0), None)
+    // Rendered for every bucket, it would roll every bucket-holding service on the upgrade.
+    assertEquals(told(30, asks), None)
   }
 
   test("cloud: the credential's generation is on the pod template, so a new one rolls the pods") {

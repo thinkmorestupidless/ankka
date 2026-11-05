@@ -917,7 +917,7 @@ object Rendering:
               // A bucket reachable from the internet is reached there at the cloud's own address,
               // which is the one the provider answered (feature 039): no route of the installation's.
               Option.when(spec.exposeObjectStorage)(StorageEnv.PublicEndpoint -> cloud.endpoint) ++
-              StorageEnv.softDelete(settings),
+              StorageEnv.softDelete(spec, settings),
             credentialGeneration = cloud.credentialGeneration.toInt
           )
         )
@@ -955,7 +955,7 @@ object Rendering:
                 secret = Some(Buckets.cloudSecret(spec.serviceName)),
                 literals =
                   Vector(StorageEnv.Endpoint -> c.endpoint, StorageEnv.Region -> c.region) ++
-                    StorageEnv.softDelete(settings),
+                    StorageEnv.softDelete(spec, settings),
                 credentialGeneration = c.credentialGeneration.toInt
               )
             case None =>
@@ -2333,10 +2333,16 @@ object StorageEnv:
   /**
    * How long the installation's cloud store keeps a deleted object (feature 042), which the service
    * reports as when an erasure of objects becomes final: the window the operator asks every cloud
-   * bucket for, and the one its status reports. Nothing for none, which is immediate.
+   * bucket for, and the one its status reports. Nothing for none, which is immediate. Only for a
+   * service that declares `personal`, the one kind that takes part in an erasure: rendered for
+   * every bucket-holding service, it would roll each of them when the operator is upgraded, and
+   * nothing rendered for a service without `personal` differs from before erasure existed.
    */
-  def softDelete(settings: Settings): Option[(String, String)] =
-    settings.gcs.map(_.softDeleteDays).filter(_ > 0).map(days => SoftDeleteDays -> days.toString)
+  def softDelete(spec: AnkkaServiceSpec, settings: Settings): Option[(String, String)] =
+    settings.gcs
+      .map(_.softDeleteDays)
+      .filter(days => days > 0 && spec.personal)
+      .map(days => SoftDeleteDays -> days.toString)
 
   /** A supplied bucket's credential: the project secret's two entries (feature 055). */
   val SuppliedAccessKey: String = "access-key"

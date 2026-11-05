@@ -28,7 +28,7 @@ import { errorCodeToProto } from "../kinds.ts"
 import { materialiseEventSourced } from "../materialise.ts"
 import type { RegisteredEventSourced } from "../service.ts"
 import { PersonalError } from "../personal.ts"
-import { decodePayload, encodePayload, prefetchPayload, prefetchValue } from "./payloads.ts"
+import { decodePayload, encodePayload, prefetchPayload, prefetchPayloadAt, prefetchValue, prefetchValueAt } from "./payloads.ts"
 import type { ServerContext } from "./server.ts"
 
 type RetentionInit = MessageInitShape<typeof RetentionSchema>
@@ -75,12 +75,17 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
   let sequence = 0n
   // This installation, for a replicated entity (1.19): null on a service that names none.
   let here: string | null = null
+  // The entity's home as its records have named it so far (FR-032): Init.home, then each folded
+  // event's installation, then Command.home. Its personal fields' keys are that installation's.
+  let home: string | null = null
+  const keysAt = (): string => (home === null || home === here ? "" : home)
 
   for await (const m of requests) {
     switch (m.message.case) {
       case "init": {
         const init = m.message.value
         here = init.installation || null
+        home = init.home || null
         const found = ctx.registry.component(init.componentId)
         if (!found || found.kind !== "event-sourced") {
           yield failure(0n, { message: `no event sourced entity ${JSON.stringify(init.componentId)} is registered`, code: ErrorCode.NotFound })
@@ -88,12 +93,12 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
         }
         registered = found
         entityId = init.entityId
-        await prefetchPayload(init.snapshot?.payload)
+        await prefetchPayloadAt(keysAt(), init.snapshot?.payload)
         try {
           entity = new registered.cls() as EventSourcedEntity<unknown, unknown>
           entity._bindInstance(entityId)
           if (init.snapshot) {
-            state = decodePayload(registered.stateCodec, init.snapshot.payload)
+            state = decodePayload(registered.stateCodec, init.snapshot.payload, keysAt())
             sequence = init.snapshot.sequence
           } else {
             state = entity.emptyState()
@@ -112,10 +117,12 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
           return
         }
         const ev = m.message.value
-        await prefetchPayload(ev.payload)
+        // A record from before replication names no installation, and reads as written at the home.
+        if (ev.installation) home = ev.installation
+        await prefetchPayloadAt(keysAt(), ev.payload)
         try {
           const written = ev.installation || here
-          state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload), eventContext(written, written === here, ev.sequence, ev.attribution, ev.forwardedFrom))
+          state = entity.applyEvent(state, decodePayload(registered.eventCodec, ev.payload, keysAt()), eventContext(written, written === here, ev.sequence, ev.attribution, ev.forwardedFrom))
           sequence = ev.sequence
         } catch (e) {
           ctx.log(`ankka: ${registered.id}/${entityId}: replay of event ${ev.sequence} failed: ${messageOf(e)}`)
@@ -129,7 +136,8 @@ export async function* handleEventSourced(requests: AsyncIterable<EventSourcedIn
           yield failure(m.message.value.id, { message: "a command arrived before Init", code: ErrorCode.Internal })
           return
         }
-        const result = await runCommand(registered, entity, entityId, state, sequence, m.message.value, ctx, here)
+        if (m.message.value.home) home = m.message.value.home
+        const result = await runCommand(registered, entity, entityId, state, sequence, m.message.value, ctx, here, keysAt())
         yield result.out
         if (result.newState !== undefined) {
           state = result.newState.state
@@ -158,6 +166,7 @@ async function runCommand(
   cmd: EventSourcedIn_Command,
   ctx: ServerContext,
   here: string | null = null,
+  keys = "",
 ): Promise<CommandResult> {
   const handler = registered.handlers.get(cmd.name)
   if (!handler) return { out: failure(cmd.id, { message: `no handler ${JSON.stringify(cmd.name)} on ${registered.id}`, code: ErrorCode.NotFound }) }
@@ -203,9 +212,11 @@ async function runCommand(
       applied += 1n
       return entity.applyEvent(s, e, eventContext(here, true, applied, context.attribution, context.forwardedFrom))
     })
-    await prefetchValue(m.events, m.reply, cmd.snapshotRequested ? m.newState : undefined)
+    // What is persisted, and the snapshot, are the record's: sealed with its home's keys (FR-032).
+    await prefetchValueAt(keys, m.events, cmd.snapshotRequested ? m.newState : undefined)
+    await prefetchValue(m.reply)
     const replication = !m.error && effect.kind === "persist" ? replicationToProto(effect.replication) : undefined
-    const events = m.events.map((e) => encodePayload(registered.eventCodec, e))
+    const events = m.events.map((e) => encodePayload(registered.eventCodec, e, keys))
     const replyCodec = handler.reply ? codecFor(handler.reply) : binaryCodecs.done
     const outcome: OutcomeInit = m.error
       ? { outcome: { case: "error", value: { message: m.error.message, code: errorCodeToProto(m.error.code) } } }
@@ -220,7 +231,7 @@ async function runCommand(
           events,
           retention: retentionToProto(m.retention),
           outcome,
-          snapshot: cmd.snapshotRequested ? encodePayload(registered.stateCodec, m.newState) : undefined,
+          snapshot: cmd.snapshotRequested ? encodePayload(registered.stateCodec, m.newState, keys) : undefined,
           replication,
         },
       },

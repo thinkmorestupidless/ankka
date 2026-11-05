@@ -21,8 +21,12 @@ export interface KeyReply {
   readonly answer: KeyAnswer
 }
 
-/** How a key is fetched: `project` empty is the service's own, and `create` makes one for a write. */
-export type KeyFetch = (project: string, subject: string, create: boolean) => Promise<KeyReply>
+/**
+ * How a key is fetched: `project` empty is the service's own, and `create` makes one for a write.
+ * `home`, when given, is the installation whose keyring keeps the key: a replicated entity's home
+ * elsewhere (FR-032), asked through the sidecar's relay and never with `create`.
+ */
+export type KeyFetch = (project: string, subject: string, create: boolean, home?: string) => Promise<KeyReply>
 
 /**
  * How a process holds the keys it fetched: the runtime's `ankka.keyring` settings, by the same names
@@ -119,6 +123,9 @@ export class Keyring {
   readonly #flights = new Set<Flight>()
   // Why an answer for the own project failed before any answer named the project.
   readonly #ownFailures = new Map<string, string>()
+  // The installation whose keyring keeps the keys the codec running now reads and writes (FR-032):
+  // "" for this one. Set only around a synchronous codec call, by `within`.
+  #home = ""
 
   constructor(options: KeyringOptions) {
     this.#fetch = options.fetch
@@ -165,11 +172,13 @@ export class Keyring {
     return h
   }
 
-  #put(project: string, subject: string, entry: Entry): void {
-    const key = cacheKey(project, subject)
+  #put(project: string, subject: string, entry: Entry, home: string): void {
+    const key = cacheKey(project, subject, home)
     this.#cache.delete(key)
     this.#failures.delete(key)
-    this.#cache.set(key, { entry, at: this.#clock(), foreign: this.#project === undefined || project !== this.#project })
+    // Another home's key is held as another project's is: no notice of that keyring reaches this
+    // process, so it lives for the foreign TTL and is never served through an outage.
+    this.#cache.set(key, { entry, at: this.#clock(), foreign: this.#project === undefined || project !== this.#project || home !== "" })
     while (this.#cache.size > this.#settings.maxKeys) {
       const eldest = this.#cache.keys().next().value
       if (eldest === undefined) break
@@ -179,8 +188,26 @@ export class Keyring {
 
   // ── what the server awaits before the codec runs ───────────────────────────
 
-  /** Fetches, unless held fresh, the key of every subject the envelopes in `json` name. Never throws. */
-  async prefetchJson(json: Uint8Array | string): Promise<void> {
+  /**
+   * `work`, run with the keys of `home`'s keyring: a replicated entity's home as its records name it
+   * (FR-032), "" for this installation's. `work` is a synchronous codec call, so nothing else runs
+   * while the home is set.
+   */
+  within<T>(home: string, work: () => T): T {
+    const before = this.#home
+    this.#home = home
+    try {
+      return work()
+    } finally {
+      this.#home = before
+    }
+  }
+
+  /**
+   * Fetches, unless held fresh, the key of every subject the envelopes in `json` name, from `home`'s
+   * keyring ("" for this installation's). Never throws.
+   */
+  async prefetchJson(json: Uint8Array | string, home = ""): Promise<void> {
     const text = typeof json === "string" ? json : Buffer.from(json.buffer, json.byteOffset, json.byteLength).toString("utf8")
     if (!text.includes('"$personal"')) return
     let parsed: unknown
@@ -194,20 +221,21 @@ export class Keyring {
       if (!isObject(node) || !("$personal" in node)) return false
       const { project, subject, c } = node as Record<string, unknown>
       if (node["$personal"] === ENVELOPE_VERSION && typeof c === "string" && typeof project === "string" && subjectProblem(subject) === undefined) {
-        wanted.set(cacheKey(project, subject as string), [project, subject as string])
+        wanted.set(cacheKey(project, subject as string, home), [project, subject as string])
       }
       return true
     })
-    await Promise.all([...wanted.values()].map(([project, subject]) => this.#ensure(project, subject, false)))
+    await Promise.all([...wanted.values()].map(([project, subject]) => this.#ensure(project, subject, false, home)))
   }
 
   /**
    * Fetches, unless held fresh, the key of every present personal field in `value`, for a write. An
    * erased field needs no key, but its envelope names the own project: until an answer has named it, one
    * is asked for, without `create`. A field read from another project's envelope is sealed again under
-   * that project's key (FR-027): its key is fetched, never made. Never throws.
+   * that project's key (FR-027): its key is fetched, never made. `home` is whose keyring keeps the
+   * keys, "" for this installation's; another home's keys are never made. Never throws.
    */
-  async prefetchValue(value: unknown): Promise<void> {
+  async prefetchValue(value: unknown, home = ""): Promise<void> {
     const subjects = new Set<string>()
     const resealed = new Map<string, [string, string]>()
     let erased: string | undefined
@@ -215,7 +243,7 @@ export class Keyring {
       if (node instanceof Present || node instanceof Erased) {
         const origin = originOf(node)
         if (origin !== undefined && origin !== this.#project) {
-          if (node instanceof Present) resealed.set(cacheKey(origin, node.subject), [origin, node.subject])
+          if (node instanceof Present) resealed.set(cacheKey(origin, node.subject, home), [origin, node.subject])
         } else if (node instanceof Present) subjects.add(node.subject)
         else erased ??= node.subject
         return true
@@ -223,9 +251,9 @@ export class Keyring {
       return false
     })
     const own = this.#project ?? ""
-    await Promise.all([...resealed.values()].map(([project, about]) => this.#ensure(project, about, false)))
-    if (subjects.size === 0 && erased !== undefined && this.#project === undefined) return this.#ensure("", erased, false)
-    await Promise.all([...subjects].map((s) => this.#ensure(own, s, true)))
+    await Promise.all([...resealed.values()].map(([project, about]) => this.#ensure(project, about, false, home)))
+    if (subjects.size === 0 && erased !== undefined && this.#project === undefined) return this.#ensure("", erased, false, home)
+    await Promise.all([...subjects].map((s) => this.#ensure(own, s, true, home)))
   }
 
   // ── what the codec reads, synchronously ────────────────────────────────────
@@ -237,7 +265,7 @@ export class Keyring {
       const why = this.#ownFailures.get(subject)
       throw PersonalError.unavailable(why ?? "this process does not know its project yet: no key answer from the sidecar has named it")
     }
-    const key = cacheKey(project, subject)
+    const key = cacheKey(project, subject, this.#home)
     const entry = this.#held(key)?.entry
     if (entry?.kind === "key") return { project, key: entry.key }
     if (entry?.kind === "erased" && entry.forWrite) throw PersonalError.erased(subject)
@@ -246,7 +274,7 @@ export class Keyring {
 
   /** The key a read opens `subject`'s field of `project` with, or `erased`. Throws `Unavailable`; never fetches. */
   keyForRead(project: string, subject: string): KeyAnswer {
-    const key = cacheKey(project, subject)
+    const key = cacheKey(project, subject, this.#home)
     const entry = this.#held(key)?.entry
     if (entry !== undefined) return entry.kind === "key" ? entry : { kind: "erased" }
     throw PersonalError.unavailable(this.#failures.get(key) ?? `no key for '${subject}' of '${project}' was fetched before the read`)
@@ -263,30 +291,33 @@ export class Keyring {
     for (const f of this.#flights) f.dropped = true
   }
 
-  /** Forgets `subject`'s key: what a notice from the sidecar does. */
+  /** Forgets `subject`'s key, from whichever home it was fetched: what a notice from the sidecar does. */
   drop(project: string, subject: string): void {
-    this.#cache.delete(cacheKey(project, subject))
+    const named = cacheKey(project, subject, "")
+    for (const key of [...this.#cache.keys()]) if (key.endsWith(named)) this.#cache.delete(key)
     for (const f of this.#flights) if (f.subject === subject) f.dropped = true
   }
 
   /** Whether a key, or an erased answer, is held for `subject` and may be used. */
-  holds(project: string, subject: string): boolean {
-    const h = this.#cache.get(cacheKey(project, subject))
+  holds(project: string, subject: string, home = ""): boolean {
+    const h = this.#cache.get(cacheKey(project, subject, home))
     return h !== undefined && (this.#fresh(h) || this.#servesInOutage(h))
   }
 
   /** `project` empty is the service's own, before its name is known. */
-  async #ensure(project: string, subject: string, create: boolean): Promise<void> {
+  async #ensure(project: string, subject: string, wantCreate: boolean, home: string): Promise<void> {
+    // Another installation's keyring is read only to this one: a follower never makes a key.
+    const create = wantCreate && home === ""
     const named = project === "" ? this.#project : project
     if (named !== undefined) {
-      const held = this.#cache.get(cacheKey(named, subject))
+      const held = this.#cache.get(cacheKey(named, subject, home))
       if (held !== undefined && this.#fresh(held)) {
         if (held.entry.kind === "key") return
         if (held.entry.forWrite || !create) return
       }
     }
     const asked = named !== undefined && named === this.#project ? "" : project
-    const flightKey = `${asked}\u0000${subject}\u0000${create}`
+    const flightKey = `${home}\u0000${asked}\u0000${subject}\u0000${create}`
     const pending = this.#inFlight.get(flightKey)
     if (pending) return pending
     const asking = (async () => {
@@ -297,7 +328,7 @@ export class Keyring {
           const flight: Flight = { subject, dropped: false }
           this.#flights.add(flight)
           try {
-            const got = await this.#fetch(asked, subject, create)
+            const got = home === "" ? await this.#fetch(asked, subject, create) : await this.#fetch(asked, subject, create, home)
             if (!flight.dropped) reply = got
           } finally {
             this.#flights.delete(flight)
@@ -318,14 +349,14 @@ export class Keyring {
         const { answer } = reply
         if (answer.kind === "key") {
           if (answer.key.length !== 32) throw new Error(`the keyring answered a key of ${answer.key.length} bytes, not 32`)
-          this.#put(answered, subject, { kind: "key", key: answer.key })
-        } else this.#put(answered, subject, { kind: "erased", forWrite: create })
+          this.#put(answered, subject, { kind: "key", key: answer.key }, home)
+        } else this.#put(answered, subject, { kind: "erased", forWrite: create }, home)
       } catch (e) {
         // Kept so the codec can say why; asked again by the next prefetch. A held own key the outage
         // bound still allows keeps serving; anything else held is forgotten.
         const why = e instanceof Error ? e.message : String(e)
         if (answered !== undefined) {
-          const key = cacheKey(answered, subject)
+          const key = cacheKey(answered, subject, home)
           const held = this.#cache.get(key)
           if (held === undefined || !this.#servesInOutage(held)) {
             this.#cache.delete(key)
@@ -341,8 +372,9 @@ export class Keyring {
   }
 }
 
-function cacheKey(project: string, subject: string): string {
-  return `${project}\u0000${subject}`
+// Keyed by the home as well as the project, so two homes' keys of one subject never mix.
+function cacheKey(project: string, subject: string, home: string): string {
+  return `${home}\u0000${project}\u0000${subject}`
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -386,14 +418,19 @@ export function requireKeyring(): Keyring {
   return installed
 }
 
-/** Prefetches for decoding `json`, when a keyring is installed. Never throws. */
-export async function prefetchForDecode(json: Uint8Array | string | undefined): Promise<void> {
-  if (installed && json !== undefined && json.length > 0) await installed.prefetchJson(json)
+/** Prefetches for decoding `json` from `home`'s keyring, when a keyring is installed. Never throws. */
+export async function prefetchForDecode(json: Uint8Array | string | undefined, home = ""): Promise<void> {
+  if (installed && json !== undefined && json.length > 0) await installed.prefetchJson(json, home)
 }
 
-/** Prefetches for encoding `value`, when a keyring is installed. Never throws. */
-export async function prefetchForEncode(value: unknown): Promise<void> {
-  if (installed) await installed.prefetchValue(value)
+/** Prefetches for encoding `value` with `home`'s keys, when a keyring is installed. Never throws. */
+export async function prefetchForEncode(value: unknown, home = ""): Promise<void> {
+  if (installed) await installed.prefetchValue(value, home)
+}
+
+/** `work` with the keys of `home`'s keyring ("" for this installation's), when a keyring is installed. */
+export function withKeysAt<T>(home: string, work: () => T): T {
+  return installed && home !== "" ? installed.within(home, work) : work()
 }
 
 // ── notices ──────────────────────────────────────────────────────────────────

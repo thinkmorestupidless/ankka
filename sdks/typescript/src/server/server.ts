@@ -151,8 +151,8 @@ export class Server {
     const timeoutMs = this.#options.keyTimeoutMillis ?? 10_000
     // The project is learned from the sidecar's answers (`SubjectKeyReply.project`), never configured.
     this.#keyring = new Keyring({
-      fetch: async (project, subject, create): Promise<KeyReply> => {
-        const reply = await channel.stub().getSubjectKey({ subject, create, project }, { timeoutMs })
+      fetch: async (project, subject, create, home = ""): Promise<KeyReply> => {
+        const reply = await channel.stub().getSubjectKey({ subject, create, project, home }, { timeoutMs })
         switch (reply.reply.case) {
           case "key":
             return { project: reply.project, answer: { kind: "key", key: reply.reply.value } }

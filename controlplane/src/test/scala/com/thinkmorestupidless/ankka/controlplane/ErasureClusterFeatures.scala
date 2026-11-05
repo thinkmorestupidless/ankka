@@ -491,8 +491,13 @@ class ErasureClusterFeatures
       deploy("brand", "engagement", playersDescriptor("engagement", "engagement"))
     val id = "4b7e"
     register("brand", "players", id, "Grace Hopper")
+    def entityName: Option[String] =
+      val answer = players("brand", "players", s"/players/$id")
+      Option.when(answer._1 == 200)(answer._2).flatMap(field(_, "name"))
+    // Every read that decrypts: a view row is opened on each read. The entity, once recovered,
+    // keeps what it decrypted until it is passivated or restarted (FR-022), so it is read after a
+    // restart below, not held to the bound.
     def reads: Vector[(String, Option[String])] = Vector(
-      "players' entity"   -> players("brand", "players", s"/players/$id"),
       "players' view"     -> players("brand", "players", s"/players/$id/profile"),
       "engagement's view" -> players("brand", "engagement", s"/players/$id"),
       "cardholders' view" -> players("payments", "cardholders", s"/players/$id")
@@ -500,7 +505,7 @@ class ErasureClusterFeatures
       what -> Option.when(answer._1 == 200)(answer._2).flatMap(field(_, "name"))
     )
     waitFor(4.minutes, "every service reading Grace Hopper's name") {
-      reads.forall(_._2.contains("Grace Hopper"))
+      entityName.contains("Grace Hopper") && reads.forall(_._2.contains("Grace Hopper"))
     }
     val asked = readFromString(
       ok(ankka("projects", "erasures", "file", s"player/$id", "-p", "brand", "-o", "json")).out
@@ -527,7 +532,12 @@ class ErasureClusterFeatures
       within.compareTo(Duration.ofSeconds(60)) <= 0,
       s"every service read erased $within after the key's destruction: $last"
     )
-    // What is not personal is as it was.
+    // The entity recovered again reads erased, and what is not personal is as it was.
+    ok(ankka("services", "restart", "players", "-p", "brand")): Unit
+    waitFor(8.minutes, "players restarted")(isReady("brand", "players"))
+    waitFor(2.minutes, "players' entity, recovered, reading the name as erased") {
+      entityName.contains("erased")
+    }
     assertEquals(field(players("brand", "players", s"/players/$id")._2, "currency"), Some("EUR"))
   }
 

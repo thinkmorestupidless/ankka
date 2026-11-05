@@ -200,6 +200,8 @@ final class McpServerSuite extends FunSuite:
     def hint(name: String, which: String) =
       tools.find(_.string("name").contains(name)).flatMap(_("annotations")).flatMap(_(which))
     assertEquals(hint("erasure_file", "destructiveHint"), Some(Json.bool(true)))
+    // A second ask makes a second request: asking again is not the same as asking once.
+    assertEquals(hint("erasure_file", "idempotentHint"), Some(Json.bool(false)))
     assertEquals(hint("erasure_certificate", "readOnlyHint"), Some(Json.bool(true)))
   }
 

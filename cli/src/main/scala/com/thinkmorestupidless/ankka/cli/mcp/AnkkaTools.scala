@@ -255,7 +255,7 @@ private[cli] final class AnkkaTools(
       ),
       readOnly = false,
       destructive = true,
-      idempotent = true
+      idempotent = false
     ) { args =>
       val ask = ErasureAsk(
         required(args, "subject"),

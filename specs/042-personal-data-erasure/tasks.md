@@ -218,7 +218,7 @@ and every scenario bound to a suite and red before a line of the feature exists.
 - [X] T074 [US5] A consumer without `decrypt` reads every personal field as erased (the keyring answers `Refused`, the codec yields `Erased` for that grant's reads only, never caching a refusal as destroyed)
 - [X] T075 [US5] `KEY/DecryptRoute.scala`: `Decrypt` through the gateway for a machine token holding a decrypt grant, field by field, each recorded in `decryption`; refused once revoked or erased; the gateway route rendered by the operator when erasure is on
 - [X] T076 [US5] `RT/replication/KeyringRelay.scala` (R17): the ServiceLoader SPI and its default (`Unavailable` naming the relay); the keyring client asks the relay with the entity's home for a replicated component's data subject; `TK/TestKeyringRelay.scala` over `LocalInstallations`; the home's admission of a relayed installation
-- [ ] T077 [US5] `ErasureFeatures`: `other-projects.feature`'s in-process scenarios and `replication.feature` green; `ErasureClusterFeatures`' machine scenarios green on k3s
+- [X] T077 [US5] `ErasureFeatures`: `other-projects.feature`'s in-process scenarios and `replication.feature` green; `ErasureClusterFeatures`' machine scenarios green on k3s
 
 ---
 

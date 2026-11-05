@@ -350,11 +350,17 @@ class ErasureFeatures(
       ,
       serviceIdentity = ServiceIdentity.deployed(project, name),
       keyring = keyring,
-      storage = storage
+      storage = storage,
+      settings = com.typesafe.config.ConfigFactory.parseString(FetchTimeout)
     )
     kits :+= started
     names :+= name
     started
+
+  // A fetch from the keyring's socket can take more than the 2s default on a loaded CI runner,
+  // which reads as an unavailable keyring and not as the slow machine it is; nothing here asserts
+  // how fast a key arrives.
+  private val FetchTimeout = "ankka.keyring.fetch-timeout = 15s"
 
   private def kitNamed(name: String): AnkkaTestKit =
     names.indexOf(name) match

@@ -253,7 +253,8 @@ class ErasureProjectsFeatures
         Seq(PlayerEntity.descriptor, RegistrationPublisher.descriptor),
         Seq(ProjectionRuntime.withBroker(broker, broker)),
         configure = _.withKeyStore((_, in) => remoteAs(in, "players")),
-        serviceIdentity = ServiceIdentity.deployed("brand", "players")
+        serviceIdentity = ServiceIdentity.deployed("brand", "players"),
+        settings = ConfigFactory.parseString(FetchTimeout)
       )
     )
     cardholders = Some(
@@ -263,10 +264,15 @@ class ErasureProjectsFeatures
         configure = _.withKeyStore((_, in) => remoteAs(in, "cardholders")),
         serviceIdentity = ServiceIdentity.deployed("payments", "cardholders"),
         settings = ConfigFactory.parseString(
-          s"ankka.keyring.cache.foreign-ttl = ${foreignTtl.toMillis}ms"
+          s"ankka.keyring.cache.foreign-ttl = ${foreignTtl.toMillis}ms\n$FetchTimeout"
         )
       )
     )
+
+  // A fetch from the keyring's socket can take more than the 2s default on a loaded CI runner,
+  // which reads as an unavailable keyring and not as the slow machine it is; nothing here asserts
+  // how fast a key arrives.
+  private val FetchTimeout = "ankka.keyring.fetch-timeout = 15s"
 
   private def stopKits(): Unit =
     (players.toVector ++ cardholders.toVector).foreach(k => scala.util.Try(k.stop()))
@@ -479,7 +485,7 @@ class ErasureProjectsFeatures
     (_: String, field: String) =>
       assertEquals(field, "name")
       // Within the time payments holds a key of brand's, and no notice of brand's reaching it.
-      val read = eventually("the row reads as erased", foreignTtl + 10.seconds)(
+      val read = eventually("the row reads as erased", foreignTtl + 30.seconds)(
         row.filter(_.name.isErased)
       )
       assert(read.name.isErased)

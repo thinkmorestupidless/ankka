@@ -138,7 +138,7 @@ impl DataSubject {
         self.origin.as_deref()
     }
 
-    fn from_envelope(mut self, project: &str) -> DataSubject {
+    fn read_from_envelope(mut self, project: &str) -> DataSubject {
         self.origin = Some(project.to_string());
         self
     }
@@ -488,7 +488,7 @@ fn open<T: DeserializeOwned>(
     // when it is another project's (FR-027); the runtime tells its own project from any other.
     let subject = DataSubject::new(envelope.subject.clone())
         .map_err(|e| e.0)?
-        .from_envelope(&envelope.project);
+        .read_from_envelope(&envelope.project);
     if envelope.c.is_none() {
         return Ok(Personal::Erased { subject });
     }

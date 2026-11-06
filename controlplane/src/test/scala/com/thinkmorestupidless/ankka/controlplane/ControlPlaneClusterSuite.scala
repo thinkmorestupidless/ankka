@@ -1376,5 +1376,6 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     val broker = installation.broker.getOrElse(fail(s"no broker reported: $body"))
     assertEquals(broker.nodes, Some(1), body)
     assertEquals((broker.defaultCopies, broker.minInSync), (1, 1), body)
-    assertEquals(installation.erasure, None, body)
+    // Feature 042 states erasure always; the shipped manifest leaves it off.
+    assertEquals(installation.erasure.map(_.enabled), Some(false), body)
   }

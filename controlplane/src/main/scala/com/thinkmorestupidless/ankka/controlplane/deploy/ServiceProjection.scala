@@ -248,6 +248,8 @@ object ServiceProjection:
               databaseCluster = service.databaseCluster,
               // Whole, whether or not exposed: the operator renders them only while it is, so an
               // unexposed service keeps its names and exposing it again brings them back.
-              customHostnames = service.customHostnames.toList
+              customHostnames = service.customHostnames.toList,
+              // Feature 042: as the descriptor says it.
+              personal = descriptor.service.personal
             )
           )

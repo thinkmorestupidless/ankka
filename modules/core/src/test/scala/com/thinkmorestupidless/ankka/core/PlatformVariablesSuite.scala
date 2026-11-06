@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly these twenty-nine") {
+  test("the variables the platform alone sets are exactly these") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -27,6 +27,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_SIDECAR_PORT",
         "ANKKA_SIDECAR_ADDRESS",
         "ANKKA_SIDECAR_BIND",
+        // Where a local service's console endpoint listens, for a test kit's container (feature 042).
+        "ANKKA_OBSERVABILITY_ADDRESS",
         "ANKKA_WASM_MODULE",
         "ANKKA_WASM_INSTANCES",
         "ANKKA_WASM_MAX_MEMORY_PAGES",
@@ -51,7 +53,9 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_INSTALLATION",
         "ANKKA_INSTALLATIONS",
         // Where the installation's model server is (feature 053).
-        "ANKKA_MODELS_ADDRESS"
+        "ANKKA_MODELS_ADDRESS",
+        // Where the installation's keyring is (feature 042).
+        "ANKKA_KEYRING_ADDRESS"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
@@ -238,6 +242,22 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assertEquals(BrokerNodes, "ANKKA_BROKER_NODES")
     assert(!platformOnly(BrokerNodes))
     assert(!runtimeOnly(BrokerNodes))
+  }
+
+  test("erasure's settings are the control plane's and the operator's own, never a service's") {
+    assertEquals(Erasure, "ANKKA_ERASURE")
+    assertEquals(KeyringInstances, "ANKKA_KEYRING_INSTANCES")
+    assertEquals(ErasureRerunWindow, "ANKKA_ERASURE_RERUN_WINDOW")
+    for name <- Vector(Erasure, KeyringInstances, ErasureRerunWindow) do
+      assert(!platformOnly(name), name)
+      assert(!runtimeOnly(name), name)
+      assert(!SharedPrefixes.exists(name.startsWith), name)
+  }
+
+  test("the keyring's address is the platform's alone, given to the platform's program") {
+    assertEquals(KeyringAddress, "ANKKA_KEYRING_ADDRESS")
+    assert(platformOnly(KeyringAddress))
+    assert(!runtimeOnly(KeyringAddress))
   }
 
   test("the object store's variables are the developer's program's, by prefix") {

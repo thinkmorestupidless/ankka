@@ -30,7 +30,8 @@ import java.nio.file.Path
  *
  * Bound to **loopback on an ephemeral port**. Loopback is the entirety of the access control, and
  * is the reason the console is local-only: this endpoint shows entity state and agent memory, which
- * is whatever the application put there.
+ * is whatever the application put there. The one exception is a test kit's sidecar container, which
+ * names an address with `ANKKA_OBSERVABILITY_ADDRESS` so Docker can publish the port to the host.
  */
 final class ObservabilityEndpoint private (
     server: JdkHttpServer,
@@ -45,6 +46,23 @@ final class ObservabilityEndpoint private (
 
 object ObservabilityEndpoint:
 
+  /** The config key naming where the endpoint listens, as `host:port`; empty for loopback. */
+  val LocalAddressKey = "ankka.observability.local-address"
+
+  /**
+   * Loopback on an ephemeral port, unless `ankka.observability.local-address` names another
+   * (`ANKKA_OBSERVABILITY_ADDRESS`): a test kit that runs the sidecar in a container binds the
+   * container's interfaces so that Docker can publish the port to the host.
+   */
+  private[runtime] def bindAddress(config: com.typesafe.config.Config): InetSocketAddress =
+    val named =
+      if config.hasPath(LocalAddressKey) then config.getString(LocalAddressKey).trim else ""
+    if named.isEmpty then InetSocketAddress(InetAddress.getLoopbackAddress, 0)
+    else
+      val at = named.lastIndexOf(':')
+      require(at > 0, s"$LocalAddressKey is host:port, not '$named'")
+      InetSocketAddress(named.substring(0, at), named.substring(at + 1).toInt)
+
   /**
    * Starts the endpoint and announces the service, in local mode only.
    *
@@ -58,10 +76,7 @@ object ObservabilityEndpoint:
       documents: ObservabilityDocuments
   ): Option[ObservabilityEndpoint] =
     try
-      val server = JdkHttpServer.create(
-        InetSocketAddress(InetAddress.getLoopbackAddress, 0),
-        0
-      )
+      val server        = JdkHttpServer.create(bindAddress(service.system.settings.config), 0)
       val observability = Observability(service.system)
       val handler       = Handler(service, documents, observability)
 
@@ -85,6 +100,12 @@ object ObservabilityEndpoint:
         server.createContext("/replication/forward", exchange => loopback.forward(exchange))
         server.createContext("/replication/report", exchange => loopback.report(exchange))
       }
+      // Feature 042 (R20): an erasure filed on this machine, against the local keyring.
+      server.createContext("/_ankka/erasures", exchange => LocalErasures.file(service, exchange))
+      server.createContext(
+        "/_ankka/keyring/outage",
+        exchange => LocalErasures.outage(service, exchange)
+      )
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
@@ -260,7 +281,9 @@ object ObservabilityEndpoint:
                 service.componentClient.transportRef.ask(
                   ComponentId(SessionMemoryComponent),
                   EntityId(id),
-                  MethodName("history"),
+                  // The session as an observer is shown it: a session kept under a data subject
+                  // shows each personal text as `Personal(<subject>)`, never the value (042).
+                  MethodName("observed"),
                   Array.emptyByteArray,
                   Metadata.empty
                 ),
@@ -333,3 +356,132 @@ private[runtime] object Json:
       case c                   => c.toString
     }
     s""""$escaped""""
+
+/**
+ * `POST /_ankka/erasures` on a locally run service (feature 042, R20): `{"subject": "...", "rerun":
+ * false}` destroys the data subject's key in the local keyring, and the answer is the notice's
+ * sequence and, once this instance has carried it out, what it did; 503 while the keyring is in an
+ * outage. `POST /_ankka/keyring/outage` starts or ends one. Loopback only, as the endpoint is; and
+ * JSON only, so a page in a browser cannot send one without a preflight it would be refused.
+ */
+private[runtime] object LocalErasures:
+  import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, readFromArray}
+  import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+  import com.thinkmorestupidless.ankka.core.DataSubject
+  import com.thinkmorestupidless.ankka.runtime.keyring.{KeyringHandle, LocalKeyring}
+  import scala.concurrent.duration.*
+
+  private final case class Filing(subject: String, rerun: Boolean = false)
+  private given JsonValueCodec[Filing] = JsonCodecMaker.make
+
+  private final case class Outage(seconds: Double)
+  private given JsonValueCodec[Outage] = JsonCodecMaker.make
+
+  /**
+   * The local keyring, when the request passes the guards both routes share: `POST`, JSON, and a
+   * service that has one. Otherwise answers the refusal and is `None`.
+   */
+  private def guarded(
+      service: AnkkaService,
+      exchange: HttpExchange,
+      what: String
+  ): Option[LocalKeyring] =
+    val local = service.keyring match
+      case h: KeyringHandle =>
+        h.client.store match
+          case l: LocalKeyring => Some(l)
+          case _               => None
+      case _ => None
+    val json = Option(exchange.getRequestHeaders.getFirst("Content-Type"))
+      .exists(_.toLowerCase.startsWith("application/json"))
+    if exchange.getRequestMethod != "POST" then
+      ObservabilityEndpoint.respondError(exchange, 405, s"$what with POST")
+      None
+    else if !json then
+      ObservabilityEndpoint.respondError(exchange, 415, s"$what as application/json")
+      None
+    else if local.isEmpty then
+      ObservabilityEndpoint.respondError(
+        exchange,
+        409,
+        "this service has no local keyring: it has one only when run on this machine with a " +
+          "database"
+      )
+      None
+    else local
+
+  /**
+   * `POST /_ankka/keyring/outage` (feature 042, T071): `{"seconds": n}` makes the local keyring
+   * refuse every request as unavailable for `n` seconds, erasures included, as the test kit's
+   * keyring in memory does; `{"seconds": 0}` ends an outage now. For a test kit that runs the
+   * sidecar in a container; the same guards as an erasure.
+   */
+  def outage(service: AnkkaService, exchange: HttpExchange): Unit =
+    guarded(service, exchange, "an outage is asked for").foreach { keyring =>
+      val parsed =
+        try Right(readFromArray[Outage](exchange.getRequestBody.readAllBytes()))
+        catch case e: Exception => Left(s"the body is not {\"seconds\": n}: ${e.getMessage}")
+      parsed.filterOrElse(
+        o => o.seconds >= 0 && !o.seconds.isInfinite && !o.seconds.isNaN,
+        "seconds is a number, 0 or more"
+      ) match
+        case Left(problem) => ObservabilityEndpoint.respondError(exchange, 400, problem)
+        case Right(o)      =>
+          if o.seconds == 0 then keyring.recover()
+          else keyring.outage((o.seconds * 1000).round.millis)
+          val until = keyring.outageUntil.fold("null")(u => Json.str(u.toString))
+          ObservabilityEndpoint.respond(exchange, s"""{"until":$until}""")
+    }
+
+  def file(service: AnkkaService, exchange: HttpExchange): Unit =
+    guarded(service, exchange, "an erasure is filed").foreach { keyring =>
+      fileWith(keyring, exchange)
+    }
+
+  private def fileWith(keyring: LocalKeyring, exchange: HttpExchange): Unit =
+    val parsed =
+      try Right(readFromArray[Filing](exchange.getRequestBody.readAllBytes()))
+      catch case e: Exception => Left(s"the body is not {\"subject\": ...}: ${e.getMessage}")
+    parsed.flatMap(f =>
+      try Right(DataSubject(f.subject) -> f.rerun)
+      catch case e: IllegalArgumentException => Left(e.getMessage)
+    ) match
+      case Left(problem)           => ObservabilityEndpoint.respondError(exchange, 400, problem)
+      case Right((subject, rerun)) =>
+        // A keyring in an outage destroys nothing: the erasure is refused, as the platform's is.
+        try erased(keyring, exchange, subject, keyring.erase(subject, rerun))
+        catch
+          case e: com.thinkmorestupidless.ankka.core.CommandError
+              if e.code == com.thinkmorestupidless.ankka.core.ErrorCode.Unavailable =>
+            ObservabilityEndpoint.respondError(exchange, 503, e.message)
+
+  private def erased(
+      keyring: LocalKeyring,
+      exchange: HttpExchange,
+      subject: DataSubject,
+      seq: Long
+  ): Unit =
+    // The duties run on a notice this instance hears within a poll; a short wait reports
+    // them in the answer, and an answer without them says only that the key is gone.
+    val acks = Iterator
+      .continually { Thread.sleep(100); keyring.acks(seq) }
+      .take(100)
+      .find(_.nonEmpty)
+      .getOrElse(Vector.empty)
+    val done = acks.map { a =>
+      val c       = a.completion
+      val handler = c.handler.fold("") { h =>
+        s""","handler":{"objectsErased":${h.objectsErased},"finality":${Json.str(
+            h.finality
+          )}""" +
+          h.error.fold("")(e => s""","error":${Json.str(e)}""") + "}"
+      }
+      s"""{"service":${Json.str(a.service)},"instance":${Json.str(a.instance)},""" +
+        s""""rowsRedacted":${c.rowsRedacted},"tokensDropped":${c.tokensDropped},""" +
+        s""""sessionsEnded":${c.sessionsEnded}$handler}"""
+    }
+    ObservabilityEndpoint.respond(
+      exchange,
+      s"""{"seq":$seq,"subject":${Json
+          .str(subject.value)},"completions":${done.mkString("[", ",", "]")}}"""
+    )

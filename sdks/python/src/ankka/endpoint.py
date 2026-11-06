@@ -24,6 +24,7 @@ from ankka.event_sourced_entity import RegistrationError
 from ankka.client_keys import HasClientKeys
 from ankka.secrets import HasSecrets
 from ankka.storage import HasStorage
+from ankka.erasures import HasErasures
 from ankka.services import HasServices
 
 
@@ -351,7 +352,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
 _current: ContextVar[RequestContext | None] = ContextVar("ankka_request", default=None)
 
 
-class Endpoint(HasSecrets, HasStorage, HasServices, HasClientKeys):
+class Endpoint(HasSecrets, HasStorage, HasServices, HasErasures, HasClientKeys):
     """Subclass this. Class attributes: ``prefix`` and ``acl``. Routes are decorated methods."""
 
     prefix: ClassVar[str]
@@ -418,7 +419,8 @@ class Endpoint(HasSecrets, HasStorage, HasServices, HasClientKeys):
             assert codec is not None
             if result is None or isinstance(result, Done):
                 return 204, codec.content_type, b""  # as a Scala endpoint answers Done: no content
-            return 200, codec.content_type, codec.encode(result)
+            with _at_edge():  # a reply is the edge: a personal field is its value beside its subject
+                return 200, codec.content_type, codec.encode(result)
         finally:
             _current.reset(token)
 
@@ -453,7 +455,15 @@ class Endpoint(HasSecrets, HasStorage, HasServices, HasClientKeys):
         if spec.body_param is not None:
             assert spec.body_codec is not None
             try:
-                kwargs[spec.body_param] = spec.body_codec.decode(body)
+                with _at_edge():
+                    kwargs[spec.body_param] = spec.body_codec.decode(body)
             except Exception as e:  # a body that does not decode is the caller's problem
                 raise HttpProblem(400, f"cannot decode the request body: {e}") from e
         return kwargs
+
+
+def _at_edge() -> Any:
+    """``personal.at_edge``; imported here because ``personal`` imports the client, which imports this."""
+    from ankka.personal import at_edge
+
+    return at_edge()

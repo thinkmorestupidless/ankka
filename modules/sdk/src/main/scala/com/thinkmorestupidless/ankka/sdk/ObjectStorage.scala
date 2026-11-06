@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.sdk
 
-import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+import com.thinkmorestupidless.ankka.core.{CommandError, DataSubject, ErrorCode}
 
 import java.io.{ByteArrayInputStream, InputStream}
 import java.net.URI
@@ -101,6 +101,23 @@ trait Bucket:
    * only. Computed, never fetched, so it is answered for a name nothing is kept under yet.
    */
   def url(name: String): URI
+
+  /**
+   * Erase every object kept under `subject`'s subject prefix (feature 042,
+   * `ObjectRules.subjectPrefix`), and on a store that keeps versions every version of each. Objects
+   * outside it are kept, those of another data subject included. Run again, it erases what was kept
+   * there since and nothing else; nothing kept there is not an error.
+   */
+  def erase(subject: DataSubject): ErasedObjects =
+    val names = list(ObjectRules.subjectPrefix(subject)).map(_.name).toVector
+    names.foreach(delete)
+    ErasedObjects(names.size.toLong, Finality.Immediate)
+
+/**
+ * What `Bucket.erase` removed: how many objects, and when they are gone for good. On a store that
+ * keeps a deleted object for a soft-delete window, that is when the window has passed.
+ */
+final case class ErasedObjects(count: Long, finality: Finality)
 
 /** How a bucket is reached from outside the installation. */
 enum BucketExposure:
@@ -249,6 +266,15 @@ object ObjectRules:
 
   val BucketNameRule: String  = "lower-case letters, digits and '-', 1 to 32 characters"
   private val ValidBucketName = "[a-z0-9-]{1,32}".r
+
+  /**
+   * Where a service keeps the objects of `subject` (feature 042): `subjects/`, the data subject
+   * with every `/` written `%2F`, and `/`. A data subject cannot hold `%`, so no subject prefix
+   * holds another's: `player`'s is `subjects/player/` and `player/8c1f`'s
+   * `subjects/player%2F8c1f/`.
+   */
+  def subjectPrefix(subject: DataSubject): String =
+    "subjects/" + subject.value.replace("/", "%2F") + "/"
 
   /** What is wrong with an object's `name`, if anything. */
   def nameProblem(name: String): Option[String] =

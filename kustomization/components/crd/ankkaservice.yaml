@@ -333,6 +333,12 @@ spec:
                     unique across the installation. Rendered only while the service is exposed.
                   items:
                     type: string
+                personal:
+                  type: boolean
+                  description: >-
+                    Whether the service holds personal fields, as its descriptor says. The operator
+                    renders the address of the installation's keyring for it, and the keyring's
+                    network policy admits it.
             status:
               type: object
               properties:

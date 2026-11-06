@@ -24,6 +24,8 @@ from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUn
 from ankka.consumer import Consumer
 from ankka.standing import Standing
 from ankka.storage import Access, Bucket
+from ankka.erasure import ErasureContext, ErasureReport
+from ankka.personal import DataSubject, Personal, Present
 from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
@@ -101,6 +103,66 @@ class Conformance(EventSourcedEntity[Recordings, Recorded]):
     @command("misbehave")
     def misbehave(self) -> EventSourcedEffect[Recordings, Recorded, str]:
         raise RuntimeError("boom")
+
+
+# ── personal-contact: an entity whose event has a personal field (feature 042) ──
+
+
+@dataclass(frozen=True)
+class RecordContact:
+    """What `record` is asked: the data subject and the email kept as a personal field of it."""
+
+    subject: str
+    email: str
+
+
+@dataclass(frozen=True)
+class ContactRecorded:
+    """The email, a personal field: sealed under the data subject's key in the journal."""
+
+    email: Personal[str]
+
+
+@dataclass(frozen=True)
+class Contact:
+    email: Personal[str] | None = None
+
+
+class PersonalContact(EventSourcedEntity[Contact, ContactRecorded]):
+    component_id = "personal-contact"
+    state_codec = json_codec(Contact, "personal-contact-state")
+    event_codec = json_codec(ContactRecorded, "personal-contact-event")
+
+    def empty_state(self) -> Contact:
+        return Contact()
+
+    def apply_event(self, state: Contact, event: ContactRecorded) -> Contact:
+        return Contact(event.email)
+
+    @command("record")
+    def record(self, ask: RecordContact) -> EventSourcedEffect[Contact, ContactRecorded, str]:
+        return self.effects.persist(ContactRecorded(Personal.of(DataSubject(ask.subject), ask.email))).then_reply(lambda _: "done")
+
+    @query("email")
+    def email(self) -> ReadOnlyEffect[Contact, ContactRecorded, Contact]:
+        return self.effects.reply(self.state)
+
+
+@dataclass
+class PersonalRecord:
+    """What a `/conformance/personal/{id}` call did, the same in every language: `outcome` is `ok`
+    (with the `email` read back), `erased` (the data subject's key is destroyed), `absent` (nothing
+    was recorded) or `refused`, with the protocol's `code` word and the `message`."""
+
+    outcome: str
+    email: str = ""
+    code: str = ""
+    message: str = ""
+
+
+async def erase_nothing(ctx: ErasureContext, subject: DataSubject) -> ErasureReport:
+    """Every reference's erasure handler: it keeps no objects, and reports one erased all the same."""
+    return ErasureReport(objects_erased=1)
 
 
 # ── profile: a key value entity ──
@@ -664,6 +726,37 @@ class ConformanceEndpoint(Endpoint):
         return await self._storage_call(call)
 
     # docs:end storage
+
+    # docs:start personal-routes
+    # An entity whose event has a personal field: a post records `{"subject", "email"}`, a get reads
+    # the email back. Each answer is a record, a refusal included, as the storage routes' are.
+    @post("/personal/{id}")
+    async def record_contact(self, id: str, body: RecordContact) -> PersonalRecord:
+        async def call() -> PersonalRecord:
+            await self._scoped().for_event_sourced_entity("personal-contact", id).call("record").invoke(body, reply=str)
+            return PersonalRecord("ok")
+
+        return await self._personal_call(call)
+
+    @get("/personal/{id}")
+    async def read_contact(self, id: str) -> PersonalRecord:
+        async def call() -> PersonalRecord:
+            contact = await self._scoped().for_event_sourced_entity("personal-contact", id).call("email").invoke(reply=Contact)
+            if contact.email is None:
+                return PersonalRecord("absent")
+            if isinstance(contact.email, Present):
+                return PersonalRecord("ok", email=contact.email.value)
+            return PersonalRecord("erased")
+
+        return await self._personal_call(call)
+
+    # docs:end personal-routes
+
+    async def _personal_call(self, call: Callable[[], Awaitable[PersonalRecord]]) -> PersonalRecord:
+        try:
+            return await call()
+        except CommandError as refused:
+            return PersonalRecord("refused", code=refused.error.code.name, message=refused.error.message)
 
     def _required(self, name: str) -> str:
         value = self.request.query_param(name)
@@ -1419,7 +1512,7 @@ class McpKeysEndpoint(Endpoint):
 
 def reference_service() -> ServiceBuilder:
     """The cart sample plus the conformance extras: what `uv run conformance` serves."""
-    return (
+    service = (
         Ankka.service()
         .register(ShoppingCartEntity)
         .register(CartRows)
@@ -1427,6 +1520,7 @@ def reference_service() -> ServiceBuilder:
         .register(CheckoutRows)
         .register(CheckoutEnds)
         .register(Conformance)
+        .register(PersonalContact)
         .register(Profile)
         .register(CheckoutRecorder)
         .register(CheckoutFanout)
@@ -1458,3 +1552,5 @@ def reference_service() -> ServiceBuilder:
         .register(McpKeysEndpoint)
         .register(CartMcp)
     )
+    service.erasure_handler(erase_nothing)
+    return service

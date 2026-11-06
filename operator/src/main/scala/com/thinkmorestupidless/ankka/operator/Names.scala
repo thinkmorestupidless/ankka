@@ -95,8 +95,10 @@ object Names:
    * `cloud-provider` is reserved because a project's namespace is `<prefix>-<project>`, and the
    * installation's cloud provider runs in `ankka-cloud-provider` with the power over the cloud
    * account (feature 044): a project of that name would render into the provider's namespace.
+   * `keyring` likewise: the installation's keyring runs in `ankka-keyring` (feature 042).
    */
-  val ReservedProjectIds: Set[String] = Set("platform", "local", "cloud-provider", "machine")
+  val ReservedProjectIds: Set[String] =
+    Set("platform", "local", "cloud-provider", "machine", "keyring")
 
   /** Problems with a rendered namespace name, reported all at once. */
   def namespaceProblems(prefix: String, projectId: String): Vector[String] =

@@ -21,6 +21,9 @@ message Spec {
   // 1.20: MCP endpoints, each served by the sidecar over Streamable HTTP. A sidecar refuses one from
   // an SDK declaring an earlier minor.
   repeated McpEndpoint mcp_endpoints = 5;
+  // 1.23: the process serves `Erasure` and runs a handler for each erased data subject. A sidecar
+  // refuses it from an SDK declaring an earlier minor.
+  bool erasure_handler = 6;
 }
 
 // 1.20: an MCP endpoint. The sidecar answers the protocol, applies the ACL and checks a call's

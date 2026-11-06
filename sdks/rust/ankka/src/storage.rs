@@ -61,6 +61,13 @@ pub fn prefix_problem(prefix: &str) -> Option<String> {
     }
 }
 
+/// Where a service keeps the objects of `subject` (feature 042): `subjects/`, the data subject
+/// with every `/` written `%2F`, and `/`. A data subject cannot hold `%`, so no subject's prefix
+/// holds another's: `player`'s is `subjects/player/` and `player/8c1f`'s `subjects/player%2F8c1f/`.
+pub fn subject_prefix(subject: &crate::personal::DataSubject) -> String {
+    format!("subjects/{}/", subject.as_str().replace('/', "%2F"))
+}
+
 /// What is wrong with a bucket's name, if anything, in the descriptor's words.
 pub fn bucket_name_problem(name: &str) -> Option<String> {
     let valid = (1..=MAX_BUCKET_NAME).contains(&name.chars().count())
@@ -386,6 +393,7 @@ fn unexpected<T>(op: &str, reply: &Reply) -> Result<T, StorageError> {
         Reply::Url(_) => "a URL",
         Reply::Done(_) => "nothing",
         Reply::Error(_) => "a refusal",
+        Reply::Erased(_) => "what an erasure removed",
     };
     Err(StorageError::Internal(format!(
         "the runtime answered a {op} with {case}"
@@ -449,6 +457,23 @@ impl Bucket {
                 body: o.body,
             })),
             other => unexpected("get", &other),
+        }
+    }
+
+    /// Removes every object, and on a store that keeps them every version, under the subject's
+    /// prefix, [`subject_prefix`] (`subjects/`, the subject with every `/` written `%2F`, and `/`;
+    /// protocol 1.23): what an erasure handler does for a data subject's objects. Answers how many were removed and when they are gone for good.
+    pub fn erase(
+        &self,
+        subject: &crate::personal::DataSubject,
+    ) -> Result<crate::erasure::ErasureReport, StorageError> {
+        match ask(self.request(proto::storage_request::Op::Erase, subject.as_str()))? {
+            Reply::Erased(erased) => Ok(crate::erasure::ErasureReport {
+                objects_erased: erased.count as i64,
+                finality: crate::erasure::Finality::parse(&erased.finality)
+                    .map_err(StorageError::Internal)?,
+            }),
+            other => unexpected("erase", &other),
         }
     }
 

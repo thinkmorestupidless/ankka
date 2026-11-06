@@ -241,7 +241,8 @@ The operations, by name: `organization.create`, `organization.rename`, `organiza
 `service-hostname.add`, `service-hostname.remove`, `service.delete`, `service.logs`,
 `service.storage-credential`, `service.storage-move`, `service.storage-settings`,
 `project-location.set`, `project-location.clear`, `grant.make`, `grant.end`, `grant.answer`,
-`grant.relinquish`, `machine.register`, `machine.delete`, `machine.byte-rates`.
+`grant.relinquish`, `machine.register`, `machine.delete`, `machine.byte-rates`, `erasure.ask`,
+`erasure.replace`, `erasure.withdraw`, `erasure.override`.
 
 ## Restyle the pages
 

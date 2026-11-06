@@ -82,6 +82,19 @@ earlier runtime refuses a module importing `storage` when it loads.
 call, and the installation that forwarded the command to its home) and on `EventSourcedIn.Event`
 (as recorded with the event), and the same two on a module's `FoldRequest`. Each is empty when
 there is nothing to say, so an SDK that ignores them reads 1.22 as 1.21.
+`1.23` added personal data (feature 042): `GetSubjectKey`, `SubjectNotices`, `AckSubjectNotice` and
+`AskErasure` on `Client`; `Spec.erasure_handler` and the `Erasure` service a process serves; and for
+a module the `keyring_seal` and `keyring_open` imports, the `erase` export and `storage`'s `erase`
+op. A process seals and opens envelopes itself (`ENCODING.md`, "Personal fields"), so the sidecar
+never reads a personal value. A sidecar refuses `erasure_handler` from an SDK declaring an earlier
+minor, an SDK using personal fields or a handler refuses discovery from a runtime that states an
+earlier one, and an earlier runtime answers the four rpcs `UNIMPLEMENTED`. A field read from another project's
+envelope is written again under that project's key (FR-027): a process asks `GetSubjectKey` with
+that `project` and `create` false, a module sets `KeyringSealRequest.project`. A replicated
+entity's keys are its home's (FR-032): a process tracks the home from `Init.home`, each
+`Event.installation` and `Command.home`, and names it as `SubjectKeyRequest.home`; the sidecar
+asks another installation's keyring through the relay, and an unreachable one is `UNAVAILABLE`,
+never erased. A module's home is the host's to know.
 
 `MAJOR.MINOR`. Within a major:
 

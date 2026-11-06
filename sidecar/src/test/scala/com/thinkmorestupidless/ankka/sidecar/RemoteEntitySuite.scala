@@ -77,6 +77,33 @@ class RemoteEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def count(id: String): String = invoke(id, "count").toOption.get
 
+  test(
+    "personal.sidecar-reads-nothing: an event the sidecar could not parse as JSON is journaled unchanged"
+  ) {
+    // A personal envelope is the process's: the sidecar carries the event's bytes and never
+    // reads them, so bytes that are not JSON at all reach the journal exactly as sent.
+    val raw = "{\"email\":{\"$personal\":1,\"subject\":\"player/8c1f\",\"c\":\"q83v\u0001 not json"
+    assertEquals(invoke("raw1", "record-raw", raw), Right("done"))
+    given org.apache.pekko.actor.typed.ActorSystem[?] = kit.service.system
+    val kept                                          = Await.result(
+      com.thinkmorestupidless.ankka.runtime
+        .Database()
+        .query(
+          com.thinkmorestupidless.ankka.runtime.SqlFragment.raw(
+            "SELECT event_payload FROM event_journal WHERE persistence_id = 'conformance|raw1'"
+          )
+        )(r => r.get("event_payload", classOf[Array[Byte]])),
+      10.seconds
+    )
+    assertEquals(kept.size, 1, kept.map(String(_, "UTF-8")).toString)
+    val payload = kept.head
+    assert(
+      payload.containsSlice(raw.getBytes("UTF-8")),
+      s"the event's bytes were changed on their way to the journal: ${String(payload, "UTF-8")}"
+    )
+    assertEquals(count("raw1"), "1")
+  }
+
   test("S1.1 a command persists and replies; a query sees the events") {
     assertEquals(invoke("a", "record", "one"), Right("done"))
     assertEquals(invoke("a", "record", "two"), Right("done"))

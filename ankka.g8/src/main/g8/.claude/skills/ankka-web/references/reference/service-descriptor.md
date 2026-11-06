@@ -108,6 +108,7 @@ than ignored. A field a newer release of ankka knows needs the installation upgr
 | `objectStorageCredential` | boolean | `true` | `false` gives the service no storage credential, for a program that reaches its bucket by the identity it runs as. Refused where the installation keeps its buckets in Garage, which needs a credential. |
 | `objectStorageVersionAgeDays` | integer | — | After how many days an object's earlier versions are deleted, in a store that keeps them. No effect in Garage, which keeps one version. |
 | `buckets` | array of [buckets](#buckets) | `[]` | The service's named buckets, each reached by its name and exposed in its own way, beside the bucket `provisionObjectStorage` gives. |
+| `personal` | boolean | `false` | Whether the service holds personal fields, encrypted under keys the installation's keyring holds. An installation whose erasure is off refuses `true`, saying so. See [Personal data and erasure](../build/personal-data.md) and [Erasure on the platform](../platform/erasure.md). |
 
 ### image
 
@@ -296,6 +297,7 @@ one fact is how an address ends up pointing at a port nothing listens on.
 | `ANKKA_WASM_MODULE`, `ANKKA_WASM_INSTANCES`, `ANKKA_WASM_MAX_MEMORY_PAGES` | Where the runtime finds a wasm service's module, and how it sizes the instances that run it. |
 | `PORT`, `ANKKA_SERVICES_URL` | With web hosting only: where the process listens, and where it calls services. |
 | `ANKKA_OTLP_ENDPOINT`, `ANKKA_OTLP_HEADERS` | Where the installation's telemetry goes and what is sent with it: the installation's to say, once. See [Telemetry](../operate/telemetry.md). |
+| `ANKKA_KEYRING_ADDRESS` | Where the installation's keyring is, which holds the keys of a service's personal fields. See [Erasure on the platform](../platform/erasure.md). |
 | `ANKKA_MODELS_ADDRESS` | Where the installation's model server is, set only when the installation has one. Name an installation model with a provider whose preset is `installation`. See [Models served by the installation](../platform/installation-models.md). |
 
 ### Supplying your own database

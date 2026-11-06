@@ -77,6 +77,36 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     Vector("totals"),
     Some(BackupPhrases.Republished)
   )
+  private val erasureAsk =
+    ErasureAsk("player/8c1f", Some(later), Some("litigation hold"), Some("ticket-4471"))
+  private val erasureView = ErasureRequestView(
+    "01JB8Z3K7Q2W5X9Y4R6T1V0M3N",
+    "brand",
+    "player/8c1f",
+    "applied",
+    Some("Ada Owner"),
+    Some(at),
+    Some(at),
+    Some("litigation hold"),
+    Some("ticket-4471"),
+    Some(later),
+    Some(ErasureOverrideView("Bo Owner", "regulator order 2026-114", Some(later))),
+    Some(7L),
+    Some(later),
+    Vector(
+      ErasureCompletionView(
+        "players",
+        Some(later),
+        3L,
+        1L,
+        2L,
+        Some(ErasureHandlerView(2L, "final", Some("bucket unreachable")))
+      )
+    ),
+    Some(later),
+    Some(later),
+    Some(ErasureFailureView("the keyring did not answer", Some(at)))
+  )
   private val rehearsalView = RehearsalView(
     "ankka-db-x202610090000",
     "ankka-db",
@@ -836,6 +866,65 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         MachineSummary("network", "machine:affiliates/network")
       ),
       fixture("ByteRatesRequest", rates, ByteRatesRequest(1L, 1L, 1)),
+      // Feature 042: erasure requests, their listing and their certificate.
+      fixture("ErasureAsk", erasureAsk, ErasureAsk("player/8c1f"))(using
+        ErasureWire.erasureAskCodec
+      ),
+      fixture(
+        "ErasureReplace",
+        ErasureReplace(Some(later), Some("litigation hold")),
+        ErasureReplace()
+      )(using ErasureWire.erasureReplaceCodec),
+      fixture(
+        "ErasureOverride",
+        ErasureOverride("regulator order 2026-114"),
+        ErasureOverride()
+      )(using ErasureWire.erasureOverrideCodec),
+      fixture(
+        "ErasureRequestView",
+        erasureView,
+        ErasureRequestView("01JB8Z3K7Q2W5X9Y4R6T1V0M3N", "brand", "player/41d2", "held")
+      )(using ErasureWire.erasureRequestViewCodec),
+      fixture(
+        "ErasureRequestSummary",
+        Vector(
+          ErasureRequestSummary(
+            "01JB8Z3K7Q2W5X9Y4R6T1V0M3N",
+            "player/8c1f",
+            "applied",
+            Some("ticket-4471"),
+            Some(at),
+            Some("Ada Owner"),
+            Some(at),
+            Some(later),
+            Some(later),
+            Some("brand")
+          )
+        ),
+        Vector(ErasureRequestSummary("01JB8Z3K7Q2W5X9Y4R6T1V0M3N", "player/41d2", "held"))
+      )(using ErasureWire.erasureSummariesCodec),
+      fixture(
+        "ErasureCertificate",
+        ErasureCertificate(
+          "01JB8Z3K7Q2W5X9Y4R6T1V0M3N",
+          "brand",
+          "player/8c1f",
+          Some("Ada Owner"),
+          Some(at),
+          Some(ErasureHoldView(at, Some("litigation hold"), Some(later))),
+          Some(ErasureOverrideView("Bo Owner", "regulator order 2026-114", Some(later))),
+          Some(later),
+          Vector(
+            ErasureCertificateService(
+              "players",
+              Some(later),
+              Some(ErasureHandlerView(2L, "final", Some("bucket unreachable")))
+            )
+          ),
+          Some(later)
+        ),
+        ErasureCertificate("01JB8Z3K7Q2W5X9Y4R6T1V0M3N", "brand", "player/8c1f")
+      )(using ErasureWire.erasureCertificateCodec),
       fixture(
         "TokenResponse",
         TokenResponse("eyJ.e30.sig", "Bearer", 900L),

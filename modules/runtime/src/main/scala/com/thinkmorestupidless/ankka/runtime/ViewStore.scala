@@ -83,6 +83,96 @@ private[ankka] object ViewStore:
         )
     )
 
+  /**
+   * The column a view with lookup fields keeps its rows' lookup tokens in (feature 042, R13):
+   * `{"<path>":"<token>"}`, null for a row with none. Added at start beside the table, never to a
+   * view that has no lookup field.
+   */
+  def addLookupColumn(table: String): SqlFragment =
+    SqlFragment.raw(s"ALTER TABLE $table ADD COLUMN IF NOT EXISTS lookup JSONB")
+
+  /** As `upsert`, with the row's lookup tokens, or none. */
+  def upsertWithLookup(
+      table: String,
+      key: String,
+      payload: String,
+      lookup: Option[String]
+  ): SqlFragment =
+    val tokens = lookup.getOrElse("")
+    announcing(
+      table,
+      SqlFragment.raw(s"INSERT INTO $table (row_key, payload, lookup, updated_at) VALUES (") ++
+        sql"$key, $payload, NULLIF($tokens, '')::jsonb" ++
+        SqlFragment.raw(
+          ", now()) ON CONFLICT (row_key) DO UPDATE SET payload = EXCLUDED.payload, " +
+            "lookup = EXCLUDED.lookup, updated_at = now() RETURNING row_key"
+        )
+    )
+
+  /**
+   * The function that reduces a data subject's personal envelopes in a row's JSON to the subject
+   * alone (feature 042, R14), at any depth, leaving every other value, and every other subject's
+   * envelope, as it was. Made at start beside the view tables, under the schema lock.
+   */
+  val createRedaction: SqlFragment = SqlFragment.raw(
+    """CREATE OR REPLACE FUNCTION ankka_redact_personal(j jsonb, p text, s text) RETURNS jsonb
+      |LANGUAGE sql IMMUTABLE AS $$
+      |  SELECT CASE jsonb_typeof(j)
+      |    WHEN 'object' THEN
+      |      CASE WHEN j ? '$personal' AND j->>'project' = p AND j->>'subject' = s THEN j - 'c'
+      |      ELSE (SELECT coalesce(jsonb_object_agg(k, ankka_redact_personal(v, p, s)), '{}'::jsonb)
+      |            FROM jsonb_each(j) AS e(k, v)) END
+      |    WHEN 'array' THEN
+      |      (SELECT coalesce(jsonb_agg(ankka_redact_personal(v, p, s) ORDER BY i), '[]'::jsonb)
+      |       FROM jsonb_array_elements(j) WITH ORDINALITY AS a(v, i))
+      |    ELSE j END
+      |$$""".stripMargin
+  )
+
+  /**
+   * Redacts `subject` of `project` from every row of `table` that holds a sealed value of it, and
+   * drops the row's lookup tokens of that subject's fields when the view keeps any, another
+   * subject's in the same row staying; each rewritten row announced. Answers one row of two counts:
+   * rows rewritten, and how many of them had tokens dropped.
+   *
+   * A lookup path is a field's dotted path, never inside a collection, so the envelope it tokens is
+   * `payload #> <path>`, which still names its subject after redaction drops its ciphertext.
+   */
+  def redact(table: String, project: String, subject: String, lookup: Boolean): SqlFragment =
+    val holds =
+      SqlFragment.raw(
+        "jsonb_path_exists(payload::jsonb, " +
+          "'$.** ? (@.\"$personal\" == 1 && @.project == $p && @.subject == $s && exists(@.c))', " +
+          "jsonb_build_object('p', "
+      ) ++ sql"$project" ++ SqlFragment.raw(", 's', ") ++ sql"$subject" ++ SqlFragment.raw("))")
+    // The row's lookup paths whose envelope is the subject's.
+    val paths =
+      SqlFragment.raw(
+        "ARRAY(SELECT k FROM jsonb_object_keys(coalesce(lookup, '{}'::jsonb)) AS l(k) " +
+          "WHERE payload::jsonb #> string_to_array(k, '.') ->> '$personal' IS NOT NULL " +
+          "AND payload::jsonb #> string_to_array(k, '.') ->> 'project' = "
+      ) ++ sql"$project" ++ SqlFragment.raw(
+        " AND payload::jsonb #> string_to_array(k, '.') ->> 'subject' = "
+      ) ++ sql"$subject" ++ SqlFragment.raw(")")
+    val gone =
+      if lookup then SqlFragment.raw("") ++ paths
+      else SqlFragment.raw("ARRAY[]::text[]")
+    val drop =
+      if lookup then ", lookup = nullif(t.lookup - target.gone, '{}'::jsonb)"
+      else ""
+    SqlFragment.raw("WITH target AS (SELECT row_key, ") ++ gone ++ SqlFragment.raw(
+      s" AS gone FROM $table WHERE "
+    ) ++ holds ++ SqlFragment.raw(
+      s" FOR UPDATE), written AS (UPDATE $table t SET payload = " +
+        "ankka_redact_personal(t.payload::jsonb, "
+    ) ++ sql"$project" ++ SqlFragment.raw(", ") ++ sql"$subject" ++ SqlFragment.raw(
+      s")::text$drop, updated_at = now() FROM target WHERE t.row_key = target.row_key " +
+        "RETURNING t.row_key, cardinality(target.gone) > 0 AS had) " +
+        "SELECT count(*) AS rows, count(*) FILTER (WHERE had) AS tokens, " +
+        s"count(pg_notify('$Channel', '$table|' || row_key)) " +
+        s"FILTER (WHERE octet_length(row_key) < $AnnouncedKeyBytes) AS announced FROM written"
+    )
+
   /** Removes a row, announced when there was one to remove. */
   def delete(table: String, key: String): SqlFragment =
     announcing(

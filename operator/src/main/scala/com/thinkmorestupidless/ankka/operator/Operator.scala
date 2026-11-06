@@ -324,12 +324,24 @@ final class Operator(
     catch case _: InterruptedException => Thread.currentThread().interrupt()
 
   /**
-   * The platform's own databases' backup buckets and credentials (feature 041), ensured at start
-   * and on every resync by an executor of their own, which holds the store. A failure is logged and
-   * tried again at the next resync: it never stops the operator reconciling services.
+   * The platform's own databases' backup buckets and credentials (feature 041), and the keyring's
+   * credentials and the erasure log's bucket (feature 042), ensured at start and on every resync by
+   * an executor of their own, which holds the store. Each action on its own: one whose namespace is
+   * not in this cluster leaves the others done. A failure is logged and tried again at the next
+   * resync: it never stops the operator reconciling services.
    */
+  private def platformActions(executor: Executor): Vector[Action] =
+    PlatformBackups.actions(settings) ++ PlatformErasure.actions(settings) ++
+      PlatformErasure.cloudActions(
+        settings,
+        executor.observeCloudResource,
+        java.time.Instant.now()
+      )
+
   private val platform: Option[java.util.concurrent.ScheduledExecutorService] =
-    Option.when(PlatformBackups.actions(settings).nonEmpty) {
+    Option.when(
+      PlatformBackups.actions(settings).nonEmpty || PlatformErasure.actions(settings).nonEmpty
+    ) {
       val executor  = Fabric8Executor.of(client, settings)
       val scheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r =>
         val thread = new Thread(r, "ankka-operator-platform-backups")
@@ -338,14 +350,16 @@ final class Operator(
       }
       scheduler.scheduleWithFixedDelay(
         () =>
-          try PlatformBackups.actions(settings).foreach(executor.execute)
-          catch
-            // An installation whose control plane is not in this cluster has no namespace for it.
-            case e: io.fabric8.kubernetes.client.KubernetesClientException if e.getCode == 404 =>
-              log.debug("no namespace for the control plane's backup credential: {}", e.getMessage)
-            case scala.util.control.NonFatal(e) =>
-              log.warn("could not ensure the platform's backup credentials: {}", e.getMessage)
-        ,
+          platformActions(executor).foreach { action =>
+            try executor.execute(action)
+            catch
+              // An installation whose control plane, or keyring, is not in this cluster has no
+              // namespace for it.
+              case e: io.fabric8.kubernetes.client.KubernetesClientException if e.getCode == 404 =>
+                log.debug("no namespace for {}: {}", action.describe, e.getMessage)
+              case scala.util.control.NonFatal(e) =>
+                log.warn("could not {}: {}", action.describe, e.getMessage)
+          },
         0L,
         settings.resyncInterval.toMillis,
         java.util.concurrent.TimeUnit.MILLISECONDS

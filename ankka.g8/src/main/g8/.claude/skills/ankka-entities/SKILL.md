@@ -98,6 +98,30 @@ home (`references/concepts/replicated-entities.md`). Use these words and no othe
 - **Test** a copy with `EventSourcedTestKit.of(…, mode = Mode.Follower(home))` and `replay`, and a whole
   service at several installations with `AnkkaTestKit.installations(…)`.
 
+## Personal fields
+
+- **Type every field about a person `Personal`** of one data subject: `Personal(DataSubject("player/8c1f"),
+  email)` in Scala, `Personal.of(DataSubject.of(...), v)` in Java, `personal(subject(...), v)` in Kotlin,
+  `Personal.of(...)` in Python, `s.personal(s.string)` and `personal(subject(...), v)` in TypeScript,
+  `ankka.PersonalOf(ankka.MustSubject(...), v)` in Go, `Personal::present(DataSubject::new(...)?, v)` in
+  Rust. Every store then holds it encrypted under that subject's key; everything else stays as written.
+- **A data subject is a kind and an id the service issued** (1 to 253 of letters, digits, `.`, `_`, `-`,
+  `/`, `:`), never a name, an email or a document number: it is in the clear everywhere.
+- **Read a field as present or erased, always.** Once the subject is erased it decodes as erased, never
+  fails; handle that case (`orElse`, a match). A write for an erased subject is refused as `Conflict`,
+  nothing written; no keyring is `Unavailable`.
+- **Mark: names, contact details, dates of birth, addresses, document numbers, IP addresses, free text a
+  person wrote.** Leave amounts, times, states and joining ids plain. Never put a personal value in an
+  entity id, a log line or an error message.
+- **Changing an existing field to `Personal` is a breaking change**: add a new event case. Records written
+  before stay in the clear.
+- **A live entity keeps what it decrypted until it is passivated or restarted**; its next recovery reads
+  erased.
+- Test with `kit.erase(DataSubject(...))`, `kit.restartService()`, then `kit.assertNoPersonalValue("ada@example.com")`.
+- Objects about a person go under the bucket's subject prefix and are erased by the service's erasure
+  handler; a service asks for an erasure with `ctx.erasures.ask(subject)` under the project's `erasure`
+  grant. Read `references/build/personal-data.md` before writing either.
+
 ## Calling an entity
 
 From an endpoint, workflow step, consumer, timed action or agent tool, through the component client:
@@ -205,6 +229,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript or Rust.
 - `references/build/key-value-entities.md` — Store only the latest value of a piece of state, replace it with updateState, delete or expire it, and decide when that is a better fit than event sourcing.
+- `references/build/personal-data.md` — Mark the fields about a person as personal fields of a data subject, read them as erased once the subject is erased, erase a subject's objects, and ask for an erasure from code.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 - `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.

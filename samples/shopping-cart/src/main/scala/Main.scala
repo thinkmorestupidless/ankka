@@ -34,6 +34,10 @@ import scala.concurrent.duration.DurationInt
  * answerer need it; without one, `/questions` answers not found.
  */
 @main def runShoppingCart(): Unit =
+  // The players of the platform's erasure suites, run from this image instead of the cart.
+  sys.env.get("CART_PLAYERS").filter(_.nonEmpty) match
+    case Some(role) => shoppingcart.players.PlayersService.run(role); sys.exit(0)
+    case None       => ()
   // docs:start registration
   val base = Ankka.service
     .register(ShoppingCartEntity.descriptor)

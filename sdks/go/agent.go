@@ -47,6 +47,41 @@ func agentScope(componentID, sessionID string, md *pb.Metadata) AgentScope {
 	return s
 }
 
+// ── The data subject a session is started with ─────────────────────────────
+
+// DataSubjectKey is the metadata key a call to an agent names its data subject under (feature 042).
+const DataSubjectKey = "ankka-data-subject"
+
+type dataSubjectKeyType struct{}
+
+// WithDataSubject is ctx whose calls to an agent's session (Invoke, InvokeStream and DecideApproval
+// on an agent) name s, under DataSubjectKey: a session started with a data subject keeps its
+// conversation sealed under that subject's key, and reads as erased once the subject is erased. The
+// subject is fixed at the session's first call; a later call naming another is refused. Calls to
+// anything but an agent are unchanged. A DataSubject is made only by Subject, so an id that breaks
+// the rule is refused before anything is sent.
+//
+//	ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
+//	answer, err := ankka.Invoke[string](ctx, "support", sessionID, "ask", question)
+func WithDataSubject(ctx context.Context, s DataSubject) context.Context {
+	return context.WithValue(ctx, dataSubjectKeyType{}, s)
+}
+
+// agentMetadata is the metadata a call to an agent carries: ctx's, with the data subject ctx names.
+func agentMetadata(ctx context.Context) Metadata {
+	md := MetadataFrom(ctx)
+	s, _ := ctx.Value(dataSubjectKeyType{}).(DataSubject)
+	if s.IsZero() {
+		return md
+	}
+	out := make(Metadata, len(md)+1)
+	for k, v := range md {
+		out[k] = v
+	}
+	out[DataSubjectKey] = s.String()
+	return out
+}
+
 // ── Handlers ────────────────────────────────────────────────────────────────
 
 type agentHandler interface {

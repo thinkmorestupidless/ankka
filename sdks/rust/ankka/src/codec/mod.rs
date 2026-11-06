@@ -113,6 +113,26 @@ pub fn decode_payload<T: serde::de::DeserializeOwned + 'static>(
     Auto::<T>::new().decode_value(&payload.data)
 }
 
+/// A value as a payload at the edge — a body sent to another service — where a personal field is
+/// its edge form.
+pub(crate) fn encode_edge_payload<T: Serialize + 'static>(
+    value: &T,
+) -> Result<Payload, EncodingError> {
+    let codec = Auto::<T>::new();
+    Ok(Payload {
+        content_type: codec.form().content_type().as_str().to_string(),
+        manifest: codec.form().manifest(),
+        data: codec.encode_edge(value)?,
+    })
+}
+
+/// A payload read at the edge — another service's answer — where a personal field is its edge form.
+pub(crate) fn decode_edge_payload<T: serde::de::DeserializeOwned + 'static>(
+    payload: &Payload,
+) -> Result<T, EncodingError> {
+    Auto::<T>::new().decode_edge(&payload.data)
+}
+
 /// The reply that says only that a command was handled. Zero bytes on the wire, manifest `done`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Done;

@@ -81,6 +81,15 @@ shared by every installation and one overlay per cluster carrying only what diff
     `installation` and gives no address or key; it starts only once every model it names is served,
     and `services get` says why it waits or failed. Adding the component rolls every service once,
     since every platform container is given the door's address.
+12. **Erasure is on only where a keyring runs.** `ANKKA_ERASURE` (`on`/`off`), `ANKKA_KEYRING_INSTANCES`,
+    `ANKKA_ERASURE_RERUN_WINDOW` (`30d`) and `ANKKA_KEYRING_ADDRESS` on the control plane; while off, a
+    descriptor with `"personal": true` and every erasure write are refused. The keyring (`ankka-keyring`)
+    holds every subject key apart from project databases, under a root key in its own secret store
+    (`ANKKA_SECRET_KEY`) or a Cloud KMS key (`ANKKA_KEYRING_KMS_KEY`). An erasure is written to the
+    erasure log (the control plane's table and `platform.erasure-log`) before any key is destroyed, and a
+    restored keyring applies both copies before it answers. Requests: `ankka projects erasures
+    file|list|get|replace|withdraw|override|certificate`; only an owner overrides a hold. No overlay runs
+    the keyring yet: read `references/platform/erasure.md` and the limitations first.
 
 ## Operating checklist
 
@@ -130,6 +139,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/installation-models.md` — The model server an installation can run for its services — what it is and is not, declaring the models it serves, how a service names one, who may call it, what a member is told when a model is not served, and its status.
 - `references/platform/cloud-provider.md` — How an installation names its one cloud account, the provider process that makes buckets, identities and keys there so the operator never holds that power, the six cloud requests, and how a credential is written once.
 - `references/platform/secrets.md` — Where an installation keeps secrets (each service's database or Google Secret Manager), the secret key, project secrets a descriptor takes by secretKeyRef, the record of every read, and moving to Secret Manager.
+- `references/platform/erasure.md` — The keyring that holds every data subject's key apart from project databases, its root key, how an erasure is held, applied and certified, restores, and what reaches other projects.
 - `references/platform/cross-project-access.md` — Grants — how a project opens one route, gRPC method or topic to a service of another project or a registered machine, made and revoked as data by an owner; machines, their tokens, and the broker exposed to them.
 - `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 

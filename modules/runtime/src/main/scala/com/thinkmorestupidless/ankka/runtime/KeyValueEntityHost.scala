@@ -50,6 +50,7 @@ private[ankka] object KeyValueEntityHost:
       // than once per invocation.
       val observability = Observability(ctx.system)
       val componentRef  = observability.names.intern(descriptor.componentId.toString)
+      val keyring = com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(ctx.system)
 
       DurableStateBehavior
         .withEnforcedReplies[EntityProtocol.Command, Stored[S]](
@@ -65,10 +66,13 @@ private[ankka] object KeyValueEntityHost:
               command,
               DurableStateBehavior.lastSequenceNumber(ctx),
               observability,
-              componentRef
+              componentRef,
+              sealRefusal(descriptor, keyring)
             )
         )
-        .snapshotAdapter(snapshotAdapter(descriptor, empty))
+        .snapshotAdapter(
+          snapshotAdapter(descriptor, empty, keyring)
+        )
     }
 
   private def onCommand[C <: KeyValueEntity[S], S](
@@ -80,7 +84,8 @@ private[ankka] object KeyValueEntityHost:
       command: EntityProtocol.Command,
       sequenceNumber: Long,
       observability: Observability,
-      componentRef: Int
+      componentRef: Int,
+      refusal: S => Option[CommandError]
   ): ReplyEffect[Stored[S]] =
     command match
       case invoke: EntityProtocol.Invoke =>
@@ -138,7 +143,7 @@ private[ankka] object KeyValueEntityHost:
                 Trace.within(
                   span,
                   CallOrigin(descriptor.componentId.toString, invoke.method)
-                )(interpret(binding, entity, invoke, visible, empty))
+                )(interpret(binding, entity, invoke, visible, empty, refusal))
               spanOutcome = handlerOutcome
               effect
             finally
@@ -171,7 +176,8 @@ private[ankka] object KeyValueEntityHost:
       entity: C,
       invoke: EntityProtocol.Invoke,
       visibleState: S,
-      empty: Stored[S]
+      empty: Stored[S],
+      refusal: S => Option[CommandError]
   ): (ReplyEffect[Stored[S]], SpanOutcome) =
     val effect =
       binding.decodeAndInvoke(entity, invoke.payload).asInstanceOf[KeyValueEffect[S, Any]]
@@ -189,6 +195,14 @@ private[ankka] object KeyValueEntityHost:
       case Left(error) =>
         (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
+      // A state the keyring cannot seal (an erased data subject, the keyring unreachable) is the
+      // command's refusal, before anything is persisted, as the event sourced host refuses events.
+      case Right(_) if persists(result) && refusal(result.newState).isDefined =>
+        (
+          PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(refusal(result.newState).get)),
+          SpanOutcome.Refused
+        )
+
       case Right(replyValue) =>
         val builder   = storageEffect(result, empty)
         val effectOut = replyValue match
@@ -203,6 +217,33 @@ private[ankka] object KeyValueEntityHost:
         (effectOut, SpanOutcome.Ok)
     end match
   end interpret
+
+  /** Whether the effect writes its new state: a deletion writes the empty state instead. */
+  private def persists[S](result: KeyValueEffect.Materialised[S, ?]): Boolean =
+    result.retention match
+      case Some(Retention.DeleteNow)      => false
+      case Some(Retention.ExpireAfter(_)) => true
+      case None                           => result.changed
+
+  /**
+   * The refusal sealing the state meets, if any (feature 042): the keyring unreachable, or a data
+   * subject erased. Sealed once more by the snapshot adapter when it is persisted.
+   */
+  private def sealRefusal[C <: KeyValueEntity[S], S](
+      descriptor: KeyValueEntityDescriptor[C, S],
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
+  )(state: S): Option[CommandError] =
+    try
+      com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(
+        descriptor.stateSerializer.toBytes(state)
+      ): Unit
+      None
+    catch
+      case unavailable: com.thinkmorestupidless.ankka.core.KeyringUnavailable =>
+        Some(unavailable.error)
+      case refused: CommandError
+          if refused.details.contains(com.thinkmorestupidless.ankka.core.Personal.ErrorKey) =>
+        Some(refused)
 
   private def storageEffect[S](
       result: KeyValueEffect.Materialised[S, ?],
@@ -225,26 +266,33 @@ private[ankka] object KeyValueEntityHost:
 
   private def snapshotAdapter[C <: KeyValueEntity[S], S](
       descriptor: KeyValueEntityDescriptor[C, S],
-      empty: Stored[S]
+      empty: Stored[S],
+      // The service's keyring, bound around each encode and decode (feature 042): the state's
+      // personal fields are sealed under it.
+      keyring: com.thinkmorestupidless.ankka.core.Keyring
   ): SnapshotAdapter[Stored[S]] =
     new SnapshotAdapter[Stored[S]]:
 
       def toJournal(state: Stored[S]): Any =
-        StateRecord(
-          descriptor.stateSerializer.manifest,
-          descriptor.stateSerializer.toBytes(state.value),
-          state.deleted,
-          state.expiryMillis
-        )
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring) {
+          StateRecord(
+            descriptor.stateSerializer.manifest,
+            descriptor.stateSerializer.toBytes(state.value),
+            state.deleted,
+            state.expiryMillis
+          )
+        }
 
       def fromJournal(from: Any): Stored[S] =
-        val record = from.asInstanceOf[StateRecord]
-        // A deleted record holds the empty state here and nothing at all when a remote host
-        // wrote it; either way there is nothing to decode.
-        if record.deleted then Stored(empty.value, deleted = true, record.expiryMillis)
-        else
-          Stored(
-            descriptor.stateSerializer.fromBytes(record.payload),
-            record.deleted,
-            record.expiryMillis
-          )
+        com.thinkmorestupidless.ankka.core.Keyring.binding(keyring) {
+          val record = from.asInstanceOf[StateRecord]
+          // A deleted record holds the empty state here and nothing at all when a remote host
+          // wrote it; either way there is nothing to decode.
+          if record.deleted then Stored(empty.value, deleted = true, record.expiryMillis)
+          else
+            Stored(
+              descriptor.stateSerializer.fromBytes(record.payload),
+              record.deleted,
+              record.expiryMillis
+            )
+        }

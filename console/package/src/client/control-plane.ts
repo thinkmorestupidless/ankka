@@ -67,6 +67,14 @@ import {
   whoamiSchema,
   type Installation,
   installationSchema,
+  erasureCertificateSchema,
+  erasureRequestSummarySchema,
+  erasureRequestViewSchema,
+  type ErasureAsk,
+  type ErasureCertificate,
+  type ErasureReplace,
+  type ErasureRequestSummary,
+  type ErasureRequestView,
 } from "./schemas.ts";
 
 /** `fetch`'s shape; the server supplies one that presents the console's certificate. */
@@ -442,6 +450,48 @@ export class ControlPlaneClient {
   /** Ends a grant from the grantor's side: a pending one is withdrawn, an accepted one revoked. */
   endGrant(id: string, grantId: string): Promise<void> {
     return this.#call("DELETE", `/projects/${segment(id)}/grants/${segment(grantId)}`);
+  }
+
+  // ── Erasure requests (feature 042) ────────────────────────────────────────
+
+  /** Asks for the erasure of a data subject's personal data; an applied request for them already is answered as it is. */
+  askErasure(id: string, ask: ErasureAsk): Promise<ErasureRequestView> {
+    return this.#call("POST", `/projects/${segment(id)}/erasures`, { body: ask, schema: erasureRequestViewSchema });
+  }
+
+  /** The project's erasure requests, newest first. */
+  listErasures(id: string, query: { subject?: string; state?: string; correlation?: string } = {}): Promise<ErasureRequestSummary[]> {
+    const params = new URLSearchParams();
+    if (query.subject) params.set("subject", query.subject);
+    if (query.state) params.set("state", query.state);
+    if (query.correlation) params.set("correlation", query.correlation);
+    const q = params.size > 0 ? `?${params}` : "";
+    return this.#call("GET", `/projects/${segment(id)}/erasures${q}`, { schema: arrayOf(erasureRequestSummarySchema) });
+  }
+
+  /** One erasure request, with each service's completion and why the last attempt to apply it failed. */
+  getErasure(id: string, requestId: string): Promise<ErasureRequestView> {
+    return this.#call("GET", `/projects/${segment(id)}/erasures/${segment(requestId)}`, { schema: erasureRequestViewSchema });
+  }
+
+  /** Replaces a held request's not-before date and reason. */
+  replaceErasure(id: string, requestId: string, replace: ErasureReplace): Promise<ErasureRequestView> {
+    return this.#call("PUT", `/projects/${segment(id)}/erasures/${segment(requestId)}`, { body: replace, schema: erasureRequestViewSchema });
+  }
+
+  /** Withdraws a held request. */
+  withdrawErasure(id: string, requestId: string): Promise<ErasureRequestView> {
+    return this.#call("POST", `/projects/${segment(id)}/erasures/${segment(requestId)}/withdraw`, { schema: erasureRequestViewSchema });
+  }
+
+  /** An owner's override of a hold, with a reason: the request is applied at once. */
+  overrideErasureHold(id: string, requestId: string, reason: string): Promise<ErasureRequestView> {
+    return this.#call("POST", `/projects/${segment(id)}/erasures/${segment(requestId)}/override`, { body: { reason }, schema: erasureRequestViewSchema });
+  }
+
+  /** The erasure certificate of an applied request; refused (409) before it is applied. */
+  erasureCertificate(id: string, requestId: string): Promise<ErasureCertificate> {
+    return this.#call("GET", `/projects/${segment(id)}/erasures/${segment(requestId)}/certificate`, { schema: erasureCertificateSchema });
   }
 
   // ── Services ──────────────────────────────────────────────────────────────

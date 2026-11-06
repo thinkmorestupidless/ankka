@@ -144,3 +144,41 @@ class RenderingUnchangedSuite extends munit.FunSuite:
         )
         assertNoDiff(rendered, Files.readString(file, UTF_8), s"$name renders differently")
     }
+
+  /**
+   * A service with a bucket in the installation's cloud account on a GCS installation, once its
+   * provider has answered: pinned from the operator as it was before erasure, so a variable that
+   * only a service taking part in an erasure needs (its store's soft-delete window) cannot reach a
+   * service that does not, and roll every bucket-holding service when the operator is upgraded.
+   */
+  test("a platform that gains erasure changes nothing it makes for a cloud bucket on GCS") {
+    val cloud = CloudSettings(
+      "gcp",
+      "acct",
+      "europe-west2",
+      Some("keys/ankka"),
+      scala.concurrent.duration.Duration(2, "minutes"),
+      scala.concurrent.duration.Duration(1, "hour")
+    )
+    val gcs  = settings.copy(cloud = Some(cloud), gcs = Some(GcsSettings("ankka", 7)))
+    val spec = base.copy(provisionObjectStorage = true)
+    val plan = ObjectStoragePlan.Ready(
+      recovered = false,
+      Some(CloudBucket("acct-shop-cart", "https://storage.scripted.invalid", "europe-west2", 1L))
+    )
+    val rendered = Rendering.render(
+      resource(spec),
+      gcs,
+      ProvisioningPlan.Ready(recovered = false),
+      objectStoragePlan = plan
+    ) match
+      case Right(actions) => text(actions)
+      case Left(problems) => fail(s"the cloud bucket did not render: ${problems.mkString("; ")}")
+    val file = fixtures.resolve("gcs-cloud-bucket.json.txt")
+    if pinning then
+      Files.createDirectories(fixtures)
+      Files.writeString(file, rendered, UTF_8)
+    else
+      assert(Files.exists(file), s"no fixture $file; pinned from the operator before erasure")
+      assertNoDiff(rendered, Files.readString(file, UTF_8), "the cloud bucket renders differently")
+  }

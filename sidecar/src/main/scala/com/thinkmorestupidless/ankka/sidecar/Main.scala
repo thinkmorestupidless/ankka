@@ -222,7 +222,12 @@ object Main:
       if imports.isEmpty then
         registered.withStorage(com.thinkmorestupidless.ankka.sdk.ObjectStorage.unavailable)
       else registered
-    val builder = stored
+    // Feature 042: the process's handler, run as the runtime runs any other, on one instance.
+    val handled =
+      if discovered.spec.erasureHandler then
+        stored.withErasureHandler(RemoteErasureHandler(conversation, settings.commandTimeout))
+      else stored
+    val builder = handled
       .withConversation(conversation)
       .withExtension(
         SidecarExtension(

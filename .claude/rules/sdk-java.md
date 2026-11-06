@@ -70,3 +70,10 @@ someone says which.
   builders (`effects { }`, `routes { }`) are inline for that reason, and the generic types they carry
   are read with `typeOf<B>().javaType` behind one `@PublishedApi` helper, because `javaType` is still
   experimental and an opt-in at every call site would spread.
+- **A personal field read from another project keeps that project by its identity** (2026-11-05,
+  feature 042). `Personal` is a sealed interface of records with no room for a project, so the
+  reader remembers the producing project against the object it made (`PersonalJson.remember`,
+  weakly) and the writer asks for it (`PersonalJson.originOf`). A record rebuilt around the same
+  `Personal` keeps it; anything that makes a new `Personal` from a read one's value (a mapping
+  helper, a defensive copy) silently moves the field under this project's key, where an erasure in
+  the producing project no longer reaches it.

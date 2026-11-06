@@ -27,8 +27,10 @@ import { Agent as HttpsAgent, request as httpsRequest } from "node:https"
 import { isAbsolute, join, resolve } from "node:path"
 import { Readable } from "node:stream"
 import { CommandError, ErrorCode } from "./effects/common.ts"
+import type { Finality } from "./erasure.ts"
+import { subjectProblem, type DataSubject } from "./personal.ts"
 import { Credentials, EMPTY_PAYLOAD, UNSIGNED_PAYLOAD, encode, hmac, presign, sha256Hex, sign, SignedRequest } from "./sigv4.ts"
-import { Instant } from "./time.ts"
+import { Duration, Instant } from "./time.ts"
 
 // ── The API ─────────────────────────────────────────────────────────────────
 
@@ -98,6 +100,45 @@ export interface Bucket {
   signedUrl(name: string, access: SignedAccess, spanSeconds?: number): string
   /** The address a browser reads the object under `name` at, with no signature: a public bucket's only. */
   url(name: string): string
+  /**
+   * Removes every object of `subject` (feature 042): those under its prefix (`subjectPrefix`), and on a
+   * store that keeps versions every version of each. Objects outside it are kept, those of another data
+   * subject included. Run again, it erases what was kept since, and answers 0 when nothing was.
+   */
+  erase(subject: DataSubject | string): Promise<ErasedObjects>
+}
+
+/** What `Bucket.erase` removed: how many objects, and when they are gone for good (an `ErasureReport`'s `finality`). */
+export interface ErasedObjects {
+  readonly count: number
+  readonly finality: Finality
+}
+
+const IMMEDIATE: Finality = Object.freeze({ kind: "immediate" })
+
+/**
+ * Where a service keeps the objects of `subject` (feature 042): `subjects/`, the data subject with every
+ * `/` written `%2F`, and `/`. A data subject cannot hold `%`, so no subject prefix holds another's:
+ * `player`'s is `subjects/player/` and `player/8c1f`'s `subjects/player%2F8c1f/`. A string that is no
+ * data subject is refused (`BAD_REQUEST`).
+ */
+export function subjectPrefix(subject: DataSubject | string): string {
+  const p = subjectProblem(subject)
+  if (p !== undefined) throw badRequest(p)
+  return "subjects/" + subject.replaceAll("/", "%2F") + "/"
+}
+
+/** `erase` for a store that keeps no versions: list the subject's prefix and delete each object. */
+async function eraseListed(bucket: Omit<Bucket, "erase">, subject: DataSubject | string, finality: Finality = IMMEDIATE): Promise<ErasedObjects> {
+  const names: string[] = []
+  for await (const e of bucket.list(subjectPrefix(subject))) names.push(e.name)
+  for (const n of names) await bucket.delete(n)
+  return Object.freeze({ count: names.length, finality })
+}
+
+/** A bucket made of its other calls, with `erase` by listing. */
+function listedBucket(bucket: Omit<Bucket, "erase">): Bucket {
+  return Object.freeze({ ...bucket, erase: (subject: DataSubject | string) => eraseListed(bucket, subject) })
 }
 
 /** A service's buckets: `default`, the unnamed one, and the named ones by name. */
@@ -183,6 +224,10 @@ export const ObjectRules = Object.freeze({
   checkSpan(spanSeconds: number): void {
     const p = ObjectRules.spanProblem(spanSeconds)
     if (p !== undefined) throw badRequest(p)
+  },
+  /** Where a service keeps the objects of `subject`: `subjectPrefix`. */
+  subjectPrefix(subject: DataSubject | string): string {
+    return subjectPrefix(subject)
   },
 })
 
@@ -427,7 +472,7 @@ export class InMemoryBuckets implements Buckets {
       return m
     }
     const publicBase = this.#publicBase
-    return Object.freeze({
+    return listedBucket({
       name,
       exposure,
       async put(objectName: string, body: ReadableStream<Uint8Array> | Uint8Array, options: PutOptions): Promise<void> {
@@ -664,7 +709,7 @@ export class DirectoryBuckets implements Buckets {
       }
     }
     const address = (objectName: string): string => `${store.#addressBase().replace(/\/$/, "")}${STORAGE_PATH}/${segment}/${addressOf(objectName)}`
-    return Object.freeze({
+    return listedBucket({
       name,
       exposure,
       async put(objectName: string, body: ReadableStream<Uint8Array> | Uint8Array, options: PutOptions): Promise<void> {
@@ -806,6 +851,20 @@ export interface S3Settings {
   readonly named: readonly NamedTarget[]
   /** How long one request waits for an answer: 30 seconds. */
   readonly timeoutMs: number
+  /**
+   * How long the store keeps a deleted object (feature 042), from `ANKKA_S3_SOFT_DELETE_DAYS`: a whole
+   * number of days from 1, or `undefined` for at once.
+   */
+  readonly softDelete?: Duration | undefined
+}
+
+/** `ANKKA_S3_SOFT_DELETE_DAYS`: a whole number of days from 1, or unset. */
+function softDeleteOf(env: Env): Duration | undefined {
+  const variable = PREFIX + "SOFT_DELETE_DAYS"
+  const text = env[variable]?.trim() ?? ""
+  if (text === "") return undefined
+  if (!/^[0-9]+$/.test(text) || Number(text) < 1) throw new Error(`${variable} is '${text}'; it is a whole number of days from 1`)
+  return Duration.ofSeconds(Number(text) * 86_400)
 }
 
 const PREFIX = "ANKKA_S3_"
@@ -902,7 +961,8 @@ export function s3Settings(env: Env = process.env, timeoutMs = 30_000): S3Settin
     if (word === "public" && publicUrl === undefined) throw new Error(`bucket '${name}' is public and ${PREFIX}PUBLIC_URL_${suffix} is not set`)
     named.push(Object.freeze({ name, exposure: word, target: Object.freeze({ ...unnamed, bucket }), publicUrl }))
   }
-  return Object.freeze({ unnamed: unnamed && unnamed.bucket !== "" ? unnamed : undefined, named: Object.freeze(named), timeoutMs })
+  const softDelete = softDeleteOf(env)
+  return Object.freeze({ unnamed: unnamed && unnamed.bucket !== "" ? unnamed : undefined, named: Object.freeze(named), timeoutMs, softDelete })
 }
 
 const httpAgent = new HttpAgent({ keepAlive: true })
@@ -1013,6 +1073,40 @@ export function parseListing(xml: string): { readonly entries: ObjectEntry[]; re
   return { entries, next: truncated ? element(xml, "NextContinuationToken") : undefined }
 }
 
+/** One page of a `ListObjectVersions` answer: each version and delete marker as its key and version id. */
+export interface VersionsPage {
+  /** `[key, versionId]`; the id is `null` for a version written before versioning was on. */
+  readonly versions: readonly (readonly [string, string])[]
+  readonly truncated: boolean
+  readonly nextKey: string | undefined
+  readonly nextVersion: string | undefined
+  /** The answer named versions as Google Cloud Storage does (`Generation`, `NextGenerationMarker`); its next page is asked for by `generation-marker`. */
+  readonly generations: boolean
+}
+
+/** A `ListObjectVersions` answer: its versions and delete markers, and where the next page starts while it is truncated. */
+export function parseVersions(xml: string): VersionsPage {
+  const versions: (readonly [string, string])[] = []
+  let generations = false
+  for (const m of xml.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)) {
+    const block = m[2]!
+    const key = element(block, "Key")
+    if (key === undefined) throw new Error(`a version listing's ${m[1]} has no Key`)
+    const versionId = element(block, "VersionId")
+    const generation = versionId === undefined ? element(block, "Generation") : undefined
+    if (generation !== undefined) generations = true
+    const id = (versionId ?? generation)?.trim() ?? ""
+    versions.push([key, id])
+  }
+  return {
+    versions,
+    truncated: element(xml, "IsTruncated")?.trim() === "true",
+    nextKey: element(xml, "NextKeyMarker"),
+    nextVersion: element(xml, "NextVersionIdMarker") ?? element(xml, "NextGenerationMarker"),
+    generations: generations || element(xml, "NextGenerationMarker") !== undefined,
+  }
+}
+
 function lastModifiedOf(response: IncomingMessage): Instant {
   const v = response.headers["last-modified"]
   const d = v ? new Date(v) : undefined
@@ -1027,8 +1121,10 @@ export class S3Bucket implements Bucket {
   readonly #publicUrl: string | undefined
   readonly #timeoutMs: number
   readonly #endpoint: string
+  readonly #finality: Finality
 
-  constructor(target: S3Target, name: string | undefined, exposure: BucketExposure, publicUrl: string | undefined, timeoutMs = 30_000) {
+  constructor(target: S3Target, name: string | undefined, exposure: BucketExposure, publicUrl: string | undefined, timeoutMs = 30_000, softDelete?: Duration) {
+    this.#finality = softDelete === undefined ? IMMEDIATE : Object.freeze({ kind: "after", after: softDelete })
     this.#target = target
     this.name = name
     this.exposure = exposure
@@ -1109,6 +1205,63 @@ export class S3Bucket implements Bucket {
     })()
   }
 
+  /**
+   * Lists every version and delete marker under the subject's prefix (`ListObjectVersions`) and deletes
+   * each by its version id; the count is the objects with a version. A store that lists no versions
+   * (Garage answers `NotImplemented`) is listed plainly and each object deleted. The finality is
+   * `ANKKA_S3_SOFT_DELETE_DAYS`'s, or immediate.
+   */
+  async erase(subject: DataSubject | string): Promise<ErasedObjects> {
+    const prefix = subjectPrefix(subject)
+    const versions = await this.#versionsUnder(prefix)
+    if (versions === undefined) return eraseListed(this, subject, this.#finality)
+    for (const [key, version] of versions) await this.#deleteVersion(key, version)
+    const objects = new Set(versions.filter(([, v]) => v !== "").map(([k]) => k))
+    return Object.freeze({ count: objects.size, finality: this.#finality })
+  }
+
+  /** Every version and delete marker under `prefix`, or `undefined` when the store lists none. */
+  async #versionsUnder(prefix: string): Promise<(readonly [string, string])[] | undefined> {
+    const found: (readonly [string, string])[] = []
+    let keyMarker: string | undefined
+    let versionMarker: string | undefined
+    let generations = false
+    for (;;) {
+      const query: [string, string][] = [
+        ["prefix", prefix],
+        ["versions", ""],
+      ]
+      if (keyMarker !== undefined) query.push(["key-marker", keyMarker])
+      // Google pages by generation and names the next one `generation-marker`.
+      if (versionMarker !== undefined) query.push([generations ? "generation-marker" : "version-id-marker", versionMarker])
+      const { status, response } = await this.#send("GET", `/${this.#target.bucket}`, query)
+      const text = await textOf(response, 64 << 20)
+      if (status === 501 || text.includes("<Code>NotImplemented</Code>")) return undefined
+      if (status !== 200) throw this.#refused(status, text)
+      let page: VersionsPage
+      try {
+        page = parseVersions(text)
+      } catch (e) {
+        throw StorageRefusals.unreadable(this.#endpoint, e instanceof Error ? e.message : String(e))
+      }
+      found.push(...page.versions)
+      keyMarker = page.nextKey
+      versionMarker = page.nextVersion
+      generations = page.generations
+      if (!page.truncated) return found
+    }
+  }
+
+  /**
+   * One version, or a delete marker; `version` empty is the plain delete. The store's `null` version is
+   * deleted as `versionId=null`: a plain delete would only add a marker above it.
+   */
+  async #deleteVersion(objectName: string, version: string): Promise<void> {
+    const { status, response } = await this.#send("DELETE", this.#objectPath(objectName), version === "" ? [] : [["versionId", version]])
+    const text = await textOf(response)
+    if (status !== 200 && status !== 204 && status !== 404) throw this.#refused(status, text)
+  }
+
   signedUrl(objectName: string, access: SignedAccess, spanSeconds: number = ObjectRules.DEFAULT_SIGNED_URL_SECONDS): string {
     ObjectRules.checkName(objectName)
     let base: URL
@@ -1168,8 +1321,8 @@ export class S3Buckets implements Buckets {
 
   constructor(settings: S3Settings = s3Settings()) {
     const unnamedExposure: BucketExposure = settings.unnamed?.publicEndpoint ? "signed" : "private"
-    this.#unnamed = settings.unnamed && new S3Bucket(settings.unnamed, undefined, unnamedExposure, undefined, settings.timeoutMs)
-    this.#named = new Map(settings.named.map((n) => [n.name, new S3Bucket(n.target, n.name, n.exposure, n.publicUrl, settings.timeoutMs)] as const))
+    this.#unnamed = settings.unnamed && new S3Bucket(settings.unnamed, undefined, unnamedExposure, undefined, settings.timeoutMs, settings.softDelete)
+    this.#named = new Map(settings.named.map((n) => [n.name, new S3Bucket(n.target, n.name, n.exposure, n.publicUrl, settings.timeoutMs, settings.softDelete)] as const))
   }
 
   get default(): Bucket {

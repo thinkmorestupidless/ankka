@@ -27,9 +27,13 @@ object Serializer:
       val manifest: String,
       codec: JsonValueCodec[A]
   ) extends Serializer[A]:
-    def toBytes(value: A): Array[Byte]   = writeToArray(value)(using codec)
-    def fromBytes(bytes: Array[Byte]): A = readFromArray(bytes)(using codec)
-    override def toString: String        = s"Serializer.json($manifest)"
+    // The manifest is bound for the one call, so a personal field inside is sealed under it (R2 of
+    // feature 042). A value with no personal field writes exactly the bytes it always has.
+    def toBytes(value: A): Array[Byte] =
+      PersonalScope.within(manifest)(writeToArray(value)(using codec))
+    def fromBytes(bytes: Array[Byte]): A =
+      PersonalScope.within(manifest)(readFromArray(bytes)(using codec))
+    override def toString: String = s"Serializer.json($manifest)"
 
   /** Passes bytes straight through — for `application/octet-stream` broker messages. */
   val bytes: Serializer[Array[Byte]] = new Serializer[Array[Byte]]:

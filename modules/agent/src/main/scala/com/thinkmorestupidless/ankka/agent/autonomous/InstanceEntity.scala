@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonValueCodec, JsonWriter}
-import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Decision, TokenUsage}
+import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Decision, Json, Sealing, TokenUsage}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 
@@ -72,6 +72,10 @@ final case class Working(
  * host knows what happened, and the entity's job is to refuse what cannot have — anything after
  * termination, an iteration with no task, a task selected that was never queued — and to make it
  * survive the process.
+ *
+ * `subject` is the data subject the instance was started with (feature 042): what it records of its
+ * work that holds conversation (an iteration's error, a task's end, an approval's arguments) is
+ * sealed under the subject's key, and `erased` says the key was destroyed.
  */
 final case class InstanceRecord(
     componentId: String,
@@ -84,7 +88,9 @@ final case class InstanceRecord(
     terminated: Boolean,
     usage: TokenUsage,
     taskUsage: TokenUsage,
-    lastActiveAt: Long
+    lastActiveAt: Long,
+    subject: Option[String] = None,
+    erased: Boolean = false
 ):
   def phase: Phase =
     if terminated then Phase.Terminated
@@ -116,8 +122,18 @@ object InstanceRecord:
       0L
     )
 
+  /** What an instance keeps in the clear: everything but its approvals' arguments. */
+  private[autonomous] def redacted(r: InstanceRecord): InstanceRecord =
+    r.copy(current =
+      r.current.map(w => w.copy(approvals = w.approvals.map(_.copy(arguments = Json.Null))))
+    )
+
+  /** An instance whose data subject was erased. */
+  private[autonomous] def erasedFrom(r: InstanceRecord): InstanceRecord =
+    redacted(r).copy(erased = true)
+
 enum InstanceEvent:
-  case Created(terminateWhenDone: Boolean, at: Long)
+  case Created(terminateWhenDone: Boolean, at: Long, subject: Option[String] = None)
   case TasksAssigned(taskIds: Vector[String], at: Long)
   case TaskDequeued(taskId: String, reason: String, at: Long)
   case TaskSelected(taskId: String, at: Long)
@@ -137,6 +153,25 @@ enum InstanceEvent:
   /** A decision on one of the current iteration's approval requests. */
   case ApprovalDecided(approvalId: String, decision: Decision)
 
+  /**
+   * An event of an instance with a data subject that holds a personal text (feature 042), sealed
+   * under the subject's key beside a clear copy with the text taken out.
+   */
+  case Sealed(clear: String, body: Personal[String])
+
+object InstanceEvent:
+
+  /** The event with its personal texts taken out; `None` for one that holds none. */
+  private[autonomous] def redacted(e: InstanceEvent): Option[InstanceEvent] = e match
+    case f: IterationFailed => Some(f.copy(error = ""))
+    case t: TaskEnded       =>
+      t.outcome match
+        case TaskOutcome.Failed(_)    => Some(t.copy(outcome = TaskOutcome.Failed("")))
+        case TaskOutcome.Cancelled(_) => Some(t.copy(outcome = TaskOutcome.Cancelled("")))
+        case TaskOutcome.Completed    => None
+    case a: ApprovalRequested => Some(a.copy(request = a.request.copy(arguments = Json.Null)))
+    case _                    => None
+
 final class InstanceEntity(context: EventSourcedEntityContext)
     extends EventSourcedEntity[InstanceRecord, InstanceEvent]:
 
@@ -151,8 +186,17 @@ final class InstanceEntity(context: EventSourcedEntityContext)
     def touch(at: Long)                = s.copy(lastActiveAt = at)
     def working(f: Working => Working) = s.copy(current = s.current.map(f))
     event match
-      case E.Created(terminateWhenDone, at) =>
-        s.copy(created = true, terminateWhenDone = terminateWhenDone, lastActiveAt = at)
+      case E.Created(terminateWhenDone, at, about) =>
+        s.copy(
+          created = true,
+          terminateWhenDone = terminateWhenDone,
+          lastActiveAt = at,
+          subject = about
+        )
+      case E.Sealed(clear, body) =>
+        val (inner, gone) = Sealing.open[InstanceEvent](body, clear)(using InstanceCodecs.event)
+        val next          = applyEvent(inner)
+        if gone then InstanceRecord.erasedFrom(next) else next
       case E.TasksAssigned(ids, at) =>
         val fresh =
           ids.distinct.filterNot(id => s.queue.contains(id) || s.current.exists(_.taskId == id))
@@ -202,9 +246,22 @@ final class InstanceEntity(context: EventSourcedEntityContext)
     problem(s, event) match
       case Some((message, code))       => effects.error(s"instance '$instanceId': $message", code)
       case None if redundant(s, event) => effects.reply(s)
-      case None                        => effects.persist(event).thenReplyState
+      case None                        => effects.persist(sealedOr(s, event)).thenReplyState
 
   def get: ReadOnlyEffect[InstanceRecord] = effects.reply(currentState)
+
+  /**
+   * `event` as the instance keeps it (feature 042): sealed under its data subject when it holds a
+   * personal text, written erased once the subject is.
+   */
+  private def sealedOr(s: InstanceRecord, event: InstanceEvent): InstanceEvent =
+    (s.subject.flatMap(DataSubject.from(_).toOption), InstanceEvent.redacted(event)) match
+      case (Some(subject), Some(clear)) =>
+        E.Sealed(
+          Sealing.clear(clear)(using InstanceCodecs.event),
+          Sealing.seal(subject, event, erased = s.erased)(using InstanceCodecs.event)
+        )
+      case _ => event
 
   private def redundant(s: InstanceRecord, event: InstanceEvent): Boolean = event match
     case _: E.Created    => s.created
@@ -253,11 +310,33 @@ final class InstanceEntity(context: EventSourcedEntityContext)
         }
       case _ => None
 
+/** The instance's codecs, apart from its companion, whose constructor names them. */
+private[autonomous] object InstanceCodecs:
+  given event: JsonValueCodec[InstanceEvent]   = Codecs.make[InstanceEvent]
+  given record: JsonValueCodec[InstanceRecord] = Codecs.make[InstanceRecord]
+
+  val events: Serializer[InstanceEvent] = Sealing.eventSerializer[InstanceEvent](
+    "agent-instance-event",
+    {
+      case InstanceEvent.Sealed(clear, Personal.Present(subject, _)) =>
+        Some(InstanceEvent.Sealed(clear, Personal.Erased(subject)))
+      case _ => None
+    }
+  )
+
+  val state: Serializer[InstanceRecord] = Sealing.stateSerializer[InstanceRecord](
+    "agent-instance-record",
+    _.subject,
+    _.erased,
+    InstanceRecord.redacted,
+    InstanceRecord.erasedFrom
+  )
+
 object InstanceEntity
     extends EventSourcedEntity.Companion[InstanceEntity, InstanceRecord, InstanceEvent](
       componentId = ComponentId("ankka-agent-instance"),
-      stateSerializer = Codecs.serializer[InstanceRecord]("agent-instance-record"),
-      eventSerializer = Codecs.serializer[InstanceEvent]("agent-instance-event")
+      stateSerializer = InstanceCodecs.state,
+      eventSerializer = InstanceCodecs.events
     ):
 
   /** The platform's own: it keeps what the platform needs, and no service wrote it. */

@@ -288,11 +288,14 @@ func (*ReplicationChange_HandOverTo) isReplicationChange_Change() {}
 func (*ReplicationChange_Set) isReplicationChange_Change() {}
 
 type EventSourcedIn_Init struct {
-	state         protoimpl.MessageState   `protogen:"open.v1"`
-	ComponentId   string                   `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
-	EntityId      string                   `protobuf:"bytes,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
-	Snapshot      *EventSourcedIn_Snapshot `protobuf:"bytes,3,opt,name=snapshot,proto3,oneof" json:"snapshot,omitempty"`   // absent: fresh, or deleted, or expired
-	Installation  string                   `protobuf:"bytes,4,opt,name=installation,proto3" json:"installation,omitempty"` // 1.19: this installation; empty when none is named
+	state        protoimpl.MessageState   `protogen:"open.v1"`
+	ComponentId  string                   `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
+	EntityId     string                   `protobuf:"bytes,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Snapshot     *EventSourcedIn_Snapshot `protobuf:"bytes,3,opt,name=snapshot,proto3,oneof" json:"snapshot,omitempty"`   // absent: fresh, or deleted, or expired
+	Installation string                   `protobuf:"bytes,4,opt,name=installation,proto3" json:"installation,omitempty"` // 1.19: this installation; empty when none is named
+	// 1.23: the home the snapshot was written under, whose keyring keeps the keys of its personal
+	// fields (SubjectKeyRequest.home); empty for an entity not replicated or no snapshot.
+	Home          string `protobuf:"bytes,5,opt,name=home,proto3" json:"home,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -351,6 +354,13 @@ func (x *EventSourcedIn_Init) GetSnapshot() *EventSourcedIn_Snapshot {
 func (x *EventSourcedIn_Init) GetInstallation() string {
 	if x != nil {
 		return x.Installation
+	}
+	return ""
+}
+
+func (x *EventSourcedIn_Init) GetHome() string {
+	if x != nil {
+		return x.Home
 	}
 	return ""
 }
@@ -500,6 +510,9 @@ type EventSourcedIn_Command struct {
 	Attribution string `protobuf:"bytes,8,opt,name=attribution,proto3" json:"attribution,omitempty"`
 	// 1.22: the installation this command was forwarded from to its home; empty when it was not.
 	ForwardedFrom string `protobuf:"bytes,9,opt,name=forwarded_from,json=forwardedFrom,proto3" json:"forwarded_from,omitempty"`
+	// 1.23: the entity's home as this copy reads it, whose keyring keeps the keys of the state's
+	// personal fields (SubjectKeyRequest.home); empty for an entity not replicated.
+	Home          string `protobuf:"bytes,10,opt,name=home,proto3" json:"home,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -593,6 +606,13 @@ func (x *EventSourcedIn_Command) GetAttribution() string {
 func (x *EventSourcedIn_Command) GetForwardedFrom() string {
 	if x != nil {
 		return x.ForwardedFrom
+	}
+	return ""
+}
+
+func (x *EventSourcedIn_Command) GetHome() string {
+	if x != nil {
+		return x.Home
 	}
 	return ""
 }
@@ -739,16 +759,17 @@ var File_ankka_protocol_v1_event_sourced_proto protoreflect.FileDescriptor
 
 const file_ankka_protocol_v1_event_sourced_proto_rawDesc = "" +
 	"\n" +
-	"%ankka/protocol/v1/event_sourced.proto\x12\x11ankka.protocol.v1\x1a\x1fankka/protocol/v1/payload.proto\"\xa3\b\n" +
+	"%ankka/protocol/v1/event_sourced.proto\x12\x11ankka.protocol.v1\x1a\x1fankka/protocol/v1/payload.proto\"\xcb\b\n" +
 	"\x0eEventSourcedIn\x12<\n" +
 	"\x04init\x18\x01 \x01(\v2&.ankka.protocol.v1.EventSourcedIn.InitH\x00R\x04init\x12?\n" +
 	"\x05event\x18\x02 \x01(\v2'.ankka.protocol.v1.EventSourcedIn.EventH\x00R\x05event\x12E\n" +
-	"\acommand\x18\x03 \x01(\v2).ankka.protocol.v1.EventSourcedIn.CommandH\x00R\acommand\x1a\xc4\x01\n" +
+	"\acommand\x18\x03 \x01(\v2).ankka.protocol.v1.EventSourcedIn.CommandH\x00R\acommand\x1a\xd8\x01\n" +
 	"\x04Init\x12!\n" +
 	"\fcomponent_id\x18\x01 \x01(\tR\vcomponentId\x12\x1b\n" +
 	"\tentity_id\x18\x02 \x01(\tR\bentityId\x12K\n" +
 	"\bsnapshot\x18\x03 \x01(\v2*.ankka.protocol.v1.EventSourcedIn.SnapshotH\x00R\bsnapshot\x88\x01\x01\x12\"\n" +
-	"\finstallation\x18\x04 \x01(\tR\finstallationB\v\n" +
+	"\finstallation\x18\x04 \x01(\tR\finstallation\x12\x12\n" +
+	"\x04home\x18\x05 \x01(\tR\x04homeB\v\n" +
 	"\t_snapshot\x1a\\\n" +
 	"\bSnapshot\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x03R\bsequence\x124\n" +
@@ -758,7 +779,7 @@ const file_ankka_protocol_v1_event_sourced_proto_rawDesc = "" +
 	"\apayload\x18\x02 \x01(\v2\x1a.ankka.protocol.v1.PayloadR\apayload\x12\"\n" +
 	"\finstallation\x18\x03 \x01(\tR\finstallation\x12 \n" +
 	"\vattribution\x18\x04 \x01(\tR\vattribution\x12%\n" +
-	"\x0eforwarded_from\x18\x05 \x01(\tR\rforwardedFrom\x1a\xd1\x02\n" +
+	"\x0eforwarded_from\x18\x05 \x01(\tR\rforwardedFrom\x1a\xe5\x02\n" +
 	"\aCommand\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x124\n" +
@@ -768,7 +789,9 @@ const file_ankka_protocol_v1_event_sourced_proto_rawDesc = "" +
 	"\finstallation\x18\x06 \x01(\tR\finstallation\x12\x17\n" +
 	"\aat_home\x18\a \x01(\bR\x06atHome\x12 \n" +
 	"\vattribution\x18\b \x01(\tR\vattribution\x12%\n" +
-	"\x0eforwarded_from\x18\t \x01(\tR\rforwardedFromB\t\n" +
+	"\x0eforwarded_from\x18\t \x01(\tR\rforwardedFrom\x12\x12\n" +
+	"\x04home\x18\n" +
+	" \x01(\tR\x04homeB\t\n" +
 	"\amessage\"\x9f\x04\n" +
 	"\x0fEventSourcedOut\x12@\n" +
 	"\x05reply\x18\x01 \x01(\v2(.ankka.protocol.v1.EventSourcedOut.ReplyH\x00R\x05reply\x126\n" +

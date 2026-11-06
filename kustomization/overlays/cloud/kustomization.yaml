@@ -95,6 +95,11 @@ components:
   # retention floor and the schedule are its defaults, 30 days and midnight; an installation sets
   # its own with a patch of the same variables in its own overlay.
   - ../../components/backups
+  # The installation's keyring (feature 042), after the backups, whose store and archiver it uses,
+  # and after the operator and the control plane, whose Deployments it tells that erasure is on.
+  # Listing it is what turns erasure on: set `erasure: "on"` in platform-configmap.yaml with it,
+  # and name ankka-keyring in the images: block below.
+  # - ../../components/keyring
   # The broker exposed to machines outside the cluster, through the Gateway on 9094 (feature 040).
   # After the broker, the gateway and the control plane, whose objects it patches.
   - ../../components/broker-external
@@ -131,6 +136,9 @@ images:
     newTag: "0.0.0" # SET
   - name: ankka-model-keeper
     newName: ghcr.io/thinkmorestupidless/ankka-model-keeper
+    newTag: "0.0.0" # SET
+  - name: ankka-keyring
+    newName: ghcr.io/thinkmorestupidless/ankka-keyring
     newTag: "0.0.0" # SET
 
 patches:
@@ -312,6 +320,21 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+      # The keyring, when the installation lists it (feature 042): its route for machines, and the
+      # base domain it derives their tokens' issuer from.
+      - select:
+          kind: HTTPRoute
+          name: ankka-keyring
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_BASE_DOMAIN].value
       - select:
           kind: HTTPRoute
           name: ankka-console
@@ -435,6 +458,11 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_HTTPS_PORT].value
   # Where every workload exports its telemetry: the operator renders it onto each service, and the
   # control plane exports there itself. Empty, as this example ships, names no collector.
   - source:
@@ -641,6 +669,39 @@ replacements:
           name: ankka-cloud
         fieldPaths:
           - data.ANKKA_CLOUD_LOCATION
+  # Erasure (feature 042): "on" only for an installation that lists components/keyring, whose
+  # patches say "on" too; this copy has the last word on both Deployments. The keyring's instance
+  # count goes to its Deployment and to the control plane, which reports it.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.erasure
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_ERASURE].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_ERASURE].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.keyringInstances
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_KEYRING_INSTANCES].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.replicas
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -661,6 +722,13 @@ replacements:
           name: ankka-cloud
         fieldPaths:
           - data.ANKKA_CLOUD_KMS_KEY
+      # The keyring's root key, when the installation lists the keyring (feature 042); nothing
+      # without it.
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_KEYRING_KMS_KEY].value
   - source:
       kind: ConfigMap
       name: ankka-platform

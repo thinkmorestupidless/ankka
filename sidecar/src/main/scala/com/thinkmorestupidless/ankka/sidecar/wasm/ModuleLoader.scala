@@ -49,7 +49,8 @@ object ModuleLoader:
     "check_guardrail",
     "check_task_result",
     "http",
-    "mcp_tool"
+    "mcp_tool",
+    "erase"
   ).map(Abi.Prefix + _)
 
   /** Required of every module, whatever it declares. */
@@ -61,7 +62,8 @@ object ModuleLoader:
    * with protocol 1.6; a module that does not use the store does not import them. `request`, `now`
    * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
    * module that calls it, as is `await_end`, which arrived with 1.18, the three client key imports,
-   * which arrived with 1.20, and `storage`, which arrived with 1.21.
+   * which arrived with 1.20, `storage`, which arrived with 1.21, and `keyring_seal`, `keyring_open`
+   * and `erasure_ask`, which arrived with 1.23.
    */
   val Imports: Set[String] =
     Set(
@@ -84,7 +86,10 @@ object ModuleLoader:
       "issue_client_key",
       "list_client_keys",
       "revoke_client_key",
-      "storage"
+      "storage",
+      "keyring_seal",
+      "keyring_open",
+      "erasure_ask"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r

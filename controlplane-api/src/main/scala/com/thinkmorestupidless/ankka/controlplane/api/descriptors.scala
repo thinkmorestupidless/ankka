@@ -246,7 +246,13 @@ final case class ServiceSpec(
      * from the storage client: one the platform makes, reached as its `exposure` says, or one the
      * developer made and `supplied`. Accepted without `provisionObjectStorage`.
      */
-    buckets: Vector[BucketSpec] = Vector.empty
+    buckets: Vector[BucketSpec] = Vector.empty,
+    /**
+     * Whether the service holds personal fields (feature 042): it is given the address of the
+     * installation's keyring, and an installation whose erasure is off refuses it. A service that
+     * says nothing holds none, and is deployed exactly as before.
+     */
+    personal: Boolean = false
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -1281,8 +1287,8 @@ final case class Installation(
     /** The longest retention a topic may be given. Absent from an older control plane. */
     retention: Option[InstallationRetention] = None,
     /**
-     * Whether erasure is on, and how many keyring instances hold its keys. Not stated (absent)
-     * until the platform has erasure.
+     * Whether erasure is on, and how many keyring instances hold its keys (feature 042). Absent
+     * from a control plane older than erasure.
      */
     erasure: Option[InstallationErasure] = None
 )

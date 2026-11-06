@@ -112,6 +112,21 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+      # The keyring, when the installation lists it (feature 042): its route for machines, and the
+      # base domain it derives their tokens' issuer from.
+      - select:
+          kind: HTTPRoute
+          name: ankka-keyring
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_BASE_DOMAIN].value
       - select:
           kind: HTTPRoute
           name: ankka-console
@@ -173,6 +188,11 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_HTTPS_PORT].value
       # The in-cluster gateway's HTTPS port, so a pod calls https://<name>.<base>:<port> with the
       # same port a browser on the host uses. deploy-local.sh patches it when kind publishes
       # another port, as it rewrites the redirect's. Anchored: kustomize matches the name as an
@@ -385,6 +405,39 @@ replacements:
           name: ankka-cloud
         fieldPaths:
           - data.ANKKA_CLOUD_LOCATION
+  # Erasure (feature 042): "on" only for an installation that lists components/keyring, whose
+  # patches say "on" too; this copy has the last word on both Deployments. The keyring's instance
+  # count goes to its Deployment and to the control plane, which reports it.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.erasure
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_ERASURE].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_ERASURE].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.keyringInstances
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_KEYRING_INSTANCES].value
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.replicas
   - source:
       kind: ConfigMap
       name: ankka-platform
@@ -405,6 +458,13 @@ replacements:
           name: ankka-cloud
         fieldPaths:
           - data.ANKKA_CLOUD_KMS_KEY
+      # The keyring's root key, when the installation lists the keyring (feature 042); nothing
+      # without it.
+      - select:
+          kind: Deployment
+          name: ankka-keyring
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-keyring].env.[name=ANKKA_KEYRING_KMS_KEY].value
   - source:
       kind: ConfigMap
       name: ankka-platform

@@ -405,7 +405,7 @@ public class JoinedRows extends KeyedView<JoinedRows.JoinedRow> {
 | Base class | `Consumer<Src, Out>`; `Out` is `Void` for one that publishes nothing |
 | Must define | `source()`, a `ChangeSource`; `onChange(Src change)` returning a `ConsumerEffect<Out>` |
 | May define | `onDelete()`, which ignores by default; `publishes()`, an `Optional<Publication>` (`Publication.to(topic)`, `to(project, topic)`, then `.withContract(contract)`, `.onBroker(name)`); `mirroredChanges()`; `version()`; `parallelism()` |
-| In a handler | `messageContext()` (`subject()`, `sequenceNumber()`, `localOrigin()`, `installation()`, `standing()`), `componentClient()`, `services()`, `secrets()`, `storage()` |
+| In a handler | `messageContext()` (`subject()`, `sequenceNumber()`, `localOrigin()`, `installation()`, `standing()`), `componentClient()`, `services()`, `secrets()`, `storage()`, `erasures()` |
 | Effects | `effects().publish(message)`, `publish(message, key)`, `publishAll(messages)`, `publishMessages(outgoings)`, `done()`, `ignore()` |
 | One of several messages | `Outgoing.of(payload)`, then `.withKey(key)` and `.withMetadata(name, value)` |
 
@@ -1050,7 +1050,7 @@ the problem, under the same rules a Scala service and the sidecar apply. See
 | Answers | a value, `200` with it; `Done`, `204`; a `Response` (`ok`, `created`, `noContent`, `status`, `html`, `bytes`, `redirect`, `problem`, then `.withStatus(n)`, `.header(name, value)`) |
 | Errors | `throw new ProblemException(Problem.notFound(...))`; a `CommandException` from a call answers its problem's status |
 | ACL | `Acl.allowAll()`, `denyAll()`, `allowIf(request -> …)`, `authenticate(request -> AuthDecision.allow(principal))`, `allowCallers("orders")`, `allowCallers(Callers.internet(), Callers.service("orders"), …)`, `anyOf(...)`, `clientKeys()`, `oidc()` |
-| In a handler | `request()` (`method()`, `path()`, `query(name)`, `queryAll(name)`, `requiredQuery(name)`, `flag(name)`, `header(name)`, `headers()`), `caller()`, `principal()`, `componentClient()`, `viewClient()`, `services()`, `secrets()`, `storage()`, `timers()`, `clientKeys()` |
+| In a handler | `request()` (`method()`, `path()`, `query(name)`, `queryAll(name)`, `requiredQuery(name)`, `flag(name)`, `header(name)`, `headers()`), `caller()`, `principal()`, `componentClient()`, `viewClient()`, `services()`, `secrets()`, `storage()`, `erasures()`, `timers()`, `clientKeys()` |
 
 `acl()` is abstract, so an endpoint without one does not compile. One instance serves every request; the
 request is readable on the handler's own thread only, so read what you need before handing work to another.
@@ -1137,6 +1137,23 @@ The service's secret store, for a value it must keep and never record ([Secrets 
 consumer, a workflow, a timed action's context and the running service. An entity has none. Where the
 service has no store, every call is a `CommandException` with `503`.
 
+## Personal data
+
+A record component of type `Personal<T>` is a personal field, held in every store encrypted under its data
+subject's key and read back as `Personal.Erased` once the data subject is erased
+([Personal data](../build/personal-data.md)). `Personal.of(DataSubject.of("player/8c1f"), value)` makes one;
+a sealed switch over `Present` and `Erased`, or `orElse(other)`, reads it. A field read from another
+project's topic is written again under that project's key, as long as the handler keeps the `Personal` it
+read rather than making a new one.
+
+`withErasureHandler(handler)` on the builder registers the service's erasure handler, an `ErasureHandler`
+(`com.thinkmorestupidless.ankka.javasdk.erasure`) given an `ErasureContext` and the `DataSubject` and
+answering an `ErasureReport`; `bucket.erase(subject)` erases the objects under the subject's prefix and
+answers what `ErasureReport.of` takes. `erasures().ask(subject)` on an endpoint or a consumer, and
+`ctx.erasures()` in the handler, asks for an erasure as the service; `ask(subject, ErasureAsk.inProject(p)
+.withNotBefore(date).withReason(r).withCorrelation(c))` says more. A refusal is a `CommandException`:
+`403` without the project's `erasure` grant, `503` where no control plane is reachable.
+
 ## Calling other services
 
 A handler calls a route of another service by that service's name, and the runtime makes the call as this
@@ -1211,7 +1228,7 @@ public static ServiceBuilder service() {
 ```
 
 `Ankka.service(name)` begins a definition; `register`, `withEndpoint`, `withMcpEndpoint`,
-`withGrpcEndpoint`, `withGrpcClients` and `withSerializer` add to it; nothing is read or started until
+`withGrpcEndpoint`, `withGrpcClients`, `withSerializer` and `withErasureHandler` add to it; nothing is read or started until
 `start()`, which reads every class, throws `ServiceProblems` for any declaration problem, and answers an
 `AnkkaService`. That has `awaitReady()`, `whenTerminated()`, `terminate()`, `close()`, `httpAddress()` and
 the clients — `componentClient()`, `viewClient()`, `timers()`, `secrets()`, `storage()`. A `main` that

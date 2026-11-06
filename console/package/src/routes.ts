@@ -63,6 +63,8 @@ export function consoleRoutes(options: ConsoleRoutesOptions = {}): RouteConfigEn
     page("organizations/:organizationId/machines", "machines"),
     page("organizations/:organizationId/projects/new", "project-new"),
     page("projects/:projectId", "project"),
+    page("projects/:projectId/erasures/:requestId", "erasure"),
+    resource("projects/:projectId/erasures/:requestId/certificate", "erasure.certificate"),
     page("projects/:projectId/services/apply", "service-apply"),
     page("projects/:projectId/services/:name", "service"),
     page("projects/:projectId/services/:name/logs", "logs"),

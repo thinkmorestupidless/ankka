@@ -133,3 +133,25 @@ class PodProblemSuite extends munit.FunSuite:
     assertEquals(problem.message, "back-off")
     assert(!problem.wrongArchitecture)
   }
+
+  test("the newest pod's problem comes first, whatever the pods are named") {
+    // Generation 5's unpullable image left behind a rollout to an image for the other architecture:
+    // the older pod's name sorts first, as the API server lists them.
+    def named(name: String, created: String, reason: String, words: Option[String]) =
+      val p = pod(reason, words)
+      p.getMetadata.setName(name)
+      p.getMetadata.setCreationTimestamp(created)
+      p
+    val older = named("cart-c5b867499-9wbgs", "2026-11-05T19:05:01Z", "ImagePullBackOff", None)
+    val newer =
+      named("cart-dbb8f98db-pg8j6", "2026-11-05T19:06:12Z", "CrashLoopBackOff", Some(Refusal))
+    val first = PodProblem.newestFirst(Vector(older, newer)).flatMap(PodProblem.of).head
+    assert(first.wrongArchitecture, first.describe)
+    assertEquals(first.pod, "cart-dbb8f98db-pg8j6")
+    val same = named("cart-b", "2026-11-05T19:06:12Z", "CrashLoopBackOff", Some(Refusal))
+    assertEquals(
+      PodProblem.newestFirst(Vector(newer, same)).map(_.getMetadata.getName),
+      Vector("cart-dbb8f98db-pg8j6", "cart-b"),
+      "pods created in the same second keep the order they were listed in"
+    )
+  }

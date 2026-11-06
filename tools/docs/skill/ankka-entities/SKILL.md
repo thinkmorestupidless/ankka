@@ -5,6 +5,7 @@ pages:
   - build/event-sourced-entities.md
   - build/key-value-entities.md
   - build/serialization.md
+  - build/personal-data.md
   - build/component-client.md
   - build/testing.md
   - concepts/effects.md
@@ -107,6 +108,30 @@ home (`references/concepts/replicated-entities.md`). Use these words and no othe
   `Timeout` on a forwarded write may or may not have happened.
 - **Test** a copy with `EventSourcedTestKit.of(…, mode = Mode.Follower(home))` and `replay`, and a whole
   service at several installations with `AnkkaTestKit.installations(…)`.
+
+## Personal fields
+
+- **Type every field about a person `Personal`** of one data subject: `Personal(DataSubject("player/8c1f"),
+  email)` in Scala, `Personal.of(DataSubject.of(...), v)` in Java, `personal(subject(...), v)` in Kotlin,
+  `Personal.of(...)` in Python, `s.personal(s.string)` and `personal(subject(...), v)` in TypeScript,
+  `ankka.PersonalOf(ankka.MustSubject(...), v)` in Go, `Personal::present(DataSubject::new(...)?, v)` in
+  Rust. Every store then holds it encrypted under that subject's key; everything else stays as written.
+- **A data subject is a kind and an id the service issued** (1 to 253 of letters, digits, `.`, `_`, `-`,
+  `/`, `:`), never a name, an email or a document number: it is in the clear everywhere.
+- **Read a field as present or erased, always.** Once the subject is erased it decodes as erased, never
+  fails; handle that case (`orElse`, a match). A write for an erased subject is refused as `Conflict`,
+  nothing written; no keyring is `Unavailable`.
+- **Mark: names, contact details, dates of birth, addresses, document numbers, IP addresses, free text a
+  person wrote.** Leave amounts, times, states and joining ids plain. Never put a personal value in an
+  entity id, a log line or an error message.
+- **Changing an existing field to `Personal` is a breaking change**: add a new event case. Records written
+  before stay in the clear.
+- **A live entity keeps what it decrypted until it is passivated or restarted**; its next recovery reads
+  erased.
+- Test with `kit.erase(DataSubject(...))`, `kit.restartService()`, then `kit.assertNoPersonalValue("ada@example.com")`.
+- Objects about a person go under the bucket's subject prefix and are erased by the service's erasure
+  handler; a service asks for an erasure with `ctx.erasures.ask(subject)` under the project's `erasure`
+  grant. Read `references/build/personal-data.md` before writing either.
 
 ## Calling an entity
 

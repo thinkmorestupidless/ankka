@@ -56,6 +56,15 @@ pub enum Import {
     /// `storage`: `StorageRequest` in, `StorageReply` out (protocol 1.21). Called through
     /// [`call_storage`].
     Storage,
+    /// `keyring_seal`: `KeyringSealRequest` in, `KeyringSealReply` out (protocol 1.23). Called
+    /// through [`call_keyring_seal`].
+    KeyringSeal,
+    /// `keyring_open`: `KeyringOpenRequest` in, `KeyringOpenReply` out (protocol 1.23). Called
+    /// through [`call_keyring_open`].
+    KeyringOpen,
+    /// `erasure_ask`: `AskErasureRequest` in, `AskErasureReply` out (protocol 1.23). Called through
+    /// [`call_erasure_ask`].
+    ErasureAsk,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -152,6 +161,35 @@ pub fn call_client_key(import: Import, request: &[u8]) -> Vec<u8> {
 /// it (`ankka::testkit::with_storage`), or a map of this thread's when none was given.
 pub fn call_storage(request: &[u8]) -> Vec<u8> {
     host::call_storage(request)
+}
+
+/// Calls `keyring_seal`: a personal field sealed by the runtime, an encoded `KeyringSealRequest`
+/// in and an encoded `KeyringSealReply` out. Apart from [`call`] for the reason [`call_secret`]
+/// is: a module with no personal field must not import it, or it would need a runtime that offers
+/// one (protocol 1.23). Served to every export.
+///
+/// Natively, a test's keyring answers it (`ankka::testkit::with_keyring`), or an in-memory one of
+/// this thread's when none was given.
+pub fn call_keyring_seal(request: &[u8]) -> Vec<u8> {
+    host::call_keyring_seal(request)
+}
+
+/// Calls `keyring_open`: an envelope read back by the runtime, an encoded `KeyringOpenRequest` in
+/// and an encoded `KeyringOpenReply` out. In a link block of its own, as [`call_keyring_seal`] is
+/// (protocol 1.23).
+pub fn call_keyring_open(request: &[u8]) -> Vec<u8> {
+    host::call_keyring_open(request)
+}
+
+/// Calls `erasure_ask`: an erasure request asked of the control plane as this service, an encoded
+/// `AskErasureRequest` in and an encoded `AskErasureReply` out. In a link block of its own, so a
+/// module that never asks for an erasure does not import it, and runs on a runtime that predates it
+/// (protocol 1.23). The runtime serves it only where it serves [`call_request`].
+///
+/// Natively, a test's script answers it (`ankka::testkit::with_erasures`), or, with none given, it
+/// is refused `Unavailable`.
+pub fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
+    host::call_erasure_ask(request)
 }
 
 /// Sends a line to the runtime's log, under the module's logger.
@@ -265,6 +303,40 @@ mod host {
         fn storage(ptr: u32, len: u32) -> u64;
     }
 
+    // The keyring (protocol 1.23): each a block of its own, reached only from its own function, so
+    // a module with no personal field imports neither.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "keyring_seal"]
+        fn keyring_seal_import(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "keyring_open"]
+        fn keyring_open_import(ptr: u32, len: u32) -> u64;
+    }
+
+    pub(super) fn call_keyring_seal(request: &[u8]) -> Vec<u8> {
+        through(request, keyring_seal_import)
+    }
+
+    pub(super) fn call_keyring_open(request: &[u8]) -> Vec<u8> {
+        through(request, keyring_open_import)
+    }
+
+    // Reached only from `call_erasure_ask`, so a module that never asks for an erasure does not
+    // import it.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "erasure_ask"]
+        fn erasure_ask_import(ptr: u32, len: u32) -> u64;
+    }
+
+    pub(super) fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
+        through(request, erasure_ask_import)
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -290,6 +362,9 @@ mod host {
                     panic!("the client key imports are called through call_client_key")
                 }
                 Import::Storage => panic!("storage is called through call_storage"),
+                Import::KeyringSeal => panic!("keyring_seal is called through call_keyring_seal"),
+                Import::KeyringOpen => panic!("keyring_open is called through call_keyring_open"),
+                Import::ErasureAsk => panic!("erasure_ask is called through call_erasure_ask"),
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -376,8 +451,8 @@ mod host {
 use native as host;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{
-    NativeHost, with_native_clock, with_native_host, with_native_random, with_native_services,
-    with_native_storage,
+    NativeHost, with_native_clock, with_native_erasures, with_native_host, with_native_keyring,
+    with_native_random, with_native_services, with_native_storage,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -514,6 +589,69 @@ mod native {
         DEFAULT_STORAGE.with(|store| store.call(Import::Storage, request))
     }
 
+    thread_local! {
+        /// What answers the keyring imports on this thread when a test said.
+        static KEYRING: RefCell<Option<Rc<dyn NativeHost>>> = const { RefCell::new(None) };
+        /// The keyring a unit test reaches when it gave none: the testkit's, one per thread.
+        static DEFAULT_KEYRING: crate::testkit::unit::InMemoryKeyring =
+            crate::testkit::unit::InMemoryKeyring::new();
+    }
+
+    /// Runs `f` with `keyring` answering every `keyring_seal` and `keyring_open` made on this
+    /// thread, then puts back whatever answered them before.
+    pub fn with_native_keyring<T>(keyring: impl NativeHost + 'static, f: impl FnOnce() -> T) -> T {
+        let mut previous = KEYRING.with(|k| k.replace(Some(Rc::new(keyring))));
+        let _restore = Restore(|| KEYRING.with(|k| *k.borrow_mut() = previous.take()));
+        f()
+    }
+
+    fn keyring(import: Import, request: &[u8]) -> Vec<u8> {
+        if let Some(keyring) = KEYRING.with(|k| k.borrow().clone()) {
+            return keyring.call(import, request);
+        }
+        DEFAULT_KEYRING.with(|keyring| keyring.call(import, request))
+    }
+
+    pub(super) fn call_keyring_seal(request: &[u8]) -> Vec<u8> {
+        keyring(Import::KeyringSeal, request)
+    }
+
+    pub(super) fn call_keyring_open(request: &[u8]) -> Vec<u8> {
+        keyring(Import::KeyringOpen, request)
+    }
+
+    thread_local! {
+        /// What answers `erasure_ask` on this thread when a test said.
+        static ERASURES: RefCell<Option<Rc<dyn NativeHost>>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `f` with `erasures` answering every `erasure_ask` made on this thread, then puts back
+    /// whatever answered them before.
+    pub fn with_native_erasures<T>(
+        erasures: impl NativeHost + 'static,
+        f: impl FnOnce() -> T,
+    ) -> T {
+        let mut previous = ERASURES.with(|e| e.replace(Some(Rc::new(erasures))));
+        let _restore = Restore(|| ERASURES.with(|e| *e.borrow_mut() = previous.take()));
+        f()
+    }
+
+    pub(super) fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
+        if let Some(erasures) = ERASURES.with(|e| e.borrow().clone()) {
+            return erasures.call(Import::ErasureAsk, request);
+        }
+        proto::AskErasureReply {
+            reply: Some(proto::ask_erasure_reply::Reply::Error(proto::Error {
+                message: "asking for an erasure needs the control plane, and this test gave none: \
+                          answer it with ankka::testkit::with_erasures"
+                    .into(),
+                code: proto::ErrorCode::Unavailable as i32,
+                ..Default::default()
+            })),
+        }
+        .encode_to_vec()
+    }
+
     pub(super) fn now() -> i64 {
         CLOCK.with(|c| c.get()).unwrap_or_else(|| {
             let since = std::time::SystemTime::now()
@@ -639,6 +777,8 @@ mod native {
                 client_key(import, request)
             }
             Import::Storage => call_storage(request),
+            Import::KeyringSeal | Import::KeyringOpen => keyring(import, request),
+            Import::ErasureAsk => call_erasure_ask(request),
         }
     }
 

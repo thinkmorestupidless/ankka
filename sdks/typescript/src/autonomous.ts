@@ -24,6 +24,7 @@ import { decodeJsonValue, reviver } from "./json.ts"
 import type { Schema } from "./schema.ts"
 import { toJsonSchema } from "./schema.ts"
 import { servicesFor, type Services } from "./services.ts"
+import { subject, type DataSubject } from "./personal.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -227,8 +228,19 @@ export class Tasks {
     this.#client = client
   }
 
-  /** A dependency that does not exist is refused before anything is written; one that has already ended cancels the new task. */
-  async create(type: TaskType<any>, instructions: string, options: { id?: string; attachments?: readonly Attachment[]; dependsOn?: readonly string[] } = {}): Promise<string> {
+  /**
+   * A dependency that does not exist is refused before anything is written; one that has already ended
+   * cancels the new task. With `subject` (feature 042) the task's instructions, attachments, result and
+   * the conversation an agent has working on it are kept sealed under that data subject's key, and read
+   * as erased once it is erased; an instance made for the task alone takes it too. An id that breaks the
+   * data subject rule throws a `TypeError` before anything is sent.
+   */
+  async create(
+    type: TaskType<any>,
+    instructions: string,
+    options: { id?: string; attachments?: readonly Attachment[]; dependsOn?: readonly string[]; subject?: DataSubject | string } = {},
+  ): Promise<string> {
+    const about = options.subject === undefined ? undefined : subject(options.subject)
     const id = options.id ?? crypto.randomUUID()
     const dependencies = [...new Set(options.dependsOn ?? [])]
     for (const dep of dependencies) await this.#client._raw("event-sourced", TASK, dep, "get")
@@ -241,6 +253,7 @@ export class Tasks {
         content: a.uri !== undefined ? { type: "Reference", uri: a.uri } : { type: "Inline", text: a.content ?? "" },
       })),
       dependencies,
+      ...(about === undefined ? {} : { subject: about }),
     })
     for (const dep of dependencies) {
       const answer = (await this.#client._raw("event-sourced", TASK, dep, "add-dependent", { taskId: id })) as { alreadyEnded?: string } | undefined
@@ -304,10 +317,13 @@ export class AutonomousAgentCalls {
   readonly #client: ComponentClient
   readonly componentId: string
   readonly instanceId: string | undefined
-  constructor(client: ComponentClient, componentId: string, instanceId: string | undefined) {
+  /** The data subject the instance is started with, named by its first assignment (feature 042). */
+  readonly subject: DataSubject | undefined
+  constructor(client: ComponentClient, componentId: string, instanceId: string | undefined, about?: DataSubject | string) {
     this.#client = client
     this.componentId = componentId
     this.instanceId = instanceId
+    this.subject = about === undefined ? undefined : subject(about)
   }
 
   #instance(): string {
@@ -323,7 +339,9 @@ export class AutonomousAgentCalls {
   }
 
   assign(...taskIds: string[]): Promise<{ accepted: string[]; refused: Record<string, { message: string; code: string }> }> {
-    return this.#client._raw("autonomous-agent", this.componentId, this.#instance(), "assign", { taskIds }) as Promise<any>
+    // The instance's data subject travels in the assignment, which is what its host reads.
+    const body = this.subject === undefined ? { taskIds } : { taskIds, subject: this.subject }
+    return this.#client._raw("autonomous-agent", this.componentId, this.#instance(), "assign", body) as Promise<any>
   }
 
   async suspend(): Promise<void> {

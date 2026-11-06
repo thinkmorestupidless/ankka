@@ -81,9 +81,12 @@ object Protocol:
    * added the service's object storage for a module: the `storage` import and its `StorageRequest`
    * and `StorageReply` (feature 055). 1.22 added who acted and the installation a command was
    * forwarded from: `attribution` and `forwarded_from` on an event sourced entity's command and
-   * event (spec 057).
+   * event (spec 057). 1.23 added personal data: `GetSubjectKey`, `SubjectNotices`,
+   * `AckSubjectNotice` and `AskErasure` on `Client`, `Spec.erasure_handler` and the `Erasure`
+   * service the process serves, and the `keyring_seal` and `keyring_open` imports and the `erase`
+   * export and storage op for a module (feature 042).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 22)
+  val version: ProtocolVersion = ProtocolVersion(1, 23)
 
 object Compatibility:
 

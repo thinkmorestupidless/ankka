@@ -70,7 +70,7 @@ func TestTheProcessListensOnLoopbackOrTheAnyAddressOnly(t *testing.T) {
 
 func TestTheSpecCarriesTheProtocolAndTheSDK(t *testing.T) {
 	spec := NewService(component(pb.Kind_TIMED_ACTION, "reminder")).Spec()
-	if spec.GetProtocolVersion() != "1.22" || spec.GetSdk().GetName() != "ankka-go" || spec.GetSdk().GetVersion() == "" || len(spec.GetComponents()) != 1 {
+	if spec.GetProtocolVersion() != "1.23" || spec.GetSdk().GetName() != "ankka-go" || spec.GetSdk().GetVersion() == "" || len(spec.GetComponents()) != 1 {
 		t.Fatalf("got %v", spec)
 	}
 }
@@ -84,7 +84,7 @@ func TestAnOlderSidecarIsToldTheOldestThingItLacks(t *testing.T) {
 	if why := d.refusal("1.16"); !strings.Contains(why, "needs 1.20") {
 		t.Fatalf("got %q", why)
 	}
-	if why := d.refusal("1.22"); why != "" {
+	if why := d.refusal("1.23"); why != "" {
 		t.Fatalf("a sidecar new enough was refused: %q", why)
 	}
 	if why := gather(nil).refusal(""); why != "" {
@@ -117,8 +117,8 @@ func TestDiscoveryOverTheWire(t *testing.T) {
 	if status.Code(err) != codes.FailedPrecondition || !strings.Contains(err.Error(), "needs 1.9") {
 		t.Fatalf("a 1.8 sidecar: %v", err)
 	}
-	spec, err := d.Discover(context.Background(), &pb.SidecarInfo{ProtocolVersion: "1.22"})
-	if err != nil || spec.GetProtocolVersion() != "1.22" || svc.SidecarProtocol() != "1.22" {
+	spec, err := d.Discover(context.Background(), &pb.SidecarInfo{ProtocolVersion: "1.23"})
+	if err != nil || spec.GetProtocolVersion() != "1.23" || svc.SidecarProtocol() != "1.23" {
 		t.Fatalf("got %v, %v", spec, err)
 	}
 	for range 2 {

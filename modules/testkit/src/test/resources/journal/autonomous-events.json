@@ -7,6 +7,8 @@ task-event {"type":"ResultRejected","reason":"sources must not be empty","iterat
 task-event {"type":"Completed","result":"{\"answer\":\"3\"}","iterations":3,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":6}
 task-event {"type":"Failed","reason":"iteration budget of 5 exhausted","iterations":5,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":7}
 task-event {"type":"Cancelled","reason":"cancelled by caller","at":8}
+task-event {"type":"Created","id":"t-3","typeName":"answer","instructions":"","attachments":[],"dependencies":[],"at":9,"subject":"player/8c1f"}
+task-event {"type":"Sealed","clear":"{\"type\":\"Completed\",\"result\":\"\",\"iterations\":3,\"usage\":{},\"at\":10}","body":{"$personal":1,"project":"brand","subject":"player/8c1f"}}
 agent-instance-event {"type":"Created","terminateWhenDone":true,"at":1}
 agent-instance-event {"type":"TasksAssigned","taskIds":["t-1","t-2"],"at":2}
 agent-instance-event {"type":"TaskDequeued","taskId":"t-2","reason":"cancelled by caller","at":3}
@@ -25,3 +27,5 @@ agent-instance-event {"type":"Resumed","at":12}
 agent-instance-event {"type":"Terminated","at":13}
 agent-instance-event {"type":"ApprovalRequested","request":{"id":"a-1","callId":"c-1","tool":"restart_service","arguments":{"service":"cart"},"requestedAt":14,"expiresAt":1814}}
 agent-instance-event {"type":"ApprovalDecided","approvalId":"a-1","decision":{"approvalId":"a-1","approved":false,"by":"dana","note":"not now","at":15}}
+agent-instance-event {"type":"Created","terminateWhenDone":false,"at":16,"subject":"player/8c1f"}
+agent-instance-event {"type":"Sealed","clear":"{\"type\":\"IterationFailed\",\"iteration\":1,\"error\":\"\",\"at\":17}","body":{"$personal":1,"project":"brand","subject":"player/8c1f"}}

@@ -33,11 +33,15 @@ private[ankka] object CodecBridge:
       if bytes.isEmpty then null.asInstanceOf[A] else scala.fromBytes(bytes)
     override def toString: String = s"Nullable($scala)"
 
+  // Under the manifest, as `core.Serializer.json` binds it: a personal field the Java codec meets
+  // is sealed with it as associated data (feature 042).
   private final case class ToScala[A](java: JavaSerializer[A]) extends core.Serializer[A]:
-    def manifest: String                 = java.manifest
-    def toBytes(value: A): Array[Byte]   = java.toBytes(value)
-    def fromBytes(bytes: Array[Byte]): A = java.fromBytes(bytes)
-    override def toString: String        = s"Java($java)"
+    def manifest: String               = java.manifest
+    def toBytes(value: A): Array[Byte] =
+      core.PersonalScope.within(java.manifest)(java.toBytes(value))
+    def fromBytes(bytes: Array[Byte]): A =
+      core.PersonalScope.within(java.manifest)(java.fromBytes(bytes))
+    override def toString: String = s"Java($java)"
 
   private final case class FromScala[A](scala: core.Serializer[A]) extends JavaSerializer[A]:
     def manifest: String                 = scala.manifest

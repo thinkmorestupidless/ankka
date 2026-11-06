@@ -259,7 +259,53 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
                   .getLog
               )
               .getOrElse("(no log)")
-            s"  [${c.getName}] ready=${c.getReady} restarts=${c.getRestartCount} $state$last\n$log"
+            // The last 30 lines of a container that exits on a failure are its shutdown: the
+            // exception that started it is earlier, in the previous run's log.
+            val cause =
+              if c.getRestartCount == 0 then ""
+              else
+                scala.util
+                  .Try(
+                    k8s
+                      .pods()
+                      .inNamespace(Namespace)
+                      .withName(name)
+                      .inContainer(c.getName)
+                      .terminated()
+                      .getLog
+                  )
+                  .toOption
+                  .map(
+                    _.linesIterator
+                      // Bootstrap's probes of peers not yet up are expected, and many.
+                      .filterNot(l => l.contains("Probing [") || l.contains("probing-failure"))
+                      // With the errors, how the node joined and left: a start that fails waiting
+                      // for Up says only the status it ended in.
+                      .filter(l =>
+                        l.contains(" ERROR ") || l.contains("Exception") ||
+                          l.contains("Caused by") || l.contains("OutOfMemory") ||
+                          l.contains("SBR") || l.contains("BootstrapCoordinator - Joining") ||
+                          (l.contains("o.a.p.cluster.Cluster") &&
+                            List(
+                              "Welcome",
+                              "JOINING",
+                              "Up]",
+                              "Removed",
+                              "Exiting",
+                              "refused",
+                              "unsuccessful",
+                              "Shutting down",
+                              "Leader",
+                              "UNREACHABLE"
+                            )
+                              .exists(l.contains))
+                      )
+                      .take(30)
+                      .mkString("\n")
+                  )
+                  .filter(_.nonEmpty)
+                  .fold("")(errors => s"  previous run's errors:\n$errors\n")
+            s"  [${c.getName}] ready=${c.getReady} restarts=${c.getRestartCount} $state$last\n$cause$log"
           }
           val unmet = p.getStatus.getConditions.asScala
             .filter(_.getStatus != "True")
@@ -840,6 +886,18 @@ spec:
          |done""".stripMargin
     // Detached, with nothing inherited: an exec returns only once every holder of its output closes.
     nodeExec("sh", "-c", s"( $script ) > /dev/null 2>&1 < /dev/null &"): Unit
+    // Each pod's container, sampled every second from its own cgroup: the memory it holds against
+    // its limit, how often it hit that limit, and how long its CPU was throttled. A pod at its limit
+    // stalls rather than failing, and a stall is what a refused request in a rollout looks like.
+    val sampler =
+      s"""while true; do
+         |  for p in $$(kubectl -n $Namespace get pods -o name | grep -E '^pod/$service-[a-z0-9]+-[a-z0-9]+$$'); do
+         |    v=$$(timeout 3 kubectl -n $Namespace exec "$$p" -c $service -- sh -c 'echo $$(cat /sys/fs/cgroup/memory.current) $$(grep -E "^max " /sys/fs/cgroup/memory.events | cut -d" " -f2) $$(grep throttled_usec /sys/fs/cgroup/cpu.stat | cut -d" " -f2)' 2>/dev/null)
+         |    [ -n "$$v" ] && echo "$$(date -u +%H:%M:%S) $${p#pod/} $$v" >> $dir/memory.samples
+         |  done
+         |  sleep 1
+         |done""".stripMargin
+    nodeExec("sh", "-c", s"( $sampler ) > /dev/null 2>&1 < /dev/null &"): Unit
 
   /**
    * Where a refused request's ten seconds went: every trace in which a span of `service` took nine
@@ -890,7 +948,55 @@ spec:
         during.take(60).map(line(_, t0)).mkString("\n") +
         s"\nlogs of $service from 2s before it until 2s after it ended:\n" + logs
     }
-    windows.mkString + healthyText
+    windows.mkString + replacedEnds(service, before) + memoryReport(service, before) + healthyText
+
+  /**
+   * Each pod's memory through the rollout, from `followLogs`'s samples: its peak against the limit,
+   * how many times it reached the limit, and its CPU throttling, first sample to last.
+   */
+  private def memoryReport(service: String, before: Set[String]): String =
+    val (_, out) =
+      nodeExec("sh", "-c", s"cat /tmp/rollout-logs/$service/memory.samples 2>/dev/null")
+    val rows = out.linesIterator.map(_.trim.split("\\s+").toVector).filter(_.size == 5).toVector
+    if rows.isEmpty then return "\nno memory samples of the service's pods"
+    val lines = rows.groupBy(_(1)).toVector.sortBy(_._1).map { (pod, samples) =>
+      def num(r: Vector[String], i: Int) = r(i).toLongOption.getOrElse(0L)
+      val peak                           = samples.maxBy(num(_, 2))
+      val first                          = samples.head
+      val last                           = samples.last
+      val age                            = if before.contains(pod) then "old" else "new"
+      f"  $pod($age): peak ${num(peak, 2) / 1048576.0}%.0f MiB at ${peak(0)}, " +
+        s"limit reached ${num(last, 3)} times (${num(last, 3) - num(first, 3)} while sampled), " +
+        s"throttled ${(num(last, 4) - num(first, 4)) / 1000} ms over ${first(0)}..${last(0)} " +
+        s"(${samples.size} samples)"
+    }
+    lines.mkString(s"\nmemory of $service's pods (cgroup; limit 512 MiB):\n", "\n", "")
+
+  /**
+   * How each pod the rollout replaced ended, from its followed log: a pod that left the cluster
+   * says so; one that went unreachable while still Up showed nothing in the slow windows.
+   */
+  private def replacedEnds(service: String, before: Set[String]): String =
+    before.toVector.sorted.map { pod =>
+      val (_, out) = nodeExec(
+        "sh",
+        "-c",
+        s"grep -vE 'ClusterSingletonManager|Probing \\[|route (GET|POST|PUT|DELETE)' " +
+          s"/tmp/rollout-logs/$service/$pod.log 2>/dev/null | tail -n 40"
+      )
+      s"\nthe last lines of replaced pod $pod:\n" + (if out.isBlank then "  (none)" else out)
+    }.mkString + {
+      // Events outlive the pods they name: a kill, an OOM or a failed preStop says why one went.
+      val (_, events) = nodeExec(
+        "sh",
+        "-c",
+        s"kubectl -n $Namespace get events --sort-by=.lastTimestamp " +
+          "-o custom-columns=T:.lastTimestamp,R:.reason,O:.involvedObject.name,M:.message " +
+          s"| grep -E '$service' | grep -E 'Killing|OOM|PreStop|Unhealthy|BackOff|Evict' | tail -n 30"
+      )
+      s"\nevents of $service's pods (kills, OOM, preStop, probes):\n" +
+        (if events.isBlank then "  (none)" else events)
+    }
 
   /** Lines that `followLogs` kept for `service` stamped between the two instants, at most 300. */
   private def logsBetween(service: String, fromNanos: Long, toNanos: Long): String =
@@ -1000,7 +1106,10 @@ spec:
         EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
         EnvEntry("GREETING", Some("hello from the descriptor"), None, None),
         // Has the reference register what the suite drives to see it call another service.
-        EnvEntry("ANKKA_CONFORMANCE_CALLS", Some("on"), None, None)
+        EnvEntry("ANKKA_CONFORMANCE_CALLS", Some("on"), None, None),
+        // This installation has erasure off, so no keyring reaches the module, and a runtime
+        // refuses a service whose erasure handler would never run (feature 042).
+        EnvEntry("ANKKA_CONFORMANCE_ERASURE", Some("off"), None, None)
       ) ++ issuerEnv,
       provisionDatabase = false,
       autoscaling = AutoscalingSpec(minInstances = instances, maxInstances = instances),

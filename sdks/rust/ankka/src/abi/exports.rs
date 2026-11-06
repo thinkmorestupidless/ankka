@@ -41,6 +41,9 @@ pub enum Export {
     Http,
     /// `ankka1_mcp_tool`: `McpToolRequest` in, `McpToolReply` out (protocol 1.20).
     McpTool,
+    /// `ankka1_erase`: `ErasureCall` in, `ErasureReply` out (protocol 1.23). Always exported; with
+    /// no erasure handler registered, the reply's error says so.
+    Erase,
 }
 
 thread_local! {
@@ -182,6 +185,12 @@ macro_rules! service {
             pub unsafe extern "C" fn ankka1_mcp_tool(ptr: i32, len: i32) -> i64 {
                 // SAFETY: as above.
                 unsafe { run(Export::McpTool, ptr, len, $build) }
+            }
+
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn ankka1_erase(ptr: i32, len: i32) -> i64 {
+                // SAFETY: as above.
+                unsafe { run(Export::Erase, ptr, len, $build) }
             }
         };
     };

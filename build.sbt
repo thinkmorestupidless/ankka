@@ -592,6 +592,8 @@ lazy val controlPlane = project
     operator % "test->test;test->compile",
     testkit  % Test,
     testPki  % Test,
+    // ErasureKeyringFeatures runs the keyring's server in the suite's JVM (feature 042).
+    keyring % Test,
     // GrpcClusterSuite calls the deployed sample over gRPC from the host, through the gateway.
     grpc            % Test,
     shoppingCartApi % Test
@@ -629,6 +631,8 @@ lazy val controlPlane = project
           (storageMover / Docker / publishLocal).value
           // The keeper beside the installation's model server (feature 053).
           (modelKeeper / Docker / publishLocal).value
+          // The installation's keyring (feature 042).
+          (keyring / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built   = scala.sys.process
@@ -731,6 +735,22 @@ lazy val sidecar = project
     // /opt/docker, is not the image user's to write, and a store it cannot write stops the start. A
     // mounted ANKKA_STORAGE_DIR replaces it; in a cluster the store is S3 and this is never read.
     dockerEnvVars := Map("ANKKA_STORAGE_DIR" -> "/tmp/ankka-storage"),
+    // The heap is 30% of the container's memory, stated (2026-11-06, feature 042). Left to the JVM
+    // it was a quarter, 128 MiB at the default 512Mi, and Chicory's compile of a module is the
+    // peak: the Rust conformance reference needs about 110 MiB for it alone (97 to 104 before
+    // 042's cases), so the wasm pod ran out of heap during start and was never ready. Half was too
+    // much the other way: once compiled, the JVM commits about 130 MiB beside the heap (metaspace,
+    // code, symbols, arenas) before threads, direct buffers and libc, and a pod at its limit stalls
+    // for a minute at a time and is killed. 35% still failed a rolling restart: the last old pod's
+    // shutdown stalled ten seconds and its peers' requests with it, which main at a quarter never
+    // did; 30% passed. An exhausted heap ends the process, so the kubelet
+    // restarts it and the reason reaches the service's status, rather than leaving the thread it
+    // hit dead.
+    Universal / javaOptions ++= Seq(
+      "-J-XX:MaxRAMPercentage=30",
+      "-J-XX:MinRAMPercentage=30",
+      "-J-XX:+ExitOnOutOfMemoryError"
+    ),
     // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own
     // Postgres and copies the DDL out of this image, so a test can never pass against a schema
     // the platform does not have — the same rule as AnkkaTestKit, from the other side.
@@ -886,6 +906,29 @@ lazy val modelKeeper = project
     Test / javaOptions += "-Dlogback.configurationFile=logback-keeper-test.xml",
     // One processor, as the image has: one carrier for every virtual thread (MainSuite).
     Test / javaOptions += "-XX:ActiveProcessorCount=1"
+  )
+
+/**
+ * The installation's keyring (feature 042): every data subject's key, wrapped by its project's key
+ * and the installation's root key, in a database of its own where destroying a key leaves nothing
+ * behind. Not an ankka application, as the operator is not: an application's journal is
+ * append-only, the one store a destroyed key must never be in. It serves the platform's programs
+ * over mutual TLS as `ankka://platform/keyring`, by pekko-http (routes, and one WebSocket per
+ * instance for notices).
+ */
+lazy val keyring = project
+  .in(file("keyring"))
+  .dependsOn(http, authOidc, telemetryOtlp, testPki % Test, testkit % Test)
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                 := "ankka-keyring",
+    publish / skip       := true,
+    Docker / packageName := "ankka-keyring",
+    Compile / mainClass  := Some("com.thinkmorestupidless.ankka.keyring.Main"),
+    dockerExposedPorts   := Seq(8443, 7627),
+    libraryDependencies ++= Seq(logback, r2dbcPostgres, testcontainers % Test)
   )
 
 /**
@@ -1328,6 +1371,7 @@ lazy val root = project
     proxy,
     storageMover,
     modelKeeper,
+    keyring,
     testOllama,
     shoppingCart,
     shoppingCartApi,

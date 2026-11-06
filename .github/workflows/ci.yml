@@ -75,6 +75,8 @@ jobs:
               - 'proxy-core/**'
               # The keeper beside the installation's model server (feature 053).
               - 'model-keeper/**'
+              # The installation's keyring (feature 042).
+              - 'keyring/**'
               - 'samples/**'
               - 'kustomization/components/postgres/ddl/**'
             scala:

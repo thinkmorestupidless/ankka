@@ -119,6 +119,7 @@ mod tests {
                 "joined-right",
                 "joined-rows",
                 "partner-relay",
+                "personal-contact",
                 "profile",
                 "profile-graph",
                 "reminder",
@@ -150,7 +151,7 @@ mod tests {
             }),
             "{ids:?}"
         );
-        assert_eq!(ids.len(), 17, "{ids:?}");
+        assert_eq!(ids.len(), 18, "{ids:?}");
     }
 
     use crate::conformance::{

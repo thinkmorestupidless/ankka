@@ -47,6 +47,13 @@ final class Schemas {
         out.append("]}},\"required\":[\"type\"]}");
       }
       case Plan.Opt opt -> write(opt.inner(), out, seen);
+      case Plan.Personal personal -> {
+        // The edge form, which is what a model or a caller sees.
+        out.append(
+            "{\"type\":\"object\",\"properties\":{\"subject\":{\"type\":\"string\"},\"value\":");
+        write(personal.inner(), out, seen);
+        out.append("},\"required\":[\"subject\"]}");
+      }
       case Plan.OrNull orNull -> write(orNull.inner(), out, seen);
       case Plan.Seq seq -> {
         out.append("{\"type\":\"array\",\"items\":");

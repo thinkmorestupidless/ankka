@@ -96,9 +96,26 @@ object KeyedView:
   abstract class Companion[V <: KeyedView[Row], Row](
       val componentId: ComponentId,
       val rowSerializer: Serializer[Row]
-  ):
+  )(using personal: PersonalFields[Row]):
 
     def create(ctx: ViewComponentContext): V
+
+    private val lookups = scala.collection.mutable.ArrayBuffer.empty[String]
+
+    /** Marks a personal field of the row for lookup (feature 042), as `View.Companion` does. */
+    protected final inline def lookup(inline field: Row => Any): Unit =
+      lookupAt(FieldPath.of(field))
+
+    protected final def lookupAt(path: String): Unit =
+      declaring(s"'$path' for lookup") {
+        if !personal.paths.contains(path) then
+          throw IllegalArgumentException(
+            s"view '$componentId' marks '$path' for lookup, which is not a personal field of its " +
+              personal.paths.mkString("row (its personal fields: ", ", ", ")")
+          )
+        View.refuseCollectionLookup(componentId, path)
+        if !lookups.contains(path) then lookups += path
+      }
 
     /** The table holding this view's rows, for a declared query's statement to name. */
     final def table: String = ViewDescriptor.tableFor(componentId)
@@ -173,11 +190,20 @@ object KeyedView:
         }
 
     final def descriptor: KeyedViewDescriptor[V, Row] =
-      val (taking, queries) = synchronized {
+      val (taking, queries, marked) = synchronized {
         taken = true
-        (sources.toVector, declared.toVector)
+        (sources.toVector, declared.toVector, lookups.toVector)
       }
-      KeyedViewDescriptor(componentId, taking, rowSerializer, create, version, queries)
+      KeyedViewDescriptor(
+        componentId,
+        taking,
+        rowSerializer,
+        create,
+        version,
+        queries,
+        personalFields = personal.paths,
+        lookupFields = marked
+      )
 
 /** The registered form of a keyed view. */
 final case class KeyedViewDescriptor[V <: KeyedView[Row], Row](
@@ -186,7 +212,11 @@ final case class KeyedViewDescriptor[V <: KeyedView[Row], Row](
     rowSerializer: Serializer[Row],
     create: ViewComponentContext => V,
     version: Option[Int] = None,
-    queries: Vector[DeclaredQuery] = Vector.empty
+    queries: Vector[DeclaredQuery] = Vector.empty,
+    /** The paths of the row's personal fields (feature 042). */
+    personalFields: Vector[String] = Vector.empty,
+    /** Which of them a declared query may compare by equality, through a lookup token. */
+    lookupFields: Vector[String] = Vector.empty
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.View
 

@@ -46,7 +46,16 @@ object ObjectStorages:
             exposure: BucketExposure,
             publicUrl: Option[String]
         ) =
-          S3Bucket(target, name, exposure, publicUrl, settings.timeout, settings.maxSignedUrl, http)
+          S3Bucket(
+            target,
+            name,
+            exposure,
+            publicUrl,
+            settings.timeout,
+            settings.maxSignedUrl,
+            http,
+            softDelete = settings.softDelete
+          )
         val unnamed = settings.unnamed.map(t => bucket(t, None, settings.unnamedExposure, None))
         val named   = settings.named
           .map(n => n.name -> bucket(n.target, Some(n.name), n.exposure, n.publicUrl))

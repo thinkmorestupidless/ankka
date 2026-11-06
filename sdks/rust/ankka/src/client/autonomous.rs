@@ -25,6 +25,7 @@ use crate::abi::imports::Import;
 use crate::components::{AutonomousAgent, TaskType};
 use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode};
+use crate::personal::DataSubject;
 use crate::proto::{self, Kind};
 
 /// The platform's task entity.
@@ -242,6 +243,7 @@ pub struct NewTask {
     id: Option<String>,
     attachments: Vec<Attachment>,
     depends_on: Vec<String>,
+    subject: Option<DataSubject>,
 }
 
 impl NewTask {
@@ -273,6 +275,14 @@ impl NewTask {
         S: Into<String>,
     {
         self.depends_on.extend(task_ids.into_iter().map(Into::into));
+        self
+    }
+
+    /// The data subject it is about (feature 042): its instructions, attachments, result and the
+    /// conversation an agent has working on it are kept sealed under the subject's key, and read as
+    /// erased once the subject is erased. An instance made for the task alone takes it too.
+    pub fn subject(mut self, subject: DataSubject) -> NewTask {
+        self.subject = Some(subject);
         self
     }
 }
@@ -318,12 +328,15 @@ impl Tasks {
         for dep in &dependencies {
             client.task_call(dep, "get", None)?;
         }
-        let body = json!({
+        let mut body = json!({
             "typeName": type_name,
             "instructions": task.instructions,
             "attachments": task.attachments.iter().map(Attachment::to_json).collect::<Vec<_>>(),
             "dependencies": dependencies,
         });
+        if let Some(subject) = &task.subject {
+            body["subject"] = json!(subject.as_str());
+        }
         let task_id = match task.id {
             Some(id) => {
                 client.task_call(&id, "create", Some(body))?;
@@ -557,6 +570,7 @@ impl AutonomousAgentCalls {
             client: self.client.clone(),
             component_id: self.component_id.clone(),
             instance_id: instance_id.to_string(),
+            subject: None,
         }
     }
 }
@@ -594,9 +608,18 @@ pub struct InstanceCalls {
     client: Client,
     component_id: String,
     instance_id: String,
+    subject: Option<DataSubject>,
 }
 
 impl InstanceCalls {
+    /// The instance, started with `subject` by its first assignment (feature 042): what it records
+    /// of its work is kept sealed under the subject's key, and once the subject is erased the
+    /// instance is terminated. A later call naming another data subject is refused.
+    pub fn with_subject(mut self, subject: DataSubject) -> InstanceCalls {
+        self.subject = Some(subject);
+        self
+    }
+
     fn op(&self, name: &str, body: Option<Value>) -> Result<Value, CommandError> {
         self.client.call_json(
             Kind::AutonomousAgent,
@@ -615,7 +638,12 @@ impl InstanceCalls {
         S: Into<String>,
     {
         let ids: Vec<String> = task_ids.into_iter().map(Into::into).collect();
-        let answer = self.op("assign", Some(json!({ "taskIds": ids })))?;
+        let mut body = json!({ "taskIds": ids });
+        if let Some(subject) = &self.subject {
+            // The instance's data subject travels in the assignment, which is what its host reads.
+            body["subject"] = json!(subject.as_str());
+        }
+        let answer = self.op("assign", Some(body))?;
         let accepted = answer
             .get("accepted")
             .and_then(Value::as_array)

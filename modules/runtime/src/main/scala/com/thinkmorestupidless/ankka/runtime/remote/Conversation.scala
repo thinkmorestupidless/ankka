@@ -60,7 +60,12 @@ final case class Init(
     entityId: EntityId,
     snapshot: Option[Snapshot],
     /** This installation, for a replicated entity (feature 051). */
-    installation: Option[String] = None
+    installation: Option[String] = None,
+    /**
+     * The home the snapshot was written under, for a replicated entity (feature 042, FR-032): whose
+     * keyring keeps the keys of its personal fields.
+     */
+    home: Option[String] = None
 )
 
 final case class Command(
@@ -75,7 +80,12 @@ final case class Command(
     atHome: Boolean = true,
     /** Who acted, and the installation the command was forwarded from (spec 057; protocol 1.22). */
     attribution: Option[String] = None,
-    forwardedFrom: Option[String] = None
+    forwardedFrom: Option[String] = None,
+    /**
+     * The entity's home as this copy reads it, for a replicated entity (feature 042, FR-032): whose
+     * keyring keeps the keys of the state's personal fields.
+     */
+    home: Option[String] = None
 )
 
 /** The three cases of `core.effect.Outcome`, with the reply already encoded. */
@@ -215,7 +225,7 @@ enum StreamPart:
   case Event(name: String, data: String)
 
 object WireProtocol:
-  val Version: String     = "1.22"
+  val Version: String     = "1.23"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -313,6 +323,20 @@ final case class RemoteMcpCall(
 
 /** What a tool answered: its text, and its structured content when the result is a record. */
 final case class RemoteMcpAnswer(text: String, structuredJson: Option[String])
+
+/** A run of the process's erasure handler for one application of an erasure (protocol 1.23). */
+final case class RemoteErasureCall(
+    subject: String,
+    erasureSeq: Long,
+    rerun: Boolean,
+    metadata: Metadata
+)
+
+/**
+ * What the handler erased, and when that is final: `immediate`, or `after:` and an ISO-8601
+ * duration. `error` is a handler that threw, recorded as failed for this run.
+ */
+final case class RemoteErasureReport(objectsErased: Long, finality: String, error: Option[String])
 
 final case class HttpResult(
     status: Int,
@@ -414,6 +438,13 @@ trait Conversation:
       call: RemoteMcpCall
   ): Future[Either[ProcessFailure, Either[String, RemoteMcpAnswer]]] =
     throw UnsupportedOperationException("this conversation cannot run an MCP tool")
+
+  /**
+   * Runs the process's erasure handler (protocol 1.23, feature 042). A conversation whose program
+   * declares no handler need not override it: discovery has registered none.
+   */
+  def invokeErasure(call: RemoteErasureCall): Future[RemoteErasureReport] =
+    throw UnsupportedOperationException("this conversation cannot run an erasure handler")
 
   def reachable(): Boolean
 

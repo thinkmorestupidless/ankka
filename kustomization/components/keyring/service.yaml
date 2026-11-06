@@ -1,0 +1,15 @@
+# Where every service, the control plane and the gateway reach the keyring: ANKKA_KEYRING_ADDRESS,
+# https://keyring.ankka-keyring.svc:8443. Ready instances only: one still replaying the erasure log
+# must not be handed a key fetch.
+apiVersion: v1
+kind: Service
+metadata:
+  name: keyring
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/name: ankka-keyring
+spec:
+  selector:
+    app.kubernetes.io/name: ankka-keyring
+  ports:
+    - { name: keyring, port: 8443, targetPort: keyring }

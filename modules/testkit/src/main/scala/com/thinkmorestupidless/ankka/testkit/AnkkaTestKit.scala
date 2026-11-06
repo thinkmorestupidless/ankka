@@ -47,7 +47,12 @@ final class AnkkaTestKit private (
     /** Where the service keeps its service secrets. */
     private var backendChoice: SecretBackendChoice,
     /** The store in memory the service was handed, unless the test chose its environment's. */
-    memoryStorage: Option[MemoryObjectStorage]
+    memoryStorage: Option[MemoryObjectStorage],
+    /**
+     * The keyring the service's personal fields are sealed with (feature 042): the kit's own, in
+     * memory, kept across `restartService` as the installation's keyring outlives a restart.
+     */
+    val keyring: InMemoryKeyring
 ):
 
   /** Configuration laid over the kit's for every start from now on, by `restartOn`. */
@@ -55,6 +60,31 @@ final class AnkkaTestKit private (
 
   /** Where the service keeps its service secrets now. */
   def secretBackend: SecretBackendChoice = backendChoice
+
+  /** The project the service's personal fields are sealed in: `local` for an unnamed service. */
+  def project: String = current.keyring.project
+
+  /**
+   * Erases `subject` in this kit's project now, as an applied erasure request does; its sequence.
+   */
+  def erase(subject: com.thinkmorestupidless.ankka.core.DataSubject): Long =
+    keyring.erase(project, subject)
+
+  /**
+   * Fails, naming each table and column or topic and offset, when any of `values` can be read back
+   * from the service's database (or from `broker`'s records) as written, as base64 or as hex.
+   */
+  def assertNoPersonalValue(values: String*): Unit =
+    PersonalAssertions.assertNone(serviceDatabase(), None, values)
+
+  /** `assertNoPersonalValue`, also searching every record published to `broker`. */
+  def assertNoPersonalValueIn(broker: com.thinkmorestupidless.ankka.runtime.InMemoryBroker)(
+      values: String*
+  ): Unit =
+    PersonalAssertions.assertNone(serviceDatabase(), Some(broker), values)
+
+  private def serviceDatabase(): com.thinkmorestupidless.ankka.runtime.Database =
+    com.thinkmorestupidless.ankka.runtime.Database()(using current.system)
 
   /**
    * Stops the service and starts it again on `secretBackend`, with `settings` above everything — a
@@ -361,7 +391,9 @@ object AnkkaTestKit:
        * What stands behind the storage client: a store in memory of this kit's own, by default, or
        * the environment's (`StorageBackendChoice.FromEnvironment`). Kept across `restartService`.
        */
-      storage: StorageBackendChoice = StorageBackendChoice.Memory()
+      storage: StorageBackendChoice = StorageBackendChoice.Memory(),
+      /** The keyring in memory the service is handed (feature 042): a fresh one by default. */
+      keyring: InMemoryKeyring = InMemoryKeyring()
   ): AnkkaTestKit =
     startOn(
       SharedPostgres.acquire(),
@@ -374,7 +406,8 @@ object AnkkaTestKit:
       localServices,
       settings,
       secretBackend,
-      storage
+      storage,
+      keyring
     )
 
   /** `start`, on a database the caller acquired; the kit releases it when it stops. */
@@ -389,7 +422,8 @@ object AnkkaTestKit:
       localServices: Map[String, String],
       settings: Config,
       secretBackend: SecretBackendChoice,
-      storage: StorageBackendChoice = StorageBackendChoice.Memory()
+      storage: StorageBackendChoice = StorageBackendChoice.Memory(),
+      keyring: InMemoryKeyring = InMemoryKeyring()
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
@@ -398,7 +432,7 @@ object AnkkaTestKit:
     val memoryStorage                                = StorageBackendChoice.store(storage)
     val configured: ServiceBuilder => ServiceBuilder =
       builder =>
-        val handed = memoryStorage.fold(builder)(builder.withStorage(_))
+        val handed = memoryStorage.fold(builder)(builder.withStorage(_)).withKeyring(keyring)
         configure(handed.withIdentity(Right(serviceIdentity)))
 
     // Keep the service registry out of the developer's home directory. A service announces itself
@@ -440,7 +474,8 @@ object AnkkaTestKit:
       service,
       secretKey,
       secretBackend,
-      memoryStorage
+      memoryStorage,
+      keyring
     )
 
   /** A fresh secret key, written as `ANKKA_SECRET_KEY` takes it. */

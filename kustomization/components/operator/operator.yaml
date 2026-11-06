@@ -371,6 +371,11 @@ spec:
               value: "2m"
             - name: ANKKA_CLOUD_ROTATION_GRACE
               value: "1h"
+            # Whether the installation erases personal data (feature 042): "on" only beside the
+            # keyring, whose component also tells the operator where it is. Replaced by the overlay
+            # from ankka-platform.erasure.
+            - name: ANKKA_ERASURE
+              value: "off"
           # 384Mi, a 96 MiB heap. Measured on kind with the flags above (2026-10-23): resident anonymous
           # memory 196 MiB at most with three services under a 256Mi limit, 203 MiB with ten under
           # this one; the live heap after a full collection was 25 MiB. At 256Mi with no flags it was

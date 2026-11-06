@@ -65,6 +65,9 @@ trait ConsumerContext extends ComponentContext:
    */
   def storage: ObjectStorage = ObjectStorage.unavailable
 
+  /** Erasure requests asked as this service (feature 042). */
+  def erasures: Erasures = Erasures.unavailable
+
 /**
  * Available for the duration of a single command. Distinct from `EntityContext` because metadata
  * belongs to the request, not to the component.
@@ -160,7 +163,8 @@ private[ankka] final case class SimpleConsumerContext(
     componentClient: ComponentClient,
     secrets: SecretStore,
     services: ServiceClients,
-    override val storage: ObjectStorage = ObjectStorage.unavailable
+    override val storage: ObjectStorage = ObjectStorage.unavailable,
+    override val erasures: Erasures = Erasures.unavailable
 ) extends ConsumerContext
 
 private[ankka] final case class SimpleCommandContext(

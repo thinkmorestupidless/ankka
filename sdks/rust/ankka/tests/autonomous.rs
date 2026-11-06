@@ -724,3 +724,107 @@ fn the_testkit_runs_tools_rules_and_guardrails_for_a_task() {
         Ok(())
     );
 }
+
+// ── the data subject (feature 042) ──
+
+/// Keeps every request whole, and answers each with an empty JSON object.
+#[derive(Clone, Default)]
+struct Requests(Rc<RefCell<Vec<proto::InvokeRequest>>>);
+
+impl NativeHost for Requests {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        assert_eq!(import, Import::Invoke);
+        self.0
+            .borrow_mut()
+            .push(proto::InvokeRequest::decode(request).unwrap());
+        proto::InvokeReply {
+            result: Some(proto::invoke_reply::Result::Reply(proto::outcome::Reply {
+                payload: Some(proto::Payload {
+                    content_type: "application/json".into(),
+                    manifest: String::new(),
+                    data: b"{}".to_vec(),
+                }),
+                ..Default::default()
+            })),
+        }
+        .encode_to_vec()
+    }
+}
+
+fn subject_of(request: &proto::InvokeRequest) -> Vec<String> {
+    request
+        .metadata
+        .iter()
+        .flat_map(|m| m.entries.iter())
+        .filter(|e| e.key == "ankka-data-subject")
+        .map(|e| e.value.clone())
+        .collect()
+}
+
+fn body_of(request: &proto::InvokeRequest) -> Value {
+    serde_json::from_slice(&request.payload.as_ref().unwrap().data).unwrap()
+}
+
+#[test]
+fn an_agent_session_a_task_and_an_instance_carry_their_data_subject() {
+    let host = Requests::default();
+    let player = DataSubject::new("player/8c1f").unwrap();
+    with_native_host(host.clone(), || {
+        let client =
+            Client::with_metadata(ankka::Metadata::new().set("traceparent", "00-abc-def-01"));
+        let about = client.with_data_subject(player.clone());
+        let _: Value = about
+            .invoke_by_name(Kind::Agent, "support", "s-1", "ask", "hi")
+            .unwrap();
+        let _: Value = client
+            .invoke_by_name(Kind::Agent, "support", "s-2", "ask", "hi")
+            .unwrap();
+        // A call to anything but an agent is unchanged.
+        let _: Value = about
+            .invoke_by_name(Kind::Workflow, "checkout", "w-1", "start", ())
+            .unwrap();
+        client
+            .tasks()
+            .create(
+                &answer(),
+                NewTask::new("How many?").id("t-1").subject(player.clone()),
+            )
+            .unwrap();
+        client
+            .tasks()
+            .create(&answer(), NewTask::new("How many?").id("t-2"))
+            .unwrap();
+        let agent = client.autonomous_agent(Answerer);
+        agent
+            .instance("i-1")
+            .with_subject(player.clone())
+            .assign(["t-1"])
+            .unwrap();
+        agent.instance("i-2").assign(["t-2"]).unwrap();
+    });
+    let sent = host.0.borrow();
+    assert_eq!(sent.len(), 7);
+    assert_eq!(subject_of(&sent[0]), vec!["player/8c1f"]);
+    // The handler's own metadata goes on beside it.
+    assert!(
+        sent[0]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .any(|e| e.key == "traceparent")
+    );
+    assert!(subject_of(&sent[1]).is_empty());
+    assert!(subject_of(&sent[2]).is_empty());
+    // A task and an instance carry theirs in the body, which is what their hosts read.
+    assert_eq!(body_of(&sent[3])["subject"], json!("player/8c1f"));
+    assert!(body_of(&sent[4]).get("subject").is_none());
+    assert_eq!(
+        body_of(&sent[5]),
+        json!({"taskIds": ["t-1"], "subject": "player/8c1f"})
+    );
+    assert_eq!(body_of(&sent[6]), json!({"taskIds": ["t-2"]}));
+    // An id that breaks the rule is not a data subject, so nothing can name it.
+    assert!(DataSubject::new("player 8c1f").is_err());
+}

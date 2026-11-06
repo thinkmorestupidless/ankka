@@ -1,7 +1,8 @@
 /**
  * A project: its services, kept current while the page is open, its registry credential, its
  * project secrets — by name and entry, never a value — the topics it declares on the broker, the
- * grants it makes to other projects' services and to machines, and what other projects grant it.
+ * grants it makes to other projects' services and to machines, what other projects grant it, and
+ * its erasure requests with where each stands.
  */
 import { data, redirect, useActionData, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { ControlPlaneError } from "../client/errors.ts";
@@ -13,6 +14,7 @@ import { Refused, useRefusal } from "../ui/refused.tsx";
 import { Lifecycle } from "../ui/status.tsx";
 import { useProjectStream } from "../ui/use-stream.ts";
 import { targetText } from "../ui/grants.ts";
+import { notBeforeOf } from "../ui/erasures.ts";
 import type { GrantTarget } from "../client/schemas.ts";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
 
@@ -22,7 +24,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, secrets, topics, brokers, grants, received, page, backups, rehearsals, restores, history, setting] = await Promise.all([
+    const [project, services, secrets, topics, brokers, grants, received, page, backups, rehearsals, restores, history, setting, erasureList] = await Promise.all([
       ctx.client.getProject(id),
       ctx.client.listServices(id),
       ctx.client.listProjectSecrets(id),
@@ -38,7 +40,17 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       ctx.client.listRestores(id).catch(() => []),
       ctx.client.projectHistory(id).catch(() => []),
       ctx.client.projectDatabase(id).catch(() => undefined),
+      // Feature 042: a control plane that cannot list them leaves the section empty rather than failing the page.
+      ctx.client.listErasures(id).catch(() => []),
     ]);
+    // An applied request shows each service's completion, which only the request itself carries.
+    const completed = await Promise.all(
+      erasureList
+        .filter((e) => e.state === "applied")
+        .slice(0, ErasuresShown)
+        .map((e) => ctx.client.getErasure(id, e.id).catch(() => undefined)),
+    );
+    const erasures = erasureList.slice(0, ErasuresShown).map((e) => ({ ...e, completions: completed.find((v) => v?.id === e.id)?.completions ?? [] }));
     // A verified restore says what the broker holds past its moment, asked as it is read.
     const reports = await Promise.all(
       restores.filter((r) => r.phase === "Verified" || r.phase === "InUse").map((r) => ctx.client.getRestore(id, r.name).catch(() => r)),
@@ -60,10 +72,15 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       setting,
       grants,
       received,
+      erasures,
+      erasuresMore: erasureList.length > ErasuresShown,
       panels: await loadPanels(ctx, "project", project),
     };
   });
 }
+
+/** How many erasure requests the project's page lists, newest first; the CLI lists them all. */
+const ErasuresShown = 50;
 
 export async function action({ request, params, context }: ActionFunctionArgs) {
   const ctx = useConsoleContext(context);
@@ -174,6 +191,16 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "grant-make":
         await ctx.client.makeGrant(id, { grantee: text(form, "grantee"), target: grantTarget(form) });
         return redirect(self);
+      case "erasure-ask": {
+        // The request's own page, by id: the listing is a projection and may not have it yet.
+        const asked = await ctx.client.askErasure(id, {
+          subject: text(form, "erasureSubject"),
+          notBefore: notBeforeOf(text(form, "erasureNotBefore")),
+          reason: text(form, "erasureReason") || undefined,
+          correlation: text(form, "erasureCorrelation") || undefined,
+        });
+        return redirect(ctx.href(`projects/${encodeURIComponent(id)}/erasures/${encodeURIComponent(asked.id)}`));
+      }
       case "grant-end":
         // A pending grant is withdrawn and an accepted one revoked: the control plane decides which.
         await ctx.client.endGrant(id, text(form, "grantId"));
@@ -209,7 +236,8 @@ function grantTarget(form: FormData): GrantTarget {
 const endVerb = (state: string) => (state === "pending" ? "Withdraw" : "Revoke");
 
 export default function Project() {
-  const { project: p, organization: o, services: initial, secrets, topics, brokers, grants, received, backups, rehearsals, restores, history, setting, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, topics, brokers, grants, received, backups, rehearsals, restores, history, setting, erasures, erasuresMore, panels } = useLoaderData<typeof loader>();
+  const erasureRefusal = useRefusal("erasure-ask");
   const databaseRefusal = useRefusal("database");
   // One history: what was done to a topic names it, and is shown with the topics.
   const topicHistory = history.filter((h) => h.topic !== undefined);
@@ -481,6 +509,40 @@ export default function Project() {
           <div className="ac-ops">
             <HostActions operation="grant.make" entity={p} />
           </div>
+        </section>
+      ) : null}
+      {shows("erasure.ask") ? (
+        <section className="ac-form" aria-labelledby="erasure-ask-title">
+          <SectionTitle>
+            <span id="erasure-ask-title">Erasure</span>
+          </SectionTitle>
+          <details className="ac-more" open={erasureRefusal !== undefined || undefined}>
+            <summary>Ask for an erasure</summary>
+            <ConsoleForm intent="erasure-ask" className="ac-form">
+              <Field
+                label="Data subject"
+                name="erasureSubject"
+                required
+                placeholder="player/8c1f"
+                autoComplete="off"
+                defaultValue={erasureRefusal?.values.erasureSubject}
+                hint="Who the personal data is about, as the project's services name them: letters, digits, '.', '_', '-', '/' and ':'."
+              />
+              <Field
+                label="Not-before date"
+                name="erasureNotBefore"
+                type="date"
+                defaultValue={erasureRefusal?.values.erasureNotBefore}
+                hint="Leave empty to apply it at once. A hold keeps it until the start of that day, UTC."
+              />
+              <Field label="Reason" name="erasureReason" autoComplete="off" defaultValue={erasureRefusal?.values.erasureReason} hint="Why it is held; at most 500 characters." />
+              <Field label="Correlation" name="erasureCorrelation" autoComplete="off" defaultValue={erasureRefusal?.values.erasureCorrelation} hint="An id of your own to find it by, such as a ticket." />
+              <Refused intent="erasure-ask" />
+              <div>
+                <Submit intent="erasure-ask">Ask for an erasure</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
         </section>
       ) : null}
       {shows("project.rename") || shows("project.delete") ? (
@@ -991,6 +1053,58 @@ export default function Project() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="ac-card" aria-labelledby="erasures" id="erasure-requests">
+        <h2 id="erasures">Erasures</h2>
+        {erasures.length === 0 ? (
+          <p className="ac-empty">No erasure requests. An erasure request makes a data subject&apos;s personal data unreadable in every service of the project.</p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="erasures">
+              <thead>
+                <tr>
+                  <th scope="col">Data subject</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Not-before date</th>
+                  <th scope="col">Asked</th>
+                  <th scope="col">Completion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {erasures.map((e) => (
+                  <tr key={e.id} data-erasure={e.id} data-subject={e.subject} data-state={e.state}>
+                    <td>
+                      <ConsoleLink to={`${path}/erasures/${encodeURIComponent(e.id)}`}>
+                        <code>{e.subject}</code>
+                      </ConsoleLink>
+                    </td>
+                    <td>{e.state}</td>
+                    <td data-not-before>{e.notBefore ? when(e.notBefore) : "—"}</td>
+                    <td>
+                      {e.askedAt ? when(e.askedAt) : "—"}
+                      {e.askedBy ? ` by ${e.askedBy}` : ""}
+                    </td>
+                    <td>
+                      {e.completions.length === 0 ? (
+                        "—"
+                      ) : (
+                        <ul className="ac-topics">
+                          {e.completions.map((c) => (
+                            <li key={c.service} data-completion={c.service}>
+                              {c.service}: {c.completedAt ? `completed ${when(c.completedAt)}` : "not completed"}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {erasuresMore ? <p className="ac-hint">The newest {ErasuresShown} are shown; <code>ankka projects erasures list</code> lists them all.</p> : null}
       </section>
 
       <section className="ac-card" aria-labelledby="grants">

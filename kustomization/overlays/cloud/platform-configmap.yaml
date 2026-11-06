@@ -64,6 +64,11 @@ data:
   cloudKmsKey: "" # SET to wrap the keyring and encrypt buckets with a key of the account's
   cloudAcknowledgementBound: 2m
   cloudRotationGrace: 1h
+  # Erasure of personal data (feature 042). "on" needs components/keyring listed above, after the
+  # backups; off, a descriptor that declares personal fields is refused. The keyring's instances
+  # share its database, so two keeps a service's notices channel through the loss of one.
+  erasure: "off" # SET to "on" with components/keyring
+  keyringInstances: "2"
   # The broker exposed to machines (feature 040): where a machine's client connects, the
   # ClusterIssuer of the certificate it presents, and the caps on connections — per client address
   # on each broker, and new connections a second on the external listener.

@@ -85,7 +85,7 @@ class _NoClient(ComponentClient):
     def for_workflow(self, component_id: str, workflow_id: str) -> Any:
         return self._refuse()
 
-    def for_agent(self, component_id: str, session_id: str) -> Any:
+    def for_agent(self, component_id: str, session_id: str, subject: Any = None) -> Any:
         return self._refuse()
 
     async def close(self) -> None:

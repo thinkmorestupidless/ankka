@@ -140,6 +140,27 @@ final class ServiceKit private (
       )
     )
 
+  /**
+   * Erases `subject` (feature 042): its subject key is destroyed at once and the service is sent
+   * the notice; answers the erasure's sequence.
+   */
+  def erase(subject: String): Long =
+    kit.erase(com.thinkmorestupidless.ankka.core.DataSubject(subject))
+
+  /** The kit's keyring refuses every request as unavailable for `duration`. */
+  def outage(duration: java.time.Duration): Unit =
+    kit.keyring.outage(scala.concurrent.duration.FiniteDuration(duration.toNanos, "nanos"))
+
+  /** Ends an outage of the kit's keyring now. */
+  def recover(): Unit = kit.keyring.recover()
+
+  /** Fails, naming the table and column, when any of `values` is held in plain, base64 or hex. */
+  def assertNoPersonalValue(values: java.util.List[String]): Unit =
+    kit.assertNoPersonalValue(scala.jdk.CollectionConverters.ListHasAsScala(values).asScala.toSeq*)
+
+  /** The Scala kit underneath, for the platform's own tests. */
+  private[ankka] def scalaKit: stk.AnkkaTestKit = kit
+
   def close(): Unit =
     kit.stop()
     scripted.values.foreach(_.stop())
@@ -147,10 +168,23 @@ final class ServiceKit private (
 object ServiceKit:
 
   def start(service: ServiceBuilder, settings: Settings): ServiceKit =
-    startWith(service, settings) { (descriptors, extensions, config, localServices) =>
+    start(service, settings, runtime.ServiceIdentity.unnamed)
+
+  /**
+   * The service started as `identity`: a deployed one, for the platform's own tests of what a
+   * service asks of the control plane as itself (an erasure, say).
+   */
+  private[ankka] def start(
+      service: ServiceBuilder,
+      settings: Settings,
+      identity: runtime.ServiceIdentity
+  ): ServiceKit =
+    startWith(service, settings) { (descriptors, extensions, config, localServices, configure) =>
       stk.AnkkaTestKit.start(
         descriptors,
         extensions = extensions,
+        configure = configure,
+        serviceIdentity = identity,
         settings = config,
         localServices = localServices,
         storage =
@@ -163,7 +197,9 @@ object ServiceKit:
       read: JavaServiceBuilder.Read,
       probe: stk.TimerProbe,
       broker: runtime.InMemoryBroker,
-      extensions: Seq[RuntimeExtension]
+      extensions: Seq[RuntimeExtension],
+      /** What the Java builder adds to the Scala one: its erasure handler. */
+      configure: runtime.ServiceBuilder => runtime.ServiceBuilder
   )
 
   /** The service read, and the extensions it is started with. */
@@ -190,7 +226,7 @@ object ServiceKit:
        else
          Seq(read.httpServer(Some("127.0.0.1" -> 0), read.endpointTimers(() => timerRuntime)))) ++
       read.grpcExtensions(Some("127.0.0.1" -> 0), builder.grpcClients)
-    Prepared(read, probe, broker, extensions)
+    Prepared(read, probe, broker, extensions, builder.withErasureHandlerOf(read))
 
   /** The service read and its extensions built, then started by `launch`. */
   private[bridge] def startWith(service: ServiceBuilder, settings: Settings)(
@@ -198,11 +234,12 @@ object ServiceKit:
           Seq[ComponentDescriptor],
           Seq[RuntimeExtension],
           com.typesafe.config.Config,
-          Map[String, String]
+          Map[String, String],
+          runtime.ServiceBuilder => runtime.ServiceBuilder
       ) => stk.AnkkaTestKit
   ): ServiceKit =
-    val Prepared(read, probe, broker, http) = prepare(service)
-    val scripted                            =
+    val Prepared(read, probe, broker, http, configure) = prepare(service)
+    val scripted                                       =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
     val kit    =
@@ -213,7 +250,8 @@ object ServiceKit:
             http,
             config,
             scripted.view.mapValues(_.address).toMap ++
-              settings.localServices.asScala.view.mapValues(_.toString)
+              settings.localServices.asScala.view.mapValues(_.toString),
+            configure
           )
         )
       catch

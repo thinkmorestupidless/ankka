@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import java.nio.file.{FileVisitResult, Files, Path, Paths, SimpleFileVisitor}
+import java.nio.file.attribute.BasicFileAttributes
 
 /**
  * Which variables are the platform's is said once, in `core`'s `PlatformVariables`.
@@ -29,17 +29,25 @@ final class PlatformDeclarationSuite extends munit.FunSuite:
   private def scalaFiles(under: Path): Vector[Path] =
     if !Files.isDirectory(under) then Vector.empty
     else
-      val stream = Files.walk(under)
-      try
-        stream.iterator.asScala
-          .filter(p => Files.isRegularFile(p) && p.toString.endsWith(".scala"))
-          .filterNot { p =>
+      // Pruned while walking, not filtered after: a checkout's `.claude/worktrees` holds every other
+      // worktree, and a walk that entered them and every `target/` outran the test's timeout.
+      val root  = repoRoot
+      val found = Vector.newBuilder[Path]
+      Files.walkFileTree(
+        under,
+        new SimpleFileVisitor[Path]:
+          override def preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
+            val name = Option(dir.getFileName).map(_.toString).getOrElse("")
             // Relative to the root: a worktree may itself live under `.claude/`.
-            val s = "/" + repoRoot.relativize(p).toString
-            s.contains("/target/") || s.contains("/node_modules/") || s.contains("/.claude/")
-          }
-          .toVector
-      finally stream.close()
+            if dir != root && Set("target", "node_modules", ".claude").contains(name) then
+              FileVisitResult.SKIP_SUBTREE
+            else FileVisitResult.CONTINUE
+
+          override def visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult =
+            if attrs.isRegularFile && file.toString.endsWith(".scala") then found += file
+            FileVisitResult.CONTINUE
+      )
+      found.result()
 
   private val Literal = """\s*"([^"]*)"\s*""".r
 

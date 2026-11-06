@@ -90,7 +90,13 @@ private[ankka] object RemoteEventSourcedHost:
       home: Option[String] = None,
       replicationSet: Set[String] = Set.empty,
       pendingHandover: Option[String] = None,
-      conflict: Option[String] = None
+      conflict: Option[String] = None,
+      /**
+       * The home `snapshot` was written under (feature 042, FR-032): the home when the process's
+       * snapshot landed, or as the stored snapshot names it. Not stored apart: a snapshot is saved
+       * where it lands, so the record's `home` is this one.
+       */
+      snapshotHome: Option[String] = None
   ) extends CopyState:
     def expired(nowMillis: Long): Boolean = expiryMillis > 0 && nowMillis >= expiryMillis
     def fresh(nowMillis: Long): Boolean   = deleted || expired(nowMillis)
@@ -203,7 +209,9 @@ private[ankka] object RemoteEventSourcedHost:
             descriptor.componentId,
             entityId,
             if fresh then None else state.snapshot.map(p => Snapshot(snapshotSeq, p)),
-            self
+            self,
+            // The keys of the snapshot's personal fields are its home's (FR-032).
+            if fresh || state.snapshot.isEmpty then None else state.snapshotHome
           )
           val s = conversation.open(init)
           session = Some(s)
@@ -314,7 +322,8 @@ private[ankka] object RemoteEventSourcedHost:
                     self,
                     atHome(state),
                     Attribution.from(metadata),
-                    metadata.get(HostReplication.ForwardedFrom)
+                    metadata.get(HostReplication.ForwardedFrom),
+                    copy.flatMap(_.home(state))
                   )
                   ctx.pipeToSelf(s.command(command))(
                     Replied(id, invoke, handler, snapshotRequested, span, _)
@@ -727,7 +736,8 @@ private[ankka] object RemoteEventSourcedHost:
                     snapshot = Some(snapshot),
                     snapshotSeq = seq,
                     sinceSnapshot = 0,
-                    deleted = false
+                    deleted = false,
+                    snapshotHome = state.home
                   )
                 case None =>
                   state.copy(sinceSnapshot = state.sinceSnapshot + 1, deleted = false)
@@ -903,7 +913,8 @@ private[ankka] object RemoteEventSourcedHost:
               home = record.home,
               replicationSet = record.replicationSet.fold(Set.empty[String])(_.toSet),
               pendingHandover = record.pendingHandover,
-              conflict = record.conflict
+              conflict = record.conflict,
+              snapshotHome = record.home
             )
           case record: StateRecord =>
             // Written by the in-process host: a journal being ported. Pekko saved it at some

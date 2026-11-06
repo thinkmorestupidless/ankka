@@ -368,6 +368,11 @@ func (b *dirBucket) address(name string) string {
 	return strings.TrimSuffix(b.store.addressBase(), "/") + storagePath + "/" + b.segment + "/" + addressOf(name)
 }
 
+// Erase lists the subject's prefix and deletes each object.
+func (b *dirBucket) Erase(ctx context.Context, subject DataSubject) (ErasedObjects, error) {
+	return eraseListed(ctx, b, subject, Immediate)
+}
+
 func (b *dirBucket) SignedURL(name string, access SignedAccess, span time.Duration) (string, error) {
 	if err := checkName(name); err != nil {
 		return "", err

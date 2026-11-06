@@ -34,7 +34,12 @@ private[ankka] final case class CheckedQuery(
     name: String,
     sql: String,
     values: Vector[String],
-    watchable: Boolean = false
+    watchable: Boolean = false,
+    /**
+     * Each value compared with a lookup field, and the field's path (feature 042): the caller's
+     * value is turned into its lookup token before the statement runs.
+     */
+    lookups: Map[String, String] = Map.empty
 )
 
 /**
@@ -91,7 +96,12 @@ private[ankka] object QueryCheck:
   def problems(descriptors: Seq[ComponentDescriptor]): Vector[String] =
     descriptors.toVector.flatMap {
       case view: ViewDescriptor[?, ?, ?] =>
-        problemsOf(view.componentId, view.tableName, view.queries)
+        problemsOf(
+          view.componentId,
+          view.tableName,
+          view.queries,
+          ViewFields(view.personalFields, view.lookupFields)
+        )
       case view: RemoteViewDescriptor =>
         problemsOf(
           view.componentId,
@@ -99,7 +109,12 @@ private[ankka] object QueryCheck:
           view.declaredQueries
         )
       case view: KeyedViewDescriptor[?, ?] =>
-        problemsOf(view.componentId, view.tableName, view.queries)
+        problemsOf(
+          view.componentId,
+          view.tableName,
+          view.queries,
+          ViewFields(view.personalFields, view.lookupFields)
+        )
       case view: RemoteKeyedViewDescriptor =>
         problemsOf(
           view.componentId,
@@ -110,7 +125,12 @@ private[ankka] object QueryCheck:
     }
 
   /** Every problem with one view's declared queries. */
-  def problemsOf(view: ComponentId, table: String, queries: Vector[DeclaredQuery]): Vector[String] =
+  def problemsOf(
+      view: ComponentId,
+      table: String,
+      queries: Vector[DeclaredQuery],
+      fields: ViewFields = ViewFields.none
+  ): Vector[String] =
     val twice = queries
       .groupBy(_.name)
       .collect {
@@ -119,7 +139,7 @@ private[ankka] object QueryCheck:
       }
       .toVector
       .sorted
-    twice ++ queries.distinctBy(_.name).flatMap(check(view, table, _).left.toOption)
+    twice ++ queries.distinctBy(_.name).flatMap(check(view, table, _, fields).left.toOption)
 
   /**
    * One view's queries, checked; for a view the service has already validated, so a problem here is
@@ -128,14 +148,21 @@ private[ankka] object QueryCheck:
   def checkedAll(
       view: ComponentId,
       table: String,
-      queries: Vector[DeclaredQuery]
+      queries: Vector[DeclaredQuery],
+      fields: ViewFields = ViewFields.none
   ): Vector[CheckedQuery] =
     queries.map(query =>
-      check(view, table, query).fold(problem => throw IllegalStateException(problem), identity)
+      check(view, table, query, fields)
+        .fold(problem => throw IllegalStateException(problem), identity)
     )
 
   /** One declared query: refused with the first rule it breaks, or ready to run. */
-  def check(view: ComponentId, table: String, query: DeclaredQuery): Either[String, CheckedQuery] =
+  def check(
+      view: ComponentId,
+      table: String,
+      query: DeclaredQuery,
+      fields: ViewFields = ViewFields.none
+  ): Either[String, CheckedQuery] =
     def refused(what: String) = Left(s"view '$view' declares the query '${query.name}', $what")
     val own                   = table.toLowerCase(Locale.ROOT)
 
@@ -200,12 +227,36 @@ private[ankka] object QueryCheck:
                         s"${values.mkString(", ")}; the parser ${found.named.distinct.mkString(", ")}); " +
                         "write each value as :name outside a string or a comment"
                     )
-                  else if query.watchable then
-                    watchedProblem(statement) match
-                      case Some(why) =>
-                        Left(s"view '$view' declares the watched query '${query.name}', $why")
-                      case None => Right(CheckedQuery(query.name, sql, values, watchable = true))
-                  else Right(CheckedQuery(query.name, sql, values))
+                  else
+                    // Feature 042: what the statement may do with the row's personal fields, last,
+                    // since it may rewrite the statement every rule above has read.
+                    PersonalQueryCheck.check(statement, fields) match
+                      case Left(why)       => refused(why)
+                      case Right(personal) =>
+                        val (runSql, runValues) = personal.text match
+                          case None       => (sql, values)
+                          case Some(text) =>
+                            Values
+                              .scan(text)
+                              .fold(why => throw IllegalStateException(why), identity)
+                        if query.watchable then
+                          watchedProblem(statement) match
+                            case Some(why) =>
+                              Left(s"view '$view' declares the watched query '${query.name}', $why")
+                            case None =>
+                              Right(
+                                CheckedQuery(
+                                  query.name,
+                                  runSql,
+                                  runValues,
+                                  watchable = true,
+                                  lookups = personal.lookups
+                                )
+                              )
+                        else
+                          Right(
+                            CheckedQuery(query.name, runSql, runValues, lookups = personal.lookups)
+                          )
                 case other =>
                   refused(s"which is ${kindOf(other)}; a declared query only reads")
 

@@ -371,6 +371,11 @@ type TaskOptions struct {
 	ID          string
 	Attachments []Attachment
 	DependsOn   []string
+	// Subject is the data subject the task is about (feature 042); the zero value is none. Its
+	// instructions, attachments, result and the conversation an agent has working on it are kept
+	// sealed under the subject's key, and read as erased once it is erased. An instance made for
+	// the task alone (RunSingleTask) takes it too.
+	Subject DataSubject
 }
 
 // CreateTask creates a task of type t and answers its id. A dependency that does not exist is
@@ -405,6 +410,9 @@ func CreateTask(ctx context.Context, t AnyTaskType, instructions string, opts Ta
 		deps = []string{}
 	}
 	body := map[string]any{"typeName": t.Name(), "instructions": instructions, "attachments": attachments, "dependencies": deps}
+	if !opts.Subject.IsZero() {
+		body["subject"] = opts.Subject.String()
+	}
 	if _, err := rawInvoke(ctx, pb.Kind_EVENT_SOURCED_ENTITY, taskComponent, id, "create", body); err != nil {
 		return "", err
 	}
@@ -547,11 +555,22 @@ func CancelTask(ctx context.Context, id, reason string) error {
 type AgentInstance struct {
 	ComponentID string
 	InstanceID  string
+	// Subject is the data subject the instance is started with by its first assignment (feature
+	// 042); the zero value is none. See WithSubject.
+	Subject DataSubject
 }
 
 // Instance is the instance instanceID of the autonomous agent componentID.
 func Instance(componentID, instanceID string) AgentInstance {
 	return AgentInstance{ComponentID: componentID, InstanceID: instanceID}
+}
+
+// WithSubject is the instance started with s by its first assignment (feature 042): what it records
+// of its work is kept sealed under the subject's key, and once the subject is erased the instance is
+// terminated. A later call naming another data subject is refused.
+func (a AgentInstance) WithSubject(s DataSubject) AgentInstance {
+	a.Subject = s
+	return a
 }
 
 // RunSingleTask creates a task of type t, starts a fresh instance of the agent on it, and answers
@@ -590,7 +609,12 @@ func (a AgentInstance) Assign(ctx context.Context, taskIDs ...string) (Assigned,
 	if taskIDs == nil {
 		taskIDs = []string{}
 	}
-	raw, err := a.call(ctx, "assign", map[string]any{"taskIds": taskIDs})
+	body := map[string]any{"taskIds": taskIDs}
+	if !a.Subject.IsZero() {
+		// The instance's data subject travels in the assignment, which is what its host reads.
+		body["subject"] = a.Subject.String()
+	}
+	raw, err := a.call(ctx, "assign", body)
 	if err != nil {
 		return out, err
 	}
@@ -717,7 +741,11 @@ func decide(ctx context.Context, kind pb.Kind, componentID, entityID, handler, a
 	if err != nil {
 		return nil, err
 	}
-	req := &pb.DecideRequest{Kind: kind, ComponentId: componentID, EntityId: entityID, Name: handler, ApprovalId: approvalID, Approved: d.Approved, By: d.By, Metadata: metadataToPb(MetadataFrom(ctx))}
+	md := MetadataFrom(ctx)
+	if kind == pb.Kind_AGENT {
+		md = agentMetadata(ctx)
+	}
+	req := &pb.DecideRequest{Kind: kind, ComponentId: componentID, EntityId: entityID, Name: handler, ApprovalId: approvalID, Approved: d.Approved, By: d.By, Metadata: metadataToPb(md)}
 	if d.Note != "" {
 		req.Note = &d.Note
 	}

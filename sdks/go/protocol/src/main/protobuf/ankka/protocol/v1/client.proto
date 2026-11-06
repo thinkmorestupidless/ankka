@@ -63,6 +63,17 @@ service Client {
   rpc IssueClientKey  (IssueClientKeyRequest)  returns (IssueClientKeyReply);
   rpc ListClientKeys  (ListClientKeysRequest)  returns (ListClientKeysReply);
   rpc RevokeClientKey (RevokeClientKeyRequest) returns (RevokeClientKeyReply);
+
+  // Personal data (protocol 1.23, feature 042). A data subject's key, from the runtime's keyring
+  // client and its cache; the process seals and opens envelopes itself, so the sidecar never reads
+  // a personal value. The notices of erased data subjects, held open for the process's life: the
+  // process drops each subject's key and acks; the sidecar acks the keyring once every instance it
+  // fronts has. A request to erase, as the service, under the `erasure` grant. A refusal or a fault
+  // is an Error in the reply, never a gRPC status; a runtime older than 1.23 answers UNIMPLEMENTED.
+  rpc GetSubjectKey    (SubjectKeyRequest)     returns (SubjectKeyReply);
+  rpc SubjectNotices   (SubjectNoticesRequest) returns (stream SubjectNotice);
+  rpc AckSubjectNotice (SubjectNoticeAck)      returns (SubjectNoticeAckReply);
+  rpc AskErasure       (AskErasureRequest)     returns (AskErasureReply);
 }
 
 // 1.20: a client key for `subject`. Exactly one expiry is set.
@@ -318,6 +329,8 @@ message StorageRequest {
     STAT = 4;                                 // 1.21
     SIGNED_URL = 5;                           // 1.21
     URL = 6;                                  // 1.21: a public bucket's address, signed by nothing
+    ERASE = 7;                                // 1.23: every object, and every version, under
+                                              // `subjects/<name>/`, where `name` is a data subject
   }
   Op op = 2;                                  // 1.21
   string name = 3;                            // 1.21: the object's name, or the prefix for LIST
@@ -342,7 +355,13 @@ message StorageReply {
     string url = 4;                           // 1.21: SIGNED_URL, URL
     Empty done = 5;                           // 1.21: PUT, DELETE; a GET or STAT that finds nothing
     Error error = 6;                          // 1.21
+    ErasedObjects erased = 7;                 // 1.23: ERASE
   }
+}
+
+message ErasedObjects {
+  uint64 count = 1;                           // 1.23: objects removed
+  string finality = 2;                        // 1.23: "immediate", or "after:" and an ISO-8601 duration
 }
 
 message StoredObject {
@@ -368,4 +387,77 @@ message ObjectEntry {
   string name = 1;                            // 1.21
   uint64 length = 2;                          // 1.21
   string last_kept = 3;                       // 1.21: ISO-8601
+}
+
+// 1.23: a data subject's key. `create` on a write: made when absent, refused for an erased subject.
+// `project` empty: the service's own; another project's only under a consume grant with `decrypt`.
+// A write of a field read from another project's envelope asks that project's key with `create`
+// false, and seals the field under it again (FR-027); a key it is no longer given writes the field
+// erased.
+message SubjectKeyRequest {
+  string subject = 1;                         // 1.23
+  bool create = 2;                            // 1.23
+  string project = 3;                         // 1.23
+  Metadata metadata = 4;                      // 1.23: the trace
+  // 1.23: the installation whose keyring keeps the key: a replicated entity's home as the record
+  // being read or written names it (EventSourcedIn's `Init.home`, then each `Event.installation`,
+  // and `Command.home`). Empty, or this installation: the service's own keyring. Any other is asked
+  // through the runtime's keyring relay (FR-032), read only: a follower never makes a key, and a
+  // relay that cannot be reached is UNAVAILABLE, never erased.
+  string home = 5;
+}
+
+message SubjectKeyReply {
+  oneof reply {
+    bytes key = 1;                            // 1.23: 32 bytes, AES-256
+    bool erased = 2;                          // 1.23: the subject's key is destroyed
+    Error error = 3;                          // 1.23: UNAVAILABLE, FORBIDDEN, or the subject refused
+  }
+  string project = 4;                         // 1.23: the project the answer is for; the service's
+                                              // own when the request left it empty. A process
+                                              // learns its project here, and writes it in every
+                                              // envelope it seals
+}
+
+// 1.23: the process instance holding the stream, which acks under the same name.
+message SubjectNoticesRequest {
+  string instance = 1;                        // 1.23
+}
+
+message SubjectNotice {
+  int64 seq = 1;                              // 1.23: the keyring's, in order
+  string project = 2;                         // 1.23
+  string subject = 3;                         // 1.23
+  bool rerun = 4;                             // 1.23: sent again so every handler runs again
+}
+
+message SubjectNoticeAck {
+  int64 seq = 1;                              // 1.23
+  string instance = 2;                        // 1.23: as on SubjectNoticesRequest
+}
+
+message SubjectNoticeAckReply {
+  optional Error error = 1;                   // 1.23
+}
+
+// 1.23: a request to erase a data subject, filed by the service. `project` empty: its own.
+message AskErasureRequest {
+  string project = 1;                         // 1.23
+  string subject = 2;                         // 1.23
+  optional string not_before = 3;             // 1.23: ISO-8601
+  optional string reason = 4;                 // 1.23
+  optional string correlation = 5;            // 1.23
+  Metadata metadata = 6;                      // 1.23: the trace
+}
+
+message AskErasureReply {
+  oneof reply {
+    ErasureAsked ok = 1;                      // 1.23
+    Error error = 2;                          // 1.23: FORBIDDEN without the `erasure` grant
+  }
+}
+
+message ErasureAsked {
+  string id = 1;                              // 1.23: the request's id in its project
+  string state = 2;                           // 1.23: held, applying or applied
 }

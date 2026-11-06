@@ -25,7 +25,7 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.22"
+export const PROTOCOL_VERSION = "1.23"
 export const SDK_NAME = "ankka-typescript"
 
 /** An HTTP endpoint's rule; client keys and `anyOf` are refused for one at registration, so they deny here. */
@@ -307,5 +307,6 @@ export function renderSpec(registry: Registry): Spec {
     components,
     endpoints,
     mcpEndpoints,
+    erasureHandler: registry.erasureHandler !== undefined,
   })
 }

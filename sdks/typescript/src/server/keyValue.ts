@@ -14,7 +14,8 @@ import { errorCodeToProto } from "../kinds.ts"
 import { materialiseKeyValue } from "../materialise.ts"
 import type { RegisteredKeyValue } from "../service.ts"
 import { retentionToProto } from "./eventSourced.ts"
-import { decodePayload, encodePayload } from "./payloads.ts"
+import { PersonalError } from "../personal.ts"
+import { decodePayload, encodePayload, prefetchPayload, prefetchValue } from "./payloads.ts"
 import type { ServerContext } from "./server.ts"
 
 type OutcomeInit = MessageInitShape<typeof OutcomeSchema>
@@ -50,6 +51,7 @@ export async function* handleKeyValue(requests: AsyncIterable<KeyValueIn>, ctx: 
         }
         registered = found
         entityId = init.entityId
+        await prefetchPayload(init.state)
         try {
           entity = new registered.cls() as KeyValueEntity<unknown>
           entity._bindInstance(entityId)
@@ -89,6 +91,7 @@ async function runCommand(
   if (!handler) return { out: failure(cmd.id, { message: `no handler ${JSON.stringify(cmd.name)} on ${registered.id}`, code: ErrorCode.NotFound }) }
 
   let input: unknown
+  await prefetchPayload(cmd.payload)
   try {
     input = handler.input ? decodePayload(codecFor(handler.input), cmd.payload) : undefined
   } catch (e) {
@@ -114,6 +117,7 @@ async function runCommand(
 
   try {
     const m = materialiseKeyValue(effect, state)
+    await prefetchValue(m.reply, m.changed ? m.newState : undefined)
     const replyCodec = handler.reply ? codecFor(handler.reply) : binaryCodecs.done
     const outcome: OutcomeInit = m.error
       ? { outcome: { case: "error", value: { message: m.error.message, code: errorCodeToProto(m.error.code) } } }
@@ -135,6 +139,6 @@ async function runCommand(
     return { out, newState: m.newState }
   } catch (e) {
     ctx.log(`ankka: ${registered.id}/${entityId}/${cmd.name}: the effect could not be applied: ${messageOf(e)}`)
-    return { out: failure(cmd.id, { message: messageOf(e), code: ErrorCode.Internal }) }
+    return { out: failure(cmd.id, { message: messageOf(e), code: e instanceof PersonalError ? e.code : ErrorCode.Internal }) }
   }
 }

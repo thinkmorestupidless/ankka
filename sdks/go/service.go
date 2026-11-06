@@ -202,7 +202,16 @@ func (s *Service) serve(ctx context.Context, lis net.Listener, st startSettings)
 	if s.client == nil {
 		s.client = &Client{address: st.sidecar, decls: s.decls}
 	}
+	client := s.client
 	s.mu.Unlock()
+	// The process's keyring: keys asked of the sidecar, cached, dropped on its notices.
+	keys := newKeyring(&sidecarKeys{client: client})
+	defer useKeyring(keys)()
+	if s.decls.personal {
+		noticesCtx, stopNotices := context.WithCancel(ctx)
+		defer stopNotices()
+		go followNotices(noticesCtx, client, keys, instanceName(), s.log)
+	}
 	g := s.grpcServer()
 	done := make(chan error, 1)
 	go func() { done <- g.Serve(lis) }()
@@ -296,6 +305,9 @@ func (s *Service) grpcServer() *grpc.Server {
 	if len(s.decls.mcpTools) > 0 {
 		server.RegisterMcp(g, s.decls.mcpTools, s.serverOptions())
 	}
+	if s.decls.erasure != nil {
+		server.RegisterErasure(g, s.decls.runErasure, s.serverOptions())
+	}
 	return g
 }
 
@@ -332,6 +344,10 @@ func (s *Service) discover(_ context.Context, info *pb.SidecarInfo) (*pb.Spec, e
 	s.mu.Lock()
 	s.sidecar = info.GetProtocolVersion()
 	s.mu.Unlock()
+	// Discovered, by a sidecar that may be new: one that stopped before it handed on a notice hands
+	// it never again, and this process may not yet have seen the old notice stream end. Every key
+	// held is forgotten, so an erased subject is asked for again and reads as erased.
+	currentKeyring().dropAll()
 	spec := s.Spec()
 	// A runtime before 1.21 refuses a process's endpoint under /_ankka; the directory store's URLs
 	// then go unanswered, and nothing else of the store needs the runtime.

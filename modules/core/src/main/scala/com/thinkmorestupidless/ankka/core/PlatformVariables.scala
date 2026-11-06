@@ -189,6 +189,41 @@ private[ankka] object PlatformVariables:
   val ModelsAddress: String = "ANKKA_MODELS_ADDRESS"
 
   /**
+   * Whether the installation erases personal data (feature 042): `on` when it runs the keyring,
+   * `off` (the default) otherwise. Read by the control plane, which reports it on
+   * `GET /installation` and refuses a service that declares personal fields while it is off, and by
+   * the operator. Set by the keyring's component, never by a service.
+   */
+  val Erasure: String = "ANKKA_ERASURE"
+
+  /**
+   * How many instances of the keyring run (feature 042): 2 by default. Reported beside `Erasure`.
+   */
+  val KeyringInstances: String = "ANKKA_KEYRING_INSTANCES"
+
+  /**
+   * How long after an erasure is applied the control plane keeps asking each service to run its
+   * erasure handler again (feature 042), as a duration such as `30d`: 30 days by default.
+   */
+  val ErasureRerunWindow: String = "ANKKA_ERASURE_RERUN_WINDOW"
+
+  /**
+   * Where the installation's keyring is (feature 042): rendered by the operator for a service that
+   * declares personal fields, which the platform's program reaches with the service's own
+   * certificate. A descriptor never gives it.
+   */
+  val KeyringAddress: String = "ANKKA_KEYRING_ADDRESS"
+
+  /**
+   * Where a locally run service's console endpoint listens, as `host:port` (feature 042): loopback
+   * on an ephemeral port when unset. Set only by a test kit that runs the sidecar in a container
+   * and reaches the endpoint from the host (`0.0.0.0:9012`, which Docker publishes), as it sets
+   * `ANKKA_SIDECAR_BIND`. The endpoint is never started on the platform, and a descriptor that
+   * gives the variable is refused.
+   */
+  val LocalEndpointAddress: String = "ANKKA_OBSERVABILITY_ADDRESS"
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */
@@ -208,6 +243,8 @@ private[ankka] object PlatformVariables:
     "ANKKA_SIDECAR_PORT",
     "ANKKA_SIDECAR_ADDRESS",
     "ANKKA_SIDECAR_BIND",
+    // Where a local service's console endpoint listens, for a test kit's container.
+    LocalEndpointAddress,
     // How the runtime finds and sizes a module.
     "ANKKA_WASM_MODULE",
     "ANKKA_WASM_INSTANCES",
@@ -232,7 +269,9 @@ private[ankka] object PlatformVariables:
     Installation,
     Installations,
     // Where the installation's model server is (feature 053).
-    ModelsAddress
+    ModelsAddress,
+    // Where the installation's keyring is (feature 042).
+    KeyringAddress
   ) ++ SecretStoreSettings
 
   /**

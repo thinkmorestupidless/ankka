@@ -17,3 +17,14 @@ Feature: A personal field in every language
       | TypeScript |
       | Rust       |
       | Go         |
+
+  Scenario Outline: a service written in a language of the JVM writes the personal envelope a service written in Scala writes
+    Given a service "players" written in "<language>" whose event "PlayerRegistered" has the field "email" marked as a personal field of the data subject "player/8c1f"
+    When an entity of "players" records a "PlayerRegistered" with the email "ada@example.com"
+    Then the journal of "players" holds the field "email" as the personal envelope a service written in Scala writes for it
+    And the entity recovered in "<language>" reads the field "email" as "ada@example.com" in its own personal type
+
+    Examples:
+      | language |
+      | Java     |
+      | Kotlin   |

@@ -26,14 +26,14 @@ hostname, so it follows DNS label rules: lowercase letters, digits and `-`, star
 at most 57 characters. Short project ids leave room for service names in hostnames, whose single label is
 limited to 63 characters.
 
-Four ids are reserved: `platform`, `local`, `cloud-provider` and `machine`. A service's identity to
+Five ids are reserved: `platform`, `local`, `cloud-provider`, `machine` and `keyring`. A service's identity to
 every other service is `ankka://<project>/<service>`, and the platform's own workloads, the control
 plane and the console, are `ankka://platform/controlplane` and `ankka://platform/console`. A project
 called `platform` could deploy a service that carried one of those identities, so creating it is
-refused with `project id 'platform' is reserved for the platform's own workloads`. The other three
+refused with `project id 'platform' is reserved for the platform's own workloads`. The other four
 would collide with names the platform derives from a project's id: the consumer groups of a service
-run on a developer's machine (`local`) and of a registered machine (`machine`), and the namespace the
-installation's cloud provider runs in (`cloud-provider`). An id that only contains such a word, such
+run on a developer's machine (`local`) and of a registered machine (`machine`), and the namespaces the
+installation's cloud provider (`cloud-provider`) and its keyring (`keyring`) run in. An id that only contains such a word, such
 as `platform-tools`, is an ordinary id.
 
 ```bash

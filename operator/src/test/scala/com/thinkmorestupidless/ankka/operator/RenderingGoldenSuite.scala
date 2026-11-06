@@ -86,6 +86,16 @@ class RenderingGoldenSuite extends munit.FunSuite:
       ),
       Settings.default.copy(models = Some(InstallationModelsSuite.Server)),
       provisioning
+    ),
+    (
+      // Feature 042: a service that declares personal fields, on an installation with erasure on.
+      // The keyring's address on the platform container and the namespace's label are the whole
+      // difference from 'embedded'.
+      "personal-service",
+      base.copy(personal = true),
+      Settings.default
+        .copy(erasure = Some(KeyringSettings("https://keyring.ankka-keyring.svc:8443"))),
+      provisioning
     )
   )
 

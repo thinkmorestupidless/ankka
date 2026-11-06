@@ -775,6 +775,17 @@ the descriptor's `env` sets is read with `System.getenv`.
 store: an endpoint, a consumer, a workflow, a timed action and the running service, never an entity. See
 [Secrets a service keeps](../build/secrets.md).
 
+## Personal data
+
+A data class property of type `Personal<T>` is a personal field ([Personal data](../build/personal-data.md)):
+`personal(subject("player/8c1f"), value)` makes one and `valueOrNull` reads it, `null` once the data subject
+is erased. A field read from another project's topic and kept, through `copy()` or as it is, is written again
+under that project's key.
+
+The erasure handler and asking for an erasure are the Java SDK's: `withErasureHandler { ctx, subject ->
+ErasureReport.of(ctx.storage().bucket("kyc").erase(subject)) }` on the builder, and `erasures().ask(subject)`
+on an endpoint or a consumer, `ErasureAsk.inProject(project)` for another project.
+
 ## Calling other services
 
 `services().of(name)` or `of(project, name)` answers the Java SDK's `ServiceClient`; its raw `request` takes

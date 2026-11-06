@@ -105,6 +105,11 @@ object WasmDiscovery:
           "does not have"
     }
 
+    // The service's erasure handler is the module's `ankka1_erase` (1.23).
+    if spec.erasureHandler && !exports.contains(Abi.Prefix + "erase") then
+      problems += s"an erasure handler needs the export '${Abi.Prefix}erase', which the module " +
+        "does not have"
+
     // An MCP endpoint's tools are run by the module's `ankka1_mcp_tool` (1.20).
     spec.mcpEndpoints.foreach { e =>
       if !exports.contains(Abi.Prefix + "mcp_tool") then

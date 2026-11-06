@@ -55,8 +55,11 @@ from ankka.storage import (
     S3Target,
     StorageSettingsError,
     UnavailableBuckets,
+    StorageSettings,
     from_environment,
     parse_listing,
+    parse_versions,
+    subject_prefix,
 )
 from ankka.testkit import EndpointTestKit
 from ankka.timed_action import TimedAction
@@ -648,8 +651,13 @@ class FakeS3:
 
     ACCESS, SECRET, REGION = "AKFAKE", "fake-secret-not-logged", "test"
 
-    def __init__(self, page_size: int = 2) -> None:
+    def __init__(self, page_size: int = 2, versions: str = "kept") -> None:
         self.objects: dict[tuple[str, str], tuple[str, bytes]] = {}
+        self.versions = versions
+        """``kept``: every put is a version and a plain delete leaves a marker (``ListObjectVersions``
+        answers); ``none``: the store lists no versions, as Garage answers, ``NotImplemented``."""
+        self.history: dict[tuple[str, str], list[tuple[str, bool]]] = {}
+        self._next_version = 0
         self.seen: list[tuple[str, str, dict[str, str]]] = []
         self.page_size = page_size
         fake = self
@@ -693,10 +701,20 @@ class FakeS3:
                 bucket, key = segments[0], segments[1] if len(segments) > 1 else ""
                 if self.command == "PUT":
                     fake.objects[(bucket, key)] = (headers.get("content-type", "application/octet-stream"), body)
+                    fake.keep_version(bucket, key, marker=False)
                     return self._answer(200)
                 if self.command == "DELETE":
-                    fake.objects.pop((bucket, key), None)
+                    version = dict(query).get("versionId")
+                    if version is not None:
+                        fake.drop_version(bucket, key, version)
+                        return self._answer(204)
+                    if fake.objects.pop((bucket, key), None) is not None:
+                        fake.keep_version(bucket, key, marker=True)
                     return self._answer(204)
+                if key == "" and "versions" in dict(query):
+                    if fake.versions == "none":
+                        return self._error(501, "NotImplemented")
+                    return self._answer(200, fake.version_listing(bucket, dict(query)), {"Content-Type": "application/xml"})
                 if key == "" and dict(query).get("list-type") == "2":
                     return self._answer(200, fake.listing(bucket, dict(query)), {"Content-Type": "application/xml"})
                 found = fake.objects.get((bucket, key))
@@ -751,9 +769,42 @@ class FakeS3:
             f"<IsTruncated>{'true' if more else 'false'}</IsTruncated>{contents}{token}</ListBucketResult>"
         ).encode()
 
-    def bucket(self, exposure: str = "private", secret: str | None = None, name: str | None = None) -> S3Bucket:
+    def keep_version(self, bucket: str, key: str, marker: bool) -> None:
+        if self.versions == "kept":
+            self._next_version += 1
+            self.history.setdefault((bucket, key), []).append((f"v{self._next_version}", marker))
+
+    def drop_version(self, bucket: str, key: str, version: str) -> None:
+        kept = [v for v in self.history.get((bucket, key), []) if v[0] != version]
+        if kept:
+            self.history[(bucket, key)] = kept
+        else:
+            self.history.pop((bucket, key), None)
+        if not any(not marker for _, marker in kept):
+            self.objects.pop((bucket, key), None)
+
+    def version_listing(self, bucket: str, query: dict[str, str]) -> bytes:
+        entries = sorted(
+            (k, v, marker) for (b, k), vs in self.history.items() if b == bucket and k.startswith(query.get("prefix", "")) for v, marker in vs
+        )
+        start = int(query.get("key-marker") or 0)
+        page = entries[start : start + self.page_size]
+        more = start + self.page_size < len(entries)
+        body = "".join(
+            f"<{'DeleteMarker' if marker else 'Version'}><Key>{k}</Key><VersionId>{v}</VersionId></{'DeleteMarker' if marker else 'Version'}>"
+            for k, v, marker in page
+        )
+        markers = f"<NextKeyMarker>{start + self.page_size}</NextKeyMarker><NextVersionIdMarker>m</NextVersionIdMarker>" if more else ""
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?><ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+            f"<IsTruncated>{'true' if more else 'false'}</IsTruncated>{markers}{body}</ListVersionsResult>"
+        ).encode()
+
+    def bucket(
+        self, exposure: str = "private", secret: str | None = None, name: str | None = None, soft_delete: timedelta | None = None
+    ) -> S3Bucket:
         target = S3Target(self.endpoint, self.REGION, "shop.cart", sigv4.Credentials(self.ACCESS, secret or self.SECRET), self.endpoint)
-        return S3Bucket(target, name, exposure, timeout=5)  # type: ignore[arg-type]
+        return S3Bucket(target, name, exposure, timeout=5, soft_delete=soft_delete)  # type: ignore[arg-type]
 
     def close(self) -> None:
         self.server.shutdown()
@@ -848,6 +899,127 @@ def test_a_listing_is_read_from_list_objects_v2() -> None:
     assert [(e.name, e.length, e.last_kept) for e in entries] == [("a & b", 3, datetime(2026, 10, 19, 12, tzinfo=UTC))]
     assert token == "t1"
     assert parse_listing(b"<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>") == ([], None)
+
+
+# ── a data subject's objects (feature 042) ───────────────────────────────────
+
+SUBJECT = "player"
+SUBJECT_OBJECTS = ("subjects/player/kyc.pdf", "subjects/player/scans/front.jpg")
+KEPT_OBJECTS = ["other/player.txt", "subjects/player%2Fx/note.txt"]
+"""Another data subject's, ``player/x``, whose prefix an unescaped ``/`` would put under
+``player``'s; and one outside every subject."""
+
+
+async def _keep_for_erasure(bucket: Any) -> None:
+    """Each subject's objects are kept under ``subject_prefix``, as a service keeps them."""
+    for name in ("kyc.pdf", "scans/front.jpg"):
+        await bucket.put(subject_prefix(SUBJECT) + name, b"x", content_type="text/plain")
+    await bucket.put(subject_prefix(SUBJECT + "/x") + "note.txt", b"x", content_type="text/plain")
+    await bucket.put("other/player.txt", b"x", content_type="text/plain")
+
+
+def test_a_subject_prefix_writes_each_slash_so_no_subject_holds_another() -> None:
+    assert subject_prefix("player") == "subjects/player/"
+    assert subject_prefix("player/x") == "subjects/player%2Fx/"
+    assert ObjectRules.subject_prefix("org:acme/user_1.a") == "subjects/org:acme%2Fuser_1.a/"
+    refused = _refusal(lambda: subject_prefix("player%2Fx"))
+    assert refused.error.code == ErrorCode.BAD_REQUEST and "is not a data subject" in refused.error.message
+
+
+def test_erase_removes_exactly_the_subjects_objects_and_again_none(store: Buckets) -> None:
+    async def run() -> None:
+        bucket = store.default
+        await _keep_for_erasure(bucket)
+        erased = await bucket.erase(SUBJECT)
+        assert (erased.count, erased.finality) == (2, None)
+        assert await _names(bucket) == KEPT_OBJECTS
+        assert (await bucket.erase(SUBJECT)).count == 0
+
+    asyncio.run(run())
+
+
+def test_an_s3_erase_deletes_every_version_and_marker_by_its_id(fake_s3: FakeS3) -> None:
+    bucket = fake_s3.bucket(soft_delete=timedelta(days=7))
+
+    async def run() -> None:
+        await _keep_for_erasure(bucket)
+        await bucket.put(SUBJECT_OBJECTS[0], b"again", content_type="text/plain")
+        await bucket.put("subjects/player/gone.txt", b"x", content_type="text/plain")
+        await bucket.delete("subjects/player/gone.txt")
+        erased = await bucket.erase(SUBJECT)
+        assert (erased.count, erased.finality) == (3, timedelta(days=7))
+        assert await _names(bucket) == KEPT_OBJECTS
+        assert sorted(k for _, k in fake_s3.history) == KEPT_OBJECTS
+        assert (await bucket.erase(SUBJECT)).count == 0
+
+    asyncio.run(run())
+    listings = [p for m, p, _ in fake_s3.seen if m == "GET" and "versions=" in p]
+    assert listings and all("prefix=subjects%2Fplayer%2F&" in p for p in listings), listings
+    assert any("versionId=" in p for m, p, _ in fake_s3.seen if m == "DELETE")
+
+
+def test_an_s3_erase_deletes_a_version_written_before_versioning_by_its_null_id(fake_s3: FakeS3) -> None:
+    bucket = fake_s3.bucket()
+    name = "subjects/player/before-versioning.txt"
+    fake_s3.objects[("shop.cart", name)] = ("text/plain", b"x")
+    fake_s3.history[("shop.cart", name)] = [("null", False)]
+
+    erased = asyncio.run(bucket.erase(SUBJECT))
+    assert erased.count == 1
+    assert ("shop.cart", name) not in fake_s3.history and ("shop.cart", name) not in fake_s3.objects
+    deletes = [p for m, p, _ in fake_s3.seen if m == "DELETE"]
+    assert any("versionId=null" in p for p in deletes), deletes
+
+
+def test_an_s3_store_with_no_versions_is_listed_plainly_and_each_object_deleted() -> None:
+    fake = FakeS3(versions="none")
+    try:
+        bucket = fake.bucket()
+
+        async def run() -> None:
+            await _keep_for_erasure(bucket)
+            erased = await bucket.erase(SUBJECT)
+            assert (erased.count, erased.finality) == (2, None)
+            assert await _names(bucket) == KEPT_OBJECTS
+            assert (await bucket.erase(SUBJECT)).count == 0
+
+        asyncio.run(run())
+    finally:
+        fake.close()
+
+
+def test_a_version_listing_is_read_from_list_object_versions() -> None:
+    page = parse_versions(
+        b'<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>true</IsTruncated>'
+        b"<NextKeyMarker>subjects/p/b</NextKeyMarker><NextVersionIdMarker>v9</NextVersionIdMarker>"
+        b"<Version><Key>subjects/p/a &amp; b</Key><VersionId>v1</VersionId><IsLatest>true</IsLatest></Version>"
+        b"<DeleteMarker><Key>subjects/p/b</Key><VersionId>v2</VersionId></DeleteMarker>"
+        b"<Version><Key>subjects/p/c</Key><VersionId>null</VersionId></Version></ListVersionsResult>"
+    )
+    assert page.versions == [("subjects/p/a & b", "v1"), ("subjects/p/b", "v2"), ("subjects/p/c", "null")]
+    assert (page.truncated, page.next_key, page.next_version) == (True, "subjects/p/b", "v9")
+    last = parse_versions(b"<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>")
+    assert (last.versions, last.truncated) == ([], False)
+    assert not page.generations
+
+
+def test_a_version_listing_from_google_names_generations() -> None:
+    page = parse_versions(b'<ListBucketResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextGenerationMarker>1700000000000002</NextGenerationMarker><Version><Key>subjects/p/a</Key><Generation>1700000000000001</Generation></Version><Version><Key>subjects/p/b</Key><Generation>1700000000000002</Generation></Version></ListBucketResult>')
+    assert page.versions == [("subjects/p/a", "1700000000000001"), ("subjects/p/b", "1700000000000002")]
+    assert (page.truncated, page.next_key, page.next_version, page.generations) == (
+        True,
+        "subjects/p/b",
+        "1700000000000002",
+        True,
+    )
+
+
+def test_the_soft_delete_window_is_read_in_whole_days_from_one() -> None:
+    assert StorageSettings.read(S3_ENV).soft_delete is None
+    assert StorageSettings.read({**S3_ENV, "ANKKA_S3_SOFT_DELETE_DAYS": "7"}).soft_delete == timedelta(days=7)
+    for text in ("0", "seven", "1.5"):
+        with pytest.raises(StorageSettingsError, match="ANKKA_S3_SOFT_DELETE_DAYS"):
+            StorageSettings.read({**S3_ENV, "ANKKA_S3_SOFT_DELETE_DAYS": text})
 
 
 # ── the test kits and the conformance reference ──────────────────────────────

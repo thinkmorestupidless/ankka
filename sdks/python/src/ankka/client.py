@@ -27,6 +27,7 @@ from ankka.effects.common import Error, ErrorCode
 
 if TYPE_CHECKING:
     from ankka.autonomous import AutonomousAgent, AutonomousAgentCalls, TaskCalls, Tasks
+    from ankka.personal import DataSubject
 
 R = TypeVar("R")
 
@@ -43,6 +44,22 @@ class CommandError(Exception):
 
 def _payload(codec: Codec[Any], value: Any) -> payload_pb2.Payload:
     return payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(value))
+
+
+async def _sealable(value: Any) -> None:
+    """Fetches the subject keys a value about to be encoded needs (feature 042); raises the refusal."""
+    if value is None or isinstance(value, (str, bytes, int, float, bool)):
+        return
+    from ankka import keyring
+
+    await keyring.current().prefetch_values(value)
+
+
+async def _opened(message: Any) -> None:
+    """Fetches the subject keys a reply's sealed envelopes need before it is decoded (feature 042)."""
+    from ankka import keyring
+
+    await keyring.current().prefetch_message(message)
 
 
 def _error(pb: payload_pb2.Error) -> Error:
@@ -199,6 +216,7 @@ class Invocation:
         an agent's turn that waits for a person raises ``ApprovalAwaited`` (``ask`` answers it)."""
         in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
         out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
+        await _sealable(input)
         outcome = await self._outcome(self._request(input, in_codec), out_codec)
         if isinstance(outcome, AwaitingApproval):
             raise ApprovalAwaited(outcome.requests)
@@ -216,6 +234,7 @@ class Invocation:
         with the requests the turn waits on when the model called a tool that requires approval."""
         in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
         out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
+        await _sealable(input)
         return await self._outcome(self._request(input, in_codec), out_codec)
 
     async def decide(
@@ -261,7 +280,9 @@ class Invocation:
         )
 
     async def _outcome(self, request: client_pb2.InvokeRequest, out_codec: Codec[Any]) -> Answered[Any] | AwaitingApproval:
-        return self._read(await self._stub.Invoke(request), out_codec)
+        answer = await self._stub.Invoke(request)
+        await _opened(answer)
+        return self._read(answer, out_codec)
 
     @staticmethod
     def _read(answer: client_pb2.InvokeReply, out_codec: Codec[Any]) -> Answered[Any] | AwaitingApproval:
@@ -427,6 +448,7 @@ class Views:
         answer = await self._stub.Query(request)
         if answer.HasField("error"):
             raise CommandError(_error(answer.error))
+        await _opened(answer)
         decoding = codec or default_codec_for(row)
         documents = json.loads(answer.rows.data.decode("utf-8"))
         return [decoding.decode(json.dumps(d).encode("utf-8")) for d in documents]
@@ -502,6 +524,7 @@ class Views:
             async for frame in frames:
                 which = frame.WhichOneof("frame")
                 if which == "row":
+                    await _opened(frame)
                     yield views.Row(frame.row.key, decoding.decode(frame.row.payload.data))
                 elif which == "removed":
                     yield views.Removed(frame.removed.key)
@@ -652,6 +675,25 @@ class Timers:
         await self._stub.Cancel(client_pb2.CancelRequest(timer_id=timer_id))
 
 
+DATA_SUBJECT_KEY = "ankka-data-subject"
+"""The metadata key a call to an agent names its data subject under (feature 042)."""
+
+
+def data_subject(subject: DataSubject | str | None) -> DataSubject | None:
+    """``subject`` checked against the data subject rule; ``ValueError`` when it breaks it."""
+    from ankka.personal import DataSubject
+
+    if subject is None:
+        return None
+    return subject if isinstance(subject, DataSubject) else DataSubject(subject)
+
+
+def with_subject(metadata: Metadata, subject: DataSubject | str | None) -> Metadata:
+    """``metadata`` naming ``subject`` under ``ankka-data-subject``, or unchanged without one."""
+    checked = data_subject(subject)
+    return metadata if checked is None else metadata.set(DATA_SUBJECT_KEY, checked)
+
+
 class ComponentClient:
     """Calls into the platform from this process. One per process, shared by every handler; the
     metadata varies per call and is supplied by the context a handler received."""
@@ -667,7 +709,19 @@ class ComponentClient:
     @property
     def _stub(self) -> client_pb2_grpc.ClientStub:
         if self._stub_cache is None:
-            self._channel = grpc.aio.insecure_channel(self.address)
+            # The sidecar is on this machine and may start after the process, or restart. A call
+            # waits for the channel to be ready rather than failing at once while it reconnects
+            # (`waitForReady`), and the reconnect backoff is bounded to a second rather than gRPC's
+            # two minutes, so a call made the moment a restarted sidecar listens reaches it.
+            self._channel = grpc.aio.insecure_channel(
+                self.address,
+                options=[
+                    ("grpc.initial_reconnect_backoff_ms", 100),
+                    ("grpc.min_reconnect_backoff_ms", 100),
+                    ("grpc.max_reconnect_backoff_ms", 1000),
+                    ("grpc.service_config", '{"methodConfig":[{"name":[{}],"waitForReady":true}]}'),
+                ],
+            )
             self._stub_cache = client_pb2_grpc.ClientStub(self._channel)  # type: ignore[no-untyped-call]
         return self._stub_cache
 
@@ -698,8 +752,13 @@ class ComponentClient:
     def for_workflow(self, component_id: str, workflow_id: str) -> Calls:
         return Calls(self._stub, discovery_pb2.WORKFLOW, component_id, workflow_id, self._metadata)
 
-    def for_agent(self, component_id: str, session_id: str) -> Calls:
-        return Calls(self._stub, discovery_pb2.AGENT, component_id, session_id, self._metadata)
+    def for_agent(self, component_id: str, session_id: str, subject: DataSubject | str | None = None) -> Calls:
+        """Calls to one session of an agent. A session started with ``subject`` (feature 042) keeps
+        its conversation sealed under that data subject's key, and reads as erased once the subject
+        is erased. The subject is fixed at the session's first call: a later call naming another is
+        refused. An id that breaks the data subject rule raises ``ValueError`` before anything is
+        sent."""
+        return Calls(self._stub, discovery_pb2.AGENT, component_id, session_id, with_subject(self._metadata, subject))
 
     @property
     def tasks(self) -> Tasks:
@@ -713,13 +772,18 @@ class ComponentClient:
 
         return TaskCalls(self, task_id)
 
-    def for_autonomous_agent(self, agent: type[AutonomousAgent] | str, instance_id: str | None = None) -> AutonomousAgentCalls:
+    def for_autonomous_agent(
+        self, agent: type[AutonomousAgent] | str, instance_id: str | None = None, subject: DataSubject | str | None = None
+    ) -> AutonomousAgentCalls:
         """One instance of an autonomous agent, by the id the caller chose; without an id, only
-        ``run_single_task``, on an instance the platform names."""
+        ``run_single_task``, on an instance the platform names. An instance started with
+        ``subject`` (feature 042), by its first assignment, keeps what it records of its work sealed
+        under that data subject's key and is terminated once the subject is erased; a later call
+        naming another data subject is refused."""
         from ankka.autonomous import AutonomousAgentCalls
 
         component_id = agent if isinstance(agent, str) else agent.component_id
-        return AutonomousAgentCalls(self, component_id, instance_id)
+        return AutonomousAgentCalls(self, component_id, instance_id, subject)
 
     async def close(self) -> None:
         if self._channel is not None:
@@ -742,7 +806,6 @@ class _Scoped(ComponentClient):
     @property
     def _stub(self) -> client_pb2_grpc.ClientStub:
         return self._parent._stub
-
     def with_metadata(self, metadata: Metadata) -> ComponentClient:
         return _Scoped(self._parent, metadata)
 

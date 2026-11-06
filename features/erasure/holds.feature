@@ -35,7 +35,7 @@ Feature: An erasure waits for a legal hold
 
   Scenario Outline: a held erasure request is replaced by a later one from whoever asked for it
     Given a held erasure request for "player/8c1f" in "brand" with the not-before date "2031-10-08"
-    When whoever asked for it asks for an erasure request for "player/8c1f" in "brand" with the not-before date "<date>"
+    When whoever asked for it replaces the held erasure request with the not-before date "<date>"
     Then the new erasure request replaces the held one
     And the history of the erasure request keeps both
 
@@ -43,6 +43,12 @@ Feature: An erasure waits for a legal hold
       | date       |
       | 2032-10-08 |
       | 2030-10-08 |
+
+  Scenario: asking again for a data subject with a held erasure request is refused
+    Given a held erasure request for "player/8c1f" in "brand" with the not-before date "2031-10-08"
+    When a member asks again for an erasure request for "player/8c1f" in "brand" with no not-before date
+    Then the ask is refused, naming the held erasure request
+    And the erasure request is still held with the not-before date "2031-10-08"
 
   Scenario: an owner overrides a hold with a reason and the erasure request is applied at once
     Given a held erasure request for "player/8c1f" in "brand" with the not-before date "2031-10-08"

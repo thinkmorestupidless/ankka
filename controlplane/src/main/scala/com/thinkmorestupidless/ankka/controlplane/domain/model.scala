@@ -388,7 +388,14 @@ final case class ProjectHistoryEntry(
 )
 
 object Project:
-  val HistoryLimit: Int = 100
+
+  /** A refused erasure ask's line in the history. */
+  def erasureRefused(service: String, subject: String): String =
+    s"$service asked for an erasure request for $subject without the erasure grant"
+
+  /** How long one refused erasure ask of a caller for a subject stands for the next ones. */
+  val ErasureRefusalWindow: java.time.Duration = java.time.Duration.ofHours(1)
+  val HistoryLimit: Int                        = 100
 
 /** Who did something to a grant, and when: what an event carried, kept on the grant. */
 final case class GrantMark(actor: Option[Actor] = None, at: Option[Instant] = None):
@@ -599,6 +606,25 @@ final case class Project(
   ): Project =
     copy(backupCredentialGeneration = generation)
       .remember("backup-credential-reissued", actor, at, Some(s"generation $generation"))
+
+  def onErasureAskRefused(
+      service: String,
+      subject: String,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    remember("erasure-refused", actor, at, Some(Project.erasureRefused(service, subject)))
+
+  /**
+   * Whether a refusal of `service`'s ask for `subject` is already in the history since `since`: a
+   * service asking again and again is one line a window, not one an ask, so it cannot push the
+   * project's real history out of its last `Project.HistoryLimit` lines.
+   */
+  def erasureRefusedSince(service: String, subject: String, since: Instant): Boolean =
+    val detail = Project.erasureRefused(service, subject)
+    history.exists(e =>
+      e.kind == "erasure-refused" && e.detail.contains(detail) && e.at.exists(!_.isBefore(since))
+    )
 
   def onDatabaseSet(
       setting: com.thinkmorestupidless.ankka.controlplane.api.DatabaseSetting,

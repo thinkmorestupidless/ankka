@@ -44,15 +44,24 @@ function frozen<T>(codec: Codec<T>): Codec<T> {
   return Object.freeze(codec)
 }
 
+const schemaOfCodec = new WeakMap<object, Schema>()
+
+/** @internal The schema a default JSON codec was derived from, if `codec` is one. */
+export function schemaOf(codec: Codec<unknown>): Schema | undefined {
+  return schemaOfCodec.get(codec)
+}
+
 /** The default JSON codec for a schema, under `manifest` (the schema's name when omitted). */
 export function jsonCodec<T>(schema: Schema<T>, manifest: string = defaultManifest(schema)): Codec<T> {
   if (typeof manifest !== "string" || manifest.trim() === "") throw new TypeError(`jsonCodec(${describe(schema)}): a manifest is required`)
-  return frozen({
+  const codec = frozen({
     manifest,
     contentType: JSON_CONTENT,
     encode: (value: T) => utf8.encode(writeJson(schema, value)),
     decode: (bytes: Uint8Array) => readJson(schema, text(bytes)),
   })
+  schemaOfCodec.set(codec, schema)
+  return codec
 }
 
 function textCodec<T>(manifest: string, parse: (s: string) => T, render: (v: T) => string): Codec<T> {

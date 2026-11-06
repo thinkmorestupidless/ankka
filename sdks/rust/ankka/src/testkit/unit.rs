@@ -238,6 +238,8 @@ impl<C: EventSourcedEntity> EventSourcedTestKit<C> {
                     // The unit kit's calls are made by nobody and forwarded from nowhere.
                     attribution: String::new(),
                     forwarded_from: String::new(),
+                    // The host's to know; a module is not told it (FR-032).
+                    home: String::new(),
                 },
             )),
         };
@@ -961,6 +963,22 @@ impl InMemoryStorage {
                     percent_encode(&r.name, false)
                 )))
             }
+            Op::Erase => {
+                let subject = match crate::personal::DataSubject::new(r.name.clone()) {
+                    Ok(subject) => subject,
+                    Err(e) => return Err(bad(e.0)),
+                };
+                let prefix = crate::storage::subject_prefix(&subject);
+                let mut buckets = self.buckets.borrow_mut();
+                let before = buckets.objects.len();
+                buckets
+                    .objects
+                    .retain(|(b, n), _| !(*b == bucket && n.starts_with(&prefix)));
+                Ok(Reply::Erased(proto::ErasedObjects {
+                    count: (before - buckets.objects.len()) as u64,
+                    finality: "immediate".to_string(),
+                }))
+            }
             Op::Url => match (&r.bucket, exposure) {
                 (Some(b), BucketExposure::Public) => Ok(Reply::Url(format!(
                     "http://memory/public/{b}/{}",
@@ -996,4 +1014,299 @@ impl NativeHost for InMemoryStorage {
 /// ```
 pub fn with_storage<T>(store: &InMemoryStorage, f: impl FnOnce() -> T) -> T {
     crate::abi::imports::with_native_storage(store.clone(), f)
+}
+
+// ── The keyring ──────────────────────────────────────────────────────────────
+
+/// A keyring for unit tests: answers `keyring_seal` and `keyring_open` as the runtime does, with
+/// no cryptography. An envelope is the runtime's shape, under project `test`, and its `c` holds the
+/// manifest and the field's JSON in base64, so an envelope read under another manifest is refused
+/// as corrupt, as the runtime refuses it. It conceals nothing: it stands in for the runtime's
+/// keyring, which a module never sees.
+///
+/// A handler reaches it through [`with_keyring`]; with none given, a test's handlers reach one of
+/// this kind that belongs to the test's thread. Clones share what they hold.
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryKeyring {
+    held: Rc<RefCell<KeyringState>>,
+}
+
+#[derive(Debug, Default)]
+struct KeyringState {
+    erased: std::collections::HashSet<String>,
+    unavailable: bool,
+    seals: Vec<proto::KeyringSealRequest>,
+    opens: Vec<proto::KeyringOpenRequest>,
+}
+
+/// The project the test keyring seals for.
+pub const TEST_PROJECT: &str = "test";
+
+impl InMemoryKeyring {
+    /// A keyring with every subject's key.
+    pub fn new() -> InMemoryKeyring {
+        InMemoryKeyring::default()
+    }
+
+    /// Destroys `subject`'s key: a field of it reads back erased, and a write for it is refused.
+    pub fn erase(&self, subject: &str) {
+        self.held.borrow_mut().erased.insert(subject.to_string());
+    }
+
+    /// Makes every call refused as the runtime refuses one when no keyring answers, or not.
+    pub fn set_unavailable(&self, unavailable: bool) {
+        self.held.borrow_mut().unavailable = unavailable;
+    }
+
+    /// Every `keyring_seal` asked of it, in order.
+    pub fn seals(&self) -> Vec<proto::KeyringSealRequest> {
+        self.held.borrow().seals.clone()
+    }
+
+    /// Every `keyring_open` asked of it, in order.
+    pub fn opens(&self) -> Vec<proto::KeyringOpenRequest> {
+        self.held.borrow().opens.clone()
+    }
+
+    fn sealed(manifest: &str, value: &[u8]) -> String {
+        let mut boxed = (manifest.len() as u32).to_be_bytes().to_vec();
+        boxed.extend_from_slice(manifest.as_bytes());
+        boxed.extend_from_slice(value);
+        crate::codec::base64::encode(&boxed)
+    }
+
+    fn error(code: proto::ErrorCode, detail: &str, message: String) -> proto::Error {
+        proto::Error {
+            message,
+            code: code as i32,
+            details: [(crate::personal::ERROR_KEY.to_string(), detail.to_string())]
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    fn unavailable() -> proto::Error {
+        InMemoryKeyring::error(
+            proto::ErrorCode::Unavailable,
+            crate::personal::UNAVAILABLE,
+            "the keyring is unavailable (the test said so)".into(),
+        )
+    }
+
+    fn seal(&self, request: proto::KeyringSealRequest) -> proto::KeyringSealReply {
+        use proto::keyring_seal_reply::Reply;
+        let mut held = self.held.borrow_mut();
+        held.seals.push(request.clone());
+        // A field read from another project's envelope is written under that project (FR-027).
+        let project = if request.project.is_empty() {
+            TEST_PROJECT.to_string()
+        } else {
+            request.project.clone()
+        };
+        let reply = if held.unavailable {
+            Reply::Error(InMemoryKeyring::unavailable())
+        } else if let Err(e) = crate::personal::DataSubject::new(request.subject.clone()) {
+            Reply::Error(proto::Error {
+                message: e.0,
+                code: proto::ErrorCode::BadRequest as i32,
+                ..Default::default()
+            })
+        } else if request.erased {
+            let envelope = serde_json::json!({
+                "$personal": 1,
+                "project": project,
+                "subject": request.subject,
+            });
+            Reply::Envelope(serde_json::to_vec(&envelope).expect("an envelope encodes"))
+        } else if held.erased.contains(&request.subject) {
+            Reply::Error(InMemoryKeyring::error(
+                proto::ErrorCode::Conflict,
+                crate::personal::ERASED,
+                format!(
+                    "the data subject '{}' is erased; nothing was written",
+                    request.subject
+                ),
+            ))
+        } else {
+            let envelope = serde_json::json!({
+                "$personal": 1,
+                "project": project,
+                "subject": request.subject,
+                "c": InMemoryKeyring::sealed(&request.manifest, &request.value),
+            });
+            Reply::Envelope(serde_json::to_vec(&envelope).expect("an envelope encodes"))
+        };
+        proto::KeyringSealReply { reply: Some(reply) }
+    }
+
+    fn open(&self, request: proto::KeyringOpenRequest) -> proto::KeyringOpenReply {
+        use proto::keyring_open_reply::Reply;
+        let mut held = self.held.borrow_mut();
+        held.opens.push(request.clone());
+        let envelope: serde_json::Value = match serde_json::from_slice(&request.envelope) {
+            Ok(envelope) => envelope,
+            Err(e) => {
+                return proto::KeyringOpenReply {
+                    reply: Some(Reply::Error(proto::Error {
+                        message: format!("not a personal field: {e}"),
+                        code: proto::ErrorCode::BadRequest as i32,
+                        ..Default::default()
+                    })),
+                };
+            }
+        };
+        let subject = envelope["subject"].as_str().unwrap_or_default().to_string();
+        let corrupt = || {
+            Reply::Error(InMemoryKeyring::error(
+                proto::ErrorCode::Internal,
+                crate::personal::CORRUPT,
+                format!("the personal envelope of '{subject}' failed authentication"),
+            ))
+        };
+        let reply = if held.unavailable {
+            Reply::Error(InMemoryKeyring::unavailable())
+        } else if held.erased.contains(&subject) || envelope.get("c").is_none() {
+            Reply::Erased(true)
+        } else {
+            let opened = envelope["c"]
+                .as_str()
+                .and_then(|c| crate::codec::base64::decode(c).ok())
+                .and_then(|boxed| {
+                    let (length, rest) = boxed.split_at_checked(4)?;
+                    let length = u32::from_be_bytes(length.try_into().ok()?) as usize;
+                    let (manifest, value) = rest.split_at_checked(length)?;
+                    (manifest == request.manifest.as_bytes()).then(|| value.to_vec())
+                });
+            match opened {
+                Some(value) => Reply::Value(value),
+                None => corrupt(),
+            }
+        };
+        proto::KeyringOpenReply { reply: Some(reply) }
+    }
+}
+
+impl NativeHost for InMemoryKeyring {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        match import {
+            Import::KeyringSeal => self
+                .seal(
+                    proto::KeyringSealRequest::decode(request)
+                        .unwrap_or_else(|e| panic!("a seal request that does not decode: {e}")),
+                )
+                .encode_to_vec(),
+            Import::KeyringOpen => self
+                .open(
+                    proto::KeyringOpenRequest::decode(request)
+                        .unwrap_or_else(|e| panic!("an open request that does not decode: {e}")),
+                )
+                .encode_to_vec(),
+            other => panic!("the keyring double answers only the keyring, not {other:?}"),
+        }
+    }
+}
+
+/// Runs `f` with `keyring` answering every personal field its handlers seal or open on this
+/// thread: how a test erases a subject and reads what was sealed.
+///
+/// ```ignore
+/// let keyring = InMemoryKeyring::new();
+/// keyring.erase("player/8c1f");
+/// with_keyring(&keyring, || kit.command("register", player));
+/// ```
+pub fn with_keyring<T>(keyring: &InMemoryKeyring, f: impl FnOnce() -> T) -> T {
+    crate::abi::imports::with_native_keyring(keyring.clone(), f)
+}
+
+// ── Erasure requests ─────────────────────────────────────────────────────────
+
+/// Answers `erasure_ask` for unit tests, as the control plane would: each ask in turn takes the next
+/// scripted answer, and with none left it is accepted as `held` under an id of its own
+/// (`erasure-1`, `erasure-2`, …). Every ask is kept, so a test reads what its handler asked. Clones
+/// share what they hold.
+#[derive(Debug, Clone, Default)]
+pub struct ScriptedErasures {
+    held: Rc<RefCell<ErasuresState>>,
+}
+
+#[derive(Debug, Default)]
+struct ErasuresState {
+    script: std::collections::VecDeque<proto::ask_erasure_reply::Reply>,
+    asked: Vec<proto::AskErasureRequest>,
+}
+
+impl ScriptedErasures {
+    /// Accepts every ask as `held`.
+    pub fn new() -> ScriptedErasures {
+        ScriptedErasures::default()
+    }
+
+    /// The next ask is answered `asked`.
+    pub fn answer(self, asked: crate::erasures::ErasureAsked) -> ScriptedErasures {
+        self.held
+            .borrow_mut()
+            .script
+            .push_back(proto::ask_erasure_reply::Reply::Ok(proto::ErasureAsked {
+                id: asked.id,
+                state: asked.state,
+            }));
+        self
+    }
+
+    /// The next ask is refused with `code` and `message`: `Forbidden` is the control plane's answer
+    /// to a service without the project's `erasure` grant.
+    pub fn refuse(self, code: ErrorCode, message: impl Into<String>) -> ScriptedErasures {
+        self.held
+            .borrow_mut()
+            .script
+            .push_back(proto::ask_erasure_reply::Reply::Error(
+                CommandError::new(code, message.into()).to_proto(),
+            ));
+        self
+    }
+
+    /// Every ask made of it, in order, as the runtime received it.
+    pub fn asked(&self) -> Vec<proto::AskErasureRequest> {
+        self.held.borrow().asked.clone()
+    }
+
+    /// Answers one ask as the `erasure_ask` import does.
+    pub fn respond(&self, request: proto::AskErasureRequest) -> proto::AskErasureReply {
+        let mut held = self.held.borrow_mut();
+        held.asked.push(request);
+        let n = held.asked.len();
+        let reply = held.script.pop_front().unwrap_or_else(|| {
+            proto::ask_erasure_reply::Reply::Ok(proto::ErasureAsked {
+                id: format!("erasure-{n}"),
+                state: "held".to_string(),
+            })
+        });
+        proto::AskErasureReply { reply: Some(reply) }
+    }
+}
+
+impl NativeHost for ScriptedErasures {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        match import {
+            Import::ErasureAsk => self
+                .respond(
+                    proto::AskErasureRequest::decode(request)
+                        .unwrap_or_else(|e| panic!("an erasure ask that does not decode: {e}")),
+                )
+                .encode_to_vec(),
+            other => panic!("the erasure double answers only erasure_ask, not {other:?}"),
+        }
+    }
+}
+
+/// Runs `f` with `erasures` answering every erasure its handlers ask for on this thread. With none
+/// given, an ask is refused `Unavailable`, as it is where no control plane is reachable.
+///
+/// ```ignore
+/// let erasures = ScriptedErasures::new().refuse(ErrorCode::Forbidden, "no erasure grant");
+/// let response = with_erasures(&erasures, || kit.post("/close/8c1f", &()));
+/// assert_eq!(erasures.asked()[0].subject, "player/8c1f");
+/// ```
+pub fn with_erasures<T>(erasures: &ScriptedErasures, f: impl FnOnce() -> T) -> T {
+    crate::abi::imports::with_native_erasures(erasures.clone(), f)
 }

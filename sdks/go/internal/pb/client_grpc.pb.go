@@ -39,6 +39,10 @@ const (
 	Client_IssueClientKey_FullMethodName    = "/ankka.protocol.v1.Client/IssueClientKey"
 	Client_ListClientKeys_FullMethodName    = "/ankka.protocol.v1.Client/ListClientKeys"
 	Client_RevokeClientKey_FullMethodName   = "/ankka.protocol.v1.Client/RevokeClientKey"
+	Client_GetSubjectKey_FullMethodName     = "/ankka.protocol.v1.Client/GetSubjectKey"
+	Client_SubjectNotices_FullMethodName    = "/ankka.protocol.v1.Client/SubjectNotices"
+	Client_AckSubjectNotice_FullMethodName  = "/ankka.protocol.v1.Client/AckSubjectNotice"
+	Client_AskErasure_FullMethodName        = "/ankka.protocol.v1.Client/AskErasure"
 )
 
 // ClientClient is the client API for Client service.
@@ -92,6 +96,16 @@ type ClientClient interface {
 	IssueClientKey(ctx context.Context, in *IssueClientKeyRequest, opts ...grpc.CallOption) (*IssueClientKeyReply, error)
 	ListClientKeys(ctx context.Context, in *ListClientKeysRequest, opts ...grpc.CallOption) (*ListClientKeysReply, error)
 	RevokeClientKey(ctx context.Context, in *RevokeClientKeyRequest, opts ...grpc.CallOption) (*RevokeClientKeyReply, error)
+	// Personal data (protocol 1.23, feature 042). A data subject's key, from the runtime's keyring
+	// client and its cache; the process seals and opens envelopes itself, so the sidecar never reads
+	// a personal value. The notices of erased data subjects, held open for the process's life: the
+	// process drops each subject's key and acks; the sidecar acks the keyring once every instance it
+	// fronts has. A request to erase, as the service, under the `erasure` grant. A refusal or a fault
+	// is an Error in the reply, never a gRPC status; a runtime older than 1.23 answers UNIMPLEMENTED.
+	GetSubjectKey(ctx context.Context, in *SubjectKeyRequest, opts ...grpc.CallOption) (*SubjectKeyReply, error)
+	SubjectNotices(ctx context.Context, in *SubjectNoticesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SubjectNotice], error)
+	AckSubjectNotice(ctx context.Context, in *SubjectNoticeAck, opts ...grpc.CallOption) (*SubjectNoticeAckReply, error)
+	AskErasure(ctx context.Context, in *AskErasureRequest, opts ...grpc.CallOption) (*AskErasureReply, error)
 }
 
 type clientClient struct {
@@ -318,6 +332,55 @@ func (c *clientClient) RevokeClientKey(ctx context.Context, in *RevokeClientKeyR
 	return out, nil
 }
 
+func (c *clientClient) GetSubjectKey(ctx context.Context, in *SubjectKeyRequest, opts ...grpc.CallOption) (*SubjectKeyReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubjectKeyReply)
+	err := c.cc.Invoke(ctx, Client_GetSubjectKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientClient) SubjectNotices(ctx context.Context, in *SubjectNoticesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SubjectNotice], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &Client_ServiceDesc.Streams[4], Client_SubjectNotices_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[SubjectNoticesRequest, SubjectNotice]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Client_SubjectNoticesClient = grpc.ServerStreamingClient[SubjectNotice]
+
+func (c *clientClient) AckSubjectNotice(ctx context.Context, in *SubjectNoticeAck, opts ...grpc.CallOption) (*SubjectNoticeAckReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SubjectNoticeAckReply)
+	err := c.cc.Invoke(ctx, Client_AckSubjectNotice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientClient) AskErasure(ctx context.Context, in *AskErasureRequest, opts ...grpc.CallOption) (*AskErasureReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AskErasureReply)
+	err := c.cc.Invoke(ctx, Client_AskErasure_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClientServer is the server API for Client service.
 // All implementations must embed UnimplementedClientServer
 // for forward compatibility.
@@ -369,6 +432,16 @@ type ClientServer interface {
 	IssueClientKey(context.Context, *IssueClientKeyRequest) (*IssueClientKeyReply, error)
 	ListClientKeys(context.Context, *ListClientKeysRequest) (*ListClientKeysReply, error)
 	RevokeClientKey(context.Context, *RevokeClientKeyRequest) (*RevokeClientKeyReply, error)
+	// Personal data (protocol 1.23, feature 042). A data subject's key, from the runtime's keyring
+	// client and its cache; the process seals and opens envelopes itself, so the sidecar never reads
+	// a personal value. The notices of erased data subjects, held open for the process's life: the
+	// process drops each subject's key and acks; the sidecar acks the keyring once every instance it
+	// fronts has. A request to erase, as the service, under the `erasure` grant. A refusal or a fault
+	// is an Error in the reply, never a gRPC status; a runtime older than 1.23 answers UNIMPLEMENTED.
+	GetSubjectKey(context.Context, *SubjectKeyRequest) (*SubjectKeyReply, error)
+	SubjectNotices(*SubjectNoticesRequest, grpc.ServerStreamingServer[SubjectNotice]) error
+	AckSubjectNotice(context.Context, *SubjectNoticeAck) (*SubjectNoticeAckReply, error)
+	AskErasure(context.Context, *AskErasureRequest) (*AskErasureReply, error)
 	mustEmbedUnimplementedClientServer()
 }
 
@@ -432,6 +505,18 @@ func (UnimplementedClientServer) ListClientKeys(context.Context, *ListClientKeys
 }
 func (UnimplementedClientServer) RevokeClientKey(context.Context, *RevokeClientKeyRequest) (*RevokeClientKeyReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevokeClientKey not implemented")
+}
+func (UnimplementedClientServer) GetSubjectKey(context.Context, *SubjectKeyRequest) (*SubjectKeyReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSubjectKey not implemented")
+}
+func (UnimplementedClientServer) SubjectNotices(*SubjectNoticesRequest, grpc.ServerStreamingServer[SubjectNotice]) error {
+	return status.Error(codes.Unimplemented, "method SubjectNotices not implemented")
+}
+func (UnimplementedClientServer) AckSubjectNotice(context.Context, *SubjectNoticeAck) (*SubjectNoticeAckReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method AckSubjectNotice not implemented")
+}
+func (UnimplementedClientServer) AskErasure(context.Context, *AskErasureRequest) (*AskErasureReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method AskErasure not implemented")
 }
 func (UnimplementedClientServer) mustEmbedUnimplementedClientServer() {}
 func (UnimplementedClientServer) testEmbeddedByValue()                {}
@@ -750,6 +835,71 @@ func _Client_RevokeClientKey_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Client_GetSubjectKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubjectKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServer).GetSubjectKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Client_GetSubjectKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServer).GetSubjectKey(ctx, req.(*SubjectKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Client_SubjectNotices_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubjectNoticesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ClientServer).SubjectNotices(m, &grpc.GenericServerStream[SubjectNoticesRequest, SubjectNotice]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type Client_SubjectNoticesServer = grpc.ServerStreamingServer[SubjectNotice]
+
+func _Client_AckSubjectNotice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubjectNoticeAck)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServer).AckSubjectNotice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Client_AckSubjectNotice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServer).AckSubjectNotice(ctx, req.(*SubjectNoticeAck))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Client_AskErasure_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AskErasureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServer).AskErasure(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Client_AskErasure_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServer).AskErasure(ctx, req.(*AskErasureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Client_ServiceDesc is the grpc.ServiceDesc for Client service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -813,6 +963,18 @@ var Client_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RevokeClientKey",
 			Handler:    _Client_RevokeClientKey_Handler,
 		},
+		{
+			MethodName: "GetSubjectKey",
+			Handler:    _Client_GetSubjectKey_Handler,
+		},
+		{
+			MethodName: "AckSubjectNotice",
+			Handler:    _Client_AckSubjectNotice_Handler,
+		},
+		{
+			MethodName: "AskErasure",
+			Handler:    _Client_AskErasure_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -833,6 +995,11 @@ var Client_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "AwaitEndStream",
 			Handler:       _Client_AwaitEndStream_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubjectNotices",
+			Handler:       _Client_SubjectNotices_Handler,
 			ServerStreams: true,
 		},
 	},

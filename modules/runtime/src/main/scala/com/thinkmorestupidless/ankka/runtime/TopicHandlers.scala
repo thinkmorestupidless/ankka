@@ -26,8 +26,9 @@ private[ankka] final class ViewTopicHandler(
 
   private given ExecutionContext = system.executionContext
 
-  private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
-  private val table = descriptor.tableName
+  private val view   = descriptor.create(SimpleViewContext(descriptor.componentId, client))
+  private val table  = descriptor.tableName
+  private val writer = ViewRowWriter.of(descriptor)
   // Taken at construction, where the system is safe to ask: `process` runs on the broker's threads.
   private val observability = Observability(system)
 
@@ -44,9 +45,11 @@ private[ankka] final class ViewTopicHandler(
 
       case Some(subject) =>
         database
-          .query(ViewStore.selectByKey(table, subject))(row =>
-            descriptor.rowSerializer
-              .fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8"))
+          .query(ViewStore.selectByKey(table, subject))(row => row.get("payload", classOf[String]))
+          .flatMap(payloads =>
+            keyring.ServiceKeyring.decoding(system)(
+              payloads.map(p => descriptor.rowSerializer.fromBytes(p.getBytes("UTF-8")))
+            )
           )
           .flatMap { existing =>
             view._setRow(existing.headOption)
@@ -68,8 +71,7 @@ private[ankka] final class ViewTopicHandler(
 
             effect match
               case ViewEffect.UpdateRow(row) =>
-                val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-                guard.write(ViewStore.upsert(table, subject, json))
+                guard.write(writer.upsert(subject, row))
               case ViewEffect.DeleteRow =>
                 guard.write(ViewStore.delete(table, subject))
               case ViewEffect.Ignore =>
@@ -90,14 +92,16 @@ private[ankka] final class ConsumerTopicHandler(
     observability: Observability,
     secrets: SecretStore,
     services: ServiceClients,
-    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
+    storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+    erasures: com.thinkmorestupidless.ankka.sdk.Erasures =
+      com.thinkmorestupidless.ankka.sdk.Erasures.unavailable
 ):
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(
-      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
   def process(message: IncomingMessage): Future[Done] =

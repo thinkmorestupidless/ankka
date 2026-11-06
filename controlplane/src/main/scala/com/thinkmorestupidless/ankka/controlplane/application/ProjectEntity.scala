@@ -82,6 +82,8 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     case ProjectDatabaseSet(setting, actor, at) => currentState.onDatabaseSet(setting, actor, at)
     case ProjectBackupCredentialReissued(generation, actor, at) =>
       currentState.onBackupCredentialReissued(generation, actor, at)
+    case ErasureAskRefused(service, subject, actor, at) =>
+      currentState.onErasureAskRefused(service, subject, actor, at)
     case ProjectRehearsalRequested(name, line, targetTime, actor, at) =>
       currentState.onRehearsalRequested(name, line, targetTime, actor, at)
     case ProjectRehearsalEnded(name, line, targetTime, outcome, elapsed, detail, at) =>
@@ -516,7 +518,10 @@ final class ProjectEntity(context: EventSourcedEntityContext)
         effects.error(GrantRules.undeclared(context.entityId, undeclared.get), ErrorCode.NotFound)
       else
         request.grantee match
-          case Grantee.Service(project, _) if project == context.entityId =>
+          // An ACL names who may call a route; nothing names who may ask for an erasure, so a
+          // project grants that right to its own services too (feature 042).
+          case Grantee.Service(project, _)
+              if project == context.entityId && request.target.kind != GrantTarget.Erasure =>
             effects.error(GrantRules.ownService)
           case _ =>
             currentState.liveGrant(request.grantee, request.target) match
@@ -574,6 +579,21 @@ final class ProjectEntity(context: EventSourcedEntityContext)
    * by the consumer that follows the granting project; a change already recorded is a conflict,
    * which that consumer reads as done.
    */
+  /** A service's erasure ask refused for want of the grant (feature 042), into the history. */
+  def recordErasureRefused(request: RecordErasureRefused): Effect[Done] =
+    val when = at.getOrElse(java.time.Instant.now())
+    if !currentState.exists then notFound
+    else if currentState.erasureRefusedSince(
+        request.service,
+        request.subject,
+        when.minus(Project.ErasureRefusalWindow)
+      )
+    then effects.reply(Done)
+    else
+      effects
+        .persist(ErasureAskRefused(request.service, request.subject, actor, Some(when)))
+        .thenReply(_ => Done)
+
   def recordGrantChange(request: RecordGrantChange): Effect[Done] =
     if !currentState.exists then notFound
     else if currentState.received.get(request.id).exists(_.recorded(request.change)) then
@@ -739,6 +759,8 @@ object ProjectEntity
   given makeGrantSerializer: Serializer[MakeGrant]  = Codecs.serializer[MakeGrant]("make-grant")
   given grantSerializer: Serializer[Grant]          = Codecs.serializer[Grant]("grant")
   given grantsSerializer: Serializer[Vector[Grant]] = Codecs.serializer[Vector[Grant]]("grants")
+  given recordErasureRefusedSerializer: Serializer[RecordErasureRefused] =
+    Codecs.serializer[RecordErasureRefused]("record-erasure-refused")
   given recordGrantChangeSerializer: Serializer[RecordGrantChange] =
     Codecs.serializer[RecordGrantChange]("record-grant-change")
   given receivedGrantsSerializer: Serializer[Vector[ReceivedGrant]] =
@@ -791,14 +813,15 @@ object ProjectEntity
   val database         = query("database")(_.database)
 
   // Cross-project access (feature 040).
-  val makeGrant         = command("make-grant")(_.makeGrant)
-  val withdrawGrant     = command("withdraw-grant")(_.withdrawGrant)
-  val revokeGrant       = command("revoke-grant")(_.revokeGrant)
-  val acceptGrant       = command("accept-grant")(_.acceptGrant)
-  val declineGrant      = command("decline-grant")(_.declineGrant)
-  val relinquishGrant   = command("relinquish-grant")(_.relinquishGrant)
-  val lapseGrant        = command("lapse-grant")(_.lapseGrant)
-  val recordGrantChange = command("record-grant-change")(_.recordGrantChange)
-  val grants            = query("grants")(_.grants)
-  val receivedGrants    = query("received-grants")(_.receivedGrants)
-  val deletion          = query("deletion")(_.deletion)
+  val makeGrant            = command("make-grant")(_.makeGrant)
+  val withdrawGrant        = command("withdraw-grant")(_.withdrawGrant)
+  val revokeGrant          = command("revoke-grant")(_.revokeGrant)
+  val acceptGrant          = command("accept-grant")(_.acceptGrant)
+  val declineGrant         = command("decline-grant")(_.declineGrant)
+  val relinquishGrant      = command("relinquish-grant")(_.relinquishGrant)
+  val lapseGrant           = command("lapse-grant")(_.lapseGrant)
+  val recordGrantChange    = command("record-grant-change")(_.recordGrantChange)
+  val recordErasureRefused = command("record-erasure-refused")(_.recordErasureRefused)
+  val grants               = query("grants")(_.grants)
+  val receivedGrants       = query("received-grants")(_.receivedGrants)
+  val deletion             = query("deletion")(_.deletion)

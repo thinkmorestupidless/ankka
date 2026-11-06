@@ -173,8 +173,63 @@ func TestStorageRulesMatchTheFixture(t *testing.T) {
 
 // ---- the contract every store keeps ----
 
+var erasedSubject = MustSubject("player")
+
+// keepForErasure keeps two objects of player, one of player/x (whose prefix an unescaped "/" would put
+// under player's) and one outside every subject.
+func keepForErasure(t *testing.T, b Bucket) {
+	t.Helper()
+	for _, n := range []string{
+		SubjectPrefix(erasedSubject) + "kyc.pdf",
+		SubjectPrefix(erasedSubject) + "scans/front.jpg",
+		SubjectPrefix(MustSubject("player/x")) + "note.txt",
+		"other/player.txt",
+	} {
+		if err := b.Put(context.Background(), n, strings.NewReader("x"), 1, "text/plain"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// keptNames is every name in b under the prefixes erasure tests keep objects at.
+func keptNames(t *testing.T, b Bucket) []string {
+	t.Helper()
+	var out []string
+	for _, p := range []string{"other/", "subjects/"} {
+		for e, err := range b.List(context.Background(), p) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, e.Name)
+		}
+	}
+	return out
+}
+
+var keptAfterErasure = []string{"other/player.txt", "subjects/player%2Fx/note.txt"}
+
 func storeContract(t *testing.T, make func(t *testing.T) Storage) {
 	ctx := context.Background()
+	t.Run("erase removes exactly the subject's objects, and again none", func(t *testing.T) {
+		b, err := make(t).Default()
+		if err != nil {
+			t.Fatal(err)
+		}
+		keepForErasure(t, b)
+		erased, err := b.Erase(ctx, erasedSubject)
+		if err != nil || erased.Count != 2 || erased.Finality != Immediate {
+			t.Fatalf("erased %+v %v", erased, err)
+		}
+		if got := keptNames(t, b); fmt.Sprint(got) != fmt.Sprint(keptAfterErasure) {
+			t.Fatalf("kept %v", got)
+		}
+		if again, err := b.Erase(ctx, erasedSubject); err != nil || again.Count != 0 {
+			t.Fatalf("again %+v %v", again, err)
+		}
+		if _, err := b.Erase(ctx, DataSubject{}); refusalOf(t, err).Code != BadRequest {
+			t.Fatal(err)
+		}
+	})
 	t.Run("put get stat delete", func(t *testing.T) {
 		b, err := make(t).Default()
 		if err != nil {
@@ -412,6 +467,24 @@ type fakeS3 struct {
 	objects    map[string]storedFake
 	seen       []seenRequest
 	refuseWith int
+	// noVersions is a store that lists no versions, as Garage answers: NotImplemented. Otherwise every
+	// put is a version and a plain delete leaves a delete marker.
+	noVersions  bool
+	history     map[string][]fakeVersion
+	nextVersion int
+}
+
+type fakeVersion struct {
+	id     string
+	marker bool
+}
+
+func (f *fakeS3) keepVersion(key string, marker bool) {
+	if f.noVersions {
+		return
+	}
+	f.nextVersion++
+	f.history[key] = append(f.history[key], fakeVersion{id: fmt.Sprintf("v%d", f.nextVersion), marker: marker})
 }
 
 type storedFake struct {
@@ -434,6 +507,61 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	key := r.URL.EscapedPath()
 	switch {
+	case r.Method == http.MethodGet && r.URL.Query().Has("versions"):
+		if f.noVersions {
+			w.WriteHeader(http.StatusNotImplemented)
+			_, _ = io.WriteString(w, "<Error><Code>NotImplemented</Code></Error>")
+			return
+		}
+		prefix := r.URL.Query().Get("prefix")
+		bucket := key + "/"
+		var keys []string
+		for k := range f.history {
+			name, _ := url.PathUnescape(strings.TrimPrefix(k, bucket))
+			if strings.HasPrefix(k, bucket) && strings.HasPrefix(name, prefix) {
+				keys = append(keys, k)
+			}
+		}
+		sort.Strings(keys)
+		var entries []string
+		for _, k := range keys {
+			name, _ := url.PathUnescape(strings.TrimPrefix(k, bucket))
+			for _, v := range f.history[k] {
+				tag := "Version"
+				if v.marker {
+					tag = "DeleteMarker"
+				}
+				entries = append(entries, fmt.Sprintf("<%s><Key>%s</Key><VersionId>%s</VersionId></%s>", tag, name, v.id, tag))
+			}
+		}
+		start, _ := strconv.Atoi(r.URL.Query().Get("key-marker"))
+		end := min(start+2, len(entries))
+		var b strings.Builder
+		fmt.Fprintf(&b, "<ListVersionsResult><IsTruncated>%t</IsTruncated>", end < len(entries))
+		if end < len(entries) {
+			fmt.Fprintf(&b, "<NextKeyMarker>%d</NextKeyMarker><NextVersionIdMarker>m</NextVersionIdMarker>", end)
+		}
+		b.WriteString(strings.Join(entries[start:end], "") + "</ListVersionsResult>")
+		_, _ = io.WriteString(w, b.String())
+	case r.Method == http.MethodDelete && r.URL.Query().Has("versionId"):
+		id := r.URL.Query().Get("versionId")
+		var kept []fakeVersion
+		live := false
+		for _, v := range f.history[key] {
+			if v.id != id {
+				kept = append(kept, v)
+				live = live || !v.marker
+			}
+		}
+		if len(kept) == 0 {
+			delete(f.history, key)
+		} else {
+			f.history[key] = kept
+		}
+		if !live {
+			delete(f.objects, key)
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2":
 		prefix := r.URL.Query().Get("prefix")
 		bucket := key + "/"
@@ -460,6 +588,7 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, b.String())
 	case r.Method == http.MethodPut:
 		f.objects[key] = storedFake{contentType: r.Header.Get("Content-Type"), body: body}
+		f.keepVersion(key, false)
 	case r.Method == http.MethodGet || r.Method == http.MethodHead:
 		o, ok := f.objects[key]
 		if !ok {
@@ -471,7 +600,10 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", "Mon, 19 Oct 2026 10:00:00 GMT")
 		_, _ = w.Write(o.body)
 	case r.Method == http.MethodDelete:
-		delete(f.objects, key)
+		if _, ok := f.objects[key]; ok {
+			delete(f.objects, key)
+			f.keepVersion(key, true)
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -489,7 +621,7 @@ func (f *fakeS3) reset() {
 }
 
 func newFakeS3(t *testing.T) (*fakeS3, *httptest.Server) {
-	f := &fakeS3{objects: map[string]storedFake{}}
+	f := &fakeS3{objects: map[string]storedFake{}, history: map[string][]fakeVersion{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -658,6 +790,156 @@ func TestAnS3StoreWithNoCredentialNamesObjectStorageCredential(t *testing.T) {
 	_, err := b.Get(context.Background(), "x")
 	if r := refusalOf(t, err); r.Code != Unavailable || !strings.Contains(r.Message, "objectStorageCredential") {
 		t.Fatal(err)
+	}
+}
+
+func TestAnS3EraseDeletesEveryVersionAndMarkerByItsID(t *testing.T) {
+	f, srv := newFakeS3(t)
+	env := s3Env(srv.URL)
+	env["ANKKA_S3_SOFT_DELETE_DAYS"] = "7"
+	b, err := s3StoreOf(t, env).Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	keepForErasure(t, b)
+	gone := SubjectPrefix(erasedSubject) + "gone.txt"
+	for _, n := range []string{SubjectPrefix(erasedSubject) + "kyc.pdf", gone} {
+		if err := b.Put(ctx, n, strings.NewReader("y"), 1, "text/plain"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Delete(ctx, gone); err != nil {
+		t.Fatal(err)
+	}
+	f.reset()
+	erased, err := b.Erase(ctx, erasedSubject)
+	if err != nil || erased.Count != 3 || erased.Finality != After(7*24*time.Hour) || erased.Finality.wire() != "after:PT168H" {
+		t.Fatalf("erased %+v %v", erased, err)
+	}
+	if got := keptNames(t, b); fmt.Sprint(got) != fmt.Sprint(keptAfterErasure) {
+		t.Fatalf("kept %v", got)
+	}
+	f.mu.Lock()
+	var histories []string
+	for k := range f.history {
+		histories = append(histories, k)
+	}
+	listings, byVersion := 0, 0
+	for _, s := range f.seen {
+		if s.method == "GET" && strings.Contains(s.url, "versions=") {
+			listings++
+			if !strings.Contains(s.url, "prefix=subjects%2Fplayer%2F&") {
+				t.Errorf("listing %s", s.url)
+			}
+		}
+		if s.method == "DELETE" && strings.Contains(s.url, "versionId=") {
+			byVersion++
+		}
+	}
+	f.mu.Unlock()
+	sort.Strings(histories)
+	if fmt.Sprint(histories) != "[/shop-default/other/player.txt /shop-default/subjects/player%252Fx/note.txt]" || listings < 2 || byVersion == 0 {
+		t.Fatalf("histories %v, %d listings, %d deletes by version", histories, listings, byVersion)
+	}
+	if again, err := b.Erase(ctx, erasedSubject); err != nil || again.Count != 0 {
+		t.Fatalf("again %+v %v", again, err)
+	}
+}
+
+func TestAnS3StoreThatListsNoVersionsIsListedPlainly(t *testing.T) {
+	f, srv := newFakeS3(t)
+	f.noVersions = true
+	b, err := s3StoreOf(t, s3Env(srv.URL)).Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	keepForErasure(t, b)
+	erased, err := b.Erase(ctx, erasedSubject)
+	if err != nil || erased.Count != 2 || erased.Finality != Immediate {
+		t.Fatalf("erased %+v %v", erased, err)
+	}
+	if got := keptNames(t, b); fmt.Sprint(got) != fmt.Sprint(keptAfterErasure) {
+		t.Fatalf("kept %v", got)
+	}
+	if again, err := b.Erase(ctx, erasedSubject); err != nil || again.Count != 0 {
+		t.Fatalf("again %+v %v", again, err)
+	}
+}
+
+func TestAnEraseDeletesAVersionWrittenBeforeVersioningByItsNullID(t *testing.T) {
+	f, srv := newFakeS3(t)
+	b, err := s3StoreOf(t, s3Env(srv.URL)).Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "/shop-default/" + SubjectPrefix(erasedSubject) + "before-versioning.txt"
+	f.mu.Lock()
+	f.objects[key] = storedFake{contentType: "text/plain", body: []byte("x")}
+	f.history[key] = []fakeVersion{{id: "null"}}
+	f.mu.Unlock()
+	erased, err := b.Erase(context.Background(), erasedSubject)
+	if err != nil || erased.Count != 1 {
+		t.Fatalf("erased %+v %v", erased, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, kept := f.history[key]; kept {
+		t.Fatalf("the null version is kept: %v", f.history[key])
+	}
+	byNull := false
+	for _, s := range f.seen {
+		byNull = byNull || (s.method == "DELETE" && strings.Contains(s.url, "versionId=null"))
+	}
+	if !byNull {
+		t.Fatal("no delete named versionId=null")
+	}
+}
+
+func TestAVersionListingIsReadWithItsMarkers(t *testing.T) {
+	page, err := parseVersions([]byte("<ListVersionsResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextVersionIdMarker>v9</NextVersionIdMarker>" +
+		"<Version><Key>subjects/p/a &amp; b</Key><VersionId>v1</VersionId><IsLatest>true</IsLatest></Version>" +
+		"<DeleteMarker><Key>subjects/p/b</Key><VersionId>v2</VersionId></DeleteMarker>" +
+		"<Version><Key>subjects/p/c</Key><VersionId>null</VersionId></Version></ListVersionsResult>"))
+	if err != nil || fmt.Sprint(page.versions) != "[[subjects/p/a & b v1] [subjects/p/b v2] [subjects/p/c null]]" || !page.truncated || page.nextKey != "subjects/p/b" || page.nextVersion != "v9" {
+		t.Fatalf("%+v %v", page, err)
+	}
+	last, err := parseVersions([]byte("<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>"))
+	if err != nil || len(last.versions) != 0 || last.truncated || page.generations {
+		t.Fatalf("%+v %v", last, err)
+	}
+}
+
+func TestAVersionListingFromGoogleNamesGenerations(t *testing.T) {
+	page, err := parseVersions([]byte("<ListBucketResult><IsTruncated>true</IsTruncated><NextKeyMarker>subjects/p/b</NextKeyMarker><NextGenerationMarker>1700000000000002</NextGenerationMarker><Version><Key>subjects/p/a</Key><Generation>1700000000000001</Generation></Version><Version><Key>subjects/p/b</Key><Generation>1700000000000002</Generation></Version></ListBucketResult>"))
+	if err != nil || fmt.Sprint(page.versions) != "[[subjects/p/a 1700000000000001] [subjects/p/b 1700000000000002]]" || !page.truncated || page.nextKey != "subjects/p/b" || page.nextVersion != "1700000000000002" || !page.generations {
+		t.Fatalf("%+v %v", page, err)
+	}
+}
+
+func TestASubjectsPrefixWritesEachSlash(t *testing.T) {
+	for subject, want := range map[string]string{"player": "subjects/player/", "player/x": "subjects/player%2Fx/", "org:acme/user_1.a": "subjects/org:acme%2Fuser_1.a/"} {
+		if got := SubjectPrefix(MustSubject(subject)); got != want {
+			t.Errorf("%s: %s, want %s", subject, got, want)
+		}
+	}
+}
+
+func TestTheSoftDeleteWindowIsReadInWholeDaysFromOne(t *testing.T) {
+	env := map[string]string{"ANKKA_S3_ENDPOINT": "http://garage:3900", "ANKKA_S3_REGION": "garage", "ANKKA_S3_BUCKET": "b"}
+	if s, err := readS3Settings(env); err != nil || s.softDelete != 0 {
+		t.Fatalf("%v %v", s.softDelete, err)
+	}
+	env["ANKKA_S3_SOFT_DELETE_DAYS"] = "7"
+	if s, err := readS3Settings(env); err != nil || s.softDelete != 7*24*time.Hour {
+		t.Fatalf("%v %v", s.softDelete, err)
+	}
+	for _, text := range []string{"0", "seven", "1.5", "+3"} {
+		env["ANKKA_S3_SOFT_DELETE_DAYS"] = text
+		if _, err := readS3Settings(env); err == nil || !strings.Contains(err.Error(), "ANKKA_S3_SOFT_DELETE_DAYS") {
+			t.Errorf("%s: %v", text, err)
+		}
 	}
 }
 

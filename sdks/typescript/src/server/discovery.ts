@@ -154,7 +154,15 @@ export const STORAGE_SINCE: readonly [number, number] = [1, 21]
 /** Every problem the sidecar has reported to this process, in order. */
 export const problems: string[] = []
 
-export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (message: string) => void = console.error): void {
+/** What discovery needs beside the spec to judge personal data (1.23), and to start following its notices. */
+export interface PersonalDiscovery {
+  /** The components and endpoints whose shapes hold a personal field. */
+  readonly users: () => readonly string[]
+  /** Told the runtime's protocol once discovery has been answered. */
+  readonly discovered?: (protocolVersion: string) => void
+}
+
+export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (message: string) => void = console.error, personal?: PersonalDiscovery): void {
   router.service(Discovery, {
     async discover(info) {
       log(`ankka: discovery from sidecar (protocol ${info.protocolVersion}, runtime ${info.runtimeVersion})`)
@@ -170,12 +178,14 @@ export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (m
         socketRefusal(answer, info.protocolVersion) ??
         grantsRefusal(answer, info.protocolVersion) ??
         // Last: an older runtime is told the oldest thing it lacks first.
-        mcpRefusal(answer, info.protocolVersion)
+        mcpRefusal(answer, info.protocolVersion) ??
+        personalRefusal(answer, personal?.users() ?? [], info.protocolVersion)
       if (why !== undefined) {
         log(`ankka: ${why}`)
         problems.push(why)
         throw new ConnectError(why, Code.FailedPrecondition)
       }
+      personal?.discovered?.(info.protocolVersion)
       return answer
     },
     async reportError(problem) {
@@ -222,6 +232,17 @@ export function grantsRefusal(spec: Spec, runtime: string): string | undefined {
   const speaks = Number.isFinite(major) && Number.isFinite(minor) ? [major!, minor!] : [0, 0]
   if (speaks[0]! > GRANTS_SINCE[0] || (speaks[0] === GRANTS_SINCE[0] && speaks[1]! >= GRANTS_SINCE[1])) return undefined
   return `this runtime speaks protocol ${runtime || "unknown"}; granted callers and another project's topics need 1.15 (${endpoints.join(", ")})`
+}
+
+/** The protocol version whose runtimes serve a subject's key, its notices and the erasure handler. */
+export const PERSONAL_SINCE: readonly [number, number] = [1, 23]
+
+/** Why a service with personal fields (`users`) or an erasure handler cannot run on a runtime speaking
+ * `runtime`, or undefined. A runtime before 1.23 has no keyring to ask and would never call the handler. */
+export function personalRefusal(spec: Spec, users: readonly string[], runtime: string): string | undefined {
+  const what = [...users, ...(spec.erasureHandler ? ["the erasure handler"] : [])]
+  if (what.length === 0 || !olderThan(runtime, PERSONAL_SINCE)) return undefined
+  return `personal fields need protocol 1.23: this runtime speaks ${runtime || "unknown"}, and this SDK ${PROTOCOL_VERSION} (${what.join(", ")})`
 }
 
 /** The protocol version whose runtimes serve a process's MCP endpoint. */

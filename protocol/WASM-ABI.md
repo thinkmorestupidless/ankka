@@ -52,6 +52,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_check_task_result(ptr, len) -> i64` | `TaskResultRequest` | `TaskResultVerdict` | an autonomous agent's result: decoded as its task type's, then held to the type's rules |
 | `ankka1_http(ptr, len) -> i64` | `HttpRequest` | `HttpReply` | non-streaming routes only |
 | `ankka1_mcp_tool(ptr, len) -> i64` | `McpToolRequest` | `McpToolReply` | a tool of an MCP endpoint, since 1.20; required when the module declares one |
+| `ankka1_erase(ptr, len) -> i64` | `ErasureCall` | `ErasureReply` | the service's erasure handler, since 1.23; required when the module declares one (`Spec.erasure_handler`). Run on a fresh instance, on every application of an erasure request and on each re-run; it must be idempotent. `finality` is `immediate`, `after:` and an ISO-8601 duration, or empty for immediate; a reply's `error` is recorded as a failed run and run again on the next pass |
 | `_initialize()` | | | optional; called once per instance before any other export |
 
 `ankka1_alloc`, `ankka1_free`, `ankka1_discover` and the `memory` export are required of every
@@ -98,7 +99,10 @@ declared.
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | `Client.GetSecret`: the service's secret store, since 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | `Client.PutSecret`, since 1.6 |
 | `delete_secret(ptr, len) -> i64` | `DeleteSecretRequest` | `DeleteSecretReply` | `Client.DeleteSecret`, since 1.6 |
-| `storage(ptr, len) -> i64` | `StorageRequest` | `StorageReply` | the service's object storage, since 1.21: put, get, delete, list, stat, a signed URL or a public bucket's address. Served only to the exports listed under *Where `request` may be called*. A body, in or out, is at most 4,000,000 bytes: a larger `PUT` is refused, and a `GET` of a larger object is refused before any of it is read. Every refusal and fault is the reply's `Error`. Blocks the calling instance |
+| `storage(ptr, len) -> i64` | `StorageRequest` | `StorageReply` | the service's object storage, since 1.21: put, get, delete, list, stat, a signed URL or a public bucket's address, and since 1.23 `ERASE`, every object and every version under `subjects/<name>/` for a data subject, answered `erased` with the count and finality. Served only to the exports listed under *Where `request` may be called*. A body, in or out, is at most 4,000,000 bytes: a larger `PUT` is refused, and a `GET` of a larger object is refused before any of it is read. Every refusal and fault is the reply's `Error`. Blocks the calling instance |
+| `keyring_seal(ptr, len) -> i64` | `KeyringSealRequest` | `KeyringSealReply` | a personal field sealed into its envelope, since 1.23: `value` is the field's own JSON, `manifest` the manifest of the record it is in; with `erased` set, the field is written erased (the envelope without `c`, under the runtime's project, which a module is never told) and `value` is not read. With `project` set to the project of the envelope the field was read from, when that is another project's, the field is sealed again under that project's key, which the runtime never makes, and written erased when that key is no longer given (FR-027); a module reads the project from the envelope it was handed. A replicated entity's fields are sealed and opened with its home's keys (FR-032): the host knows the home from the snapshot, each folded event's writer and each command, and a module is not told it. The runtime seals it with its keyring and the same code a Scala field is sealed with, so the bytes are the envelope `ENCODING.md` describes. A data subject that is not one is `Error(BAD_REQUEST)`; a write for an erased subject `Error(CONFLICT)`, details `personal` = `erased`; no keyring `Error(UNAVAILABLE)`. Served to every export |
+| `keyring_open(ptr, len) -> i64` | `KeyringOpenRequest` | `KeyringOpenReply` | an envelope read back, since 1.23: the field's JSON, or `erased` when the subject's key is destroyed or the field was written erased. An envelope that fails authentication, under its subject, project and this manifest, is `Error(INTERNAL)`, details `personal` = `corrupt`. Served to every export |
+| `erasure_ask(ptr, len) -> i64` | `AskErasureRequest` | `AskErasureReply` | `Client.AskErasure`, since 1.23: an erasure request asked of the control plane as this service, in its own project when `project` is empty; the control plane names the service as who asked and refuses it without the project's `erasure` grant (`Error(FORBIDDEN)`). Served only to the exports listed under *Where `request` may be called*. Blocks the calling instance |
 | `request(ptr, len) -> i64` | `ServiceRequest` | `ServiceReply` | `Client.Request`: a call to another service, made by the runtime as this service, since 1.10. Served only to the exports listed under *Where `request` may be called*; from any other, the call into the module ends there. Blocks the calling instance until the service answers or the runtime's wait for it ends |
 | `now() -> i64` | | | the runtime's clock as milliseconds since the Unix epoch, when it is asked; from any export, since 1.10 |
 | `random(ptr, len)` | | | fills the `len` bytes at `ptr`, which the guest owns, from the runtime's secure source; `len` is at most 65,536; from any export, since 1.10 |
@@ -112,7 +116,12 @@ module that never sets a recurring timer does not import it. `await_end` is the 
 waits for a workflow's end does not import it, and so runs on a runtime from before 1.18. The
 three client key imports are the same again: each answers in the reply, and a module that issues no
 key imports none of them. `storage` is the same: a module that never
-reaches a bucket does not import it, and so runs on a runtime from before 1.21.
+reaches a bucket does not import it, and so runs on a runtime from before 1.21. `keyring_seal` and
+`keyring_open` are the same again: a module with no personal field imports neither and runs on a
+runtime from before 1.23. They are served to every export, unlike `request`, since an entity's
+command writes a personal field and its replay reads one; they wait only on the keyring, and only
+for a key the runtime does not already hold. A module never sees a key. `erasure_ask` is imported
+only by a module that asks for an erasure, and is served where `request` is.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

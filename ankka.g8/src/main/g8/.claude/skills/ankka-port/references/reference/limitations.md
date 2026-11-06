@@ -41,9 +41,9 @@ feature also says what that feature does not do.
   entity admits a write forwarded from an installation in its own list of installations and refuses any
   other, naming it. Admitting an installation of another organization, by granting it access as any
   other caller is granted, is `ankka-replication`'s, not the platform's.
-- **The installation does not report erasure.** `GET /installation` reports its broker, its longest topic
-  retention and its backups; it states nothing about erasure, which the platform does not yet provide, so
-  a requirement that names erasure reads it as not stated.
+- **The installation reports erasure as on or off, and nothing more.** `GET /installation` reports
+  `erasure: {enabled, keyringInstances}` beside its broker, its longest topic retention and its backups. It
+  does not say where the keyring keeps its keys or how they are backed up.
 - **Only an event sourced entity's context carries a call's attribution.** An event sourced entity's
   command and event contexts say who acted on a call and, for a forwarded write, which installation
   forwarded it. A workflow's or key value entity's context does not yet expose the attribution of a
@@ -511,6 +511,72 @@ feature also says what that feature does not do.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.
+
+## Personal data and erasure
+
+See [Personal data and erasure](../build/personal-data.md) and [Erasure on the platform](../platform/erasure.md).
+
+- **An erasure makes data unreadable; it deletes nothing.** The ciphertext of an erased data subject's
+  fields stays in journals, snapshots, topics and backups until their own retention removes it. Only a
+  bucket's objects are deleted, by the service's erasure handler.
+- **It is not a classifier.** The platform encrypts the fields typed `Personal`, and what an agent keeps of
+  a session started with a data subject, and nothing else. A name in a field that is not marked, in a free
+  text field, in an entity id, in a topic's record key or in a log line written by your code is not
+  reached.
+- **The data subject is in the clear.** It is beside every envelope, in row keys, lookups and topic
+  records, because what survives an erasure is keyed by it. Choose an id that is not itself personal.
+- **A live entity keeps what it decrypted until it is passivated or restarted.** An erasure does not stop
+  entities in memory: one that recovered before the erasure reads the data subject's fields as written
+  until it leaves memory, and as erased from its next recovery. Its next write of such a field is refused.
+  Views, consumers, every key fetch and every recovery read the subject as erased within 60 seconds.
+- **Records written before a field was marked are not re-encrypted.** They stay in the clear, and an
+  erasure does not reach them. Changing an existing field's type to `Personal` breaks the reading of every
+  record written before; add a new event case instead.
+- **No key is ever rotated.** A subject key, a project's key-encryption key, its lookup key and the root
+  key are made once and kept until destroyed.
+- **A lookup token leaks equality.** Rows with the same value in a lookup field have the same token, and
+  anyone holding the table and the project's lookup key can test a guess. A declared query compares a
+  personal field only by equality with a given value, on a field marked for lookup; anything else is
+  refused at start. Lookup fields are declared in the Scala SDK only.
+- **An erasure applies in one project.** A person known to two projects is two data subjects, and needs an
+  erasure request in each. A replicated entity's subject keys are its home's, in every language: a
+  follower fetches them through a keyring relay, which the platform defines and does not supply, and
+  never makes one. `ankka-replication` supplies one. With none, a follower's fetch is unavailable and
+  retried, and a field is never read as erased because the relay could not be reached. A follower holds
+  a key of its home's for `ankka.keyring.cache.foreign-ttl`, as it holds another project's, so an
+  erasure at the home reaches its reads within 30 seconds.
+- **An object written under a subject prefix after the re-run window is kept.** Erasure handlers are run
+  again for 30 days after an erasure (`ANKKA_ERASURE_RERUN_WINDOW`); after that only a new erasure request
+  for the same data subject runs them again.
+- **A store's soft-delete window is told only to a personal service on Google Cloud Storage.** The
+  operator sets `ANKKA_S3_SOFT_DELETE_DAYS` for a service that declares `"personal": true` and has a bucket
+  there, so its erasure is reported final when the window has passed. A service that does not declare
+  `"personal"` is not told it, and on a store with no window an erasure is reported final at once.
+- **What left the installation is beyond an erasure.** What a session sent to its model provider, a value a
+  machine outside the installation was answered before the erasure, an export, an email: none is reached.
+- **A session started with no data subject cannot be erased.** A turn in a session whose data subject was
+  erased is answered, and nothing of it is recorded.
+- **Workflow steps and timed actions cannot ask for an erasure.** Only endpoints, consumers and erasure
+  handlers have `erasures`.
+- **Java and Kotlin services start no session or autonomous agent's instance with a data subject.**
+  They mark personal fields, register an erasure handler and ask for an erasure from code as a Scala
+  service does. The Java, Kotlin and Rust SDKs have no function for the subject prefix; `Bucket.erase`
+  builds it.
+- **A consumer in another project reads an erasure there up to 30 seconds late.** It hears no notice of
+  the producing project and holds that project's keys for `ankka.keyring.cache.foreign-ttl`, so an
+  erasure or a revoked grant reaches its reads within 30 seconds, not at once; an entity of its own
+  already in memory keeps what it decrypted until it is passivated or restarted.
+- **A process or a module retries a keyring outage with its caller's next command.** An entity behind the
+  sidecar decrypts in the process or through the module's imports, never in the runtime, so a recovery
+  that needs a key the keyring cannot give refuses the command, never reads the field as erased, and
+  the next command recovers again. Nothing is retried until a command comes: an entity
+  in process waits in its mailbox, with backoff, until the keyring answers.
+- **Neither example overlay runs the keyring.** Erasure is off in both, and a service whose descriptor
+  declares `"personal": true` is refused. An installation turns it on by listing `components/keyring`
+  and setting `erasure: "on"`; the keyring's decryption is then the one path a machine outside the
+  installation reaches, at `https://keyring.<base domain>/v1/decrypt`.
+- **The local keyring is for development.** It keeps its keys in the service's own database, so a backup
+  of that database holds the keys beside what they encrypt.
 
 ## SDKs and releases
 

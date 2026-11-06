@@ -78,7 +78,11 @@ final class RecordedSpanData(
     // OpenTelemetry's own name for who a request was for (feature 054).
     span.subject.foreach(subject => builder.put(EndUser, subject): Unit)
     // A client key's id on a tool call, under the platform's own namespace.
-    span.attributes.foreach((name, value) => builder.put(s"ankka.$name", value): Unit)
+    // Never a personal envelope (feature 042): the recorder drops one, and this is the last door.
+    span.attributes.foreach { (name, value) =>
+      if !com.thinkmorestupidless.ankka.core.Personal.holdsEnvelope(value) then
+        builder.put(s"ankka.$name", value): Unit
+    }
     builder.build()
 
   def getStartEpochNanos: Long                                       = start

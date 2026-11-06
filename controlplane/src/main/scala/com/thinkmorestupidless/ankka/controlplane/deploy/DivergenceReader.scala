@@ -27,6 +27,18 @@ trait DivergenceReader:
       at: Instant
   ): Either[String, Vector[TopicDivergence]]
 
+  /**
+   * Which database line the service's first instance to answer runs on, and when the erasure log
+   * was applied on it (feature 042, R22); none while it is applying it. Not asked by a reader that
+   * does not say.
+   */
+  def erasureReplay(projectId: String, service: String): Either[String, ErasureReplayed] =
+    val _ = (projectId, service)
+    Left("not asked")
+
+/** A service's answer about the erasure log: its line, and when the log was applied on it. */
+final case class ErasureReplayed(line: String, replayedAt: Option[Instant] = None)
+
 object DivergenceReader:
 
   /** Merges what several services said: one entry per topic and group, naming who touches it. */
@@ -53,7 +65,8 @@ object DivergenceReader:
       after: Long,
       read: Option[Long]
   )
-  private given JsonValueCodec[Vector[Entry]] = JsonCodecMaker.make
+  private given JsonValueCodec[Vector[Entry]]   = JsonCodecMaker.make
+  private given JsonValueCodec[ErasureReplayed] = JsonCodecMaker.make
 
   /** The reader that ships: each running pod over the observe port, until one answers. */
   def observePort(namespacePrefix: String): DivergenceReader =
@@ -92,6 +105,26 @@ object DivergenceReader:
         service: String,
         at: Instant
     ): Either[String, Vector[TopicDivergence]] =
+      first(projectId, service, s"/observability/divergence?since=$at")(body =>
+        readFromString[Vector[Entry]](body).map(e =>
+          TopicDivergence(e.topic, e.group, e.after, e.read)
+        )
+      )
+
+    override def erasureReplay(
+        projectId: String,
+        service: String
+    ): Either[String, ErasureReplayed] =
+      first(projectId, service, "/observability/erasure-replay")(body =>
+        // `{}` from a service that carries out no erasures: no line to report.
+        if body.trim == "{}" then throw IllegalStateException(s"$service carries out no erasures")
+        else readFromString[ErasureReplayed](body)
+      )
+
+    /** What the first running instance to answer `path` says, read by `parse`, or why none did. */
+    private def first[A](projectId: String, service: String, path: String)(
+        parse: String => A
+    ): Either[String, A] =
       serviceDirectory match
         case None            => Left("the control plane has no service certificate to ask with")
         case Some(directory) =>
@@ -108,18 +141,14 @@ object DivergenceReader:
                   .build()
                 val response = http.send(
                   HttpRequest
-                    .newBuilder(URI.create(s"https://$ip:$port/observability/divergence?since=$at"))
+                    .newBuilder(URI.create(s"https://$ip:$port$path"))
                     .timeout(Duration.ofMillis(perInstance.toMillis))
                     .GET()
                     .build(),
                   HttpResponse.BodyHandlers.ofString()
                 )
                 if response.statusCode() != 200 then Left(s"$pod answered ${response.statusCode()}")
-                else
-                  Right(
-                    readFromString[Vector[Entry]](response.body())
-                      .map(e => TopicDivergence(e.topic, e.group, e.after, e.read))
-                  )
+                else Right(parse(response.body()))
               }.toEither.left
                 .map(e => s"$pod: ${Option(e.getMessage).getOrElse(e.toString)}")
                 .flatten

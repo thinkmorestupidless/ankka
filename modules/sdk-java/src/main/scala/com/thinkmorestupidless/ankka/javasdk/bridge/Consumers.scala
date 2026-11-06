@@ -146,7 +146,8 @@ private[ankka] object Consumers:
       Clients.of(ctx.componentClient, refs),
       Services.of(ctx.services, serializers),
       Stores.secrets(ctx.secrets),
-      Stores.storage(ctx.storage)
+      Stores.storage(ctx.storage),
+      JavaErasures.of(ctx.erasures)
     )
 
   private[bridge] final class Hooks(base: Class[?]):

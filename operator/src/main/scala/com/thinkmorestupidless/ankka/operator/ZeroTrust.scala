@@ -59,6 +59,26 @@ object ZeroTrust:
   val ServiceCaConfigMap: String = "ankka-service-ca"
 
   /**
+   * The label that admits a project's services to the keyring's door (feature 042): rendered for a
+   * service that declares personal fields on an installation with erasure on, and for nothing else,
+   * so every other service renders what it rendered before. The keyring's policy names namespaces
+   * by it; the keyring itself still decides who may have which key from the certificate.
+   *
+   * Applied under a field manager of its own, so no other service's namespace apply in the project
+   * removes it. It is never taken away: a project whose last such service is deleted keeps a label
+   * that lets its services open a connection the keyring then refuses.
+   */
+  def personalNamespace(
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      erasure: Option[KeyringSettings]
+  ): Vector[Action] =
+    erasure
+      .filter(_ => spec.personal)
+      .map(_ => Action.LabelNamespace(namespace, Map(KeyringSettings.PersonalLabel -> "true")))
+      .toVector
+
+  /**
    * Where the runtime reads each identity — fixed, so neither a descriptor nor an image names them.
    */
   val ClusterMount: String    = "/var/run/secrets/ankka/cluster"

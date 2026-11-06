@@ -65,6 +65,8 @@ type Kit struct {
 	port      int
 	http      *HTTP
 	client    *ankka.Client
+	// local is the sidecar's local console endpoint, "http://host:port", where Keyring posts.
+	local string
 }
 
 // Start serves service on all interfaces of this machine, starts Postgres from the schema the
@@ -148,8 +150,13 @@ func (k *Kit) startSidecar(ctx context.Context) error {
 		_ = c.Terminate(context.WithoutCancel(ctx))
 		return err
 	}
+	local, err := address(ctx, c, localEndpointPort)
+	if err != nil {
+		_ = c.Terminate(context.WithoutCancel(ctx))
+		return err
+	}
 	k.mu.Lock()
-	k.sidecar, k.http = c, newHTTP(httpAddr)
+	k.sidecar, k.http, k.local = c, newHTTP(httpAddr), "http://"+local
 	if k.client != nil {
 		_ = k.client.Close()
 	}

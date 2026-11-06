@@ -23,6 +23,7 @@ use crate::codec::{EncodingError, decode_payload, encode_payload};
 use crate::components::{ComponentOf, kinds};
 use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode};
+use crate::personal::DataSubject;
 use crate::proto::{self, Kind};
 
 pub use autonomous::{
@@ -35,7 +36,12 @@ pub use autonomous::{
 #[derive(Debug, Clone, Default)]
 pub struct Client {
     metadata: Metadata,
+    /// The data subject its calls to an agent's session name (feature 042).
+    subject: Option<DataSubject>,
 }
+
+/// The metadata key a call to an agent names its data subject under (feature 042).
+pub const DATA_SUBJECT_KEY: &str = "ankka-data-subject";
 
 fn encoding(e: EncodingError) -> CommandError {
     CommandError::new(ErrorCode::BadRequest, e.0)
@@ -66,7 +72,29 @@ fn answer<T: Message + Default>(import: Import, request: impl Message) -> T {
 impl Client {
     /// A client that carries `metadata` on every call.
     pub fn with_metadata(metadata: Metadata) -> Client {
-        Client { metadata }
+        Client {
+            metadata,
+            subject: None,
+        }
+    }
+
+    /// This client, whose calls to an agent's session (`invoke`, `invoke_stream`, `send`) name
+    /// `subject` under [`DATA_SUBJECT_KEY`] (feature 042): a session started with a data subject
+    /// keeps its conversation sealed under that subject's key, and reads as erased once the subject
+    /// is erased. The subject is fixed at the session's first call; a later call naming another is
+    /// refused `Conflict`. Calls to anything but an agent are unchanged. A [`DataSubject`] is made
+    /// only by [`DataSubject::new`], so an id that breaks the rule is refused before anything is
+    /// sent.
+    ///
+    /// ```ignore
+    /// let about = DataSubject::new("player/8c1f")?;
+    /// let answer: String = ctx.client().with_data_subject(about).invoke(Support, session, "ask", q)?;
+    /// ```
+    pub fn with_data_subject(&self, subject: DataSubject) -> Client {
+        Client {
+            metadata: self.metadata.clone(),
+            subject: Some(subject),
+        }
     }
 
     /// Calls handler `name` of `entity_id` of `component`, answering its reply as `R`.
@@ -523,7 +551,19 @@ impl Client {
             entity_id: entity_id.to_string(),
             name: name.to_string(),
             payload: Some(encode_payload(payload).map_err(encoding)?),
-            metadata: Some(self.metadata.to_proto()),
+            metadata: Some(self.metadata_for(kind).to_proto()),
         })
+    }
+
+    /// The metadata a call to a component of `kind` carries: the handler's, and to an agent the
+    /// data subject this client names.
+    fn metadata_for(&self, kind: Kind) -> Metadata {
+        match (&self.subject, kind) {
+            (Some(subject), Kind::Agent) => self
+                .metadata
+                .clone()
+                .set(DATA_SUBJECT_KEY, subject.as_str()),
+            _ => self.metadata.clone(),
+        }
     }
 }

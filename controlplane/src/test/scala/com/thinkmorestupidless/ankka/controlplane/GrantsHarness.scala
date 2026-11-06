@@ -27,7 +27,15 @@ final class GrantsHarness(
     topology: Option[TopologyReader] = None,
     /** Machines' settings (feature 040): the issuer tokens name, and the token route's rate. */
     val machineSettings: com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings =
-      com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local
+      com.thinkmorestupidless.ankka.controlplane.auth.MachineSettings.local,
+    /** Whether the installation erases personal data (feature 042), read on every request. */
+    erasure: () => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings = () =>
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off,
+    /** Where erasure requests are applied (feature 042): a test keyring's, or none. */
+    erasurePlane: Option[com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane] = None,
+    /** The keyring the control plane's own service is handed; a fresh one by default. */
+    keyring: com.thinkmorestupidless.ankka.testkit.InMemoryKeyring =
+      com.thinkmorestupidless.ankka.testkit.InMemoryKeyring()
 ):
 
   val identity       = TestIdentity()
@@ -42,7 +50,10 @@ final class GrantsHarness(
   val machineKeys =
     com.thinkmorestupidless.ankka.controlplane.auth.MachineKeys.inMemory(identity.clock)
   private var kit: AnkkaTestKit = null
-  private var url: String       = ""
+  private var bound: String     = ""
+
+  /** The control plane's address, once started. */
+  def url: String  = bound
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
   private var people = Map.empty[String, String]
@@ -58,14 +69,17 @@ final class GrantsHarness(
         topics = Some(projector),
         topology = topology,
         machineSettings = machineSettings,
-        machineKeys = Some(machineKeys)
+        machineKeys = Some(machineKeys),
+        erasure = erasure(),
+        erasures = erasurePlane
       )*
     )
     kit = AnkkaTestKit.start(
       ControlPlane.componentsWith(projector),
-      Seq(ProjectionRuntime(), projector, server, tokens)
+      Seq(ProjectionRuntime(), projector) ++ erasurePlane.toSeq ++ Seq(server, tokens),
+      keyring = keyring
     )
-    url = s"http://127.0.0.1:${server.boundPort.getOrElse(sys.error("server did not bind"))}"
+    bound = s"http://127.0.0.1:${server.boundPort.getOrElse(sys.error("server did not bind"))}"
 
   def stop(): Unit =
     if kit != null then kit.stop()
@@ -90,14 +104,32 @@ final class GrantsHarness(
   ): (Int, String) =
     request(method, path, body, Some(if as.startsWith("ankka_") then as else tokenOf(as)))
 
+  /** A request as the service `service` of `project`, as its certificate would name it. */
+  def sendAsService(
+      method: String,
+      path: String,
+      body: Option[String],
+      project: String,
+      service: String
+  ): (Int, String) =
+    request(
+      method,
+      path,
+      body,
+      None,
+      Some(kit.asCaller(com.thinkmorestupidless.ankka.http.Caller.Service(project, service)))
+    )
+
   def request(
       method: String,
       path: String,
       body: Option[String],
-      bearer: Option[String]
+      bearer: Option[String],
+      caller: Option[(String, String)] = None
   ): (Int, String) =
     val builder = JdkRequest.newBuilder(URI.create(url + path)).timeout(Duration.ofSeconds(30))
     bearer.foreach(b => builder.header("Authorization", s"Bearer $b"): Unit)
+    caller.foreach((name, value) => builder.header(name, value): Unit)
     body match
       case Some(json) =>
         builder.header("Content-Type", "application/json")
@@ -152,6 +184,10 @@ final class GrantsHarness(
           now.readyInstances == ready && now.grants == grants
       )(())
     }
+
+  /** The header that has a request read as `caller`, as a certificate would name it. */
+  def callerHeader(caller: com.thinkmorestupidless.ankka.http.Caller): (String, String) =
+    kit.asCaller(caller)
 
   /**
    * A request with its own content type and headers, answering the response's headers too: the

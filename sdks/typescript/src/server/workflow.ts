@@ -25,7 +25,8 @@ import type { Workflow } from "../workflow.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import { materialiseStep, materialiseWorkflowCommand } from "../materialise.ts"
 import type { RegisteredWorkflow } from "../service.ts"
-import { decodePayload, encodePayload } from "./payloads.ts"
+import { PersonalError } from "../personal.ts"
+import { decodePayload, encodePayload, prefetchPayload, prefetchValue } from "./payloads.ts"
 import { AsyncQueue } from "./queue.ts"
 import type { ServerContext } from "./server.ts"
 
@@ -70,6 +71,7 @@ class WorkflowStream {
     const handler = registered.handlers.get(cmd.name)
     if (!handler) return failure(cmd.id, { message: `no handler ${JSON.stringify(cmd.name)} on ${registered.id}`, code: ErrorCode.NotFound })
     let input: unknown
+    await prefetchPayload(cmd.payload)
     try {
       input = handler.input ? decodePayload(codecFor(handler.input), cmd.payload) : undefined
     } catch (e) {
@@ -91,6 +93,7 @@ class WorkflowStream {
     }
     try {
       const m = materialiseWorkflowCommand(effect, this.state)
+      await prefetchValue(m)
       const replyCodec = handler.reply ? codecFor(handler.reply) : binaryCodecs.done
       const outcome: OutcomeInit = m.error
         ? { outcome: { case: "error", value: { message: m.error.message, code: errorCodeToProto(m.error.code) } } }
@@ -112,7 +115,7 @@ class WorkflowStream {
       return out
     } catch (e) {
       ctx.log(`ankka: ${registered.id}/${this.entityId}/${cmd.name}: the effect could not be applied: ${messageOf(e)}`)
-      return failure(cmd.id, { message: messageOf(e), code: ErrorCode.Internal })
+      return failure(cmd.id, { message: messageOf(e), code: e instanceof PersonalError ? e.code : ErrorCode.Internal })
     }
   }
 
@@ -124,6 +127,7 @@ class WorkflowStream {
     const fresh = new registered.cls() as Workflow<unknown>
     fresh._bindInstance(this.entityId)
     let input: unknown
+    await prefetchPayload(run.input)
     try {
       input = step.input ? decodePayload(codecFor(step.input), run.input) : undefined
     } catch (e) {
@@ -146,6 +150,7 @@ class WorkflowStream {
     }
     try {
       const m = materialiseStep(effect, this.state)
+      await prefetchValue(m)
       let next: StepOutcomeInit
       switch (m.next.kind) {
         case "transition":
@@ -196,6 +201,7 @@ export async function* handleWorkflow(requests: AsyncIterable<WorkflowIn>, ctx: 
               out.push(failure(0n, { message: `no workflow ${JSON.stringify(init.componentId)} is registered`, code: ErrorCode.NotFound }))
               return
             }
+            await prefetchPayload(init.state)
             try {
               const instance = new found.cls() as Workflow<unknown>
               instance._bindInstance(init.entityId)

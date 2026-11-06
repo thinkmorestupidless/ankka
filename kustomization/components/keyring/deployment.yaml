@@ -1,0 +1,138 @@
+# The keyring. Its instances share its database: every service instance holds its notices channel
+# open to one of them, and a notice written by any reaches every channel through the database.
+# Replaced by the overlay from `ankka-platform.keyringInstances`, the count the control plane
+# reports; two, so losing one instance loses no channel for long.
+#
+# Ready only once both copies of the erasure log have been read and applied (`/ready` on `probe`),
+# so a keyring whose database was restored answers nothing until it has destroyed again every key
+# erased since.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-keyring
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka
+    app.kubernetes.io/name: ankka-keyring
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ankka-keyring
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: ankka
+        app.kubernetes.io/name: ankka-keyring
+    spec:
+      # Its own identity, which may list the projects' `ankka-project` ConfigMaps and nothing else.
+      serviceAccountName: ankka-keyring
+      # The keyring does not wait for its database: wait for the port, as the control plane does,
+      # since the CNPG cluster and the keyring are applied together.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:17-alpine
+          env:
+            - name: ANKKA_DB_HOST
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: host }
+            - name: ANKKA_DB_PORT
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: port }
+            - name: ANKKA_DB_USER
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: username }
+          command:
+            - sh
+            - -c
+            - until pg_isready -h "$ANKKA_DB_HOST" -p "$ANKKA_DB_PORT" -U "$ANKKA_DB_USER"; do sleep 1; done
+      containers:
+        - name: ankka-keyring
+          # The overlay's images: block renames it to the registry and the release.
+          image: ankka-keyring:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: keyring, containerPort: 8443 }
+            # Readiness and the replay's report, on a plain listener: the kubelet holds no
+            # certificate.
+            - { name: probe, containerPort: 7627 }
+          env:
+            - { name: ANKKA_KEYRING_PORT, value: "8443" }
+            - { name: ANKKA_KEYRING_PROBE_PORT, value: "7627" }
+            # The control plane, whose GET /internal/erasure-log is the log's first copy; reached
+            # over mutual TLS as ankka://platform/keyring.
+            - name: ANKKA_CONTROLPLANE_URL
+              value: "https://ankka-controlplane.ankka-controlplane.svc:9000"
+            # The root key: the installation's wrapping key on Google Cloud, replaced by the
+            # overlay from ankka-platform.cloudKmsKey; empty keeps it in the keyring's own database
+            # under the secret key below.
+            - name: ANKKA_KEYRING_KMS_KEY
+              value: ""
+            # The installation's base domain and HTTPS port, replaced by the overlay: the issuer of
+            # a machine's token is https://api.<base>[:port], its keys read on the control plane's
+            # `keys` port. Empty admits no machine to the decryption.
+            - name: ANKKA_BASE_DOMAIN
+              value: ""
+            - name: ANKKA_HTTPS_PORT
+              value: "443"
+            # Made by the operator once, never read back by anything but this pod.
+            - name: ANKKA_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-keyring-secret-key, key: key }
+            # CNPG's credential Secret, mapped one for one onto the runtime's ANKKA_DB_*.
+            - name: ANKKA_DB_HOST
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: host }
+            - name: ANKKA_DB_PORT
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: port }
+            - name: ANKKA_DB_NAME
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: dbname }
+            - name: ANKKA_DB_USER
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: username }
+            - name: ANKKA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: keyring-db-app, key: password }
+            # The erasure log's second copy, the platform bucket `platform.erasure-log`, read with a
+            # key that may only read it, which the operator writes into ankka-erasure-log here.
+            - name: ANKKA_S3_ENDPOINT
+              value: "http://garage.garage-system.svc.cluster.local:3900"
+            - name: ANKKA_S3_REGION
+              value: "garage"
+            # The bucket by name, a platform-made bucket's variable: without it the runtime knows
+            # no bucket called platform.erasure-log, however good the key.
+            - name: ANKKA_S3_BUCKET_PLATFORM.ERASURE_LOG
+              value: "platform.erasure-log"
+            - name: ANKKA_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-erasure-log, key: ANKKA_S3_ACCESS_KEY }
+            - name: ANKKA_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: ankka-erasure-log, key: ANKKA_S3_SECRET_KEY }
+          readinessProbe:
+            httpGet: { path: /ready, port: probe }
+            periodSeconds: 5
+          volumeMounts:
+            - name: ankka-keyring-tls
+              mountPath: /var/run/secrets/ankka/service
+              readOnly: true
+          # Serve for a moment after the decision to stop, as every platform workload does.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+      # Whole Secrets, never subPath: a renewed certificate reaches the pod only through a volume.
+      volumes:
+        - name: ankka-keyring-tls
+          secret:
+            secretName: ankka-keyring-tls

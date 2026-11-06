@@ -1,0 +1,17 @@
+package com.thinkmorestupidless.ankka.runtime.keyring
+
+import com.thinkmorestupidless.ankka.core.{DataSubject, KeyAnswer, Keyring}
+
+/**
+ * The keyring a service's codecs read (feature 042): its project, over the instance's client.
+ * Installed as `Keyring.current` when the service starts and bound by each host around its
+ * serializer calls, so two services in one JVM never read each other's.
+ */
+final class KeyringHandle(val project: String, val client: KeyringClient) extends Keyring:
+
+  def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
+    client.key(project, subject, create)
+
+  override def lookupKey(project: String): IArray[Byte] = client.lookupKey(project)
+
+  override def toString: String = s"KeyringHandle($project)"

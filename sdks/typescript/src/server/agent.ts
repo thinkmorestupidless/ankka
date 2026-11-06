@@ -33,7 +33,7 @@ import { errorCodeToProto } from "../kinds.ts"
 import type { Schema } from "../schema.ts"
 import type { RegisteredAgent, RegisteredAutonomousAgent } from "../service.ts"
 import { decodeResult, type AutonomousAgent } from "../autonomous.ts"
-import { decodePayload } from "./payloads.ts"
+import { decodePayload, prefetchPayload } from "./payloads.ts"
 import type { ServerContext } from "./server.ts"
 
 function messageOf(e: unknown): string {
@@ -59,6 +59,7 @@ export async function handlePlan(req: PlanRequest, ctx: ServerContext): Promise<
   const agent = new registered.cls() as Agent
   agent._bind(req.sessionId, metadata, ctx.client.withMetadata(metadata))
   let effect: AgentEffect<unknown>
+  await prefetchPayload(req.payload)
   try {
     const input = handler.input ? decodePayload(codecFor(handler.input), req.payload) : undefined
     effect = (await handler.run(agent, input)) as AgentEffect<unknown>

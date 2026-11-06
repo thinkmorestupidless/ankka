@@ -14,6 +14,7 @@ sealed interface Plan
         Plan.Sum,
         Plan.Enumeration,
         Plan.Opt,
+        Plan.Personal,
         Plan.OrNull,
         Plan.Seq,
         Plan.Dictionary,
@@ -35,6 +36,12 @@ sealed interface Plan
 
   /** {@code Optional<T>}: {@code null} when empty. */
   record Opt(Plan inner) implements Plan {}
+
+  /**
+   * A personal field (feature 042): the envelope in a store, the edge form outside one, sealed and
+   * opened by {@code core}'s codec over the inner value's JSON.
+   */
+  record Personal(Plan inner) implements Plan {}
 
   /** A Kotlin nullable type: {@code null} when null. */
   record OrNull(Plan inner) implements Plan {}

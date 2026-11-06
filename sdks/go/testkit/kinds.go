@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"maps"
@@ -53,7 +54,10 @@ func serveStandIn(v *kit.Service, services map[string]ServiceAnswer) (*ankka.Cli
 	if err != nil {
 		panic("testkit: " + err.Error())
 	}
-	return v.Client(conn).(*ankka.Client), func() {
+	client := v.Client(conn).(*ankka.Client)
+	restore := v.UseKeyring(client)
+	return client, func() {
+		restore()
 		_ = conn.Close()
 		g.Stop()
 	}
@@ -316,4 +320,75 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// KitProject is the project a unit kit's stand-in answers as the service's own, so the one its
+// personal fields are sealed under.
+const KitProject = "local"
+
+// standInKeys are the subject keys every stand-in in the test process answers, so a field one kit
+// sealed is opened by another.
+var standInKeys = struct {
+	sync.Mutex
+	keys   map[string][]byte
+	erased map[string]bool
+}{keys: map[string][]byte{}, erased: map[string]bool{}}
+
+// GetSubjectKey answers a subject's key as the sidecar does: made on a write, erased on a read of a
+// subject with none, refused as erased once EraseSubject destroyed it.
+func (s *standIn) GetSubjectKey(_ context.Context, req *pb.SubjectKeyRequest) (*pb.SubjectKeyReply, error) {
+	if _, err := ankka.Subject(req.GetSubject()); err != nil {
+		return &pb.SubjectKeyReply{Reply: &pb.SubjectKeyReply_Error{Error: &pb.Error{Code: pb.ErrorCode_BAD_REQUEST, Message: err.Error()}}}, nil
+	}
+	project := req.GetProject()
+	if project == "" {
+		project = KitProject
+	}
+	name := project + "\x00" + req.GetSubject()
+	standInKeys.Lock()
+	defer standInKeys.Unlock()
+	if standInKeys.erased[name] {
+		return &pb.SubjectKeyReply{Reply: &pb.SubjectKeyReply_Erased{Erased: true}, Project: project}, nil
+	}
+	key, ok := standInKeys.keys[name]
+	if !ok {
+		if !req.GetCreate() {
+			return &pb.SubjectKeyReply{Reply: &pb.SubjectKeyReply_Erased{Erased: true}, Project: project}, nil
+		}
+		key = make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		standInKeys.keys[name] = key
+	}
+	return &pb.SubjectKeyReply{Reply: &pb.SubjectKeyReply_Key{Key: key}, Project: project}, nil
+}
+
+// EraseSubject destroys the unit kits' key of subject in KitProject: every field about it reads as
+// erased, and a write for it is refused. A key a kit's process already cached is dropped too.
+func EraseSubject(subject ankka.DataSubject) {
+	name := KitProject + "\x00" + subject.String()
+	standInKeys.Lock()
+	delete(standInKeys.keys, name)
+	standInKeys.erased[name] = true
+	standInKeys.Unlock()
+	kit.DropKey(KitProject, subject.String())
+}
+
+// serveKeysOnly serves a stand-in that answers subject keys and nothing a kit hosts.
+func serveKeysOnly(v *kit.Service) (*ankka.Client, func()) {
+	empty := *v
+	empty.EventSourced, empty.KeyValue = map[string]*kit.EventSourced{}, map[string]*kit.KeyValue{}
+	empty.Kinds = map[string]pb.Kind{}
+	lis := bufconn.Listen(1 << 16)
+	g := grpc.NewServer()
+	pb.RegisterClientServer(g, &standIn{view: &empty, entities: map[string]*entityHost{}, keyValues: map[string]*keyValueHost{}})
+	go func() { _ = g.Serve(lis) }()
+	conn, err := grpc.NewClient("passthrough:///testkit-keys",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic("testkit: " + err.Error())
+	}
+	return v.Client(conn).(*ankka.Client), func() { _ = conn.Close(); g.Stop() }
 }

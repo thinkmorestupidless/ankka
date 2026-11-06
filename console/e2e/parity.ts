@@ -23,6 +23,10 @@ const notThroughTheConsole = new Set([
   "POST /secret-reads",
   // The record of reads is listed with the CLI; showing it in the console is an open question.
   "GET /projects/{projectId}/secret-reads",
+  // Feature 042: the erasure requests of every project a member is in with one correlation id, a
+  // lookup the CLI and the MCP server make; the console reads a project's own. And the keyring's log.
+  "GET /erasures",
+  "GET /internal/erasure-log",
 ]);
 
 export default async function parity() {

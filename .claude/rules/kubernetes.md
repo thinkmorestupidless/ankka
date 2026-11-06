@@ -355,9 +355,34 @@ record database (`components/secret-reads`, its own CNPG cluster with no schema 
 literal either: the control plane creates the table as the role that owns it), and `ankka_secret_moves`, a
 service's ledger of a move to Secret Manager, created only in a database that has moved. Neither is service
 schema every database needs, and listing either in the seven lists would roll every project's schema
-ConfigMap for nothing.
+ConfigMap for nothing. `ankka_erasure_replay` (feature 042) is made by code too, as `ankka_view_versions`
+is, by a service that holds personal fields: a line's record of the erasure log's replay and how far the
+service has carried out the notices (`carried_through`, added by `ADD COLUMN IF NOT EXISTS`). A column it
+gains goes in `ErasureReplay.Table` and its own `ALTER`, never in a DDL file.
 
 ## Traps
+
+- **The overlay has the last word on erasure** (2026-11-04, feature 042). `erasure` in `ankka-platform`
+  is copied onto the operator and the control plane after the components, so an overlay that lists
+  `components/keyring` must also set `erasure: "on"`, or the component's own patch is replaced by the
+  overlay's `off`. The component and the cloud overlay both say so; `RemoteOverlaySuite` renders it.
+- **A platform database made by CNPG with no schema has none of the platform's tables** (2026-11-04,
+  feature 042). The keyring's database is `bootstrap.initdb` with no DDL, and its root key's store
+  needs `ankka_secrets`: every instance refused to start on the first k3s run, while every offline
+  suite passed against the test kit's databases, which carry the platform DDL. A process that uses a
+  runtime store on such a database makes the store's table itself (`RootKey.SecretsTable`, held to
+  `40-secrets-postgres.sql` by `RootKeySuite`), **qualified with its schema**: the role's search path
+  begins with `"$user"`, and the keyring's code makes a schema `keyring` for the role `keyring`, so an
+  unqualified `CREATE TABLE IF NOT EXISTS` made the table in `public` on the first start and an empty
+  one in `keyring` on the next. Every restart then made a new root key that unwrapped no KEK, which
+  only a k3s restore showed; a `psql` as `postgres` reads `public` and showed the row unchanged.
+- **A k3s suite's dump of a crash-looping pod keeps only JSON log fields** (2026-11-04). It is written
+  for CNPG; a pod that logs plain lines shows its name and nothing else. The erasure suites print the
+  keyring's `--previous` logs themselves (`ErasureClusterSteps.keyringLogs`).
+- **The personal namespace label is applied under its own field manager** (2026-11-04).
+  `ankka.cloud/personal=true` is written by `LabelNamespace` as `ankka-operator-labels`, so a later
+  server-side apply of the namespace by the service pass, which does not name the label, does not
+  remove it. It is never taken away when a project's last personal service goes.
 
 - **An image with no build for the node's architecture is refused at pull, and only sometimes at
   start.** A single-platform image for the other architecture — a developer's amd64-only image on
@@ -375,6 +400,11 @@ ConfigMap for nothing.
   silently drops a tar whose only manifest is another platform's and the pod reports a plain
   `ErrImagePull` for an image that "imported" fine.
 
+- **The API server lists a service's pods by name, and a name ends in its template's hash**
+  (2026-11-05). `podProblems` took them in that order, so the detail named whichever pod sorted
+  first: in `OperatorClusterSuite` 10b a pod left from generation 5's unpullable image came before
+  generation 6's wrong-architecture one once a rendering change moved the hashes, on both
+  architectures. `PodProblem.newestFirst` orders by creation time; `PodProblemSuite` holds it.
 - **A controller that judges "already done" from an event's copy does it twice.** The informer
   delivers the resource as it was when the event fired, and fires again on the operator's next
   server-side apply of the same spec and on every resync; a copy queued behind the controller's

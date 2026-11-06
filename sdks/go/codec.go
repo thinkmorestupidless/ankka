@@ -30,7 +30,10 @@ type Codec[T any] interface {
 // CodecOption changes a default codec.
 type CodecOption func(*codecSettings)
 
-type codecSettings struct{ manifest string }
+type codecSettings struct {
+	manifest string
+	edge     bool
+}
 
 // Manifest names a default JSON codec's manifest, which is what the journal stores beside each value;
 // without it the manifest is the type's name.
@@ -48,8 +51,12 @@ func CodecFor[T any](opts ...CodecOption) Codec[T] {
 	for _, o := range opts {
 		o(&s)
 	}
-	return &defaultCodec[T]{inner: codecForType(reflect.TypeFor[T](), s.manifest, true)}
+	return &defaultCodec[T]{inner: codecAt(reflect.TypeFor[T](), s.manifest, true, s.edge)}
 }
+
+// edgeCodec is CodecFor at an endpoint, where no codec seals: a personal field is its value with its
+// subject beside it, {"subject", "value"}, or {"subject"} once erased.
+func edgeCodec(s *codecSettings) { s.edge = true }
 
 // CustomCodec is a codec the developer writes: what the value's bytes are is theirs to say.
 func CustomCodec[T any](manifest, contentType string, encode func(T) ([]byte, error), decode func([]byte) (T, error)) Codec[T] {
@@ -77,19 +84,35 @@ func (c *customCodec[T]) codecProblems() []string {
 	return out
 }
 
-type defaultCodec[T any] struct{ inner *typeCodec }
+// home, when set, is the installation whose keyring keeps the keys of a replicated entity's personal
+// fields (FR-032); see atHome.
+type defaultCodec[T any] struct {
+	inner *typeCodec
+	home  string
+}
 
 func (c *defaultCodec[T]) Manifest() string    { return c.inner.manifest }
 func (c *defaultCodec[T]) ContentType() string { return c.inner.contentType }
 func (c *defaultCodec[T]) Encode(v T) ([]byte, error) {
-	return c.inner.encode(reflect.ValueOf(&v).Elem())
+	return c.inner.encodeAt(reflect.ValueOf(&v).Elem(), c.home)
 }
 func (c *defaultCodec[T]) Decode(data []byte) (T, error) {
 	var v T
-	err := c.inner.decode(data, reflect.ValueOf(&v).Elem())
+	err := c.inner.decodeAt(data, reflect.ValueOf(&v).Elem(), c.home)
 	return v, err
 }
 func (c *defaultCodec[T]) codecProblems() []string { return c.inner.problems }
+func (c *defaultCodec[T]) holdsPersonal() bool     { return c.inner.personal }
+
+// atHome is c sealing and opening personal fields with the keys of home's keyring: a replicated
+// entity's home as its records name it (FR-032), "" for this installation's own. A codec that seals
+// nothing, or one the developer wrote, is c.
+func atHome[T any](c Codec[T], home string) Codec[T] {
+	if d, ok := c.(*defaultCodec[T]); ok && d.home != home && d.inner.sealAt != nil {
+		return &defaultCodec[T]{inner: d.inner, home: home}
+	}
+	return c
+}
 
 // problematic is a codec that can say what is wrong with it before it is used.
 type problematic interface{ codecProblems() []string }
@@ -111,8 +134,29 @@ type typeCodec struct {
 	manifest    string
 	contentType string
 	problems    []string
+	personal    bool // the type holds a personal field
 	encode      func(reflect.Value) ([]byte, error)
 	decode      func([]byte, reflect.Value) error
+	// sealAt and openAt are encode and decode with a replicated entity's home named (FR-032), for
+	// a codec that seals; nil for one that does not.
+	sealAt func(reflect.Value, string) ([]byte, error)
+	openAt func([]byte, reflect.Value, string) error
+}
+
+// encodeAt is encode with the keys of home's keyring; "" is this installation's.
+func (c *typeCodec) encodeAt(v reflect.Value, home string) ([]byte, error) {
+	if home != "" && c.sealAt != nil {
+		return c.sealAt(v, home)
+	}
+	return c.encode(v)
+}
+
+// decodeAt is decode with the keys of home's keyring; "" is this installation's.
+func (c *typeCodec) decodeAt(data []byte, target reflect.Value, home string) error {
+	if home != "" && c.openAt != nil {
+		return c.openAt(data, target, home)
+	}
+	return c.decode(data, target)
 }
 
 func broken(manifest string, problems []string) *typeCodec {
@@ -125,17 +169,24 @@ func broken(manifest string, problems []string) *typeCodec {
 }
 
 func codecForType(t reflect.Type, manifest string, topLevel bool) *typeCodec {
+	return codecAt(t, manifest, topLevel, false)
+}
+
+// codecAt is codecForType, at the edge when edge is set.
+func codecAt(t reflect.Type, manifest string, topLevel, edge bool) *typeCodec {
 	if manifest == "" {
 		if c := textOrBinaryCodec(t); c != nil {
 			return c
 		}
 	}
 	if topLevel && manifest == "" && t.Kind() == reflect.Pointer {
-		inner := codecForType(t.Elem(), "", true)
+		inner := codecAt(t.Elem(), "", true, edge)
 		if len(inner.problems) > 0 {
 			return inner
 		}
-		return optionCodec(t, inner)
+		c := optionCodec(t, inner)
+		c.personal = inner.personal
+		return c
 	}
 	p, problems := planFor(t)
 	if manifest == "" {
@@ -147,10 +198,22 @@ func codecForType(t reflect.Type, manifest string, topLevel bool) *typeCodec {
 	if len(problems) > 0 {
 		return broken(manifest, problems)
 	}
+	if edge {
+		return &typeCodec{
+			manifest: manifest, contentType: JSONContent, personal: p.personal,
+			encode: func(v reflect.Value) ([]byte, error) { return encodeJSON(p, v) },
+			decode: func(data []byte, target reflect.Value) error { return decodeJSON(p, data, target) },
+		}
+	}
+	// A codec seals: a personal field is its envelope, bound to the manifest.
 	return &typeCodec{
-		manifest: manifest, contentType: JSONContent,
-		encode: func(v reflect.Value) ([]byte, error) { return encodeJSON(p, v) },
-		decode: func(data []byte, target reflect.Value) error { return decodeJSON(p, data, target) },
+		manifest: manifest, contentType: JSONContent, personal: p.personal,
+		encode: func(v reflect.Value) ([]byte, error) { return sealJSON(p, v, manifest, "") },
+		decode: func(data []byte, target reflect.Value) error { return openJSON(p, data, target, manifest, "") },
+		sealAt: func(v reflect.Value, home string) ([]byte, error) { return sealJSON(p, v, manifest, home) },
+		openAt: func(data []byte, target reflect.Value, home string) error {
+			return openJSON(p, data, target, manifest, home)
+		},
 	}
 }
 
@@ -335,33 +398,37 @@ var primitiveCodecs = map[string]primitive{
 // optionCodec is a top-level pointer: zero bytes for nil, 0x01 and the inner bytes otherwise.
 func optionCodec(t reflect.Type, inner *typeCodec) *typeCodec {
 	manifest := "option[" + inner.manifest + "]"
+	encodeAt := func(v reflect.Value, home string) ([]byte, error) {
+		if v.IsNil() {
+			return []byte{}, nil
+		}
+		b, err := inner.encodeAt(v.Elem(), home)
+		if err != nil {
+			return nil, err
+		}
+		return append([]byte{1}, b...), nil
+	}
+	decodeAt := func(data []byte, target reflect.Value, home string) error {
+		if len(data) == 0 {
+			target.SetZero()
+			return nil
+		}
+		if data[0] != 1 {
+			return refuse("", "%s: expected a 0x01 marker, got %d", manifest, data[0])
+		}
+		v := reflect.New(t.Elem())
+		if err := inner.decodeAt(data[1:], v.Elem(), home); err != nil {
+			return err
+		}
+		target.Set(v)
+		return nil
+	}
 	return &typeCodec{
 		manifest: manifest, contentType: BinaryContent,
-		encode: func(v reflect.Value) ([]byte, error) {
-			if v.IsNil() {
-				return []byte{}, nil
-			}
-			b, err := inner.encode(v.Elem())
-			if err != nil {
-				return nil, err
-			}
-			return append([]byte{1}, b...), nil
-		},
-		decode: func(data []byte, target reflect.Value) error {
-			if len(data) == 0 {
-				target.SetZero()
-				return nil
-			}
-			if data[0] != 1 {
-				return refuse("", "%s: expected a 0x01 marker, got %d", manifest, data[0])
-			}
-			v := reflect.New(t.Elem())
-			if err := inner.decode(data[1:], v.Elem()); err != nil {
-				return err
-			}
-			target.Set(v)
-			return nil
-		},
+		encode: func(v reflect.Value) ([]byte, error) { return encodeAt(v, "") },
+		decode: func(data []byte, target reflect.Value) error { return decodeAt(data, target, "") },
+		sealAt: encodeAt,
+		openAt: decodeAt,
 	}
 }
 

@@ -280,3 +280,23 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
 - **The sweep fills on every start, and fills nothing twice.** `TopicSettingsSweep` lists projects from
   `ProjectRows`, a projection that may not yet hold a project made a moment ago, so a test retries it;
   the entity records nothing for a project with nothing unfilled.
+
+## Erasure requests
+
+Feature 042. An erasure request is the `ErasureRequest` entity's, from asked to applied; the
+control plane orders the keyring to destroy a key (`/v1/erasures`, the only keyring routes its identity
+may call) and reads each service's completion from it. Its routes are `/projects/{id}/erasures` and
+`/projects/{id}/erasures/{rid}` with `certificate`, `override` and `resend`.
+
+- **The route reference is generated from the code's path variables** (2026-11-04).
+  `ControlPlaneRoutesReferenceSuite` failed until the reference's headings used `{rid}`, as the route
+  does; writing `{requestId}` in the page reads better and fails the build.
+- **An ask is not settled when its answer returns.** A scenario that asks and then starts the next one
+  races the request's own application; the CLI and MCP steps wait for the request to settle
+  (`settled`) before the scenario ends, and the certificate's `request` field is the full
+  `<project>/<id>`, matched by its end.
+- **A test kit's own service answers every erasure notice** (2026-11-05). `AnkkaTestKit` runs a service
+  of its own (`ankka-test`), which acknowledges each notice at once; a finality check that waits on
+  "every service the keyring knows" is then satisfied by the kit alone. Name the services a request
+  waits on (`TestKeyringAdmin`'s connected list, a descriptor declaring `"personal": true`) and filter
+  the kit's own out of assertions on completions.

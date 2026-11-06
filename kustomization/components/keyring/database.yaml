@@ -1,0 +1,72 @@
+# The keyring's database: its keys, tombstones, applied log and notices, apart from every project's
+# database and from the control plane's. bootstrap.initdb makes CNPG generate its credential Secret,
+# keyring-db-app, which the keyring reads its connection from. No schema here: the keyring makes its
+# tables when it starts, as the role that then owns them, so this database needs neither
+# postInitApplicationSQLRefs nor a grants literal (see components/postgres/cluster.yaml for that trap).
+#
+# Archived as the control plane's own database is, into a bucket of its own,
+# `platform.backups-keyring`, under the line `keyring-db`. A restore of it can bring back a key that
+# was destroyed; the keyring reads both copies of the erasure log and destroys again before it
+# answers anything.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: keyring-db
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: keyring
+      owner: keyring
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: ankka-backups
+        serverName: keyring-db
+  postgresql:
+    parameters:
+      archive_timeout: "60s"
+---
+# The credential, `ankka-db-backups` in this namespace, is minted by the operator when it starts with
+# a backup target and erasure on, as it mints the control plane's; until it exists the archiver
+# cannot start.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: ankka-backups
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  retentionPolicy: "30d"
+  configuration:
+    destinationPath: s3://platform.backups-keyring/
+    endpointURL: http://garage.garage-system.svc.cluster.local:3900
+    s3Credentials:
+      accessKeyId: { name: ankka-db-backups, key: ACCESS_KEY_ID }
+      secretAccessKey: { name: ankka-db-backups, key: ACCESS_SECRET_KEY }
+      region: { name: ankka-db-backups, key: REGION }
+    wal: { compression: lz4, maxParallel: 2 }
+    data: { compression: lz4, jobs: 2 }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: keyring-db-base
+  namespace: ankka-keyring
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  # Six fields, seconds first: midnight, as the control plane's database.
+  schedule: "0 0 0 * * *"
+  immediate: true
+  backupOwnerReference: cluster
+  method: plugin
+  pluginConfiguration: { name: barman-cloud.cloudnative-pg.io }
+  cluster: { name: keyring-db }

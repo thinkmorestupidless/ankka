@@ -28,6 +28,43 @@ records (kinds 3–7) never reach a process as events. A module is told the even
 
 ## Traps
 
+- **A process SDK's gRPC client must wait for ready, not fail fast** (2026-11-04, feature 042).
+  The sidecar restarts under a running process (the conformance suite's `target.restart()`), and a
+  gRPC channel that lost its connection is in backoff: every call in that window fails at once with
+  `UNAVAILABLE ... 127.0.0.1:9011 Connection refused`, even once the new sidecar listens. A suite's
+  next cases take milliseconds, so every one after a restart failed (48 in Python and in Go, at
+  gRPC's default backoff, which grows to two minutes). Both clients now bound the backoff to a
+  second and make every call wait for the connection (`waitForReady` in Python's service config,
+  `grpc.WaitForReady(true)` in Go). A second channel for the notices stream changed nothing and was
+  taken out. TypeScript's Connect client and Rust never showed it.
+- **A process reads another project's refused key as erased** (2026-11-04, feature 042).
+  `GetSubjectKey` answers `Erased` for a read the keyring refused (`KeyAnswer.Refused`), so an SDK
+  needs no new case; a write under a refused key is `Forbidden`. A new `KeyAnswer` case is a
+  non-exhaustive match in `ClientLogic`, which `-Werror` turns into a sidecar that does not compile:
+  every SDK's conformance run then fails at once, which is how the first run after `Refused` read.
+- **A stream keyed by an instance name must be removed by the pair, never by the name**
+  (2026-11-05, feature 042). A process that reconnects opens its notices stream again under the same
+  instance before the old one has ended; `ProcessNotices` removed by name on the old one's end, so the
+  new stream was deregistered, heard no notice, and every erasure waited on an ack that could not
+  come. `streams.remove(instance, queue)`, and only the waits handed on that queue are settled.
+- **The sidecar cannot tell which entity a key is asked for, so a replicated entity's home is on the
+  wire** (2026-11-05, FR-032). `SubjectKeyRequest.home` from a process; for a module the host keeps it
+  on the call site. A key request without it is answered by the follower's own keyring, which holds
+  none of the home's keys and reads every field erased, silently. `ClientPersonalSuite`'s follower
+  case fails without the routing.
+- **A process SDK keys its key cache by home as well as project** (2026-11-05, FR-032). Python,
+  TypeScript and Go track the home from `Init.home`, each `Event.installation` and `Command.home`,
+  and run the snapshot, event and persisted-event codecs under it (Go's `atHome` codec, TypeScript's
+  `Keyring.within`, Python's `keyring.at_home`). A cache keyed by project alone opened the home's
+  envelope with the follower's own key of the same subject and read it corrupt; another home's key
+  is foreign (its TTL, never served through an outage), and is never asked for with `create`.
+
+- **The notice bound holds for a process only through its stream** (2026-11-05, feature 042). The
+  JVM's `KeyringClient.check()` dropping its cache drops nothing a process holds; `ProcessNotices`
+  ends every notices stream on the runtime's `ErasureHooks.dropAll`, which `ProcessNotices.attach`
+  wires. A new holder of keys outside the runtime's cache hooks `KeyringClient.onDropAll` too, or
+  the bound holds for the JVM alone.
+
 - **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
   runtime does not know is read as absent, so a period added to `ScheduleRequest` would have been a timer
   that fires once, silently. `ScheduleRecurring` is its own rpc (1.12), which an older runtime answers

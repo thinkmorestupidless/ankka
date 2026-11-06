@@ -12,12 +12,28 @@ import com.thinkmorestupidless.ankka.core.{
   ComponentKind,
   HandlerKind,
   ComponentId,
+  DataSubject,
   EntityId,
   ErrorCode,
+  KeyAnswer,
+  Keyring,
+  KeyringUnavailable,
   Metadata,
   MethodName,
+  PersonalJson,
+  PersonalScope,
   Serializer
 }
+import ankka.protocol.v1.wasm.{
+  KeyringOpenReply,
+  KeyringOpenRequest,
+  KeyringSealReply,
+  KeyringSealRequest
+}
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
+import com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+import com.thinkmorestupidless.ankka.runtime.replication.RoutedKeyring
+import scala.util.control.NonFatal
 import com.thinkmorestupidless.ankka.runtime.remote.{
   PayloadKeys,
   RemoteDescriptor,
@@ -665,7 +681,9 @@ final class ClientLogic(
       try work
       catch
         case e: CommandError => refused(error(e))
-        case e: Throwable    => refused(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL))
+        // A personal field's keyring could not be reached: UNAVAILABLE, never INTERNAL.
+        case e: KeyringUnavailable => refused(error(e.error))
+        case e: Throwable          => refused(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL))
     }(using AnkkaExecutors.virtual)
 
   def getSecret(request: GetSecretRequest): Future[GetSecretReply] =
@@ -686,6 +704,123 @@ final class ClientLogic(
     onStore { service.secrets.delete(request.name); DeleteSecretReply() }(e =>
       DeleteSecretReply(Some(e))
     )
+
+  // ── Personal data (protocol 1.23) ──────────────────────────────────────────
+  //
+  // The key, never a value: the process seals and opens its envelopes itself. Asked of the
+  // runtime's keyring client and its cache, as the service's own identity; a read of a subject no
+  // key was made for reads as erased, as it does in the runtime. A replicated entity's keys are its
+  // home's (FR-032): a request naming another installation as the home is asked through the keyring
+  // relay, as `RoutedKeyring` asks it for an entity in process.
+
+  /**
+   * An erasure request asked by the process (feature 042, 1.23), as this service: the control plane
+   * names it as who asked and needs the `erasure` grant of the project, its own included.
+   */
+  def askErasure(request: AskErasureRequest): Future[AskErasureReply] =
+    onStore {
+      val subject = DataSubject
+        .from(request.subject)
+        .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
+      val notBefore = request.notBefore.filter(_.nonEmpty).map(ClientLogic.notBefore)
+      val asked     = service.erasures.ask(
+        subject,
+        Option(request.project).filter(_.nonEmpty),
+        notBefore,
+        request.reason,
+        request.correlation
+      )
+      AskErasureReply(AskErasureReply.Reply.Ok(ErasureAsked(asked.id, asked.state)))
+    }(e => AskErasureReply(AskErasureReply.Reply.Error(e)))
+
+  /**
+   * The keyring a request is answered with: the service's own, or, for a replicated entity whose
+   * home is another installation, that home's through the relay (FR-032). Read only there: a
+   * follower never makes a key, and a relay that cannot be reached is `Unavailable`, never erased.
+   */
+  private def keyringFor(home: Option[String]): Keyring =
+    val own = ServiceKeyring.of(service.system)
+    (service.replication, home.filter(_.nonEmpty)) match
+      case (Some(r), Some(h)) if h != r.self =>
+        val routed = RoutedKeyring(own, r.self, r.relay)
+        routed.home = Some(h)
+        routed
+      case _ => own
+
+  def getSubjectKey(request: SubjectKeyRequest): Future[SubjectKeyReply] =
+    onStore {
+      val keyring = keyringFor(Some(request.home))
+      val subject = DataSubject
+        .from(request.subject)
+        .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
+      val project = if request.project.isEmpty then keyring.project else request.project
+      val answer  = keyring.key(project, subject, request.create) match
+        case KeyAnswer.Key(bytes) =>
+          SubjectKeyReply(
+            SubjectKeyReply.Reply.Key(ByteString.copyFrom(IArray.genericWrapArray(bytes).toArray))
+          )
+        case KeyAnswer.Destroyed => SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        // Another project's key, refused without a grant to read it with decryption: erased to a
+        // read, and a write under it is refused.
+        case KeyAnswer.Refused(_) if !request.create =>
+          SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        case KeyAnswer.Refused(why) =>
+          throw CommandError(
+            s"the keyring refused the key of '${request.subject}': $why; nothing was written",
+            ErrorCode.Forbidden
+          )
+        case KeyAnswer.Absent if !request.create =>
+          SubjectKeyReply(SubjectKeyReply.Reply.Erased(true))
+        case KeyAnswer.Absent =>
+          throw CommandError(
+            s"the keyring made no key for '${request.subject}' when asked to; nothing was written",
+            ErrorCode.Unavailable
+          )
+      answer.withProject(project)
+    }(e => SubjectKeyReply(SubjectKeyReply.Reply.Error(e)))
+
+  /**
+   * A module's personal field sealed (protocol 1.23): by the runtime's keyring and core's own
+   * codec, under the record's manifest, so a module writes the bytes a Scala field does. `home` is
+   * the replicated entity's home the call is for, as the host knows it (FR-032).
+   */
+  def keyringSeal(request: KeyringSealRequest, home: Option[String] = None): KeyringSealReply =
+    personal(e => KeyringSealReply(KeyringSealReply.Reply.Error(e))) {
+      val problem = PersonalJson.subjectProblem(request.subject)
+      if problem != null then throw CommandError(problem, ErrorCode.BadRequest)
+      val keyring = keyringFor(home)
+      val value   = if request.erased then null else request.value.toByteArray
+      val written =
+        if request.project.isEmpty || request.project == keyring.project then
+          Keyring.binding(keyring)(
+            PersonalScope.within(request.manifest)(PersonalJson.write(request.subject, value))
+          )
+        else
+          ClientLogic.keptUnder(keyring, request.project, request.subject, request.manifest, value)
+      KeyringSealReply(KeyringSealReply.Reply.Envelope(ByteString.copyFrom(written)))
+    }
+
+  /** A module's personal field read back (protocol 1.23): its JSON, or erased. */
+  def keyringOpen(request: KeyringOpenRequest, home: Option[String] = None): KeyringOpenReply =
+    personal(e => KeyringOpenReply(KeyringOpenReply.Reply.Error(e))) {
+      val read = Keyring.binding(keyringFor(home))(
+        PersonalScope.within(request.manifest)(PersonalJson.read(request.envelope.toByteArray))
+      )
+      if read.value == null then KeyringOpenReply(KeyringOpenReply.Reply.Erased(true))
+      else KeyringOpenReply(KeyringOpenReply.Reply.Value(ByteString.copyFrom(read.value)))
+    }
+
+  /** `work` with the service's keyring current; a refusal or a fault as the reply's `Error`. */
+  private def personal[A](refused: pb.Error => A)(work: => A): A =
+    try ServiceKeyring.binding(service.system)(work)
+    catch
+      case e: CommandError => refused(error(e))
+      // The keyring could not be reached: UNAVAILABLE with `personal` = `unavailable`, as the
+      // runtime answers a Scala service's caller, never INTERNAL.
+      case e: KeyringUnavailable  => refused(error(e.error))
+      case e: JsonReaderException =>
+        refused(pb.Error(s"not a personal field: ${e.getMessage}", pb.ErrorCode.BAD_REQUEST))
+      case NonFatal(e) => refused(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL))
 
   // ── Client keys (protocol 1.20) ─────────────────────────────────────────────
   //
@@ -835,6 +970,12 @@ final class ClientLogic(
         StorageReply(Reply.Url(bucket.signedUrl(r.name, access, span).toString))
       case StorageRequest.Op.URL =>
         StorageReply(Reply.Url(bucket.url(r.name).toString))
+      case StorageRequest.Op.ERASE =>
+        val subject = com.thinkmorestupidless.ankka.core.DataSubject
+          .from(r.name)
+          .fold(why => throw CommandError(why, ErrorCode.BadRequest), identity)
+        val erased = bucket.erase(subject)
+        StorageReply(Reply.Erased(ErasedObjects(erased.count, erased.finality.wire)))
       case StorageRequest.Op.Unrecognized(n) =>
         throw CommandError(
           s"storage operation $n is not one this runtime knows",
@@ -985,3 +1126,58 @@ object ClientLogic:
     case ComponentKind.EventSourcedEntity => "event sourced entity"
     case ComponentKind.KeyValueEntity     => "key value entity"
     case other                            => other.toString
+
+  /**
+   * An erasure request's not-before, as a process or a module sends it (protocol 1.23): exactly an
+   * ISO-8601 date, which is what every SDK sends, or a full instant at midnight UTC, which is how a
+   * date reads when the control plane's wire carries it as an instant. Anything else is refused, a
+   * date with trailing text or an instant with a time of day included, rather than read as a date
+   * it does not say (decided 2026-11-05).
+   */
+  private[sidecar] def notBefore(text: String): java.time.LocalDate =
+    import java.time.{Instant, LocalDate, LocalTime, ZoneOffset}
+    scala.util
+      .Try(LocalDate.parse(text))
+      .orElse(
+        scala.util
+          .Try(Instant.parse(text).atOffset(ZoneOffset.UTC))
+          .filter(_.toLocalTime == LocalTime.MIDNIGHT)
+          .map(_.toLocalDate)
+      )
+      .getOrElse(
+        throw CommandError(
+          s"not_before is an ISO-8601 date (2027-01-31), or an instant at midnight UTC " +
+            s"(2027-01-31T00:00:00Z), not '$text'",
+          ErrorCode.BadRequest
+        )
+      )
+
+  /**
+   * A field read from another project's envelope, written again (FR-027): sealed under that
+   * project's key, asked with `create` false so this service never makes one there, and written
+   * erased when the key is no longer given (erased there, or a revoked grant), as the Scala codec
+   * does for such a field, rather than stalling the write.
+   */
+  private[sidecar] def keptUnder(
+      keyring: Keyring,
+      producing: String,
+      subject: String,
+      manifest: String,
+      value: Array[Byte]
+  ): Array[Byte] =
+    val kept =
+      try
+        keyring.key(producing, DataSubject(subject), create = false) match
+          case key: KeyAnswer.Key => Some(key)
+          case _                  => None
+      catch case e: CommandError if e.code == ErrorCode.Unavailable => throw KeyringUnavailable(e)
+    val under = new Keyring:
+      def project: String                                                        = producing
+      def key(project: String, subject: DataSubject, create: Boolean): KeyAnswer =
+        kept.filter(_ => project == producing).getOrElse(KeyAnswer.Destroyed)
+      override def toString: String = s"the keyring of $producing, read only"
+    Keyring.binding(under)(
+      PersonalScope.within(manifest)(
+        PersonalJson.write(subject, if kept.isEmpty then null else value)
+      )
+    )

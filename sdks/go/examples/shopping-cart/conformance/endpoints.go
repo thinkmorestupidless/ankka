@@ -143,6 +143,28 @@ func storageRecord(outcome string) StorageRecord {
 	return StorageRecord{Outcome: outcome, Names: []string{}}
 }
 
+// PersonalRecord is what a /conformance/personal/{id} call did, the same in every language:
+// outcome ok (with the email read back), erased (the data subject's key is destroyed), absent
+// (nothing was recorded) or refused, with the protocol's code word and the message.
+type PersonalRecord struct {
+	Outcome string `json:"outcome"`
+	Email   string `json:"email"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// personalCall answers every refusal from f as a record rather than a status.
+func personalCall(f func() (PersonalRecord, error)) (PersonalRecord, error) {
+	out, err := f()
+	if err != nil {
+		if r, ok := ankka.AsRefusal(err); ok {
+			return PersonalRecord{Outcome: "refused", Code: r.Code.String(), Message: r.Message}, nil
+		}
+		return PersonalRecord{}, err
+	}
+	return out, nil
+}
+
 // socketLog is what the socket routes' handlers noticed: closed:<room> when a /socket/{room}
 // handler was told its socket closed, private:<subject> when the authenticated one ran.
 var socketLog struct {
@@ -421,6 +443,31 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 		})
 	}),
 	// docs:end storage
+	// docs:start personal-routes
+	// An entity whose event has a personal field: a post records {"subject", "email"}, a get reads
+	// the email back. Each answer is a record, a refusal included, as the storage routes' are.
+	ankka.Post("/personal/{id}", func(ctx context.Context, req *ankka.Request, ask RecordContact) (PersonalRecord, error) {
+		return personalCall(func() (PersonalRecord, error) {
+			_, err := ankka.Invoke[string](ctx, "personal-contact", req.Param("id"), "record", ask)
+			return PersonalRecord{Outcome: "ok"}, err
+		})
+	}),
+	ankka.Get("/personal/{id}", func(ctx context.Context, req *ankka.Request) (PersonalRecord, error) {
+		return personalCall(func() (PersonalRecord, error) {
+			contact, err := ankka.Invoke[Contact](ctx, "personal-contact", req.Param("id"), "email", ankka.Unit{})
+			switch {
+			case err != nil:
+				return PersonalRecord{}, err
+			case contact.Email == nil:
+				return PersonalRecord{Outcome: "absent"}, nil
+			}
+			if email, ok := contact.Email.Value(); ok {
+				return PersonalRecord{Outcome: "ok", Email: email}, nil
+			}
+			return PersonalRecord{Outcome: "erased"}, nil
+		})
+	}),
+	// docs:end personal-routes
 	ankka.Get("/echo", func(_ context.Context, req *ankka.Request) (Echo, error) {
 		out := Echo{A: append([]string{}, req.Query["a"]...), Headers: map[string]string{
 			"x-one": req.Header("x-one"), "x-two": req.Header("x-two"),

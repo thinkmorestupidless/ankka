@@ -131,8 +131,12 @@ final class WasmConversation(
 
   private final class Session(init: Init, kind: Kind, held: HeldState) extends InstanceSession:
 
+    // The home whose keyring keeps the keys of the held state's personal fields (FR-032): the
+    // snapshot's at first, then each folded event's writer, then the home a command names.
+    @volatile private var home: Option[String] = init.home
+
     private def purposeOf(handler: Option[String], metadata: Metadata): Purpose =
-      Purpose(init.componentId.toString, handler, metadata)
+      Purpose(init.componentId.toString, handler, metadata, home)
 
     private def onCommandPool[A](what: String)(
         f: (GuestInstance, Boolean) => Either[GuestFault, A]
@@ -161,6 +165,8 @@ final class WasmConversation(
             replayed.attribution.getOrElse(""),
             replayed.forwardedFrom.getOrElse("")
           )
+          // The event is its writer's, the home it was written at; so is the state it makes.
+          if replayed.installation.isDefined then home = replayed.installation
           ask(instance, fn("fold"), request, purposeOf(None, Metadata.empty))(
             FoldReply.parseFrom
           ) match
@@ -207,7 +213,8 @@ final class WasmConversation(
               cmd.installation.getOrElse(""),
               cmd.atHome,
               cmd.attribution.getOrElse(""),
-              cmd.forwardedFrom.getOrElse("")
+              cmd.forwardedFrom.getOrElse(""),
+              cmd.home.getOrElse("")
             )
           )
         case Kind.KEY_VALUE_ENTITY =>
@@ -220,6 +227,7 @@ final class WasmConversation(
           )
       val answered = onCommandPool(fn("handle")) { (instance, resident) =>
         foldReplayed(instance, resident).flatMap { holds =>
+          if cmd.home.isDefined then home = cmd.home
           val request = HandleRequest(
             kind,
             init.componentId,
@@ -416,6 +424,25 @@ final class WasmConversation(
     )(ankka.protocol.v1.mcp.McpToolReply.parseFrom).map {
       case Left(fault)  => Left(failure(0L, fault))
       case Right(reply) => Translate.fromMcpToolReply(reply)
+    }
+
+  /** The module's erasure handler (1.23), on a fresh instance, as a timed action is run. */
+  override def invokeErasure(call: RemoteErasureCall): Future[RemoteErasureReport] =
+    val stampedMeta = stamped(call.metadata)
+    fresh(
+      "erase",
+      ankka.protocol.v1.erasure.ErasureCall(
+        call.subject,
+        call.erasureSeq,
+        call.rerun,
+        Some(Translate.toMetadata(stampedMeta))
+      ),
+      settings.requestTimeout,
+      Purpose("erasure-handler", None, stampedMeta)
+    )(ankka.protocol.v1.erasure.ErasureReply.parseFrom).map {
+      case Left(fault)  => RemoteErasureReport(0, "failed", Some(fault.message))
+      case Right(reply) =>
+        RemoteErasureReport(reply.objectsErased, reply.finality, reply.error.map(_.message))
     }
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =

@@ -11,6 +11,8 @@ import { Client, InvokeReplySchema, QueryReplySchema, ScheduleRecurringReplySche
 import { EmptySchema, ErrorCode as ProtoErrorCode, PayloadSchema } from "../src/_proto/ankka/protocol/v1/payload_pb.ts"
 import { Kind } from "../src/_proto/ankka/protocol/v1/discovery_pb.ts"
 import { ComponentClient } from "../src/client.ts"
+import { subject } from "../src/personal.ts"
+import { taskType } from "../src/autonomous.ts"
 import { CommandError } from "../src/effects/common.ts"
 import { Done, s } from "../src/schema.ts"
 import { Duration } from "../src/time.ts"
@@ -120,6 +122,41 @@ describe("the component client", () => {
   test("metadata on a scoped client travels with every call", async () => {
     await client.withMetadata({ traceparent: "00-abc" }).forEventSourcedEntity("counter", "c1").call("get").invoke()
     assert.deepEqual(invokes.at(-1)!.metadata?.entries.map((e) => [e.key, e.value]), [["traceparent", "00-abc"]])
+  })
+
+  test("an agent session, a task and an instance carry their data subject, and nothing without one", async () => {
+    const subjectOf = (req: InvokeRequest) => req.metadata?.entries.filter((e) => e.key === "ankka-data-subject").map((e) => e.value)
+    const scoped = client.withMetadata({ traceparent: "00-abc" })
+    const session = scoped.forAgent("assistant", "s1", { subject: subject("player/8c1f") })
+    await session.call("done").invoke()
+    for await (const _ of session.call("stream", s.string).stream("hi")) void _
+    const [asked, streamed] = invokes.slice(-2)
+    assert.deepEqual(subjectOf(asked!), ["player/8c1f"])
+    assert.deepEqual(subjectOf(streamed!), ["player/8c1f"])
+    // The handler's own metadata goes on beside it.
+    assert.ok(asked!.metadata?.entries.some((e) => e.key === "traceparent" && e.value === "00-abc"))
+    await scoped.forAgent("assistant", "s2").call("done").invoke()
+    assert.deepEqual(subjectOf(invokes.at(-1)!), [])
+
+    // A task and an instance carry theirs in the body, which is what their hosts read.
+    const answer = taskType("answer", "An answer.")
+    const body = (req: InvokeRequest) => JSON.parse(text(req.payload?.data))
+    await client.tasks.create(answer, "How many?", { id: "t-1", subject: "player/8c1f" })
+    assert.equal(body(invokes.at(-1)!).subject, "player/8c1f")
+    await client.tasks.create(answer, "How many?", { id: "t-2" })
+    assert.equal("subject" in body(invokes.at(-1)!), false)
+    await client.forAutonomousAgent("operator", "i-1", { subject: "player/8c1f" }).assign("t-1")
+    assert.deepEqual(body(invokes.at(-1)!), { taskIds: ["t-1"], subject: "player/8c1f" })
+    await client.forAutonomousAgent("operator", "i-2").assign("t-2")
+    assert.deepEqual(body(invokes.at(-1)!), { taskIds: ["t-2"] })
+  })
+
+  test("an invalid data subject is refused before anything is sent", async () => {
+    const sent = invokes.length
+    assert.throws(() => client.forAgent("assistant", "s1", { subject: "player 8c1f" }), /is not a data subject/)
+    assert.throws(() => client.forAutonomousAgent("operator", "i-1", { subject: "" }), /is not a data subject/)
+    await assert.rejects(client.tasks.create(taskType("answer", "An answer."), "How many?", { subject: "a b" }), /is not a data subject/)
+    assert.equal(invokes.length, sent)
   })
 
   test("stream yields tokens in order and fails as a CommandError", async () => {

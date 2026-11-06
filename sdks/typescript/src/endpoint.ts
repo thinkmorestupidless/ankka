@@ -15,6 +15,7 @@ import { processStorage, type Buckets } from "./storage.ts"
 import { currentRequest, requestIfAny, type RequestContext } from "./context.ts"
 import type { Acl, RouteTable } from "./routes.ts"
 import { servicesFor, type Services } from "./services.ts"
+import { erasuresFor, type Erasures } from "./erasures.ts"
 
 export abstract class Endpoint {
   #client: ComponentClient | undefined
@@ -65,6 +66,18 @@ export abstract class Endpoint {
   /** A unit test's in place of the runtime's: `component.services = new ScriptedServices()`. */
   set services(services: Services) {
     this.#services = services
+  }
+
+  #erasures: Erasures | undefined
+
+  /** Asks for erasure requests as this service (1.23), which needs the project's `erasure` grant. */
+  get erasures(): Erasures {
+    return this.#erasures ?? erasuresFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.erasures = new Erasures(client)`. */
+  set erasures(erasures: Erasures) {
+    this.#erasures = erasures
   }
 
   #clientKeys: ClientKeys | undefined

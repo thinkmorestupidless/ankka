@@ -84,6 +84,11 @@ pub(crate) fn older_than_mcp(version: &str) -> bool {
     older_than(version, (1, 20))
 }
 
+/// Whether a runtime speaking `version` predates personal fields and the erasure handler (1.23).
+pub(crate) fn older_than_erasure(version: &str) -> bool {
+    older_than(version, (1, 23))
+}
+
 /// Whether a discovered component is a replicated entity or a consumer given mirrored changes.
 pub(crate) fn declares_replication(component: &proto::Component) -> bool {
     match &component.detail {

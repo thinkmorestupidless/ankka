@@ -21,7 +21,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::abi::imports::call_request;
-use crate::codec::{decode_payload, encode_payload};
+use crate::codec::{decode_edge_payload, encode_edge_payload};
 use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode};
 use crate::proto;
@@ -350,7 +350,7 @@ impl ServiceClient {
         path: &str,
         body: &B,
     ) -> Result<ServiceResponse, ServiceError> {
-        let payload = encode_payload(body).map_err(|e| refused(ErrorCode::BadRequest, e.0))?;
+        let payload = encode_edge_payload(body).map_err(|e| refused(ErrorCode::BadRequest, e.0))?;
         self.request(
             method,
             path,
@@ -384,7 +384,7 @@ impl ServiceClient {
             data: response.body,
             ..Default::default()
         };
-        decode_payload(&payload).map_err(|e| {
+        decode_edge_payload(&payload).map_err(|e| {
             refused(
                 ErrorCode::Internal,
                 format!("the answer of {} does not decode: {}", self.target, e.0),

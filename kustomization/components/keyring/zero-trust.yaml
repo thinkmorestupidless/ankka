@@ -1,0 +1,34 @@
+# Who may connect to the keyring. Its port is mutual TLS and the keyring decides who may have which
+# key from the certificate; this policy decides who may open a connection at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keyring
+  namespace: ankka-keyring
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-keyring }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 8443 }]
+      from:
+        # A service that declares personal fields: the operator labels its project's namespace.
+        - namespaceSelector:
+            matchLabels: { ankka.cloud/personal: "true" }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+        # The control plane, which destroys keys and reads an erasure's progress.
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-controlplane }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: ankka-controlplane }
+        # The gateway's proxy pods, for a machine's decryption. Envoy Gateway runs them in its own
+        # namespace, not the Gateway's.
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: envoy-gateway-system }
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-name: ankka
+              gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+    # Readiness: anyone. k3s enforces policy on the kubelet's probe too.
+    - ports: [{ protocol: TCP, port: 7627 }]

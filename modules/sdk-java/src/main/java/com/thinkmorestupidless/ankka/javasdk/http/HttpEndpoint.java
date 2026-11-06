@@ -83,6 +83,14 @@ public abstract class HttpEndpoint {
     return cell.storage();
   }
 
+  /**
+   * Erasure requests asked as this service: in its own project, or in another under that
+   * project's grant.
+   */
+  protected final com.thinkmorestupidless.ankka.javasdk.erasure.Erasures erasures() {
+    return cell.erasures();
+  }
+
   /** The service's timers; refused when it registers no timed action. */
   protected final Timers timers() {
     return cell.timers();

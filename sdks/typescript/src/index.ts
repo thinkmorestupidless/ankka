@@ -73,14 +73,15 @@ export {
   ClientKeys, InMemoryClientKeys, Expiry, CLIENT_KEYS_SINCE,
   type IssueClientKey, type IssuedClientKey, type ClientKeySummary,
 } from "./client-keys.ts"
+export { Erasures, ERASURES_SINCE, type AskErasure, type ErasureAsked } from "./erasures.ts"
 export { type Socket, SocketClosed } from "./socket.ts"
 export { Acl, Callers, type CallerMatcher, type CallersAcl, type AnyOfAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, sseEvents, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type EventContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
 export { ComponentClient, Calls, TypedCalls, Invocation, AwaitingInvocation, AWAIT_SINCE, awaitPartJson, Views, Timers, Secrets, InMemorySecrets, noSecrets, WatchEnded, VIEW_STREAMS_SINCE, type AwaitPart, type WatchEvent, type WatchOptions, type Overflow, type TimerTarget, type TimedActionTarget, type ComponentRef } from "./client.ts"
 export {
   ObjectRules, StorageRefusals, InMemoryBuckets, DirectoryBuckets, S3Buckets, S3Bucket, noStorage, chooseStorage, declaredBuckets, processStorage, s3Settings,
-  bucketNameOf, bucketVariableSuffix, localAddress, STORAGE_PATH,
-  type Buckets, type Bucket, type BucketExposure, type SignedAccess, type StoredObject, type ObjectInfo, type ObjectEntry, type PutOptions,
+  bucketNameOf, bucketVariableSuffix, localAddress, STORAGE_PATH, subjectPrefix, parseVersions,
+  type ErasedObjects, type VersionsPage, type Buckets, type Bucket, type BucketExposure, type SignedAccess, type StoredObject, type ObjectInfo, type ObjectEntry, type PutOptions,
   type InMemoryBucketsOptions, type DirectoryBucketsOptions, type DeclaredBuckets, type S3Settings, type S3Target, type NamedTarget,
   type StorageBackend, type ChosenStorage, type StorageChoiceOptions,
 } from "./storage.ts"
@@ -106,3 +107,9 @@ export {
   type Materialised, type MaterialisedKeyValue, type MaterialisedWorkflowCommand, type MaterialisedStep,
 } from "./materialise.ts"
 export type { ComponentKind } from "./kinds.ts"
+export {
+  personal, subject, subjectProblem, isPersonal, Present, Erased, PersonalError, DATA_SUBJECT_RULE,
+  type Personal, type DataSubject, type PersonalReason,
+} from "./personal.ts"
+export { Keyring, currentKeyring, keyringSettings, DEFAULT_KEYRING_SETTINGS, type KeyAnswer, type KeyFetch, type KeyReply, type KeyringOptions, type KeyringSettings } from "./keyring.ts"
+export { finalityToProto, type ErasureContext, type ErasureHandler, type ErasureReport, type Finality } from "./erasure.ts"

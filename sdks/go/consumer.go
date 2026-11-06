@@ -144,6 +144,7 @@ func (c *ConsumerComponent[Msg]) declare(d *declarations) {
 	if c.problem != "" {
 		d.problem(where, "%s", c.problem)
 	}
+	d.notePersonal(where, c.codec)
 	for _, p := range CodecProblems(c.codec) {
 		d.problem(where, "its message, a %s: %s", reflect.TypeFor[Msg](), p)
 	}

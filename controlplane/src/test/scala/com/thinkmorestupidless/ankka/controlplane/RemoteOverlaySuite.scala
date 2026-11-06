@@ -1588,3 +1588,242 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assertEquals(variablesNamed(remote, "ankka-operator", "ANKKA_MODELS_ADDRESS").size, 1)
     assertEquals(variablesNamed(remote, "ankka-controlplane", "ANKKA_MODELS_ADDRESS").size, 1)
   }
+
+  // ── The keyring (feature 042) ─────────────────────────────────────────────
+
+  /**
+   * A copy of the local overlay that lists the keyring, beside it so its relative paths resolve,
+   * with a distinct value in each key the keyring reads from `ankka-platform`: a render of the
+   * overlays as shipped would pass with each replacement missing.
+   */
+  private lazy val withKeyring: String =
+    val probe =
+      repoRoot.resolve(s"kustomization/overlays/.keyring-probe-${ProcessHandle.current.pid}")
+    val source = repoRoot.resolve("kustomization/overlays/local")
+    Files.createDirectories(probe)
+    try
+      Files.list(source).iterator.asScala.foreach(f => Files.copy(f, probe.resolve(f.getFileName)))
+      val kustomization = probe.resolve("kustomization.yaml")
+      val listed        = Files.readString(kustomization)
+      assert(listed.contains("  - ../../components/backups\n"), "the local overlay lists backups")
+      Files.writeString(
+        kustomization,
+        listed.replace(
+          "  - ../../components/backups\n",
+          "  - ../../components/backups\n  - ../../components/keyring\n"
+        )
+      )
+      val distinct = Map(
+        "erasure"          -> "on",
+        "keyringInstances" -> "3",
+        "cloudKmsKey"      -> "probe-wrapping-key",
+        "baseDomain"       -> "keyring-probe.test",
+        "httpsPort"        -> "9443"
+      )
+      val configMap = probe.resolve("platform-configmap.yaml")
+      val lines     = Files.readString(configMap).linesIterator.toVector
+      for key <- distinct.keys do
+        assert(lines.exists(_.startsWith(s"  $key:")), s"ankka-platform has no $key")
+      val rewritten = lines.map { line =>
+        distinct
+          .collectFirst { case (k, v) if line.startsWith(s"  $k:") => s"  $k: \"$v\"" }
+          .getOrElse(line)
+      }
+      Files.writeString(configMap, rewritten.mkString("\n") + "\n")
+      Process(Seq("kubectl", "kustomize", probe.toString)).!!
+    finally
+      Files.list(probe).iterator.asScala.foreach(Files.delete)
+      Files.delete(probe)
+
+  private def named(render: String, kind: String, name: String): String =
+    documentsOfKind(render, kind)
+      .find(_.linesIterator.exists(_.trim == s"name: $name"))
+      .getOrElse(fail(s"no $kind $name"))
+
+  test("both overlays ship erasure off, with no keyring") {
+    for (render, overlay) <- Vector(local -> "local", remote -> "cloud") do
+      for name <- Vector("ankka-operator", "ankka-controlplane") do
+        assertEquals(
+          variablesNamed(render, name, "ANKKA_ERASURE").map(_.getValue),
+          Vector("off"),
+          s"$overlay: $name"
+        )
+        assertEquals(
+          variablesNamed(render, name, "ANKKA_KEYRING_ADDRESS"),
+          Vector.empty,
+          s"$overlay: $name"
+        )
+      assertEquals(platformData(render)("erasure"), "off", overlay)
+      assert(
+        !documentsOfKind(render, "Namespace")
+          .exists(_.linesIterator.exists(_.trim == "name: ankka-keyring")),
+        s"$overlay: a keyring without the component"
+      )
+  }
+
+  test("an installation that lists the keyring tells both Deployments what ankka-platform says") {
+    for name <- Vector("ankka-operator", "ankka-controlplane") do
+      assertEquals(
+        variablesNamed(withKeyring, name, "ANKKA_ERASURE").map(_.getValue),
+        Vector("on"),
+        name
+      )
+      assertEquals(
+        variablesNamed(withKeyring, name, "ANKKA_KEYRING_ADDRESS").map(_.getValue),
+        Vector("https://keyring.ankka-keyring.svc:8443"),
+        name
+      )
+      // A patch naming a container the Deployment lacks adds one: the shape, not the string.
+      assertEquals(
+        deploymentNamed(withKeyring, name).getSpec.getTemplate.getSpec.getContainers.asScala
+          .map(_.getName)
+          .toVector,
+        Vector(name)
+      )
+    assertEquals(
+      variablesNamed(withKeyring, "ankka-controlplane", "ANKKA_KEYRING_INSTANCES").map(_.getValue),
+      Vector("3")
+    )
+    val keyring = deploymentNamed(withKeyring, "ankka-keyring")
+    assertEquals(keyring.getSpec.getReplicas.intValue, 3)
+    assertEquals(
+      variablesNamed(withKeyring, "ankka-keyring", "ANKKA_KEYRING_KMS_KEY").map(_.getValue),
+      Vector("probe-wrapping-key")
+    )
+    assertEquals(keyring.getSpec.getTemplate.getSpec.getServiceAccountName, "ankka-keyring")
+  }
+
+  test("the keyring is the platform's identity, from the service authority") {
+    val certificate = yamlOf(named(withKeyring, "Certificate", "ankka-keyring"))
+    assertEquals(at(certificate, "spec", "uris").toString, "[ankka://platform/keyring]")
+    assertEquals(at(certificate, "spec", "issuerRef", "name"), "ankka-service")
+    assertEquals(at(certificate, "spec", "issuerRef", "kind"), "ClusterIssuer")
+    named(withKeyring, "ClusterIssuer", "ankka-service"): Unit
+  }
+
+  test("the keyring's database archives into its own platform bucket") {
+    val store = documentsOfKind(withKeyring, "ObjectStore")
+      .map(yamlOf)
+      .find(d => at(d, "metadata", "namespace") == "ankka-keyring")
+      .getOrElse(fail("no ObjectStore for the keyring"))
+    assertEquals(
+      at(store, "spec", "configuration", "destinationPath"),
+      s"s3://${com.thinkmorestupidless.ankka.crd.Buckets.platformBackup("keyring")}/"
+    )
+    val cluster = yamlOf(named(withKeyring, "Cluster", "keyring-db"))
+    assertEquals(at(cluster, "metadata", "namespace"), "ankka-keyring")
+    assert(at(cluster, "spec", "bootstrap", "initdb") != null, "keyring-db is not initdb")
+  }
+
+  test("the keyring may list projects' ankka-project ConfigMaps and nothing else") {
+    val role = io.fabric8.kubernetes.client.utils.Serialization.unmarshal(
+      named(withKeyring, "ClusterRole", "ankka-keyring"),
+      classOf[io.fabric8.kubernetes.api.model.rbac.ClusterRole]
+    )
+    val rules = role.getRules.asScala.toVector
+    assertEquals(rules.size, 1)
+    assertEquals(rules.head.getResources.asScala.toVector, Vector("configmaps"))
+    assertEquals(rules.head.getResourceNames.asScala.toVector, Vector("ankka-project"))
+    assertEquals(rules.head.getVerbs.asScala.toVector, Vector("list"))
+  }
+
+  test("a machine reaches the keyring's decryption alone, at keyring.<base>, through the gateway") {
+    val route = yamlOf(named(withKeyring, "HTTPRoute", "ankka-keyring"))
+    assertEquals(at(route, "metadata", "namespace"), "ankka-keyring")
+    assertEquals(at(route, "spec", "hostnames").toString, "[keyring.keyring-probe.test]")
+    val parent = at(route, "spec", "parentRefs")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .get(0)
+    assertEquals(parent.get("name"), "ankka")
+    assertEquals(parent.get("namespace"), "ankka-gateway")
+    assertEquals(parent.get("sectionName"), "https")
+    val rules = at(route, "spec", "rules").asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+    assertEquals(rules.size, 1)
+    val matches =
+      rules.get(0).get("matches").asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+    assertEquals(matches.size, 1, "one path is routed")
+    val path = matches.get(0).get("path").asInstanceOf[java.util.Map[String, Any]]
+    assertEquals((path.get("type"), path.get("value")), ("Exact", "/v1/decrypt"))
+    assertEquals(matches.get(0).get("method"), "POST")
+    val backend = rules
+      .get(0)
+      .get("backendRefs")
+      .asInstanceOf[java.util.List[java.util.Map[String, Any]]]
+      .get(0)
+    assertEquals((backend.get("name"), backend.get("port")), ("keyring", 8443))
+    // The gateway verifies the keyring's own certificate, from the service authority.
+    val policy = yamlOf(named(withKeyring, "BackendTLSPolicy", "ankka-keyring"))
+    assertEquals(
+      at(policy, "spec", "validation", "hostname"),
+      "keyring.ankka-keyring.svc.cluster.local"
+    )
+    val certificate = yamlOf(named(withKeyring, "Certificate", "ankka-keyring"))
+    assert(
+      at(certificate, "spec", "dnsNames").toString
+        .contains("keyring.ankka-keyring.svc.cluster.local"),
+      "the keyring's certificate does not name the host the gateway checks"
+    )
+    // The issuer of a machine's token, derived by the keyring from the same two keys.
+    assertEquals(
+      variablesNamed(withKeyring, "ankka-keyring", "ANKKA_BASE_DOMAIN").map(_.getValue),
+      Vector("keyring-probe.test")
+    )
+    assertEquals(
+      variablesNamed(withKeyring, "ankka-keyring", "ANKKA_HTTPS_PORT").map(_.getValue),
+      Vector("9443")
+    )
+  }
+
+  test("the keyring and the control plane each find the erasure log's bucket by its name") {
+    // What the runtime makes of each Deployment's literal ANKKA_S3_ values, a key beside them.
+    for deployment <- Vector("ankka-keyring", "ankka-controlplane") do
+      val literal = Vector(
+        "ANKKA_S3_ENDPOINT",
+        "ANKKA_S3_REGION",
+        s"ANKKA_S3_BUCKET_${com.thinkmorestupidless.ankka.core.PlatformVariables
+            .bucketVariableSuffix(com.thinkmorestupidless.ankka.crd.Buckets.ErasureLog)}"
+      ).flatMap(name => variablesNamed(withKeyring, deployment, name).map(v => name -> v.getValue))
+        .toMap
+      val settings = com.thinkmorestupidless.ankka.runtime.storage.StorageSettings
+        .from(
+          com.typesafe.config.ConfigFactory.load(),
+          literal ++ Map("ANKKA_S3_ACCESS_KEY" -> "key", "ANKKA_S3_SECRET_KEY" -> "secret"),
+          false
+        )
+        .fold(p => fail(s"$deployment: $p"), identity)
+      assertEquals(
+        settings.named
+          .find(_.name == com.thinkmorestupidless.ankka.crd.Buckets.ErasureLog)
+          .map(_.target.bucket),
+        Some("platform.erasure-log"),
+        s"$deployment knows no bucket named platform.erasure-log: $literal"
+      )
+  }
+
+  test("the keyring's door admits personal namespaces, the control plane and the gateway") {
+    val policy = io.fabric8.kubernetes.client.utils.Serialization.unmarshal(
+      documentsOfKind(withKeyring, "NetworkPolicy")
+        .find(_.linesIterator.exists(_.trim == "namespace: ankka-keyring"))
+        .getOrElse(fail("no policy for the keyring")),
+      classOf[io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy]
+    )
+    val door = policy.getSpec.getIngress.asScala
+      .find(_.getPorts.asScala.exists(_.getPort.getIntVal == 8443))
+      .getOrElse(fail("nothing admitted to 8443"))
+    val namespaces =
+      door.getFrom.asScala.map(_.getNamespaceSelector.getMatchLabels.asScala.toMap).toSet
+    assertEquals(
+      namespaces,
+      Set(
+        Map("ankka.cloud/personal"        -> "true"),
+        Map("kubernetes.io/metadata.name" -> "ankka-controlplane"),
+        Map("kubernetes.io/metadata.name" -> "envoy-gateway-system")
+      )
+    )
+    assert(
+      policy.getSpec.getIngress.asScala.exists(r =>
+        r.getPorts.asScala.exists(_.getPort.getIntVal == 7627) && r.getFrom.isEmpty
+      ),
+      "the probe is not admitted from anyone"
+    )
+  }

@@ -1,0 +1,43 @@
+# The installation's keyring (feature 042): every data subject's key, kept apart from every project
+# database and every project's backup, so destroying one makes every copy of that data subject's
+# personal fields unreadable. Adding this component is what turns erasure on.
+#
+# A Deployment of the `ankka-keyring` image in a namespace of its own, its own CNPG database
+# (`keyring-db`, its tables made by code, archived into `platform.backups-keyring`), its certificate
+# `ankka://platform/keyring`, the policy that decides who may connect, the grant to read every
+# project's `ankka-project` ConfigMap (the grants a consumer's decryption is admitted by), and the
+# patches that tell the control plane and the operator that erasure is on and where the keyring is.
+# A machine outside the installation reaches its decryption, and only that, at
+# https://keyring.<base domain> through the Gateway; the overlay copies the base domain into that
+# route and into the keyring's own ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT, from which it derives
+# the machine tokens' issuer as the control plane does.
+#
+# The operator makes what holds a credential, as it does for the control plane's own database: the
+# keyring's secret key (`ankka-keyring-secret-key`, which keeps the root key on Postgres), the two
+# erasure log credentials (`ankka-erasure-log`, the control plane's to write, the keyring's to read)
+# and the keyring database's backup credential. Until each exists the pod that names it waits.
+#
+# Needs the object store (`garage`), the archiver (`cnpg-barman`) and the installation's backups
+# (`backups`), and patches the operator and the control plane: listed after all of them. An overlay
+# that lists it sets `erasure: "on"` in `ankka-platform` too: the overlay's replacements copy that
+# key onto both Deployments after every component, so it has the last word. The replicas come from
+# `keyringInstances` the same way, and the root key is the installation's wrapping key
+# (`cloudKmsKey`) when it names one.
+#
+# The namespace is `ankka-keyring`, which a project called `keyring` would render into, so that id
+# is reserved. It is labelled as a platform namespace, as the control plane's is, so the store and
+# the control plane admit the keyring and its database by the rules they already have.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - certificate.yaml
+  - database.yaml
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml
+  - zero-trust.yaml
+patches:
+  - path: operator-patch.yaml
+  - path: controlplane-patch.yaml

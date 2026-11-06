@@ -56,6 +56,13 @@ public interface ServiceBuilder {
   ServiceBuilder withModule(ServiceModule module);
 
   /**
+   * The service's erasure handler (feature 042): run on one instance for each application of an
+   * erasure in its project, and on each re-run. One per service; a second replaces the first.
+   */
+  ServiceBuilder withErasureHandler(
+      com.thinkmorestupidless.ankka.javasdk.erasure.ErasureHandler handler);
+
+  /**
    * Reads every registered class and starts the service, or throws {@link ServiceProblems} naming
    * every problem, before anything listens.
    */

@@ -34,8 +34,29 @@ final class MemoryObjectStorage(
 ) extends ObjectStorage:
   import MemoryObjectStorage.Stored
 
-  private val exposures = TrieMap.from(declared)
-  private val objects   = TrieMap.empty[(Option[String], String), Stored]
+  private val exposures  = TrieMap.from(declared)
+  private val objects    = TrieMap.empty[(Option[String], String), Stored]
+  private val noncurrent = TrieMap.empty[(Option[String], String), Vector[Stored]]
+
+  /**
+   * Whether the store keeps every version of an object (feature 042), as Google Cloud Storage does:
+   * a put over an object and a delete of one keep what was there as a noncurrent version, which
+   * only `erase` removes. Off, as Garage: a put replaces, a delete removes.
+   */
+  @volatile var keepsVersions: Boolean = false
+
+  /** The store's soft-delete window, which `erase` reports as its finality. */
+  @volatile var softDelete: Option[FiniteDuration] = None
+
+  /** How many versions of `objectName` the bucket holds, current and noncurrent. */
+  def versions(bucket: Option[String], objectName: String): Int =
+    objects.get((bucket, objectName)).size + noncurrent.get((bucket, objectName)).fold(0)(_.size)
+
+  private def keepNoncurrent(key: (Option[String], String)): Unit =
+    if keepsVersions then
+      objects
+        .get(key)
+        .foreach(old => noncurrent.update(key, noncurrent.getOrElse(key, Vector.empty) :+ old))
 
   def default: Bucket =
     if unnamed then MemoryBucket(None, unnamedExposure) else throw StorageRefusals.noBucket()
@@ -53,7 +74,9 @@ final class MemoryObjectStorage(
     exposures.update(name, exposure)
 
   /** Forgets every object; the declared buckets stay. */
-  def clear(): Unit = objects.clear()
+  def clear(): Unit =
+    objects.clear()
+    noncurrent.clear()
 
   private final case class MemoryBucket(name: Option[String], exposure: BucketExposure)
       extends Bucket:
@@ -72,6 +95,7 @@ final class MemoryObjectStorage(
           out.write(buffer, 0, n)
           read += n
       if read < length then throw StorageRefusals.shortBody(length, read)
+      keepNoncurrent((name, objectName))
       objects.update((name, objectName), Stored(contentType, clock(), out.toByteArray))
 
     def get(objectName: String): Option[StoredObject] =
@@ -89,7 +113,20 @@ final class MemoryObjectStorage(
 
     def delete(objectName: String): Unit =
       ObjectRules.checkName(objectName)
+      keepNoncurrent((name, objectName))
       objects.remove((name, objectName)): Unit
+
+    /** Every version under the subject prefix, current and noncurrent; the count is of objects. */
+    override def erase(subject: com.thinkmorestupidless.ankka.core.DataSubject): ErasedObjects =
+      val prefix = ObjectRules.subjectPrefix(subject)
+      val under  = (objects.keys ++ noncurrent.keys).collect {
+        case key @ (b, n) if b == name && n.startsWith(prefix) => key
+      }.toSet
+      under.foreach { key =>
+        objects.remove(key)
+        noncurrent.remove(key)
+      }
+      ErasedObjects(under.size.toLong, softDelete.fold(Finality.Immediate)(Finality.After(_)))
 
     def list(prefix: String): Iterator[ObjectEntry] =
       ObjectRules.checkPrefix(prefix)

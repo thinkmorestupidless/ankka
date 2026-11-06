@@ -387,6 +387,12 @@ object ProcessDouble:
               Some("done")
             )
         ),
+        // The input persisted as the event, byte for byte: what a process seals the sidecar is
+        // handed as it is, and need not be JSON (feature 042, personal.sidecar-reads-nothing).
+        "record-raw" -> Handler(
+          readOnly = false,
+          (_, input) => Effect.Persist(Vector(input), Some("done"))
+        ),
         "count"  -> Handler(readOnly = true, (state, _) => Effect.Reply(state.size.toString)),
         "refuse" -> Handler(
           readOnly = false,

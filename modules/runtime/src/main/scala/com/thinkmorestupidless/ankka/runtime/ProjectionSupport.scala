@@ -21,16 +21,37 @@ private[ankka] object ProjectionSupport:
    */
   // The type parameter is `A`, not `Row`: `io.r2dbc.spi.Row` is in scope here and
   // shadowing it makes the mapper's parameter type unresolvable.
+  /** The row's payload as stored, its bytes: nothing decoded, so nothing waits on a keyring. */
+  def loadPayload(
+      session: R2dbcSession,
+      table: String,
+      subject: String
+  ): Future[Option[Array[Byte]]] =
+    val fragment = ViewStore.selectByKey(table, subject)
+    session.selectOne[Array[Byte]](
+      Database.bind(session.createStatement(fragment.render), fragment)
+    )(row => row.get("payload", classOf[String]).getBytes("UTF-8"))
+
   def loadRow[A](
       session: R2dbcSession,
       table: String,
       subject: String,
-      serializer: Serializer[A]
+      serializer: Serializer[A],
+      system: org.apache.pekko.actor.typed.ActorSystem[?]
   ): Future[Option[A]] =
     val fragment = ViewStore.selectByKey(table, subject)
-    session.selectOne[A](
-      Database.bind(session.createStatement(fragment.render), fragment)
-    )(row => serializer.fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8")))
+    // Read in the mapper, decoded off the driver's event loop (`ServiceKeyring.decoding`).
+    session
+      .selectOne[String](
+        Database.bind(session.createStatement(fragment.render), fragment)
+      )(row => row.get("payload", classOf[String]))
+      .flatMap {
+        case None          => Future.successful(None)
+        case Some(payload) =>
+          keyring.ServiceKeyring.decoding(system)(
+            Some(serializer.fromBytes(payload.getBytes("UTF-8")))
+          )
+      }(using scala.concurrent.ExecutionContext.parasitic)
 
   /**
    * Runs a view's or a consumer's one handler as a span of its own, and as the origin of whatever
@@ -136,7 +157,8 @@ private[ankka] object ProjectionSupport:
       table: String,
       subject: String,
       effect: ViewEffect[A],
-      serializer: Serializer[A]
+      serializer: Serializer[A],
+      writer: Option[ViewRowWriter[A]] = None
   )(using ec: ExecutionContext): Future[Done] =
     def run(fragment: SqlFragment): Future[Done] =
       session
@@ -145,7 +167,11 @@ private[ankka] object ProjectionSupport:
 
     effect match
       case ViewEffect.UpdateRow(row) =>
-        run(ViewStore.upsert(table, subject, String(serializer.toBytes(row), "UTF-8")))
+        run(
+          writer.fold(ViewStore.upsert(table, subject, String(serializer.toBytes(row), "UTF-8")))(
+            _.upsert(subject, row)
+          )
+        )
       case ViewEffect.DeleteRow => run(ViewStore.delete(table, subject))
       case ViewEffect.Ignore    => Future.successful(Done)
 

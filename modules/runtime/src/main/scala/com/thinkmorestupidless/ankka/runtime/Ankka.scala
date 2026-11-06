@@ -102,7 +102,11 @@ final class ServiceBuilder private[ankka] (
     private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
     private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity,
     private val transportFactory: Option[replication.ReplicationTransportFactory] = None,
-    private val storageOverride: Option[ObjectStorage] = None
+    private val storageOverride: Option[ObjectStorage] = None,
+    private val keyringOverride: Option[
+      (ActorSystem[?], String) => com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+    ] = None,
+    private val erasureHandler: Option[com.thinkmorestupidless.ankka.sdk.ErasureHandler] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
@@ -113,7 +117,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
@@ -124,7 +130,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
@@ -136,7 +144,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -151,7 +161,9 @@ final class ServiceBuilder private[ankka] (
       Some(identity),
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -167,7 +179,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -183,7 +197,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices.andThen(wrap),
       transportFactory,
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -201,7 +217,9 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       Some(factory),
-      storageOverride
+      storageOverride,
+      keyringOverride,
+      erasureHandler
     )
 
   /**
@@ -217,7 +235,81 @@ final class ServiceBuilder private[ankka] (
       identityOverride,
       wrapServices,
       transportFactory,
-      Some(storage)
+      Some(storage),
+      keyringOverride,
+      erasureHandler
+    )
+
+  /**
+   * The keyring the service's personal fields are sealed with, in place of the one its settings
+   * would reach (feature 042). For the test kit, which hands every service it starts a keyring in
+   * memory, and for a developer's machine.
+   */
+  def withKeyring(
+      client: com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+  ): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      storageOverride,
+      Some((_, _) => client),
+      erasureHandler
+    )
+
+  /**
+   * The local keyring, in the service's own database (feature 042, R20), whatever the settings
+   * would choose. A locally run service with a database has it already; this is for a test kit that
+   * hands every service a keyring in memory and a suite that wants the local one instead.
+   */
+  def withLocalKeyring(): ServiceBuilder =
+    withKeyStore((system, project) =>
+      com.thinkmorestupidless.ankka.runtime.keyring
+        .LocalKeyring(project, Database()(using system))(using system.executionContext)
+    )
+
+  /**
+   * The keyring the service is handed, made once its actor system exists from that system and the
+   * service's project: what `withLocalKeyring` uses, and a suite that wraps one to count its calls.
+   */
+  def withKeyStore(
+      make: (
+          ActorSystem[?],
+          String
+      ) => com.thinkmorestupidless.ankka.runtime.keyring.KeyStoreClient
+  ): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      storageOverride,
+      Some(make),
+      erasureHandler
+    )
+
+  /**
+   * The service's erasure handler (feature 042): run on one instance for each application of an
+   * erasure in its project, and on each re-run. One per service; a second replaces the first.
+   */
+  def withErasureHandler(
+      handler: com.thinkmorestupidless.ankka.sdk.ErasureHandler
+  ): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices,
+      transportFactory,
+      storageOverride,
+      keyringOverride,
+      Some(handler)
     )
 
   /** Validates the definition without starting anything. */
@@ -347,6 +439,69 @@ final class ServiceBuilder private[ankka] (
     // source when this is a Left; the secret store says why it cannot know whose secrets it holds.
     val serviceIdentity =
       identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
+
+    // The keyring this service's personal fields are sealed with (feature 042), installed before any
+    // component can recover, and bound by each host around its serializer calls. A service that
+    // reaches no keyring is handed the one that refuses every personal field, naming it.
+    val keyringProject = serviceIdentity.toOption.flatMap(_.project).getOrElse("local")
+    // A service run on a developer's machine with a database keeps its keys there (R20); one in a
+    // cluster reaches the installation's keyring, or none.
+    val keyringService  = serviceIdentity.toOption.flatMap(_.service).getOrElse(system.name)
+    val keyringInstance = sys.env
+      .get("HOSTNAME")
+      .filter(_.nonEmpty)
+      .getOrElse(org.apache.pekko.cluster.typed.Cluster(system).selfMember.address.toString)
+    val keyringSettings =
+      com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings.from(system.settings.config)
+    val keyringStore = keyringOverride
+      .map(make => make(system, keyringProject))
+      // A service the platform pointed at the installation's keyring reaches it there.
+      .orElse(
+        keyringSettings.address.map(address =>
+          com.thinkmorestupidless.ankka.runtime.keyring.RemoteKeyStoreClient(
+            address,
+            com.thinkmorestupidless.ankka.runtime.keyring.RemoteKeyStoreClient
+              .tlsFrom(system.settings.config),
+            keyringProject,
+            keyringService,
+            keyringInstance,
+            keyringSettings.fetchTimeout
+          )
+        )
+      )
+      .orElse(
+        Option.when(
+          !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap") &&
+            !NoDatabase.declared(system.settings.config)
+        )(
+          com.thinkmorestupidless.ankka.runtime.keyring
+            .LocalKeyring(keyringProject, Database()(using system))(using system.executionContext)
+        )
+      )
+    com.thinkmorestupidless.ankka.runtime.keyring.ErasureHandlerHost
+      .requireKeyring(erasureHandler.isDefined, keyringStore.isDefined)
+    lazy val keyringCarriedFrom =
+      if NoDatabase.declared(system.settings.config) then 0L
+      else
+        com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay
+          .carriedThrough(() => Database()(using system), HistoryLines(system).current)
+    val keyringHandle: com.thinkmorestupidless.ankka.core.Keyring = keyringStore match
+      case Some(client) =>
+        val keyringClient =
+          com.thinkmorestupidless.ankka.runtime.keyring
+            .KeyringClient(client, keyringSettings, Some(keyringProject))
+        // The notices are heard from the start, before any component recovers: a key dropped by
+        // an erasure is never served from the cache after its notice. The hello says what this
+        // database's line records as carried out, so a start is not handed the whole history.
+        keyringClient.start(keyringCarriedFrom)
+        // A lapsed channel drops the keys a process holds too, through the hook its host sets.
+        keyringClient.onDropAll(() =>
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks.of(system).dropAll()
+        )
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle(keyringProject, keyringClient)
+      case None => com.thinkmorestupidless.ankka.core.Keyring.unavailable
+    com.thinkmorestupidless.ankka.core.Keyring.install(keyringHandle)
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.register(system, keyringHandle)
 
     // The installation's backend: the service's own database (no store at all for a service with
     // no database, feature 037) or Secret Manager. A wrong setting stops the start, naming it.
@@ -496,13 +651,23 @@ final class ServiceBuilder private[ankka] (
       Some(readRecorder),
       replicating,
       builtStorage.storage,
-      builtStorage.directory
+      builtStorage.directory,
+      keyringHandle,
+      com.thinkmorestupidless.ankka.runtime.keyring.ControlPlaneErasures
+        .from(system.settings.config, serviceIdentity.toOption.flatMap(_.project))
     )
     started.set(service)
+    system.whenTerminated.foreach { _ =>
+      com.thinkmorestupidless.ankka.core.Keyring.uninstall(keyringHandle)
+      com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.unregister(system, keyringHandle)
+      keyringHandle match
+        case h: com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle => h.client.close()
+        case _                                                              => ()
+    }(using scala.concurrent.ExecutionContext.parasitic)
 
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
-    service.awaitReady()
+    service.awaitReady(ClusterFormation.joinWithin(system.settings.config))
     service.registerShutdown()
     // Before any projection publishes (feature 041): the line this database is on is recorded, and
     // every line it has been on is read, so a message's id is made from a complete list.
@@ -512,6 +677,59 @@ final class ServiceBuilder private[ankka] (
       extension.start(service)
     }
     Observability(system).declare(DeclaredNames.of(registry, service.routes))
+
+    // Feature 042: once the views' tables exist, every erasure notice is carried out here, the
+    // views of this instance redacted and the keyring told. A service with no keyring hears none.
+    keyringHandle match
+      case handle: com.thinkmorestupidless.ankka.runtime.keyring.KeyringHandle =>
+        import com.thinkmorestupidless.ankka.runtime.keyring.{
+          ErasureDuties,
+          ErasureHooks,
+          ViewRedaction
+        }
+        val tables = registry.components.toVector.collect {
+          case v: ViewDescriptor[?, ?, ?] if v.personalFields.nonEmpty =>
+            ViewRedaction.Table(v.tableName, v.lookupFields.nonEmpty)
+          case v: KeyedViewDescriptor[?, ?] if v.personalFields.nonEmpty =>
+            ViewRedaction.Table(v.tableName, v.lookupFields.nonEmpty)
+        }
+        val duties = ErasureDuties(
+          keyringService,
+          keyringInstance,
+          handle.client,
+          () => Database()(using system),
+          tables,
+          ErasureHooks.of(system),
+          Option.unless(NoDatabase.declared(system.settings.config))(HistoryLines(system).current),
+          keyringCarriedFrom
+        )(using system.executionContext)
+        duties.start()
+        // A database line the erasure log has not been applied to (a restore's, or a new one):
+        // not ready until every erasure of the project is carried out here (R22).
+        if !NoDatabase.declared(system.settings.config) then
+          val replay = com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay(
+            () => Database()(using system),
+            HistoryLines(system).current,
+            keyringProject,
+            handle.client,
+            duties
+          )(using system.executionContext)
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureReplay.register(system, replay)
+          ExtensionsReadiness(system).registerExplained(replay.readiness)
+          replay
+            .start()
+            .failed
+            .foreach(e =>
+              system.log.warn(s"the erasure log was not applied; this instance stays not ready: $e")
+            )(using system.executionContext)
+        erasureHandler.foreach(handler =>
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureHandlerHost
+            .start(handler, service, ErasureHooks.of(system))(using system)
+        )
+        system.whenTerminated.foreach(_ => ErasureHooks.forget(system))(using
+          scala.concurrent.ExecutionContext.parasitic
+        )
+      case _ => ()
 
     // After the extensions, so the endpoint can report the address they bound. Local mode only:
     // in Kubernetes the pod is the registry and management is the exposure, and management is
@@ -545,11 +763,14 @@ final class ServiceBuilder private[ankka] (
     val typed = descriptor.asInstanceOf[EventSourcedEntityDescriptor[AnyEntity, Any, Any]]
     val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
-        EventSourcedEntityHost.behavior[AnyEntity, Any, Any](
-          typed,
-          EntityId(ctx.entityId),
-          componentClient,
-          replicating
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+          EventSourcedEntityHost.behavior[AnyEntity, Any, Any](
+            typed,
+            EntityId(ctx.entityId),
+            componentClient,
+            replicating,
+            Some(ctx.shard)
+          )
         )
       }
     )
@@ -566,13 +787,15 @@ final class ServiceBuilder private[ankka] (
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
     val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
-        WorkflowHost.behavior[AnyWorkflow, Any](
-          typed,
-          EntityId(ctx.entityId),
-          componentClient,
-          secrets,
-          services,
-          storage
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+          WorkflowHost.behavior[AnyWorkflow, Any](
+            typed,
+            EntityId(ctx.entityId),
+            componentClient,
+            secrets,
+            services,
+            storage
+          )
         )
       }
     )
@@ -586,10 +809,12 @@ final class ServiceBuilder private[ankka] (
     val typed = descriptor.asInstanceOf[KeyValueEntityDescriptor[AnyEntity, Any]]
     val _     = sharding.init(
       Entity(EntityKeys.forComponent(typed.componentId)) { ctx =>
-        KeyValueEntityHost.behavior[AnyEntity, Any](
-          typed,
-          EntityId(ctx.entityId),
-          componentClient
+        com.thinkmorestupidless.ankka.runtime.keyring.KeyringSupervision(
+          KeyValueEntityHost.behavior[AnyEntity, Any](
+            typed,
+            EntityId(ctx.entityId),
+            componentClient
+          )
         )
       }
     )
@@ -676,7 +901,19 @@ final class AnkkaService private[ankka] (
     /** The directory store, on a developer's machine: what the runtime serves its URLs from. */
     private[ankka] val directoryStorage: Option[
       com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
-    ] = None
+    ] = None,
+    /**
+     * The keyring this service's personal fields are sealed with (feature 042): what each host
+     * binds as `Keyring.current` around its serializer calls.
+     */
+    val keyring: com.thinkmorestupidless.ankka.core.Keyring =
+      com.thinkmorestupidless.ankka.core.Keyring.unavailable,
+    /**
+     * Erasure requests asked as this service (feature 042): given to endpoints, consumers and
+     * erasure handlers. Refuses every ask where no control plane is reachable.
+     */
+    val erasures: com.thinkmorestupidless.ankka.sdk.Erasures =
+      com.thinkmorestupidless.ankka.sdk.Erasures.unavailable
 ):
 
   /**

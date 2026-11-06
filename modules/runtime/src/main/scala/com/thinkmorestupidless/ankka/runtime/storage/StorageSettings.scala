@@ -57,7 +57,12 @@ final case class StorageSettings(
     maxSignedUrl: FiniteDuration,
     defaultSignedUrl: FiniteDuration,
     unnamed: Option[S3Target],
-    named: Vector[NamedTarget]
+    named: Vector[NamedTarget],
+    /**
+     * How long the store keeps a deleted object (feature 042), from `ANKKA_S3_SOFT_DELETE_DAYS`:
+     * what a bucket's `erase` reports as its finality. `None`: a deleted object is gone at once.
+     */
+    softDelete: Option[FiniteDuration] = None
 ):
   /** The unnamed bucket's exposure: signed when the service may sign URLs for it, else private. */
   def unnamedExposure: BucketExposure =
@@ -93,9 +98,10 @@ object StorageSettings:
     val c   = config.getConfig("ankka.storage")
     val env = environment ++ overlay(c)
     for
-      unnamed <- unnamedTarget(env)
-      named   <- namedTargets(env, unnamed)
-      backend <- chooseBackend(c.getString("backend").trim, unnamed, named, runningLocally)
+      unnamed    <- unnamedTarget(env)
+      named      <- namedTargets(env, unnamed)
+      backend    <- chooseBackend(c.getString("backend").trim, unnamed, named, runningLocally)
+      softDelete <- softDeleteOf(env)
     yield StorageSettings(
       backend = backend,
       directory = Paths.get(c.getString("directory")).toAbsolutePath.normalize,
@@ -103,8 +109,19 @@ object StorageSettings:
       maxSignedUrl = c.getDuration("max-signed-url").toScala,
       defaultSignedUrl = c.getDuration("default-signed-url").toScala,
       unnamed = unnamed.filter(_.bucket.nonEmpty),
-      named = named
+      named = named,
+      softDelete = softDelete
     )
+
+  /** `ANKKA_S3_SOFT_DELETE_DAYS`: a whole number of days from 1, or unset. */
+  private def softDeleteOf(env: Map[String, String]): Either[String, Option[FiniteDuration]] =
+    val variable = s"${Prefix}SOFT_DELETE_DAYS"
+    env.get(variable).map(_.trim).filter(_.nonEmpty) match
+      case None       => Right(None)
+      case Some(text) =>
+        text.toIntOption.filter(_ >= 1) match
+          case Some(days) => Right(Some(days.days))
+          case None       => Left(s"$variable is '$text'; it is a whole number of days from 1")
 
   private def chooseBackend(
       word: String,

@@ -47,7 +47,10 @@ final class ServiceEndpoint(
     /** Feature 043: the warning threshold a view's topic is held to. */
     topicPolicy: com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy =
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.default,
-    proofs: ProofLookup = ProofLookup.jndi(None)
+    proofs: ProofLookup = ProofLookup.jndi(None),
+    /** Feature 042: whether the installation erases personal data. */
+    erasure: => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -163,7 +166,8 @@ final class ServiceEndpoint(
       // What the installation's store cannot give needs the project and the installation, which
       // the descriptor's own rules cannot see; the projection says the same words.
       val problems = descriptor.problems ++
-        ServiceProjection.objectStorageProblems(projectId, name, descriptor.service, deploy)
+        ServiceProjection.objectStorageProblems(projectId, name, descriptor.service, deploy) ++
+        ServiceEndpoint.erasureProblems(descriptor.service, erasure)
       if problems.nonEmpty then
         throw CommandError(
           problems.mkString("invalid descriptor: ", "; ", ""),
@@ -646,6 +650,19 @@ final class ServiceEndpoint(
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))
 
 object ServiceEndpoint:
+
+  /**
+   * A service that holds personal fields needs the installation's keyring (feature 042): refused,
+   * naming the setting, while erasure is off, rather than deployed to fail its first write.
+   */
+  def erasureProblems(
+      service: ServiceSpec,
+      erasure: com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings
+  ): Vector[String] =
+    Vector(
+      "the service declares personal fields, and this installation's erasure is off " +
+        "(ANKKA_ERASURE): it runs no keyring to hold their keys"
+    ).filter(_ => service.personal && !erasure.enabled)
 
   /** The entries a supplied bucket's project secret must have (feature 055). */
   val SuppliedEntries: Vector[String] = Vector("access-key", "secret-key")

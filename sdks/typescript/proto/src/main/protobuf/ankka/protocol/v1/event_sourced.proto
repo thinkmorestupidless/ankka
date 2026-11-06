@@ -15,6 +15,9 @@ message EventSourcedIn {
     string entity_id = 2;
     optional Snapshot snapshot = 3;             // absent: fresh, or deleted, or expired
     string installation = 4;                    // 1.19: this installation; empty when none is named
+    // 1.23: the home the snapshot was written under, whose keyring keeps the keys of its personal
+    // fields (SubjectKeyRequest.home); empty for an entity not replicated or no snapshot.
+    string home = 5;
   }
   message Snapshot { int64 sequence = 1; Payload payload = 2; }
   message Event    {
@@ -40,6 +43,9 @@ message EventSourcedIn {
     string attribution = 8;
     // 1.22: the installation this command was forwarded from to its home; empty when it was not.
     string forwarded_from = 9;
+    // 1.23: the entity's home as this copy reads it, whose keyring keeps the keys of the state's
+    // personal fields (SubjectKeyRequest.home); empty for an entity not replicated.
+    string home = 10;
   }
 }
 

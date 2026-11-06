@@ -32,9 +32,12 @@ import scala.concurrent.{ExecutionContext, Future}
  * so a change waiting its turn is not failed by the waiting; the handler then has the ask timeout
  * to answer, or its change fails and is handled again, and the lock is released.
  */
-private[ankka] final class KeyedViewCore(val componentId: ComponentId, askTimeout: FiniteDuration)(
-    using system: ActorSystem[?]
-):
+private[ankka] final class KeyedViewCore(
+    val componentId: ComponentId,
+    askTimeout: FiniteDuration,
+    /** Whether the view's rows carry lookup tokens beside them (feature 042). */
+    withLookup: Boolean = false
+)(using system: ActorSystem[?]):
 
   private given ExecutionContext = system.executionContext
 
@@ -58,9 +61,9 @@ private[ankka] final class KeyedViewCore(val componentId: ComponentId, askTimeou
    * The writes one effect makes, reduced through `RowChanges`, each row already encoded. Fails when
    * a key is empty or the rows weigh more than one change may carry.
    */
-  def writes(changes: Vector[(String, Option[String])]): Either[String, Vector[SqlFragment]] =
+  def writes(changes: Vector[(String, Option[KeyedRow])]): Either[String, Vector[SqlFragment]] =
     val size =
-      changes.iterator.map((key, row) => key.length.toLong + row.fold(0L)(_.length.toLong)).sum
+      changes.iterator.map((key, row) => key.length.toLong + row.fold(0L)(_.json.length.toLong)).sum
     if changes.exists(_._1.isEmpty) then
       Left(
         s"view '$view' named an empty row key; a row is kept under a key of one character or more"
@@ -72,8 +75,10 @@ private[ankka] final class KeyedViewCore(val componentId: ComponentId, askTimeou
       )
     else
       Right(changes.map {
-        case (key, Some(row)) => ViewStore.upsert(table, key, row)
-        case (key, None)      => ViewStore.delete(table, key)
+        case (key, Some(row)) =>
+          if withLookup then ViewStore.upsertWithLookup(table, key, row.json, row.lookup)
+          else ViewStore.upsert(table, key, row.json)
+        case (key, None) => ViewStore.delete(table, key)
       })
 
   /** `work` on a virtual thread, failed when it outlives the ask timeout. */
@@ -100,8 +105,11 @@ private[ankka] final case class SimpleKeyedChange[Row](
  */
 private[ankka] type KeyedHandle =
   (String, Long, Option[Payload], Option[WorkflowLifecycle]) => Future[
-    Vector[(String, Option[String])]
+    Vector[(String, Option[KeyedRow])]
   ]
+
+/** A keyed view's row as it is written: its JSON, and its lookup tokens (feature 042), if any. */
+private[ankka] final case class KeyedRow(json: String, lookup: Option[String] = None)
 
 /** A keyed view's own rows, read through the view client on a connection of its own. */
 private[ankka] final class KeyedViewRows[Row](queries: ViewQueries[Row]) extends ViewRows[Row]:
@@ -118,7 +126,8 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
 
   private given ExecutionContext = system.executionContext
 
-  val core: KeyedViewCore = KeyedViewCore(descriptor.componentId, askTimeout)
+  val core: KeyedViewCore =
+    KeyedViewCore(descriptor.componentId, askTimeout, descriptor.lookupFields.nonEmpty)
 
   private val view          = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val observability = Observability(system)
@@ -129,7 +138,12 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
       descriptor.rowSerializer,
       Database(),
       askTimeout,
-      QueryCheck.checkedAll(descriptor.componentId, descriptor.tableName, descriptor.queries)
+      QueryCheck.checkedAll(
+        descriptor.componentId,
+        descriptor.tableName,
+        descriptor.queries,
+        ViewFields(descriptor.personalFields, descriptor.lookupFields)
+      )
     )
   )
 
@@ -143,7 +157,7 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
       sequenceNumber: Long,
       payload: Option[Payload],
       standing: Option[WorkflowLifecycle]
-  ): Future[Vector[(String, Option[String])]] =
+  ): Future[Vector[(String, Option[KeyedRow])]] =
     val change = SimpleKeyedChange(subject, sequenceNumber, rows, standing)
     core
       .bounded {
@@ -159,10 +173,24 @@ private[ankka] final class KeyedViewHost[V <: KeyedView[Row], Row](
       }
       .map(effect => encode(effect))
 
-  private def encode(effect: KeyedViewEffect[Row]): Vector[(String, Option[String])] =
+  private val fields = ViewFields(descriptor.personalFields, descriptor.lookupFields)
+
+  private def encode(effect: KeyedViewEffect[Row]): Vector[(String, Option[KeyedRow])] =
+    val keyring = com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring.of(system)
     RowChanges
       .reduce(effect.changes)
-      .map((key, row) => key -> row.map(r => String(descriptor.rowSerializer.toBytes(r), "UTF-8")))
+      .map((key, row) =>
+        key -> row.map { r =>
+          val (bytes, seen) = com.thinkmorestupidless.ankka.core.Keyring.binding(keyring)(
+            com.thinkmorestupidless.ankka.core.PersonalScope
+              .collecting(descriptor.rowSerializer.toBytes(r))
+          )
+          val json = String(bytes, "UTF-8")
+          LookupTokens
+            .forRow(descriptor.componentId, json, seen, fields, keyring.lookupKey(keyring.project))
+            .fold(problem => throw IllegalStateException(problem), lookup => KeyedRow(json, lookup))
+        }
+      )
 
 /**
  * Applies one change of an event sourced source to a keyed view, exactly once: the lock, the rows

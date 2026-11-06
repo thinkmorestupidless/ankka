@@ -56,8 +56,10 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_DATABASE` | `ankka.database` | `""` | every service |
 | `ANKKA_DB_LINE` | `ankka.history-line` | `""` | every service |
 | `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
+| `ANKKA_KEYRING_ADDRESS` | `ankka.keyring.address` | `""` | every service |
 | `ANKKA_STORAGE_BACKEND` | `ankka.storage.backend` | `""` | every service |
 | `ANKKA_STORAGE_DIR` | `ankka.storage.directory` | `".ankka/storage"` | every service |
+| `ANKKA_OBSERVABILITY_ADDRESS` | `ankka.observability.local-address` | `""` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
 | `ANKKA_DB_NAME` | `pekko.persistence.r2dbc.connection-factory.database` | `"ankka"` | every service |
@@ -110,6 +112,12 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.secrets.secret-manager.endpoint` | `"https://secretmanager.googleapis.com"` | every service |
 | `ankka.secrets.secret-manager.token` | `""` | every service |
 | `ankka.secrets.secret-manager.identity` | `""` | every service |
+| `ankka.keyring.cache.max-keys` | `10000` | every service |
+| `ankka.keyring.cache.ttl` | `5m` | every service |
+| `ankka.keyring.cache.outage-bound` | `60s` | every service |
+| `ankka.keyring.cache.foreign-ttl` | `30s` | every service |
+| `ankka.keyring.notice-bound` | `60s` | every service |
+| `ankka.keyring.fetch-timeout` | `2s` | every service |
 | `ankka.storage.descriptor-directory` | `""` | every service |
 | `ankka.storage.timeout` | `30s` | every service |
 | `ankka.storage.max-signed-url` | `7d` | every service |
@@ -157,6 +165,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
 | `ankka.cluster.formation` | `bootstrap` | kubernetes mode |
 | `ankka.join-self-if-no-seed-nodes` | `off` | kubernetes mode |
+| `ankka.cluster.join-within` | `120s` | kubernetes mode |
 | `ankka.tls.cluster-directory` | `"/var/run/secrets/ankka/cluster"` | kubernetes mode |
 | `ankka.tls.service-directory` | `"/var/run/secrets/ankka/service"` | kubernetes mode |
 | `ankka.http.tls.enabled` | `on` | kubernetes mode |
@@ -312,6 +321,29 @@ See [Secrets on the platform](../platform/secrets.md#choosing-a-backend).
 The buckets themselves come from the `ANKKA_S3_*` variables the platform gives a service, described in
 [Object storage on the platform](../platform/object-storage.md). See
 [Objects a service keeps](../build/object-storage.md).
+
+### Keyring client
+
+How a service holds the keys of the data subjects whose [personal fields](../build/personal-data.md) it
+reads and writes.
+
+- `ANKKA_KEYRING_ADDRESS` (`ankka.keyring.address`) is where the installation's keyring answers. Only the
+  platform sets it, and a descriptor that gives it is refused. Unset, a service run on a developer's
+  machine with a database keeps its keys in a local keyring in its own database, and a service in a
+  cluster reaches no keyring: every read and write of a personal field is refused as unavailable.
+- `ankka.keyring.cache.max-keys` is how many subject keys one instance holds at once, `10000`; the least
+  recently used goes first.
+- `ankka.keyring.cache.ttl` is how long a key is held before it is asked for again, `5m`.
+- `ankka.keyring.cache.outage-bound` is how long a held key still serves while the keyring cannot be
+  reached, counted from when the keyring was last heard, `60s`; past it, a read or write that needs a key
+  the instance must ask for fails as `Unavailable`. It may not exceed `ankka.keyring.notice-bound`; a
+  service whose settings say otherwise does not start.
+- `ankka.keyring.notice-bound` is how long the instance's channel to the keyring may go unconfirmed before
+  the instance drops every key it holds, `60s`: the bound on how long an erased data subject can still be
+  read by a new fetch.
+- `ankka.keyring.fetch-timeout` is how long one key fetch waits before it fails as `Unavailable`, `2s`.
+
+See [Erasure on the platform](../platform/erasure.md#the-keyring-client).
 
 ### Replication
 
@@ -587,6 +619,10 @@ loopback. The platform sets these variables on the two containers, and a descrip
 - `ANKKA_SIDECAR_BIND` is the address the sidecar's client API binds, `127.0.0.1` by default. It differs
   only when the sidecar runs in a container and the process on the host, as in local development with
   Docker Compose.
+- `ANKKA_OBSERVABILITY_ADDRESS` (`ankka.observability.local-address`) is the `host:port` a service run
+  outside Kubernetes binds its local observability endpoint to, loopback on an ephemeral port by default.
+  The Python, TypeScript and Go integration kits set it on their sidecar container so the test can reach
+  the endpoint's keyring routes through a published port. A descriptor may not set it.
 - `ANKKA_SIDECAR_DISCOVERY_TIMEOUT` is how long the sidecar waits for the process to answer the discovery
   handshake before giving up, `60s` by default. It accepts `ms`, `s` and `m` suffixes; a bare number is
   seconds.

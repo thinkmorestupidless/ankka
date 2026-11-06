@@ -1,0 +1,36 @@
+{
+  "about": "A personal field where no serializer is encoding (an endpoint's reply or a caller's body).",
+  "cases": [
+    {
+      "name": "present",
+      "subject": "player/8c1f",
+      "value": "ada@example.com",
+      "edge": {
+        "subject": "player/8c1f",
+        "value": "ada@example.com"
+      }
+    },
+    {
+      "name": "present record",
+      "subject": "cardholder/77a0",
+      "value": {
+        "line1": "1 High St",
+        "city": "Leeds"
+      },
+      "edge": {
+        "subject": "cardholder/77a0",
+        "value": {
+          "line1": "1 High St",
+          "city": "Leeds"
+        }
+      }
+    },
+    {
+      "name": "erased",
+      "subject": "player/8c1f",
+      "edge": {
+        "subject": "player/8c1f"
+      }
+    }
+  ]
+}

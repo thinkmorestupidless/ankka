@@ -60,6 +60,27 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
 
 ## Traps
 
+- **Compiling a module is the sidecar's peak of heap, and the JVM's default was a quarter of the
+  pod** (2026-11-05, feature 042). Chicory compiled the Rust conformance reference in about 100 MiB
+  alone, against a 128 MiB heap at the default 512Mi; 042's cases added 8 MiB and the wasm pod ran
+  out of heap during start, never ready, in every `SidecarClusterSuite` wasm case. The image states
+  30% of the container (`Universal / javaOptions` in `build.sbt`) and exits on an exhausted heap.
+  35% passed every start and failed the rolling restart in 3 runs of 3 (the last old pod's shutdown
+  stalled ten seconds in `cluster-exiting`, and requests waiting on its shards with it), where main
+  at a quarter passed; 30% passed. Room beside the heap matters under load, not only at start.
+  Half was tried first and is too much: after the compile the JVM commits about 130 MiB beside
+  the heap (metaspace, code, symbols, arenas, by `-XX:NativeMemoryTracking`) before threads and
+  direct buffers, and the pods sat at their limit, stalled, never joined within `awaitReady`'s 20
+  seconds, and crash-looped. Measure a module with `ModuleLoader.load` under `-Xmx`, and the whole
+  JVM with `-XX:+PrintNMTStatistics` under `docker run --memory 512m`, before blaming the cluster.
+- **The conformance reference declares an erasure handler, and a cluster with erasure off refuses
+  it at start** (2026-11-05, feature 042). Every reference declares one because the conformance
+  suite compares them; a runtime in a cluster reaches a keyring only through
+  `ANKKA_KEYRING_ADDRESS`, which the operator gives only where erasure is on, and refuses a
+  handler no keyring reaches. With the heap fixed, every `SidecarClusterSuite` wasm pod
+  crash-looped on that refusal, and the crash-looping pods held the node's CPU, so later cases'
+  pods were never scheduled. The suite's descriptor sets `ANKKA_CONFORMANCE_ERASURE=off`, and the
+  Rust reference then leaves the handler out.
 - **`await_end` has a link block of its own** (`call_await`), so a module that never waits does not import
   it; `WasmHostSuite` checks the plain example does not and the conformance reference does.
 - **A Rust import referenced from a shared `match` is imported by every module.** `abi::imports::call`

@@ -783,13 +783,14 @@ fun main() {
 func Service() *ankka.Service {
 	s := ankka.NewService(
 		cart.Entity, cart.Rows, cart.API,
-		Entity, Profile, CheckoutFlow, ReplicatedVehicle, TreeNode, JoinedLeft, JoinedRight,
+		Entity, PersonalContact, Profile, CheckoutFlow, ReplicatedVehicle, TreeNode, JoinedLeft, JoinedRight,
 		CheckoutRows, TopicRows, TreeRows, JoinedRows,
 		CheckoutEnds, CheckoutRecorder, CheckoutFanout, TopicRelay, ContractRelay, PartnerRelay, VehicleFeed,
 		CartGraph, ProfileGraph,
 		Reminder, Assistant, Approver, Answerer,
 		Tree, Vehicles, Joined, API, Private, Callers, AutonomousAPI, McpKeys, CartMcp,
 	)
+	s.ErasureHandler(eraseNothing)
 	reference.Store(s)
 	return s
 }
@@ -1504,6 +1505,26 @@ therefore holds the rows the home's view holds, built from the changes in the ho
 it by what the follower's copy is behind. A view handler reads where a change was written as a consumer
 does, and is given local and mirrored changes alike.
 
+## Personal fields in a row
+
+A row may hold [personal fields](personal-data.md), and the view's table holds each as an envelope,
+encrypted under its data subject's key. A read of a row, and a declared query that returns rows, give
+back the value. In Scala the view finds where its row's personal fields are from the row's type, with
+nothing declared.
+
+A declared query that compares a personal field would compare ciphertext, so it is refused when the
+service starts, naming the view, the query and the field. A field the companion marks for lookup may be
+compared by equality with a value the caller gives, which the runtime answers from a token of the value:
+
+```scala
+lookup(_.email)
+val byEmail = query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
+```
+
+The token leaks which rows share a value; mark only the fields a query must find by. When a data subject
+is erased, every row holding its fields has them reduced to the data subject alone and loses its lookup
+tokens, and its other columns are kept. See [Views](personal-data.md#views) on the personal data page.
+
 ## Limits
 
 - A view writes one table, its own, and a query reads that table alone: there is no query across two
@@ -1519,6 +1540,8 @@ does, and is given local and mirrored changes alike.
 - A watch is live, not a record: it may give a watcher fewer versions of a row than were written, and
   gives nothing written while it was not open. A watched query is decided for each written row alone.
 - A WebAssembly module reads a view whole: it cannot stream a query or watch one.
+- A declared query compares a personal field only by equality with a given value, on a field marked for
+  lookup, and lookup fields are declared in Scala only.
 
 See [Limitations](../reference/limitations.md) for the full list.
 

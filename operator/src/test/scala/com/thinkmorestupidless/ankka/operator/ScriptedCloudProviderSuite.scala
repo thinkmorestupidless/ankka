@@ -86,8 +86,21 @@ class ScriptedCloudProviderSuite extends munit.FunSuite:
     ),
     bucket,
     credential(1),
-    spec(CloudKinds.WrappingKey, "identity" -> "i", "key" -> "keys/ankka")
+    // To the identity the first request made, as Cloud KMS grants a key to an identity it holds.
+    spec(CloudKinds.WrappingKey, "identity" -> "reports@acct.scripted", "key" -> "keys/ankka")
   )
+
+  test("a wrapping key is refused to an identity the provider never made for the subject") {
+    val fx      = Fixture()
+    val refused = fx.fulfil("reports-wrapping-key", everyKind(5))
+    assertEquals(refused.phase, "Failed")
+    assert(refused.detail.exists(_.contains("reports@acct.scripted")), refused.toString)
+    fx.fulfil("reports-identity", everyKind(0)): Unit
+    assertEquals(fx.fulfil("reports-wrapping-key", everyKind(5)).phase, "Ready")
+    // Another subject's identity is not this one's.
+    val other = everyKind(5).copy(subject = CloudSubject("shop", "other"))
+    assertEquals(fx.fulfil("other-wrapping-key", other).phase, "Failed")
+  }
 
   test("every kind is fulfilled, acknowledged at its generation, in the account, by the script") {
     val fx = Fixture()

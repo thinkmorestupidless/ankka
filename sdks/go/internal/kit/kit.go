@@ -11,6 +11,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+// DropKey forgets the process keyring's cached key of (project, subject), as a notice does. The
+// root package fills it.
+var DropKey func(project, subject string)
+
 // Service is what a test kit needs of a service's declarations.
 type Service struct {
 	// Problems is every problem with the declarations, as the service's Start would refuse with.
@@ -53,6 +57,9 @@ type Service struct {
 	Agents map[string]server.AgentHandlers
 	// Mcp run an MCP endpoint's tools, by endpoint id.
 	Mcp map[string]server.McpHandler
+	// UseKeyring makes the process's keyring ask the client (an *ankka.Client) for subject keys,
+	// sealing under the project its answers name, and answers how to put the keyring before it back.
+	UseKeyring func(client any) (restore func())
 	// WithClient is ctx carrying the client (an *ankka.Client) a handler's calls go through.
 	WithClient func(ctx context.Context, client any) context.Context
 }

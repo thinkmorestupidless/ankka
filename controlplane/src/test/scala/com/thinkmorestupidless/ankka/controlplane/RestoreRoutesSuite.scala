@@ -12,6 +12,7 @@ import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   DivergenceReader,
+  ErasureReplayed,
   ProjectTopicsReader,
   RehearsalNamespaces
 }
@@ -63,16 +64,26 @@ class RestoreRoutesSuite extends munit.FunSuite with LogCapturing:
   private val reader: ProjectTopicsReader = projectId => Option.when(projectId == "shop")(reported)
 
   /** What the services say of the broker: the wallet publishes, and cannot be asked once. */
-  private val divergence: DivergenceReader = (_, service, _) =>
-    service match
-      case "wallet" =>
-        Right(
-          Vector(
-            TopicDivergence("transactions", None, 3L),
-            TopicDivergence("transactions", Some("sums"), 3L, Some(2L))
+  private val divergence: DivergenceReader = new DivergenceReader:
+    def since(projectId: String, service: String, at: java.time.Instant) =
+      service match
+        case "wallet" =>
+          Right(
+            Vector(
+              TopicDivergence("transactions", None, 3L),
+              TopicDivergence("transactions", Some("sums"), 3L, Some(2L))
+            )
           )
-        )
-      case other => Left(s"$other has no running instance")
+        case other => Left(s"$other has no running instance")
+
+    // Feature 042: the wallet runs on the line `replayedLine` names, the log applied there.
+    override def erasureReplay(projectId: String, service: String) =
+      service match
+        case "wallet" => Right(ErasureReplayed(replayedLine, Some(replayedAt)))
+        case other    => Left(s"$other has no running instance")
+
+  @volatile private var replayedLine = ""
+  private val replayedAt             = java.time.Instant.parse("2026-10-06T08:00:00Z")
 
   /** Every rehearsal namespace asked for; the cluster refuses while `refusing` is set. */
   private val namespaces         = new java.util.concurrent.ConcurrentLinkedQueue[String]()
@@ -206,9 +217,20 @@ class RestoreRoutesSuite extends munit.FunSuite with LogCapturing:
         )
       )
     )
+    // On another line first, as an instance not yet switched to the restore is: not named.
+    replayedLine = "ankka-db"
+    assertEquals(
+      readFromString[RestoreView](
+        send("GET", s"/projects/shop/restores/$name", alice)._2
+      ).erasureReplayedAt,
+      Map.empty
+    )
+    replayedLine = name
     val (read, view) = send("GET", s"/projects/shop/restores/$name", alice)
     assertEquals(read, 200, view)
     val restored = readFromString[RestoreView](view)
+    // Feature 042: when each service on the restore applied the erasure log to its own tables.
+    assertEquals(restored.erasureReplayedAt, Map("wallet" -> replayedAt))
     assertEquals(restored.phase, "Verified")
     assertEquals(restored.services.find(_.name == "wallet").map(_.journalRows), Some(4L))
     // What the broker holds past the moment, as the services present in the restore say it.

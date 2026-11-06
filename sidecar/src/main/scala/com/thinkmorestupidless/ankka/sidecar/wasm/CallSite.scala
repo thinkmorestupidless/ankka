@@ -6,7 +6,16 @@ import com.thinkmorestupidless.ankka.core.Metadata
  * What a call into a module is for, as whoever makes it knows: the component, the handler where the
  * call has one, and the metadata sent with it. The part of a `CallSite` the instance does not know.
  */
-final case class Purpose(componentId: String, handler: Option[String], metadata: Metadata)
+final case class Purpose(
+    componentId: String,
+    handler: Option[String],
+    metadata: Metadata,
+    /**
+     * A replicated entity's home, whose keyring keeps the keys of the personal fields this call
+     * seals and opens (feature 042, FR-032); `None` for this installation's own keyring.
+     */
+    home: Option[String] = None
+)
 
 object Purpose:
 
@@ -39,6 +48,19 @@ final case class CallSite(function: String, purpose: Purpose, instance: GuestIns
    * on the store, and an entity or a view keeps an object's name, never its bytes.
    */
   def mayStore: Either[String, Unit] = may("storage", StoreWhere)
+
+  /**
+   * Whether a personal field may be sealed or opened from here (protocol 1.23): from every call
+   * into the module, since an entity's command writes one and its replay reads it; only a call the
+   * runtime has abandoned may not.
+   */
+  def mayKeyring(importName: String): Either[String, Unit] =
+    if instance.broken then
+      Left(
+        s"$importName may not be called from a call the runtime has abandoned " +
+          s"($function, ${purpose.componentId})"
+      )
+    else Right(())
 
   private def may(importName: String, where: String): Either[String, Unit] =
     val component = purpose.componentId

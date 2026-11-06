@@ -380,12 +380,33 @@ impl<C: EventSourcedEntity> Registration<C> {
         let events = match events {
             Ok(events) => events,
             Err(e) => {
-                return fault(
-                    request.state,
-                    command.id,
-                    ErrorCode::Internal,
-                    format!("an event does not encode: {e}"),
-                );
+                // A personal field refused (an erased subject, no keyring) is the caller's
+                // refusal, with its code and details, and nothing is persisted; anything else is
+                // a fault.
+                let Some(refusal) = crate::personal::take_refusal() else {
+                    let message = format!("an event does not encode: {e}");
+                    return fault(request.state, command.id, ErrorCode::Internal, message);
+                };
+                restore::<C>(self.shape, &entity_id, held);
+                let before = match current_state::<C>(
+                    self.shape,
+                    request.state.as_ref(),
+                    &entity_id,
+                    held,
+                ) {
+                    Ok(state) => state,
+                    Err(message) => {
+                        return fault(request.state, command.id, ErrorCode::Internal, message);
+                    }
+                };
+                let reply = proto::event_sourced_out::Reply {
+                    command_id: command.id,
+                    outcome: Some(proto::Outcome {
+                        outcome: Some(proto::outcome::Outcome::Error(refusal.to_proto())),
+                    }),
+                    ..Default::default()
+                };
+                return reply_with::<C>(self.shape, reply, before, &entity_id, held);
             }
         };
         let outcome = match m.outcome {

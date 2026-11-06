@@ -58,7 +58,10 @@ object ControlPlane:
     MachineEntity.descriptor,
     MachineRows.descriptor,
     // Feature 040. A deleted project lapses the grants its services held.
-    ProjectTrigger.descriptor
+    ProjectTrigger.descriptor,
+    // Feature 042. An erasure request, and the listing of a project's.
+    com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestEntity.descriptor,
+    com.thinkmorestupidless.ankka.controlplane.erasure.ErasureRequestsView.descriptor
   )
 
   /** The full inventory, including the consumer that projects on a desired-state change. */
@@ -158,11 +161,16 @@ object ControlPlane:
       /** The broker's node count, as `GET /installation` reports it (`ANKKA_BROKER_NODES`). */
       brokerFacts: => com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts =
         com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.unstated,
+      /** Whether the installation erases personal data (feature 042, `ANKKA_ERASURE`). */
+      erasure: => com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings =
+        com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.off,
       /**
        * How a custom hostname's proof record is read (feature 045). `None` reads DNS through the
        * resolver `deploy` names, or the system's; a suite passes one it scripts.
        */
-      proofs: Option[com.thinkmorestupidless.ankka.controlplane.api.ProofLookup] = None
+      proofs: Option[com.thinkmorestupidless.ankka.controlplane.api.ProofLookup] = None,
+      /** Where an erasure request is applied (feature 042); none answers and leaves it applying. */
+      erasures: Option[com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -187,9 +195,14 @@ object ControlPlane:
           platform,
           rehearsals,
           brokerExposed = machineSettings.brokerBootstrap.isDefined,
-          policy = topicPolicy
+          policy = topicPolicy,
+          erasure = erasure,
+          erasures = () => erasures.flatMap(_.application)
         ),
       _ => SecretReadsEndpoint(secretRecords),
+      clients =>
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasuresEndpoint(clients, acl, clock),
+      _ => com.thinkmorestupidless.ankka.controlplane.erasure.ErasureLogEndpoint(() => erasures),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -212,7 +225,8 @@ object ControlPlane:
               topology = reader,
               projects = topics,
               topicPolicy = topicPolicy,
-              proofs = lookup
+              proofs = lookup,
+              erasure = erasure
             )
           case None =>
             ServiceEndpoint(
@@ -223,9 +237,11 @@ object ControlPlane:
               clock = clock,
               projects = topics,
               topicPolicy = topicPolicy,
-              proofs = lookup
+              proofs = lookup,
+              erasure = erasure
             ),
       clients => WhoamiEndpoint(clients, acl, clock),
+
       clients =>
         InstallationEndpoint(
           clients,
@@ -239,7 +255,8 @@ object ControlPlane:
           installationSecrets,
           installationModels,
           topicPolicy,
-          brokerFacts
+          brokerFacts,
+          erasure
         )
     ) ++ {
       val keys   = machineKeys.getOrElse(MachineKeys.inMemory(clock))
@@ -306,6 +323,16 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.controlplane.tenancy.TopicPolicy.from(config)
     val brokerFacts =
       com.thinkmorestupidless.ankka.controlplane.tenancy.BrokerFacts.from(config)
+    val erasure =
+      com.thinkmorestupidless.ankka.controlplane.tenancy.ErasureSettings.from(config)
+    // Feature 042: the log and the keyring an erasure request is applied through.
+    val erasurePlane = com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane(
+      if erasure.enabled then
+        com.thinkmorestupidless.ankka.controlplane.erasure.KeyringAdmin.fromEnvironment()
+      else com.thinkmorestupidless.ankka.controlplane.erasure.KeyringAdmin.off,
+      personalServices =
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasurePlane.personalServices
+    )
     // Before anything starts: a backend the installation's cloud cannot fulfil is refused here,
     // naming what is missing, rather than accepted and found out at the first project secret.
     val backend = secrets.SecretBackendConfig.from(config)
@@ -320,7 +347,9 @@ object ControlPlane:
     // Before the endpoints, because one of them writes through it: `PUT /projects/{id}/registry`
     // hands a credential to the cluster, and the projector is what holds the client that can.
     // First of the extensions (feature 041): the projector must know it is held before it starts.
-    val hold      = new com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold()
+    val hold = new com.thinkmorestupidless.ankka.controlplane.deploy.RestoreHold(
+      reconcilers = if erasure.enabled then Vector(erasurePlane.reconciler) else Vector.empty
+    )
     val projector = ServiceProjector(deploy, backups, hold)
     // Feature 040: a deployed control plane signs with the keys its Secret holds, mounted, and
     // writes a new one there; a local one keeps them in memory.
@@ -360,7 +389,9 @@ object ControlPlane:
             machineSettings = machines,
             machineKeys = Some(keys),
             topicPolicy = topicPolicy,
-            brokerFacts = brokerFacts
+            brokerFacts = brokerFacts,
+            erasure = erasure,
+            erasures = Some(erasurePlane)
           )*
         )
       case _ =>
@@ -386,15 +417,25 @@ object ControlPlane:
             machineSettings = machines,
             machineKeys = Some(keys),
             topicPolicy = topicPolicy,
-            brokerFacts = brokerFacts
+            brokerFacts = brokerFacts,
+            erasure = erasure,
+            erasures = Some(erasurePlane)
           )*
         )
     val served = Ankka.service
       .registerAll(componentsWith(projector))
       .withExtension(hold)
+      // Feature 042: after the hold, so a held control plane is known before anything is applied.
+      .withExtension(
+        com.thinkmorestupidless.ankka.controlplane.erasure.ErasureSweep(
+          erasurePlane,
+          () => erasure.rerunWindow
+        )
+      )
       .withExtension(ProjectionRuntime())
       .withExtension(projector)
       .withExtension(records)
+      .withExtension(erasurePlane)
       .withExtension(server)
       // Feature 043: fill the settings of topics declared before topics stated them.
       .withExtension(

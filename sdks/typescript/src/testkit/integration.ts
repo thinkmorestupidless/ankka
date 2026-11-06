@@ -28,6 +28,90 @@ import { VERSION } from "../version.ts"
 const POSTGRES_IMAGE = "postgres:17-alpine"
 const HTTP_PORT = 9000
 const CALLBACK_PORT = 9011
+// The sidecar's local console endpoint, where `kit.keyring` files erasures and outages: named with
+// ANKKA_OBSERVABILITY_ADDRESS so Docker can publish it, where a service run on a machine binds it to
+// loopback on an ephemeral port.
+const LOCAL_ENDPOINT_PORT = 9012
+
+/**
+ * One statement that searches every column of every table of the service's database, cast to text,
+ * for each value as written, as base64 (standard and URL-safe, unpadded) and as lower-case hex in the
+ * lower-cased text: the rules of the JVM kit's `PersonalAssertions`, the same forms. Each row is
+ * `<index of the value> <form> <schema>.<table>.<column>`.
+ */
+export function personalValueQuery(values: readonly string[]): string {
+  const quote = (text: string) => `'${text.replaceAll("'", "''")}'`
+  const rows = values.flatMap((value, i) => {
+    const data = Buffer.from(value, "utf8")
+    const forms: Record<string, string> = {
+      plain: value,
+      base64: data.toString("base64").replace(/=+$/, ""),
+      base64url: data.toString("base64url"),
+      hex: data.toString("hex"),
+    }
+    return Object.entries(forms).map(([name, form]) => `(${i}, ${quote(name)}, ${quote(form)})`)
+  })
+  return (
+    "SELECT f.i || ' ' || f.form_name || ' ' || c.table_schema || '.' || c.table_name || '.' || c.column_name " +
+    `FROM information_schema.columns c CROSS JOIN (VALUES ${rows.join(", ")}) AS f(i, form_name, form) ` +
+    "WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema') " +
+    "AND (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM %I.%I WHERE strpos(%s, %L) > 0', " +
+    "c.table_schema, c.table_name, " +
+    "CASE WHEN f.form_name = 'hex' THEN format('lower(%I::text)', c.column_name) ELSE format('%I::text', c.column_name) END, " +
+    "f.form), false, true, '')))[1]::text::int > 0 " +
+    "ORDER BY c.table_schema, c.table_name, c.ordinal_position, f.i"
+  )
+}
+
+/** The JVM kit's failure message for what `personalValueQuery` found, or `undefined` for nothing. */
+export function personalValueFailure(values: readonly string[], output: string): string | undefined {
+  const found = output
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => {
+      const [i, form, ...where] = line.split(" ")
+      return `  '${values[Number(i)]}' as ${form} in ${where.join(" ")}`
+    })
+  return found.length === 0 ? undefined : `a personal value can be read back from what the service kept:\n${found.join("\n")}`
+}
+
+/**
+ * The keyring of the kit's sidecar (feature 042): the runtime's local keyring, kept in the kit's
+ * database, reached through the sidecar's local console endpoint. `erase` destroys a data subject's key
+ * at once and sends the notice, as an applied erasure request does; `outage` makes the keyring refuse
+ * every request as unavailable, erasures included, until it ends or `recover` ends it. An outage is the
+ * sidecar's: `kit.restart()` ends it.
+ */
+export class KitKeyring {
+  readonly #url: () => string
+
+  constructor(url: () => string) {
+    this.#url = url
+  }
+
+  async #post(path: string, body: unknown): Promise<Record<string, unknown>> {
+    const r = await fetch(this.#url() + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+    const text = await r.text()
+    if (r.status !== 200) throw new Error(`${path} answered ${r.status}: ${text}`)
+    return JSON.parse(text) as Record<string, unknown>
+  }
+
+  /** Erases `subject` in the service's project now; the notice's sequence, once the sidecar has carried it out (or after ten seconds). Throws in an outage. */
+  async erase(subject: string, rerun = false): Promise<number> {
+    return Number((await this.#post("/_ankka/erasures", { subject, rerun })).seq)
+  }
+
+  /** Refuses every request as unavailable for `seconds`: a subject whose key the sidecar holds is still read and written; one it does not hold is refused, `ErrorCode.Unavailable`. */
+  async outage(seconds: number): Promise<void> {
+    if (!(seconds > 0)) throw new Error("an outage lasts more than 0 seconds; recover() ends one")
+    await this.#post("/_ankka/keyring/outage", { seconds })
+  }
+
+  /** Ends an outage now. */
+  async recover(): Promise<void> {
+    await this.#post("/_ankka/keyring/outage", { seconds: 0 })
+  }
+}
 
 export interface AnkkaTestKitOptions {
   /** The sidecar image; `sidecarImage()` by default. */
@@ -184,6 +268,13 @@ export class AnkkaTestKit {
   #server: Server | undefined
   #processPort = 0
   #http: Http | undefined
+  #localUrl: string | undefined
+
+  /** The sidecar's keyring: erase a data subject, start or end an outage (feature 042). */
+  readonly keyring: KitKeyring = new KitKeyring(() => {
+    if (!this.#localUrl) throw new Error("the testkit is not started")
+    return this.#localUrl
+  })
 
   /** The component client every handler in `service` uses, pointed at the sidecar's mapped callback port. */
   readonly client: ComponentClient
@@ -268,9 +359,10 @@ export class AnkkaTestKit {
         // A fresh secret key per kit, so the secret store works with no setup; the caller's `env`
         // replaces it, and `ANKKA_SECRET_KEY: ""` starts a service with none.
         ANKKA_SECRET_KEY: randomBytes(32).toString("base64"),
+        ANKKA_OBSERVABILITY_ADDRESS: `0.0.0.0:${LOCAL_ENDPOINT_PORT}`,
         ...this.#env,
       })
-      .withExposedPorts(HTTP_PORT, CALLBACK_PORT)
+      .withExposedPorts(HTTP_PORT, CALLBACK_PORT, LOCAL_ENDPOINT_PORT)
       // Both ports, not only the health route: it answers as soon as HTTP is bound, which can be
       // before the callback server listens, and Docker's port proxy accepts then resets a
       // connection to a port nothing in the container listens on yet — so a handler's first call
@@ -283,6 +375,25 @@ export class AnkkaTestKit {
     this.#sidecar = container
     this.client.reconnect(`${container.getHost()}:${container.getMappedPort(CALLBACK_PORT)}`)
     this.#http = new Http(`http://${container.getHost()}:${container.getMappedPort(HTTP_PORT)}`)
+    this.#localUrl = `http://${container.getHost()}:${container.getMappedPort(LOCAL_ENDPOINT_PORT)}`
+  }
+
+  /**
+   * Fails, naming each table and column, when any of `values` can be read back from the service's
+   * database as written, as base64 (standard and URL-safe) or as hex: what a personal field must never
+   * be (feature 042, FR-030). Every column of every table, cast to text, searched by the kit's Postgres
+   * itself with the JVM kit's rules (`personalValueQuery`).
+   */
+  async assertNoPersonalValue(...values: string[]): Promise<void> {
+    if (values.length === 0) return
+    if (!this.#postgres) throw new Error("the testkit is not started")
+    const r = await this.#postgres.exec(["psql", "-U", "ankka", "-d", "ankka", "-v", "ON_ERROR_STOP=1", "-At", "-c", personalValueQuery(values)])
+    if (r.exitCode !== 0) throw new Error(`the database could not be searched: ${r.output}`)
+    const failure = personalValueFailure(values, r.stdout ?? r.output)
+    if (failure !== undefined) {
+      const { AssertionError } = await import("node:assert")
+      throw new AssertionError({ message: failure })
+    }
   }
 
   /** Replaces the sidecar against the same database: every instance is gone from memory, so the next read rebuilds from the journal. */

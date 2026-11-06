@@ -107,6 +107,46 @@ type Bucket interface {
 	// PublicURL is the address a browser reads the object under name at, with no signature: a public
 	// bucket's only.
 	PublicURL(name string) (string, error)
+	// Erase removes every object of subject (feature 042): those under its prefix (SubjectPrefix), and
+	// on a store that keeps versions every version of each. Objects outside it are kept, those of
+	// another data subject included. Run again, it erases what was kept since, and answers 0 when
+	// nothing was.
+	Erase(ctx context.Context, subject DataSubject) (ErasedObjects, error)
+}
+
+// ErasedObjects is what Bucket.Erase removed: how many objects, and when they are gone for good (an
+// ErasureReport's Finality).
+type ErasedObjects struct {
+	Count    int64
+	Finality Finality
+}
+
+// SubjectPrefix is where a service keeps the objects of subject (feature 042): "subjects/", the data
+// subject with every "/" written "%2F", and "/". A data subject cannot hold "%", so no subject prefix
+// holds another's: player's is "subjects/player/" and player/8c1f's "subjects/player%2F8c1f/".
+func SubjectPrefix(subject DataSubject) string {
+	return "subjects/" + strings.ReplaceAll(subject.String(), "/", "%2F") + "/"
+}
+
+// eraseListed is Erase for a store that keeps no versions: the subject's prefix listed, and each
+// object deleted.
+func eraseListed(ctx context.Context, b Bucket, subject DataSubject, finality Finality) (ErasedObjects, error) {
+	if subject.IsZero() {
+		return ErasedObjects{}, Refuse(BadRequest, "the zero DataSubject is no data subject: "+SubjectRule)
+	}
+	var names []string
+	for e, err := range b.List(ctx, SubjectPrefix(subject)) {
+		if err != nil {
+			return ErasedObjects{}, err
+		}
+		names = append(names, e.Name)
+	}
+	for _, n := range names {
+		if err := b.Delete(ctx, n); err != nil {
+			return ErasedObjects{}, err
+		}
+	}
+	return ErasedObjects{Count: int64(len(names)), Finality: finality}, nil
 }
 
 // Storage is a service's buckets: the unnamed one, and the named ones by name.

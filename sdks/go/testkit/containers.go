@@ -27,6 +27,10 @@ const (
 	httpPort     = 9000
 	callbackPort = 9011
 	databaseHost = "postgres"
+	// localEndpointPort is the sidecar's local console endpoint, where Keyring files erasures and
+	// outages: named with ANKKA_OBSERVABILITY_ADDRESS so Docker can publish it, where a service run
+	// on a machine binds it to loopback on an ephemeral port.
+	localEndpointPort = 9012
 )
 
 // SidecarImage is the sidecar the kit starts when it is not told: ANKKA_SIDECAR_IMAGE when that is
@@ -109,6 +113,7 @@ func startSidecar(ctx context.Context, image string, nw *testcontainers.DockerNe
 	all["ANKKA_SIDECAR_BIND"] = "0.0.0.0"
 	all["ANKKA_HTTP_PORT"] = strconv.Itoa(httpPort)
 	all["ANKKA_SECRET_KEY"] = secretKey()
+	all["ANKKA_OBSERVABILITY_ADDRESS"] = "0.0.0.0:" + strconv.Itoa(localEndpointPort)
 	for k, v := range env {
 		all[k] = v
 	}
@@ -121,7 +126,7 @@ func startContainer(ctx context.Context, image string, nw *testcontainers.Docker
 	ports := []string{strconv.Itoa(httpPort) + "/tcp"}
 	waits := []wait.Strategy{wait.ForHTTP("/_ankka/health").WithPort(ports[0]).WithStatusCodeMatcher(func(s int) bool { return s == 200 })}
 	if sidecar {
-		ports = append(ports, strconv.Itoa(callbackPort)+"/tcp")
+		ports = append(ports, strconv.Itoa(callbackPort)+"/tcp", strconv.Itoa(localEndpointPort)+"/tcp")
 		waits = append(waits, wait.ForListeningPort(ports[1]))
 	}
 	c, err := testcontainers.Run(ctx, image,

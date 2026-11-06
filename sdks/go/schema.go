@@ -83,6 +83,17 @@ func (w *schemaWriter) schema(p *plan) map[string]any {
 		}
 	case kindRecord, kindSum:
 		return w.named(p)
+	case kindPersonal:
+		// The edge form: the value with its subject beside it, or the subject alone once erased.
+		return map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"subject": map[string]any{"type": "string", "pattern": subjectPattern.String()},
+				"value":   w.schema(p.elem),
+			},
+			"required":             []string{"subject"},
+			"additionalProperties": false,
+		}
 	}
 	return map[string]any{}
 }

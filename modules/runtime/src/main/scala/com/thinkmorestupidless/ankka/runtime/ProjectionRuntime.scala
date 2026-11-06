@@ -209,6 +209,10 @@ final class ProjectionRuntime private (
       val tables = views.map(_.tableName) ++ keyed.map(_.tableName) ++
         remoteViews.map(v => ViewDescriptor.tableFor(v.componentId)) ++
         remoteKeyed.map(v => ViewDescriptor.tableFor(v.componentId))
+      // Feature 042: a view with lookup fields keeps its rows' tokens in a column beside them.
+      val lookupColumns =
+        (views.filter(_.lookupFields.nonEmpty).map(_.tableName) ++
+          keyed.filter(_.lookupFields.nonEmpty).map(_.tableName)).map(ViewStore.addLookupColumn)
       // The recorded versions belong with the tables they describe: every view has one, since
       // a view of entities or of a topic is rebuilt by raising it, and one that declares none is
       // at version 1 and stops writing when another instance declares a higher one.
@@ -222,7 +226,8 @@ final class ProjectionRuntime private (
         // once and CREATE TABLE IF NOT EXISTS races (ViewStore.schemaLock explains).
         Await.result(
           database.executeAllInTransaction(
-            (ViewStore.schemaLock +: tables.map(ViewStore.createTable)) ++ versions
+            (ViewStore.schemaLock +: tables.map(ViewStore.createTable)) ++ lookupColumns ++
+              (ViewStore.createRedaction +: versions)
           ),
           30.seconds
         )
@@ -242,7 +247,14 @@ final class ProjectionRuntime private (
       )
       keyed.foreach(startKeyedView(_, client, askTimeout))
       consumers.foreach(
-        startConsumer(_, client, service.secrets, service.services, service.storage)
+        startConsumer(
+          _,
+          client,
+          service.secrets,
+          service.services,
+          service.storage,
+          service.erasures
+        )
       )
 
       if remoteViews.nonEmpty || remoteKeyed.nonEmpty || remoteConsumers.nonEmpty then
@@ -480,11 +492,14 @@ final class ProjectionRuntime private (
     val sources                                 = TopicSources(system)
     val handle: IncomingMessage => Future[Done] = message =>
       given ExecutionContext = ExecutionContext.parasitic
-      lanes(message).transform { outcome =>
-        val reason = outcome.failed.toOption.map(f => Option(f.getMessage).getOrElse(f.toString))
-        sources.update(componentId)(_.copy(failing = reason))
-        outcome
-      }
+      // Feature 042: decoded and encoded under this service's keyring (see the handlers below).
+      com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+        .binding(system)(lanes(message))
+        .transform { outcome =>
+          val reason = outcome.failed.toOption.map(f => Option(f.getMessage).getOrElse(f.toString))
+          sources.update(componentId)(_.copy(failing = reason))
+          outcome
+        }
     val subscription = TopicSubscription(topic, group, startFrom, parallel)
     val subscribed   = broker.subscribe(subscription, handle)
     Divergence(system).touch(topic, Some(group), broker)
@@ -937,7 +952,8 @@ final class ProjectionRuntime private (
       client: ComponentClient,
       secrets: SecretStore,
       services: ServiceClients,
-      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+      erasures: com.thinkmorestupidless.ankka.sdk.Erasures
   )(using system: ActorSystem[?]): Unit =
     type AnyConsumer = Consumer[Any, Any]
     val typed       = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
@@ -966,6 +982,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 storage,
+                erasures,
                 HistoryLines(system),
                 journalOf(sourceId)
               )
@@ -988,6 +1005,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 storage,
+                erasures,
                 HistoryLines(system)
               )
           )
@@ -1009,6 +1027,7 @@ final class ProjectionRuntime private (
                 secrets,
                 services,
                 storage,
+                erasures,
                 HistoryLines(system),
                 ChangeReader.workflow(decoder.manifest)
               )
@@ -1027,7 +1046,8 @@ final class ProjectionRuntime private (
               Observability(system),
               secrets,
               services,
-              storage
+              storage,
+              erasures
             )
           // `validate` refused a consumer over a topic that declares nowhere.
           val start   = startFrom.getOrElse(StartFrom.Earliest)
@@ -1530,18 +1550,28 @@ private final class ViewEventHandler[A](
   private given ExecutionContext = system.executionContext
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Feature 042: the row under the service's keyring, and its lookup tokens.
+  private val writer = ViewRowWriter.of(descriptor)
   // Captured here, at construction, not looked up inside `process`: projection handlers run on
   // the projection's own threads, and the recorded rule is to take what async work needs while
   // you are still somewhere it is safe to take it.
   private val observability = Observability(system)
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(session, envelope))
+
+  private def processBound(session: R2dbcSession, envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val change  = reader.read(envelope.event)
 
     guard
       .inSession(session)
-      .flatMap(_ => ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer))
+      .flatMap(_ =>
+        ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer, system)
+      )
       .flatMap { row =>
         val effect =
           ProjectionSupport
@@ -1556,7 +1586,14 @@ private final class ViewEventHandler[A](
               reader.installation(envelope.event),
               reader.local(envelope.event)
             )
-        ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
+        ProjectionSupport.applyView(
+          session,
+          table,
+          subject,
+          effect,
+          descriptor.rowSerializer,
+          Some(writer)
+        )
       }
 
 /** As `ViewEventHandler`, but for key value state changes. */
@@ -1571,15 +1608,26 @@ private final class ViewStateHandler(
   private val database           = Database()
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Feature 042: the row under the service's keyring, and its lookup tokens.
+  private val writer = ViewRowWriter.of(descriptor)
   // Taken at construction, as the event handler's is: `process` runs on the projection's threads.
   private val observability = Observability(system)
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(change))
+
+  private def processBound(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
     database
-      .query(ViewStore.selectByKey(table, subject))(r =>
-        descriptor.rowSerializer.fromBytes(r.get("payload", classOf[String]).getBytes("UTF-8"))
+      .query(ViewStore.selectByKey(table, subject))(r => r.get("payload", classOf[String]))
+      .flatMap(payloads =>
+        keyring.ServiceKeyring.decoding(system)(
+          payloads.map(p => descriptor.rowSerializer.fromBytes(p.getBytes("UTF-8")))
+        )
       )
       .flatMap { existing =>
         view._setRow(existing.headOption)
@@ -1608,8 +1656,7 @@ private final class ViewStateHandler(
           )
         effect match
           case ViewEffect.UpdateRow(row) =>
-            val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-            write(ViewStore.upsert(table, subject, json))
+            write(writer.upsert(subject, row))
           case ViewEffect.DeleteRow => write(ViewStore.delete(table, subject))
           case ViewEffect.Ignore    =>
             Future.successful(Done)
@@ -1631,15 +1678,17 @@ private final class ConsumerEventHandler[A](
     secrets: SecretStore,
     services: ServiceClients,
     storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+    erasures: com.thinkmorestupidless.ankka.sdk.Erasures,
     lines: HistoryLines,
     reader: ChangeReader[A]
-) extends Handler[EventEnvelope[A]]:
+)(using system: ActorSystem[?])
+    extends Handler[EventEnvelope[A]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(
-      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
   /**
@@ -1649,7 +1698,13 @@ private final class ConsumerEventHandler[A](
    */
   private val localOnly = descriptor.produces.nonEmpty && !descriptor.mirroredChanges
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(envelope: EventEnvelope[A]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(envelope))
+
+  private def processBound(envelope: EventEnvelope[A]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val local   = reader.local(envelope.event)
     reader.read(envelope.event) match
@@ -1700,17 +1755,25 @@ private final class ConsumerStateHandler(
     secrets: SecretStore,
     services: ServiceClients,
     storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+    erasures: com.thinkmorestupidless.ankka.sdk.Erasures,
     lines: HistoryLines
-) extends Handler[DurableStateChange[StateRecord]]:
+)(using system: ActorSystem[?])
+    extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(
-      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage)
+      SimpleConsumerContext(descriptor.componentId, client, secrets, services, storage, erasures)
     )
 
+  // Feature 042: decoded and encoded under this service's keyring, not the JVM's default,
+  // which another service in the same JVM (a second test kit) may have installed.
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
+    com.thinkmorestupidless.ankka.runtime.keyring.ServiceKeyring
+      .binding(system)(processBound(change))
+
+  private def processBound(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
     val revision = change match

@@ -27,7 +27,9 @@ import scala.util.control.NonFatal
 private[ankka] final case class TurnOrigin(
     handler: String,
     streaming: Boolean,
-    payload: Array[Byte]
+    payload: Array[Byte],
+    /** The data subject the call named (feature 042), which the session is started with. */
+    subject: Option[String] = None
 )
 
 /**
@@ -105,16 +107,17 @@ private[ankka] final class AgentLoop(
       provider <- chosenModel(effect)
       // Admission first: a session waiting on a decision takes no new turn, whatever it would
       // have cost to find that out after the guardrails ran.
-      state <- admit()
+      state <- admit(origin.subject)
       // Input guardrails run before anything is spent on the model.
       _ <- checkGuardrails(effect.guards, userText, Guardrails.Direction.Input, spent)
 
+      told    = toldOfErasure(effect, state)
       history =
-        if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
-      prompt = buildPrompt(effect, history, userText)
+        if told.memoryProvider.read then visible(state, told.memoryProvider) else Vector.empty
+      prompt = buildPrompt(told, history, userText)
 
-      ended   <- runToolLoop(provider, effect, Progress.start(prompt), checksFor(spent))
-      outcome <- finish(effect, userText, ended, spent, origin, resumed = false, provider)
+      ended   <- runToolLoop(provider, told, Progress.start(prompt), checksFor(spent))
+      outcome <- finish(told, userText, ended, spent, origin, resumed = false, provider)
     yield outcome
     // A refused or failed interaction writes no message, but what its guardrails spent was spent.
     result.left.foreach(_ => recordJudgmentUsage(spent.usage))
@@ -185,14 +188,15 @@ private[ankka] final class AgentLoop(
 
     val result = for
       provider <- chosenModel(effect)
-      state    <- admit()
+      state    <- admit(origin.subject)
       _        <- checkGuardrails(effect.guards, userText, Guardrails.Direction.Input, spent)
 
+      told    = toldOfErasure(effect, state)
       history =
-        if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
-      prompt = buildPrompt(effect, history, userText)
+        if told.memoryProvider.read then visible(state, told.memoryProvider) else Vector.empty
+      prompt = buildPrompt(told, history, userText)
 
-      ended <- streamToolLoop(provider, effect, prompt, emit, checksFor(spent))
+      ended <- streamToolLoop(provider, told, prompt, emit, checksFor(spent))
 
       // Output guardrails run after the fact when streaming: tokens have already been
       // delivered, so a rejection here stops memory being written but cannot un-send
@@ -296,7 +300,19 @@ private[ankka] final class AgentLoop(
    * was cut off after its last decision — this host is not running it, since a session runs one
    * thing at a time — so it is ended first, with nothing added to the history.
    */
-  private def admit(): Either[CommandError, SessionHistory] =
+  private def admit(subject: Option[String]): Either[CommandError, SessionHistory] =
+    // A call naming a data subject starts the session with it, or is refused when the session is
+    // another's (feature 042), before anything of the session is read.
+    val begun =
+      try
+        subject.foreach(s =>
+          memoryEntity.call(SessionMemoryEntity.begin).invoke(SessionMemoryEntity.Begin(s)): Unit
+        )
+        None
+      catch case refused: CommandError => Some(refused)
+    begun.toLeft(()).flatMap(_ => admitted())
+
+  private def admitted(): Either[CommandError, SessionHistory] =
     val state = memoryEntity.call(SessionMemoryEntity.history).invoke()
     if state.awaiting.nonEmpty then
       Left(
@@ -310,6 +326,17 @@ private[ankka] final class AgentLoop(
       endTurn()
       Right(state.copy(suspended = None))
     else Right(state)
+
+  /**
+   * The effect, told when the session's data subject was erased (feature 042) that the earlier
+   * conversation is gone: the model would otherwise read an empty history as a first meeting.
+   */
+  private def toldOfErasure[R](effect: AgentEffect[R], state: SessionHistory): AgentEffect[R] =
+    if !state.erased || !effect.memoryProvider.read then effect
+    else
+      effect.systemMessage(
+        effect.system.fold(AgentLoop.ErasedNote)(s => s"$s\n\n${AgentLoop.ErasedNote}")
+      )
 
   /**
    * The effect with the agent's MCP servers' tools beside its own. A judgment's effect offers no
@@ -786,3 +813,13 @@ private[ankka] final class AgentLoop(
             s"agent '$agentId' could not record judgment tokens for session '$sessionId': " +
               Option(failure.getMessage).getOrElse(failure.toString)
           )
+
+private[ankka] object AgentLoop:
+
+  /**
+   * What the model is told in a session whose data subject was erased (feature 042): the
+   * conversation before this turn is gone, not missing by mistake.
+   */
+  val ErasedNote: String =
+    "The earlier conversation in this session was erased at the request of the person it was " +
+      "about. Nothing of it is available; do not refer to it."

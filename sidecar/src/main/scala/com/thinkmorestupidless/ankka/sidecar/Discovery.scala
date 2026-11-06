@@ -69,7 +69,9 @@ object Discovery:
    * process that declares an earlier minor. 1.21: the storage client on `Client` (spec 055). 1.22:
    * who acted and the installation a command was forwarded from, on an event sourced entity's
    * command and event (spec 057); empty when there is nothing to say, so a process that ignores
-   * them reads 1.22 as 1.21.
+   * them reads 1.22 as 1.21. 1.23: personal data, the keyring rpcs on `Client`, `AskErasure` and
+   * `Spec.erasure_handler` (feature 042); a handler is refused from a process that declares an
+   * earlier minor.
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -177,6 +179,9 @@ object Discovery:
 
   /** The first minor that declares an MCP endpoint (feature 054). */
   private[sidecar] val McpSince = 20
+
+  /** The first minor that declares an erasure handler (feature 042). */
+  private[sidecar] val ErasureSince = 23
 
   /** The minor that introduced a watched query. */
   private val WatchedSince = 17
@@ -485,6 +490,11 @@ object Discovery:
     // MCP endpoints (feature 054): the rules `McpEndpoint.problems` holds a Scala one to, in its
     // words, and the version they need, last.
     problems ++= mcpProblems(spec, authConfigured, issuersWithoutClientId)
+    // An older sidecar reads the field as absent and would never run the handler: refused here
+    // from a process that declares an earlier minor, as the SDKs refuse an older runtime.
+    if spec.erasureHandler && minorOf(spec.protocolVersion).exists(_ < ErasureSince) then
+      problems += s"an erasure handler needs protocol 1.$ErasureSince; the SDK speaks " +
+        spec.protocolVersion
 
     val found = problems.result()
     if found.nonEmpty then Left(found)

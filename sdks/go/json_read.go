@@ -37,7 +37,7 @@ func decodeJSON(p *plan, data []byte, target reflect.Value) error {
 	if err != nil {
 		return err
 	}
-	return readValue(p, raw, target, "")
+	return readValue(p, raw, target, "", nil)
 }
 
 func kindOfRaw(raw any) string {
@@ -79,7 +79,7 @@ func rawText(raw any) []byte {
 	return buf.Bytes()
 }
 
-func readValue(p *plan, raw any, target reflect.Value, path string) error {
+func readValue(p *plan, raw any, target reflect.Value, path string, sc *sealScope) error {
 	switch p.kind {
 	case kindString:
 		s, ok := raw.(string)
@@ -141,7 +141,7 @@ func readValue(p *plan, raw any, target reflect.Value, path string) error {
 			return nil
 		}
 		inner := reflect.New(p.typ.Elem())
-		if err := readValue(p.elem, raw, inner.Elem(), path); err != nil {
+		if err := readValue(p.elem, raw, inner.Elem(), path, sc); err != nil {
 			return err
 		}
 		target.Set(inner)
@@ -158,7 +158,7 @@ func readValue(p *plan, raw any, target reflect.Value, path string) error {
 			target.Set(reflect.MakeSlice(p.typ, len(arr.items), len(arr.items)))
 		}
 		for i, item := range arr.items {
-			if err := readValue(p.elem, item, target.Index(i), fmt.Sprintf("%s[%d]", path, i)); err != nil {
+			if err := readValue(p.elem, item, target.Index(i), fmt.Sprintf("%s[%d]", path, i), sc); err != nil {
 				return err
 			}
 		}
@@ -170,7 +170,7 @@ func readValue(p *plan, raw any, target reflect.Value, path string) error {
 		m := reflect.MakeMapWithSize(p.typ, len(obj.keys))
 		for _, k := range obj.keys {
 			v := reflect.New(p.typ.Elem()).Elem()
-			if err := readValue(p.elem, obj.values[k], v, join(path, k)); err != nil {
+			if err := readValue(p.elem, obj.values[k], v, join(path, k), sc); err != nil {
 				return err
 			}
 			m.SetMapIndex(reflect.ValueOf(k).Convert(p.typ.Key()), v)
@@ -181,7 +181,7 @@ func readValue(p *plan, raw any, target reflect.Value, path string) error {
 		if !ok {
 			return refuse(path, "expected an object for %s, got %s", p.describe(), kindOfRaw(raw))
 		}
-		return readFields(p, obj, target, path)
+		return readFields(p, obj, target, path, sc)
 	case kindSum:
 		obj, ok := raw.(*jsonObject)
 		if !ok {
@@ -197,7 +197,7 @@ func readValue(p *plan, raw any, target reflect.Value, path string) error {
 			return refuse(path, "%s has no case %q", p.describe(), name)
 		}
 		value := reflect.New(c.record.typ)
-		if err := readFields(c.record, obj, value.Elem(), path); err != nil {
+		if err := readFields(c.record, obj, value.Elem(), path, sc); err != nil {
 			return err
 		}
 		if c.pointer {
@@ -218,13 +218,15 @@ func readValue(p *plan, raw any, target reflect.Value, path string) error {
 			return refuse(path, "expected one of %s for %s, got %s", quoted(p.values), p.describe(), rawText(raw))
 		}
 		target.SetString(name)
+	case kindPersonal:
+		return readPersonal(p, raw, target, path, sc)
 	default:
 		return refuse(path, "no decoding for %s", p.describe())
 	}
 	return nil
 }
 
-func readFields(p *plan, obj *jsonObject, target reflect.Value, path string) error {
+func readFields(p *plan, obj *jsonObject, target reflect.Value, path string, sc *sealScope) error {
 	for _, f := range p.fields {
 		fieldPath := join(path, f.name)
 		raw, present := obj.get(f.name)
@@ -235,7 +237,7 @@ func readFields(p *plan, obj *jsonObject, target reflect.Value, path string) err
 			}
 			return refuse(fieldPath, "missing required field")
 		}
-		if err := readValue(f.plan, raw, target.Field(f.index), fieldPath); err != nil {
+		if err := readValue(f.plan, raw, target.Field(f.index), fieldPath, sc); err != nil {
 			return err
 		}
 	}

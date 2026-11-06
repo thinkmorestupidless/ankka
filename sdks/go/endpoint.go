@@ -113,9 +113,9 @@ const routeManifest = "http-body"
 // routeCodec is a route body's or reply's default codec, given routeManifest when its type is unnamed.
 func routeCodec[T any]() Codec[T] {
 	if t := reflect.TypeFor[T](); t.Name() == "" && t.Kind() != reflect.Pointer {
-		return CodecFor[T](Manifest(routeManifest))
+		return CodecFor[T](Manifest(routeManifest), edgeCodec)
 	}
-	return CodecFor[T]()
+	return CodecFor[T](edgeCodec)
 }
 
 var paramPattern = regexp.MustCompile(`\{([^{}/]*)\}`)

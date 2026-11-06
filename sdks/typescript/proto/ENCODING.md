@@ -58,6 +58,43 @@ primitive). UTF-8 text, no quotes, no JSON.
 | `Array[Byte]` | `bytes` | the bytes |
 | `Option[A]` at top level | `option[<A's manifest>]` | zero bytes for `None`; one byte `0x01` followed by `A`'s bytes for `Some` |
 
+## Personal fields
+
+A field a service marks as a personal field (`Personal` in every SDK) is never held in the clear. In
+a payload a `Serializer` writes, for any store, it is the **personal envelope**:
+
+```json
+{"$personal":1,"project":"brand","subject":"player/8c1f","c":"<base64>"}
+```
+
+- `$personal` is the envelope's version; a reader refuses one it does not know, as corrupt.
+- `project` and `subject` are in the clear: the project whose subject key sealed the field and the
+  data subject it is about. A subject is 1 to 253 characters from letters, digits, `.`, `_`, `-`,
+  `/` and `:`.
+- `c` is standard base64, with padding, of a 12-byte nonce followed by the AES-256-GCM ciphertext
+  and its 16-byte tag. The plaintext is the field's own JSON, compact. The associated data is the
+  subject, the project and the serializer's manifest, in that order, each as a 4-byte big-endian
+  length followed by its UTF-8 bytes.
+- Once the data subject is erased, the envelope written again has no `c`, and every envelope of
+  that subject reads as erased whether it has one or not.
+- An envelope whose tag does not verify, under another subject, project, manifest or key, is
+  corrupt, never erased.
+- A field read from an envelope of another project, written again by this service, is sealed again
+  under **that** project's key, never made here, and keeps that `project` (FR-027): an erasure there
+  reaches what this service keeps of it. When that key is no longer given (erased there, or the
+  grant revoked) it is written erased, under that project. A field a handler makes, even with the
+  same value, is the service's own.
+
+Where no `Serializer` is writing (an endpoint's reply or a caller's body), the field is its value
+with its subject beside it, `{"subject":"player/8c1f","value":…}`, or `{"subject":"player/8c1f"}`
+once erased.
+
+`fixtures/personal/` holds the cases every SDK must write byte for byte and read: `envelopes.json`
+(with the key and nonce of each, the erased form, three corrupt envelopes and an unknown version),
+`subjects.json` and `edge.json`. They are written by `protocol/scripts/personal_fixtures.py`, an
+implementation independent of every SDK's: `uv run --with 'cryptography>=44' python
+protocol/scripts/personal_fixtures.py`, then each SDK's copy script.
+
 ## Fixtures
 
 `fixtures/<name>.json`:

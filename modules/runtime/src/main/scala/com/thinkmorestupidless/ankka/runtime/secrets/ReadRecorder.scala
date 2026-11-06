@@ -3,17 +3,14 @@ package com.thinkmorestupidless.ankka.runtime.secrets
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import com.thinkmorestupidless.ankka.core.secrets.ReadRecord
-import com.thinkmorestupidless.ankka.runtime.RotatingTls
+import com.thinkmorestupidless.ankka.runtime.ControlPlaneHttp
 import com.typesafe.config.Config
 import org.slf4j.LoggerFactory
 
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-import java.nio.file.Paths
+import java.net.http.{HttpRequest, HttpResponse}
 import java.time.Duration
 import java.util.concurrent.ConcurrentLinkedDeque
-import javax.net.ssl.SSLParameters
-import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
@@ -36,70 +33,19 @@ private[ankka] object ReadRecorder:
 
   /** The control plane at `ankka.secrets.records-url`, or a local recorder when it is empty. */
   def from(config: Config): ReadRecorder =
-    val url = config.getString(UrlKey).trim
-    if url.isEmpty then LocalRecorder()
-    else
-      val timeout =
-        FiniteDuration(config.getDuration("ankka.secrets.record-timeout").toMillis, "ms")
-      ControlPlaneRecorder(url, tls(config, url), timeout)
-
-  private def tls(config: Config, url: String): Option[RotatingTls] =
-    val key       = "ankka.tls.service-directory"
-    val directory =
-      if config.hasPath(key) then config.getString(key).trim else ""
-    if url.startsWith("https://") && directory.nonEmpty then
-      Some(
-        RotatingTls(
-          Paths.get(directory),
-          FiniteDuration(config.getDuration("ankka.tls.reload-interval").toMillis, "ms")
-        )
-      )
-    else None
+    ControlPlaneHttp.from(config).fold(LocalRecorder())(ControlPlaneRecorder(_))
 
 /**
  * The control plane, over the service's own certificate: the identity the control plane checks the
  * record's project and service against, so a service can record only its own reads. The control
  * plane must present `ankka://platform/controlplane`, so a record is never handed to anything else.
  */
-private[ankka] final class ControlPlaneRecorder(
-    url: String,
-    tls: Option[RotatingTls],
-    timeout: FiniteDuration
-) extends ReadRecorder:
+private[ankka] final class ControlPlaneRecorder(plane: ControlPlaneHttp) extends ReadRecorder:
 
   private val log      = LoggerFactory.getLogger(classOf[ControlPlaneRecorder])
-  private val endpoint = URI(url.stripSuffix("/") + "/secret-reads")
-
-  private val plain: HttpClient =
-    HttpClient
-      .newBuilder()
-      .version(HttpClient.Version.HTTP_1_1)
-      .connectTimeout(Duration.ofMillis(timeout.toMillis))
-      .build()
-
-  @volatile private var secured: Option[(Int, HttpClient)] = None
-
-  /** One client per certificate generation, as the service client keeps: a renewed one is used. */
-  private def client: HttpClient = tls match
-    case None           => plain
-    case Some(identity) =>
-      val context = identity.contextRequiring(ControlPlaneRecorder.ControlPlaneUri)
-      val stamp   = System.identityHashCode(context)
-      secured match
-        case Some((s, c)) if s == stamp => c
-        case _                          =>
-          val params = new SSLParameters()
-          params.setEndpointIdentificationAlgorithm("HTTPS")
-          params.setProtocols(Array("TLSv1.3"))
-          val c = HttpClient
-            .newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .sslContext(context)
-            .sslParameters(params)
-            .connectTimeout(Duration.ofMillis(timeout.toMillis))
-            .build()
-          secured = Some((stamp, c))
-          c
+  private val endpoint = URI(plane.url.stripSuffix("/") + "/secret-reads")
+  private val timeout  = plane.timeout
+  private def client   = plane.client
 
   def write(record: ReadRecord): Unit =
     val request = HttpRequest
@@ -130,7 +76,7 @@ private[ankka] final class ControlPlaneRecorder(
       throw ControlPlaneRecorder.notAcknowledged(record, s"answered $status")
 
 private[ankka] object ControlPlaneRecorder:
-  val ControlPlaneUri: String = "ankka://platform/controlplane"
+  val ControlPlaneUri: String = ControlPlaneHttp.ControlPlaneUri
 
   def notAcknowledged(record: ReadRecord, why: String): CommandError =
     CommandError(

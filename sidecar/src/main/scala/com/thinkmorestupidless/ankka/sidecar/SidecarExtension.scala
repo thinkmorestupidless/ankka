@@ -12,6 +12,7 @@ import org.apache.pekko.actor.typed.ActorSystem
 import org.slf4j.LoggerFactory
 
 import java.util.concurrent.atomic.AtomicLong
+import scala.concurrent.duration.*
 
 /**
  * What the sidecar adds to the runtime it hosts: the way back in for the service's own code, and an
@@ -60,7 +61,21 @@ final class SidecarExtension(
           settings.wasmModule.getOrElse("")
         )
       case None =>
-        val client = ClientService(service, settings, scheduler, declaredProtocol)
+        // Feature 042: every erasure notice reaches the process before the runtime's own duties,
+        // which wait for each instance holding the stream to drop the subject's key.
+        // An instance's ack is waited for at most the notice bound (FR-022), the keyring's.
+        val bound = scala.util
+          .Try(
+            com.thinkmorestupidless.ankka.runtime.keyring.KeyringSettings
+              .from(service.system.settings.config)
+              .noticeBound
+          )
+          .getOrElse(60.seconds)
+        val notices = ProcessNotices(bound)
+        notices.attach(
+          com.thinkmorestupidless.ankka.runtime.keyring.ErasureHooks.of(service.system)
+        )
+        val client = ClientService(service, settings, scheduler, declaredProtocol, notices)
         server = Some(CallbackServer.start(client, settings.callbackBind, settings.callbackPort))
         log.info(
           "sidecar hosting {} against the process at {}",

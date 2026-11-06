@@ -285,6 +285,12 @@ final class Fabric8Executor(
   private val FieldManager = "ankka-operator"
 
   /**
+   * The labels a namespace carries for what its services declare (feature 042), applied apart from
+   * the namespace itself: one manager's apply removes only the fields that manager set before.
+   */
+  private val LabelFieldManager = "ankka-operator-labels"
+
+  /**
    * The secret keys this process has made or found made, so that a reconcile pass, which renders
    * `EnsureSecretKey` every time, asks the API server once per service and not once per pass.
    */
@@ -352,6 +358,17 @@ final class Fabric8Executor(
       val _ =
         client.resource(namespace).fieldManager(FieldManager).forceConflicts().serverSideApply()
       log.debug("ensured namespace {}", name)
+
+    case Action.LabelNamespace(name, labels) =>
+      val namespace = new NamespaceBuilder()
+        .withMetadata(new ObjectMetaBuilder().withName(name).withLabels(labels.asJava).build())
+        .build()
+      val _ = client
+        .resource(namespace)
+        .fieldManager(LabelFieldManager)
+        .forceConflicts()
+        .serverSideApply()
+      log.debug("labelled namespace {}", name)
 
     case Action.ApplyDeployment(deployment) =>
       // forceConflicts because the drift policy is enforce: a conflict means something else
@@ -685,6 +702,22 @@ final class Fabric8Executor(
           case StorageCredential.Result.Unchanged => ()
       backupGenerations.put((namespace, keyName), generation): Unit
 
+    case Action.EnsurePlatformCredential(namespace, name, bucket, keyName, permission) =>
+      requireStore(): Unit
+      storageCredentials.get.ensure(
+        namespace,
+        name,
+        Map(Labels.ManagedByKey -> Labels.ManagedByAnkka),
+        bucket,
+        keyName = Some(keyName),
+        permission = permission
+      ) match
+        case StorageCredential.Result.Created =>
+          log.info("issued the platform credential {}/{} for {}", namespace, name, keyName)
+        case StorageCredential.Result.Replaced =>
+          log.warn("the object store held no key {}; a new one was written", keyName)
+        case StorageCredential.Result.Unchanged => ()
+
     case Action.EnsureStorageCredential(namespace, name, labels, bucket, generation, buckets) =>
       requireStore(): Unit
       storageCredentials.get.ensure(
@@ -905,7 +938,7 @@ final class Fabric8Executor(
       .getItems
       .asScala
       .toVector
-    pods.flatMap { pod =>
+    PodProblem.newestFirst(pods).flatMap { pod =>
       PodProblem
         .of(pod)
         .map(p => if p.wrongArchitecture then p.copy(architecture = nodeArchitecture(pod)) else p)

@@ -93,6 +93,13 @@ object Buckets:
    */
   def platformBackup(store: String): String = s"$PlatformProject.backups-$store"
 
+  /**
+   * The installation's erasure log (feature 042, R22): one object per erasure applied, versioned
+   * and retention-locked on GCS, append-only by key on Garage. The keyring reads it after a
+   * restore.
+   */
+  val ErasureLog: String = s"$PlatformProject.erasure-log"
+
   /** The longest project id whose backup bucket fits in a bucket's name. */
   val BackedUpProjectMaxLength: Int = MaxName - backup("").length
 

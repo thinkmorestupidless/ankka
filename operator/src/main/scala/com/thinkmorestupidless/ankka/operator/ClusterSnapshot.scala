@@ -75,6 +75,18 @@ object PodProblem:
       .exists(cs => cs.nonEmpty && cs.forall(c => Boolean.box(true) == c.getReady))
 
   /**
+   * The pods of a service, the newest first (2026-11-05). The API server lists them by name, and a
+   * pod's name ends in a hash of its template, so a pod left from an earlier generation came first
+   * as often as not: a rollout of an image with no build for the node, behind one of an image that
+   * could not be pulled, was reported as the pull. The detail names what the newest generation is
+   * doing; ties keep the name order, so the report does not move between passes.
+   */
+  def newestFirst(pods: Vector[Pod]): Vector[Pod] =
+    def created(pod: Pod): String =
+      Option(pod.getMetadata).flatMap(m => Option(m.getCreationTimestamp)).getOrElse("")
+    pods.zipWithIndex.sortBy((pod, at) => (created(pod), -at)).reverse.map(_._1)
+
+  /**
    * The first actionable problem: an init container's first, since nothing else starts until they
    * have — a wasm service's module image that cannot be pulled, or that exits non-zero rather than
    * copying its module, is the whole story of that pod.

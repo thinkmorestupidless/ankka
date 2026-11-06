@@ -2,7 +2,15 @@ package com.thinkmorestupidless.ankka.sidecar.wasm
 
 import ankka.protocol.v1.client.*
 import ankka.protocol.v1.payload as pb
-import ankka.protocol.v1.wasm.{ConfigReply, ConfigRequest, StreamTokens}
+import ankka.protocol.v1.wasm.{
+  ConfigReply,
+  ConfigRequest,
+  KeyringOpenReply,
+  KeyringOpenRequest,
+  KeyringSealReply,
+  KeyringSealRequest,
+  StreamTokens
+}
 import com.dylibso.chicory.runtime.{HostFunction, ImportValues, Instance, WasmFunctionHandle}
 import com.dylibso.chicory.wasm.types.{FunctionType, ValType}
 import com.thinkmorestupidless.ankka.core.PlatformVariables
@@ -92,6 +100,9 @@ final class HostImports(
     .addFunction(bytes("list_client_keys")(listClientKeys))
     .addFunction(bytes("revoke_client_key")(revokeClientKey))
     .addFunction(bytes("storage")(storage))
+    .addFunction(bytes("keyring_seal")(keyringSeal))
+    .addFunction(bytes("keyring_open")(keyringOpen))
+    .addFunction(bytes("erasure_ask")(erasureAsk))
     .addFunction(logFunction)
     .build()
 
@@ -243,6 +254,54 @@ final class HostImports(
     logic match
       case None    => StorageReply(StorageReply.Reply.Error(notReady)).toByteArray
       case Some(c) => await(c.storage(StorageRequest.parseFrom(asked)), commandTimeout).toByteArray
+
+  /**
+   * A personal field sealed and read back (protocol 1.23, feature 042), from any call into the
+   * module: an entity's command and its replay write and read them as a step does. Refused, by
+   * throwing, only outside a call into the module; a refusal of the field itself is the reply's.
+   */
+  // A replicated entity's fields are sealed and opened with its home's keys (FR-032): the home is
+  // the call site's, which the host knows from what it folds and runs, and the module is not told.
+  private[sidecar] def keyringSeal(asked: Array[Byte]): Array[Byte] =
+    val site = keyringSite("keyring_seal")
+    logic match
+      case None =>
+        KeyringSealReply(KeyringSealReply.Reply.Error(notReady)).toByteArray
+      case Some(c) =>
+        c.keyringSeal(KeyringSealRequest.parseFrom(asked), site.purpose.home).toByteArray
+
+  private[sidecar] def keyringOpen(asked: Array[Byte]): Array[Byte] =
+    val site = keyringSite("keyring_open")
+    logic match
+      case None =>
+        KeyringOpenReply(KeyringOpenReply.Reply.Error(notReady)).toByteArray
+      case Some(c) =>
+        c.keyringOpen(KeyringOpenRequest.parseFrom(asked), site.purpose.home).toByteArray
+
+  /**
+   * An erasure request asked as this service (protocol 1.23, feature 042), from where a call to
+   * another service may be made, since it waits on the control plane; refused, by throwing, from
+   * anywhere else. The control plane's refusal is the reply's `Error`.
+   */
+  private[sidecar] def erasureAsk(asked: Array[Byte]): Array[Byte] =
+    val site = CallSite.current.getOrElse(
+      throw ImportRefused(
+        "erasure_ask",
+        "erasure_ask may not be called outside a call into the module"
+      )
+    )
+    site.mayRequest.left.foreach(reason => throw ImportRefused("erasure_ask", reason))
+    logic match
+      case None    => AskErasureReply(AskErasureReply.Reply.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.askErasure(AskErasureRequest.parseFrom(asked)), commandTimeout).toByteArray
+
+  private def keyringSite(name: String): CallSite =
+    val site = CallSite.current.getOrElse(
+      throw ImportRefused(name, s"$name may not be called outside a call into the module")
+    )
+    site.mayKeyring(name).left.foreach(reason => throw ImportRefused(name, reason))
+    site
 
   /**
    * A call to another service, as this service (protocol 1.10). Refused, by throwing, anywhere but

@@ -69,6 +69,13 @@ delete, wait for no pods, apply.
 
 ## Traps
 
+- **A start waits a fixed time to be a member, and a slow start reaches the wait late** (2026-11-06,
+  feature 042). `awaitReady` ran 20 seconds after the service was built, so a wasm pod that spent
+  20 to 25 seconds compiling its module on half a CPU had 20 seconds left for bootstrap, which
+  needs its peers' management endpoints. Pods starting together missed it, exited 1 (`node did not
+  reach Up within 20 seconds (status Removed)`; Removed is a node's status *before* it joins) and
+  restarted one another indefinitely, a crash-looping peer also stalling the others' contact-point
+  decision. The kubernetes overlay waits `ankka.cluster.join-within = 120s`; locally it is 20s.
 - **TLS client authentication belongs to a listener, not a route**, and the kubelet holds no
   certificate — so once management requires the service's certificate, readiness needs a port of
   its own (7627, named `probe`). Renaming it in `Rendering` or the control plane's manifest leaves a

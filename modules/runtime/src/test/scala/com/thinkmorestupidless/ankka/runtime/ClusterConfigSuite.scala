@@ -45,6 +45,20 @@ class ClusterConfigSuite extends munit.FunSuite:
     assertEquals(config.getString("ankka.cluster.formation"), "join-self-or-seeds") // overlay only
   }
 
+  test("a starting node waits 20 seconds to join locally, and two minutes in a cluster") {
+    assertEquals(ClusterFormation.joinWithin(ClusterConfig.load(none)).toSeconds, 20L)
+    val kubernetes = ClusterConfig.load(
+      Map(
+        "ANKKA_CLUSTER_MODE"           -> "kubernetes",
+        "POD_IP"                       -> "10.1.2.3",
+        "ANKKA_CLUSTER_SERVICE"        -> "cart",
+        "ANKKA_CLUSTER_POD_SELECTOR"   -> "app.kubernetes.io/name=cart",
+        "ANKKA_CLUSTER_CONTACT_POINTS" -> "2"
+      )
+    )
+    assertEquals(ClusterFormation.joinWithin(kubernetes).toSeconds, 120L)
+  }
+
   test("an unknown mode fails at load, naming the modes that exist") {
     val e = intercept[IllegalArgumentException] {
       ClusterConfig.load(Map("ANKKA_CLUSTER_MODE" -> "nope"))

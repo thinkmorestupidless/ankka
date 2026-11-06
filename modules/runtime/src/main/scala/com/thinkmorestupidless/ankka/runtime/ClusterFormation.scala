@@ -36,6 +36,23 @@ object ClusterFormation:
 
   val ClusterTlsKey: String = "ankka.tls.cluster-directory"
 
+  /** How long a starting node waits to be a cluster member before its start fails. */
+  val JoinWithinKey: String = "ankka.cluster.join-within"
+
+  /**
+   * The wait for membership at start: the overlay's, or 20 seconds where none says. A node in a
+   * cluster joins through bootstrap, which needs its peers' management endpoints, and a pod whose
+   * start is slow (a WebAssembly module compiled on half a CPU) reaches the wait late: there a
+   * short wait ends starts that would have joined, and every restart begins the race again.
+   */
+  def joinWithin(config: com.typesafe.config.Config): scala.concurrent.duration.FiniteDuration =
+    if config.hasPath(JoinWithinKey) then
+      scala.concurrent.duration.FiniteDuration(
+        config.getDuration(JoinWithinKey).toMillis,
+        java.util.concurrent.TimeUnit.MILLISECONDS
+      )
+    else scala.concurrent.duration.DurationInt(20).seconds
+
   val JoinSelfOrSeeds: String = "join-self-or-seeds"
   val Bootstrap: String       = "bootstrap"
 

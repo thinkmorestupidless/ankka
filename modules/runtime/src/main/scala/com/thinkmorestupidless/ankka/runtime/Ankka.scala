@@ -667,7 +667,7 @@ final class ServiceBuilder private[ankka] (
 
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
-    service.awaitReady()
+    service.awaitReady(ClusterFormation.joinWithin(system.settings.config))
     service.registerShutdown()
     // Before any projection publishes (feature 041): the line this database is on is recorded, and
     // every line it has been on is read, so a message's id is made from a complete list.

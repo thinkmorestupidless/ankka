@@ -171,6 +171,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
 | `ankka.cluster.formation` | `bootstrap` | kubernetes mode |
 | `ankka.join-self-if-no-seed-nodes` | `off` | kubernetes mode |
+| `ankka.cluster.join-within` | `120s` | kubernetes mode |
 | `ankka.tls.cluster-directory` | `"/var/run/secrets/ankka/cluster"` | kubernetes mode |
 | `ankka.tls.service-directory` | `"/var/run/secrets/ankka/service"` | kubernetes mode |
 | `ankka.http.tls.enabled` | `on` | kubernetes mode |

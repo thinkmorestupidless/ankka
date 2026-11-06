@@ -936,7 +936,33 @@ spec:
         during.take(60).map(line(_, t0)).mkString("\n") +
         s"\nlogs of $service from 2s before it until 2s after it ended:\n" + logs
     }
-    windows.mkString + healthyText
+    windows.mkString + replacedEnds(service, before) + healthyText
+
+  /**
+   * How each pod the rollout replaced ended, from its followed log: a pod that left the cluster
+   * says so; one that went unreachable while still Up showed nothing in the slow windows.
+   */
+  private def replacedEnds(service: String, before: Set[String]): String =
+    before.toVector.sorted.map { pod =>
+      val (_, out) = nodeExec(
+        "sh",
+        "-c",
+        s"grep -vE 'ClusterSingletonManager|Probing \\[|route (GET|POST|PUT|DELETE)' " +
+          s"/tmp/rollout-logs/$service/$pod.log 2>/dev/null | tail -n 40"
+      )
+      s"\nthe last lines of replaced pod $pod:\n" + (if out.isBlank then "  (none)" else out)
+    }.mkString + {
+      // Events outlive the pods they name: a kill, an OOM or a failed preStop says why one went.
+      val (_, events) = nodeExec(
+        "sh",
+        "-c",
+        s"kubectl -n $Namespace get events --sort-by=.lastTimestamp " +
+          "-o custom-columns=T:.lastTimestamp,R:.reason,O:.involvedObject.name,M:.message " +
+          s"| grep -E '$service' | grep -E 'Killing|OOM|PreStop|Unhealthy|BackOff|Evict' | tail -n 30"
+      )
+      s"\nevents of $service's pods (kills, OOM, preStop, probes):\n" +
+        (if events.isBlank then "  (none)" else events)
+    }
 
   /** Lines that `followLogs` kept for `service` stamped between the two instants, at most 300. */
   private def logsBetween(service: String, fromNanos: Long, toNanos: Long): String =

@@ -886,6 +886,18 @@ spec:
          |done""".stripMargin
     // Detached, with nothing inherited: an exec returns only once every holder of its output closes.
     nodeExec("sh", "-c", s"( $script ) > /dev/null 2>&1 < /dev/null &"): Unit
+    // Each pod's container, sampled every second from its own cgroup: the memory it holds against
+    // its limit, how often it hit that limit, and how long its CPU was throttled. A pod at its limit
+    // stalls rather than failing, and a stall is what a refused request in a rollout looks like.
+    val sampler =
+      s"""while true; do
+         |  for p in $$(kubectl -n $Namespace get pods -o name | grep -E '^pod/$service-[a-z0-9]+-[a-z0-9]+$$'); do
+         |    v=$$(timeout 3 kubectl -n $Namespace exec "$$p" -c $service -- sh -c 'echo $$(cat /sys/fs/cgroup/memory.current) $$(grep -E "^max " /sys/fs/cgroup/memory.events | cut -d" " -f2) $$(grep throttled_usec /sys/fs/cgroup/cpu.stat | cut -d" " -f2)' 2>/dev/null)
+         |    [ -n "$$v" ] && echo "$$(date -u +%H:%M:%S) $${p#pod/} $$v" >> $dir/memory.samples
+         |  done
+         |  sleep 1
+         |done""".stripMargin
+    nodeExec("sh", "-c", s"( $sampler ) > /dev/null 2>&1 < /dev/null &"): Unit
 
   /**
    * Where a refused request's ten seconds went: every trace in which a span of `service` took nine
@@ -936,7 +948,29 @@ spec:
         during.take(60).map(line(_, t0)).mkString("\n") +
         s"\nlogs of $service from 2s before it until 2s after it ended:\n" + logs
     }
-    windows.mkString + replacedEnds(service, before) + healthyText
+    windows.mkString + replacedEnds(service, before) + memoryReport(service, before) + healthyText
+
+  /**
+   * Each pod's memory through the rollout, from `followLogs`'s samples: its peak against the limit,
+   * how many times it reached the limit, and its CPU throttling, first sample to last.
+   */
+  private def memoryReport(service: String, before: Set[String]): String =
+    val (_, out) =
+      nodeExec("sh", "-c", s"cat /tmp/rollout-logs/$service/memory.samples 2>/dev/null")
+    val rows = out.linesIterator.map(_.trim.split("\\s+").toVector).filter(_.size == 5).toVector
+    if rows.isEmpty then return "\nno memory samples of the service's pods"
+    val lines = rows.groupBy(_(1)).toVector.sortBy(_._1).map { (pod, samples) =>
+      def num(r: Vector[String], i: Int) = r(i).toLongOption.getOrElse(0L)
+      val peak                           = samples.maxBy(num(_, 2))
+      val first                          = samples.head
+      val last                           = samples.last
+      val age                            = if before.contains(pod) then "old" else "new"
+      f"  $pod($age): peak ${num(peak, 2) / 1048576.0}%.0f MiB at ${peak(0)}, " +
+        s"limit reached ${num(last, 3)} times (${num(last, 3) - num(first, 3)} while sampled), " +
+        s"throttled ${(num(last, 4) - num(first, 4)) / 1000} ms over ${first(0)}..${last(0)} " +
+        s"(${samples.size} samples)"
+    }
+    lines.mkString(s"\nmemory of $service's pods (cgroup; limit 512 MiB):\n", "\n", "")
 
   /**
    * How each pod the rollout replaced ended, from its followed log: a pod that left the cluster

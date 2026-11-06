@@ -745,8 +745,8 @@ lazy val sidecar = project
     // restarts it and the reason reaches the service's status, rather than leaving the thread it
     // hit dead.
     Universal / javaOptions ++= Seq(
-      "-J-XX:MaxRAMPercentage=35",
-      "-J-XX:MinRAMPercentage=35",
+      "-J-XX:MaxRAMPercentage=30",
+      "-J-XX:MinRAMPercentage=30",
       "-J-XX:+ExitOnOutOfMemoryError"
     ),
     // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own

@@ -64,7 +64,10 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
   pod** (2026-11-05, feature 042). Chicory compiled the Rust conformance reference in about 100 MiB
   alone, against a 128 MiB heap at the default 512Mi; 042's cases added 8 MiB and the wasm pod ran
   out of heap during start, never ready, in every `SidecarClusterSuite` wasm case. The image states
-  35% of the container (`Universal / javaOptions` in `build.sbt`) and exits on an exhausted heap.
+  30% of the container (`Universal / javaOptions` in `build.sbt`) and exits on an exhausted heap.
+  35% passed every start and failed the rolling restart in 3 runs of 3 (the last old pod's shutdown
+  stalled ten seconds in `cluster-exiting`, and requests waiting on its shards with it), where main
+  at a quarter passed; 30% passed. Room beside the heap matters under load, not only at start.
   Half was tried first and is too much: after the compile the JVM commits about 130 MiB beside
   the heap (metaspace, code, symbols, arenas, by `-XX:NativeMemoryTracking`) before threads and
   direct buffers, and the pods sat at their limit, stalled, never joined within `awaitReady`'s 20

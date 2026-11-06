@@ -735,13 +735,15 @@ lazy val sidecar = project
     // /opt/docker, is not the image user's to write, and a store it cannot write stops the start. A
     // mounted ANKKA_STORAGE_DIR replaces it; in a cluster the store is S3 and this is never read.
     dockerEnvVars := Map("ANKKA_STORAGE_DIR" -> "/tmp/ankka-storage"),
-    // The heap is 35% of the container's memory, stated (2026-11-06, feature 042). Left to the JVM
+    // The heap is 30% of the container's memory, stated (2026-11-06, feature 042). Left to the JVM
     // it was a quarter, 128 MiB at the default 512Mi, and Chicory's compile of a module is the
     // peak: the Rust conformance reference needs about 110 MiB for it alone (97 to 104 before
     // 042's cases), so the wasm pod ran out of heap during start and was never ready. Half was too
     // much the other way: once compiled, the JVM commits about 130 MiB beside the heap (metaspace,
     // code, symbols, arenas) before threads, direct buffers and libc, and a pod at its limit stalls
-    // for a minute at a time and is killed. An exhausted heap ends the process, so the kubelet
+    // for a minute at a time and is killed. 35% still failed a rolling restart: the last old pod's
+    // shutdown stalled ten seconds and its peers' requests with it, which main at a quarter never
+    // did; 30% passed. An exhausted heap ends the process, so the kubelet
     // restarts it and the reason reaches the service's status, rather than leaving the thread it
     // hit dead.
     Universal / javaOptions ++= Seq(

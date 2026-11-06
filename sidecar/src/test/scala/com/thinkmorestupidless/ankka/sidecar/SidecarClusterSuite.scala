@@ -279,11 +279,28 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
                     _.linesIterator
                       // Bootstrap's probes of peers not yet up are expected, and many.
                       .filterNot(l => l.contains("Probing [") || l.contains("probing-failure"))
+                      // With the errors, how the node joined and left: a start that fails waiting
+                      // for Up says only the status it ended in.
                       .filter(l =>
                         l.contains(" ERROR ") || l.contains("Exception") ||
-                          l.contains("Caused by") || l.contains("OutOfMemory")
+                          l.contains("Caused by") || l.contains("OutOfMemory") ||
+                          l.contains("SBR") || l.contains("BootstrapCoordinator - Joining") ||
+                          (l.contains("o.a.p.cluster.Cluster") &&
+                            List(
+                              "Welcome",
+                              "JOINING",
+                              "Up]",
+                              "Removed",
+                              "Exiting",
+                              "refused",
+                              "unsuccessful",
+                              "Shutting down",
+                              "Leader",
+                              "UNREACHABLE"
+                            )
+                              .exists(l.contains))
                       )
-                      .take(12)
+                      .take(30)
                       .mkString("\n")
                   )
                   .filter(_.nonEmpty)

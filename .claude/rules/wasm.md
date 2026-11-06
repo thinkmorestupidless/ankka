@@ -64,8 +64,12 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
   pod** (2026-11-05, feature 042). Chicory compiled the Rust conformance reference in about 100 MiB
   alone, against a 128 MiB heap at the default 512Mi; 042's cases added 8 MiB and the wasm pod ran
   out of heap during start, never ready, in every `SidecarClusterSuite` wasm case. The image states
-  half the container (`Universal / javaOptions` in `build.sbt`) and exits on an exhausted heap.
-  Measure a module with `ModuleLoader.load` under `-Xmx` before blaming the cluster.
+  35% of the container (`Universal / javaOptions` in `build.sbt`) and exits on an exhausted heap.
+  Half was tried first and is too much: after the compile the JVM commits about 130 MiB beside
+  the heap (metaspace, code, symbols, arenas, by `-XX:NativeMemoryTracking`) before threads and
+  direct buffers, and the pods sat at their limit, stalled, never joined within `awaitReady`'s 20
+  seconds, and crash-looped. Measure a module with `ModuleLoader.load` under `-Xmx`, and the whole
+  JVM with `-XX:+PrintNMTStatistics` under `docker run --memory 512m`, before blaming the cluster.
 - **The conformance reference declares an erasure handler, and a cluster with erasure off refuses
   it at start** (2026-11-05, feature 042). Every reference declares one because the conformance
   suite compares them; a runtime in a cluster reaches a keyring only through

@@ -62,7 +62,7 @@ platform=linux-x64                                   # or linux-arm64, macos-arm
 base="https://github.com/thinkmorestupidless/ankka/releases/download/v$ankka_version"
 curl -LO "$base/ankka-cli-$ankka_version-$platform.tar.gz" -LO "$base/ankka-cli-$ankka_version-$platform.tar.gz.sha256"
 shasum -a 256 --check "ankka-cli-$ankka_version-$platform.tar.gz.sha256"
-tar -xzf "ankka-cli-$ankka_version-$platform.tar.gz"# one file, ankka: put it on your PATH
+tar -xzf "ankka-cli-$ankka_version-$platform.tar.gz" # one file, ankka: put it on your PATH
 ./ankka version
 ```
 

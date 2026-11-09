@@ -30,11 +30,15 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
     testKit.componentClient.forEventSourcedEntity(EntityId(id))
 
   test("a command is persisted and visible to a later read") {
-    val id = "cart-persist"
-    assertEquals(
-      cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2)),
-      Done
-    )
+    val id              = "cart-persist"
+    val componentClient = testKit.componentClient
+    // docs:start call-site
+    val added = componentClient
+      .forEventSourcedEntity(EntityId(id))
+      .call(ShoppingCartEntity.addItem)
+      .invoke(LineItem("p1", "Widget", 2))
+    // docs:end call-site
+    assertEquals(added, Done)
     assertEquals(
       cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p2", "Gadget", 1)),
       Done

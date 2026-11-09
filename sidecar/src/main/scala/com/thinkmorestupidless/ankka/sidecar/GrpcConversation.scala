@@ -49,6 +49,25 @@ import scala.util.control.NonFatal
 object GrpcConversation:
 
   /**
+   * A stream's requests, written by one thread at a time (#87). A grpc-java `StreamObserver` is not
+   * thread-safe, and a conversation is written from several: a workflow's command on the actor's
+   * thread while its step is sent from the step's virtual thread, and a close from the timeout
+   * scheduler. Two writes at once interleave inside one framer, which then throws ("Failed to frame
+   * message") and cancels the call, so the step's stream closed with no fault in the process.
+   */
+  private[sidecar] final class Serialised[A](underlying: StreamObserver[A])
+      extends StreamObserver[A]:
+    // A lock rather than a monitor: a step writes from a virtual thread, which a monitor pins.
+    private val lock                       = java.util.concurrent.locks.ReentrantLock()
+    private def held(write: => Unit): Unit =
+      lock.lock()
+      try write
+      finally lock.unlock()
+    def onNext(value: A): Unit      = held(underlying.onNext(value))
+    def onError(t: Throwable): Unit = held(underlying.onError(t))
+    def onCompleted(): Unit         = held(underlying.onCompleted())
+
+  /**
    * A fault as one line: its message, then each cause's class and message, outermost first. A
    * `StatusRuntimeException` reads `CODE: description`, which is its message; the cause chain is
    * bounded, since a cause can refer back to its own exception.
@@ -183,23 +202,29 @@ final class GrpcConversation(
 
     init.kind match
       case ComponentKind.EventSourcedEntity =>
-        val out = eventSourced.handle(new StreamObserver[EventSourcedOut]:
-          def onNext(o: EventSourcedOut): Unit = o.message match
-            case EventSourcedOut.Message.Reply(r) =>
-              pending.getAndSet(None) match
-                case Some(p) => complete(p.reply, Right(fromEventSourcedReply(r)))
-                case None    => dropped("reply", r.commandId)
-            case EventSourcedOut.Message.Failure(f) =>
-              pending.getAndSet(None) match
-                case Some(p) => complete(p.reply, Left(fromFailure(f)))
-                case None    => dropped("failure", f.commandId)
-            case EventSourcedOut.Message.Empty => ()
-          def onError(t: Throwable): Unit =
-            closed = true
-            failPending(closedBy(init, t))
-          def onCompleted(): Unit =
-            closed = true
-            failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable)))
+        val out = GrpcConversation.Serialised(
+          eventSourced.handle(
+            new StreamObserver[EventSourcedOut]:
+              def onNext(o: EventSourcedOut): Unit = o.message match
+                case EventSourcedOut.Message.Reply(r) =>
+                  pending.getAndSet(None) match
+                    case Some(p) => complete(p.reply, Right(fromEventSourcedReply(r)))
+                    case None    => dropped("reply", r.commandId)
+                case EventSourcedOut.Message.Failure(f) =>
+                  pending.getAndSet(None) match
+                    case Some(p) => complete(p.reply, Left(fromFailure(f)))
+                    case None    => dropped("failure", f.commandId)
+                case EventSourcedOut.Message.Empty => ()
+              def onError(t: Throwable): Unit =
+                closed = true
+                failPending(closedBy(init, t))
+              def onCompleted(): Unit =
+                closed = true
+                failPending(
+                  CommandError("the process ended the conversation", ErrorCode.Unavailable)
+                )
+          )
+        )
         out.onNext(
           EventSourcedIn(
             EventSourcedIn.Message.Init(
@@ -284,7 +309,7 @@ final class GrpcConversation(
               failPending(CommandError("conversation closed", ErrorCode.Unavailable))
 
       case ComponentKind.KeyValueEntity =>
-        val out = keyValue.handle(new StreamObserver[KeyValueOut]:
+        val out = GrpcConversation.Serialised(keyValue.handle(new StreamObserver[KeyValueOut]:
           def onNext(o: KeyValueOut): Unit = o.message match
             case KeyValueOut.Message.Reply(r) =>
               pending.getAndSet(None) match
@@ -300,7 +325,7 @@ final class GrpcConversation(
             failPending(closedBy(init, t))
           def onCompleted(): Unit =
             closed = true
-            failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable)))
+            failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable))))
         out.onNext(
           KeyValueIn(
             KeyValueIn.Message.Init(
@@ -353,7 +378,7 @@ final class GrpcConversation(
               failPending(CommandError("conversation closed", ErrorCode.Unavailable))
 
       case ComponentKind.Workflow =>
-        val out = workflow.handle(new StreamObserver[WorkflowOut]:
+        val out = GrpcConversation.Serialised(workflow.handle(new StreamObserver[WorkflowOut]:
           def onNext(o: WorkflowOut): Unit = o.message match
             case WorkflowOut.Message.Reply(r) =>
               pending.getAndSet(None) match
@@ -379,7 +404,7 @@ final class GrpcConversation(
             failPending(closedBy(init, t))
           def onCompleted(): Unit =
             closed = true
-            failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable)))
+            failPending(CommandError("the process ended the conversation", ErrorCode.Unavailable))))
         out.onNext(
           WorkflowIn(
             WorkflowIn.Message.Init(

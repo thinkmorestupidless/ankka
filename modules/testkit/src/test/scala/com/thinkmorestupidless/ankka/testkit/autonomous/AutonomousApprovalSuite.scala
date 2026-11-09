@@ -136,10 +136,14 @@ class AutonomousApprovalSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("an autonomous agent's approved tool call runs once and the task goes on") {
-    val (taskId, request) = waitingTask("approver")
+    val (taskId, request) = waitingTask("ops-1")
     model.expectCompleteTaskText("restarted the cart"): Unit
 
-    instance("approver").decide(Decision.approved(request.id, "dana")): Unit
+    // docs:start decide
+    client
+      .forAutonomousAgent(Operator)("ops-1")
+      .decide(Decision.approved(request.id, by = "dana")): Unit
+    // docs:end decide
 
     val done = kit.awaitTask(taskId, Tasks.summary)
     assertEquals(done.status, TaskStatus.Completed)

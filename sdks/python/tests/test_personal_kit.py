@@ -77,9 +77,11 @@ async def test_a_personal_field_is_sealed_erased_and_refused_in_an_outage_throug
             await kit.keyring.erase("member/8c1f")
         await kit.keyring.recover()
 
+        # docs:start erase-and-assert
         seq = await kit.keyring.erase("member/8c1f")
         assert seq >= 1
         await kit.restart()
         member = kit.client.for_event_sourced_entity("member", "8c1f")
         assert await member.call("email").invoke(reply=str) == "erased"
         await kit.assert_no_personal_value("ada@example.com", "grace@example.com")
+        # docs:end erase-and-assert

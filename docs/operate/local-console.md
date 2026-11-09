@@ -41,9 +41,14 @@ appear.
 A service is listed under the name it was started with. For a Scala service that is the name passed to
 `start`, which defaults to `ankka`, so give each service its own when you run several:
 
+<!-- languages: scala; `start(name = ...)` is the Scala runtime's; a service beside a sidecar is named by `ANKKA_SERVICE_NAME` on the sidecar, with nothing in code -->
+/// tab | Scala
+
 ```scala
 Ankka.service.register(ShoppingCartEntity.descriptor).start(name = "cart")
 ```
+
+///
 
 ## Components
 

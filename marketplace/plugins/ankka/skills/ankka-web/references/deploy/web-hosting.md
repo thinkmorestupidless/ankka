@@ -66,7 +66,8 @@ with `/api/cart` mounted to `cart`, a browser's `GET /api/cart/carts/c1` reaches
 mounted service needs no address of its own: it is never exposed.
 
 A request under a mount is the internet's. The mounted service is told the caller `Gateway`, so it
-serves the request only if its access rule admits the internet:
+serves the request only if its access rule admits the internet. The rule is written the same way in
+every language; [Name who may call](../build/http-endpoints.md#name-who-may-call) shows it in each:
 
 ```scala
 val acl: Acl = Acl.allowCallers(Callers.internet, Callers.service("shop-web"))

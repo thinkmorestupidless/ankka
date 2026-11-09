@@ -460,13 +460,17 @@ impl ReplicatedVehicle {
         effects::persist(StepAdded { step }).then_reply_value(placement)
     }
 
+    // docs:start hand-over
     fn hand_over(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
         effects::hand_over_to(target.clone()).then_reply_value(target)
     }
+    // docs:end hand-over
 
+    // docs:start replicate-to
     fn replicate_to(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
         effects::replicate_to(target.clone()).then_reply_value(target)
     }
+    // docs:end replicate-to
 
     fn stop_replicating_to(
         _: &VehicleRecord,
@@ -525,6 +529,7 @@ impl EventSourcedEntity for ReplicatedVehicle {
     }
 }
 
+// docs:start vehicle-feed
 /// Publishes nothing; declared to show a consumer given mirrored changes discovers so.
 pub struct VehicleFeed;
 
@@ -548,6 +553,7 @@ impl Consumer for VehicleFeed {
         consumer::ignore()
     }
 }
+// docs:end vehicle-feed
 
 /// Drives the replicated vehicle: a step, a read, and the three replication changes.
 pub struct VehiclesEndpoint;
@@ -1874,6 +1880,7 @@ impl Endpoint for ConformanceEndpoint {
     }
 }
 
+// docs:start callers-endpoint
 /// Caller-naming ACLs: the suite names callers through the local caller header.
 pub struct CallersEndpoint;
 
@@ -1908,6 +1915,7 @@ impl Endpoint for CallersEndpoint {
             .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
     }
 }
+// docs:end callers-endpoint
 
 /// Autonomous agents: tasks run, read and cancelled; instances driven and read.
 pub struct AutonomousEndpoint;
@@ -1985,6 +1993,7 @@ impl AutonomousEndpoint {
         Ok(Done)
     }
 
+    // docs:start autonomous-tasks
     /// `{"instructions": "...", "dependsOn": ["..."]}`: creates without running.
     fn create_task(request: &Request, body: Create) -> Result<Created, HttpProblem> {
         AutonomousEndpoint::only_answer(request)?;
@@ -2005,6 +2014,7 @@ impl AutonomousEndpoint {
         })
     }
     // docs:end autonomous-instance
+    // docs:end autonomous-tasks
 
     fn operate(request: &Request, (): ()) -> Result<Done, HttpProblem> {
         let instance = request
@@ -2054,6 +2064,7 @@ impl Endpoint for AutonomousEndpoint {
     }
 }
 
+// docs:start private-endpoint
 pub struct PrivateEndpoint;
 
 impl Endpoint for PrivateEndpoint {
@@ -2083,6 +2094,7 @@ impl Endpoint for PrivateEndpoint {
             })
     }
 }
+// docs:end private-endpoint
 
 /// The guest shape the suite asks for, through the `config` import.
 pub fn shape() -> Shape {

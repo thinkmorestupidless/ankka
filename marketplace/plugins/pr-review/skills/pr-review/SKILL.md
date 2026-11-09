@@ -230,8 +230,13 @@ new warnings suppressed rather than fixed?
 **Documentation, naming and readability.** Do names say what the thing is, fully, with no
 customer-specific information? Do comments say why, not what, and is a `TODO` owned? Are touched
 comments and doc strings still true? Does a new public symbol have a doc comment where the codebase
-documents exports? Do user-facing docs and the limitations page change with behaviour? Is
-formatting left to the formatter, with at most one comment if it did not run?
+documents exports? Do user-facing docs and the limitations page change with behaviour? Where the
+project ships in several languages — SDKs, client libraries, a template per language — does every
+documented sample of the change appear in each language that can do it, in the project's own tab or
+section convention, with any language left out named beside its reason? A feature documented in one
+language of several is not done: a should-fix at least, and blocking where the project's rules (a
+`REVIEW.md`, a contributing page, a docs check) require every language. Is formatting left to the
+formatter, with at most one comment if it did not run?
 
 **Commit and PR hygiene.** Is the title an imperative or declarative sentence that stands alone in
 `git log`? Does the body say the problem and why this approach? Is it one logical change, each

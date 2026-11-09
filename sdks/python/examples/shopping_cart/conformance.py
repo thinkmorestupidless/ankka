@@ -992,9 +992,19 @@ async def _swallow(awaitable: object) -> None:
 class CallersEndpoint(Endpoint):
     """Caller-naming ACLs: the suite names callers through the local caller header."""
 
+    # docs:start allow-callers
     prefix = "/callers"
+    # Only the internet and the orders service in this project; any other caller is refused 403.
     acl = Acl.allow_callers(Callers.internet, Callers.service("orders"))
 
+    # Another instance of this very service, and nothing else: a route's own ACL replaces the
+    # endpoint's for that route.
+    @get("/self", acl=Acl.allow_callers(Callers.self_))
+    def only_self(self) -> str:
+        return "self"
+    # docs:end allow-callers
+
+    # docs:start who-is-calling
     @get("/whoami")
     def whoami(self) -> str:
         c = self.request.caller
@@ -1003,10 +1013,7 @@ class CallersEndpoint(Endpoint):
         if isinstance(c, MachineCaller):
             return f"machine:{c.organization}/{c.name}"
         return "gateway" if isinstance(c, Gateway) else "local"
-
-    @get("/self", acl=Acl.allow_callers(Callers.self_))
-    def only_self(self) -> str:
-        return "self"
+    # docs:end who-is-calling
 
     @get("/granted", acl=Acl.allow_callers(Callers.granted))
     def granted(self) -> str:
@@ -1352,6 +1359,7 @@ class JoinedRow:
     notes: list[str] = field(default_factory=list)
 
 
+# docs:start keyed-view
 class JoinedRows(KeyedView[JoinedRow]):
     """A keyed view of two sources: the left names a row ``key|holding`` and notes itself on it; the
     right finds every row holding it by asking the view's own query, and notes itself on each."""
@@ -1374,6 +1382,7 @@ class JoinedRows(KeyedView[JoinedRow]):
     async def on_right(self, event: JoinedNote) -> KeyedViewEffect:
         theirs = await self.rows.ask("of-right", holding=self.subject)
         return self.effects.update_rows({row.key: JoinedRow(row.key, row.holding, [*row.notes, "right"]) for row in theirs})
+# docs:end keyed-view
 
 
 class JoinedEndpoint(Endpoint):

@@ -78,8 +78,85 @@ The replication set is the list of installations that hold the entity: its home 
 entity's set is its home alone. A handler adds an installation with `replicateTo` and removes one with
 `stopReplicatingTo`, beside any events it persists:
 
+**Scala**
+
 ```scala
 effects.persist(Allotted(dealer)).replicateTo(dealer).thenReply(_ => Done)
+```
+
+**Java**
+
+```java
+/** Allots the ledger to an installation, which holds it from now on. */
+@Command("share")
+public Effect<Done> share(String installation) {
+  return effects().replicateTo(installation).thenDone();
+}
+
+/** The installation keeps what it holds and mirrors no more. */
+@Command("unshare")
+public Effect<Done> unshare(String installation) {
+  return effects().stopReplicatingTo(installation).thenDone();
+}
+
+/** Persists one more event, and then the home is the installation named from now on. */
+@Command("enter-and-hand-over")
+public Effect<Done> enterAndHandOver(String installation) {
+  return effects().persist(new Entered("handing over")).handOverTo(installation).thenDone();
+}
+
+/** Its home is the installation named from now on. */
+@Command("hand-over")
+public Effect<Done> handOver(String installation) {
+  return effects().handOverTo(installation).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+@Command("create")
+fun create(input: CreateVehicle): Effect<Receipt> = effects {
+    var persisting = persist(VehicleEvent.Created(context().entityId()))
+    for (installation in input.replicateTo) persisting = persisting.replicateTo(installation)
+    persisting thenReply receipt("create")
+}
+```
+
+**Python**
+
+```python
+return self.effects.persist(StepAdded("allotted")).replicate_to(target).stop_replicating_to("factory").then_reply(
+    lambda _: target
+)
+```
+
+**TypeScript**
+
+```ts
+return this.effects.persist({ type: "Allotted", dealer }).replicateTo(dealer).thenReply(() => done)
+```
+
+**Rust**
+
+```rust
+fn replicate_to(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
+    effects::replicate_to(target.clone()).then_reply_value(target)
+}
+```
+
+**Go**
+
+```go
+ankka.Command("hand-over", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().HandOverTo(t)
+})),
+ankka.Command("replicate-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().ReplicateTo(t)
+})),
+ankka.Command("stop-replicating-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().StopReplicatingTo(t)
+})),
 ```
 
 An installation added to the set copies the whole history from the first record and is a follower once
@@ -94,8 +171,94 @@ installation, or asks for a handover and a change to the set at once.
 A handover makes another installation in the replication set the home. A handler asks for it with
 `handOverTo(installation)`, persisting events of its own beside it or none:
 
+**Scala**
+
 ```scala
 effects.handOverTo("vienna").thenReply(_ => Done)
+```
+
+**Java**
+
+```java
+/** Allots the ledger to an installation, which holds it from now on. */
+@Command("share")
+public Effect<Done> share(String installation) {
+  return effects().replicateTo(installation).thenDone();
+}
+
+/** The installation keeps what it holds and mirrors no more. */
+@Command("unshare")
+public Effect<Done> unshare(String installation) {
+  return effects().stopReplicatingTo(installation).thenDone();
+}
+
+/** Persists one more event, and then the home is the installation named from now on. */
+@Command("enter-and-hand-over")
+public Effect<Done> enterAndHandOver(String installation) {
+  return effects().persist(new Entered("handing over")).handOverTo(installation).thenDone();
+}
+
+/** Its home is the installation named from now on. */
+@Command("hand-over")
+public Effect<Done> handOver(String installation) {
+  return effects().handOverTo(installation).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** Ships the vehicle: its home is the dealership's installation from now on. */
+@Command("hand-over")
+fun handOver(installation: String): Effect<Receipt> = effects {
+    handOverTo(installation) thenReply receipt("hand-over")
+}
+
+/** Allots the vehicle to a dealership, whose installation holds it from now on. */
+@Command("replicate-to")
+fun replicateTo(installation: String): Effect<Receipt> = effects {
+    replicateTo(installation) thenReply receipt("replicate-to")
+}
+
+/** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
+@Command("stop-replicating-to")
+fun stopReplicatingTo(installation: String): Effect<Receipt> = effects {
+    stopReplicatingTo(installation) thenReply receipt("stop-replicating-to")
+}
+```
+
+**Python**
+
+```python
+return self.effects.hand_over_to(target).then_reply(lambda _: target)
+```
+
+**TypeScript**
+
+```ts
+return this.effects.handOverTo(installation).thenReply(() => done)
+```
+
+**Rust**
+
+```rust
+fn hand_over(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
+    effects::hand_over_to(target.clone()).then_reply_value(target)
+}
+```
+
+**Go**
+
+```go
+ankka.Command("hand-over", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().HandOverTo(t)
+})),
+ankka.Command("replicate-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().ReplicateTo(t)
+})),
+ankka.Command("stop-replicating-to", replicate(func(t string) ankka.PersistBuilder[VehicleRecord, StepAdded, string] {
+	return vehicle[string]().StopReplicatingTo(t)
+})),
 ```
 
 The old home records in the entity's journal that a handover is waiting, and answers the caller then. By

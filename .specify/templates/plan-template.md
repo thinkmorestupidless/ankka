@@ -30,6 +30,8 @@
 
 **Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
 
+**Languages reached**: [which SDKs the feature is visible in: every one of Scala, Java, Kotlin, Python, TypeScript, Rust and Go unless a limitation excludes one, with that limitation named; each one reached needs a tested sample and a tab on every page that documents the feature]
+
 **Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
 
 **Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]

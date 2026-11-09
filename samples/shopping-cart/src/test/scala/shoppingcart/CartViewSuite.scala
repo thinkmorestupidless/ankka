@@ -67,6 +67,19 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
     assert(!row.checkedOut)
   }
 
+  test("a row is read by its cart id, and every row at once") {
+    val id = "view-read"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))
+    val _  = eventually("the cart row appears")(rows.get(id))
+
+    // docs:start get-and-all
+    val row      = rows.get(id) // one row, or None
+    val everyRow = rows.all()   // every row, up to 1000
+    // docs:end get-and-all
+    assertEquals(row.map(_.cartId), Some(id))
+    assert(everyRow.exists(_.cartId == id), everyRow.toString)
+  }
+
   test("the view folds repeated adds the way the entity does") {
     val id = "view-fold"
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))

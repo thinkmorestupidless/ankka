@@ -226,6 +226,8 @@ impl ShoppingCart {
         effects::persist(ShoppingCartEvent::CheckedOut).then_reply(|cart: &Cart| cart.clone())
     }
 
+    /// Records the discard and then deletes the cart, so the same id starts again empty. A
+    /// checked-out cart is a record of an order and is not discarded.
     fn discard(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Done> {
         if cart.checked_out {
             return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
@@ -268,6 +270,8 @@ impl EventSourcedEntity for ShoppingCart {
         }
     }
 
+    /// Every handler under its wire name: the name a caller and a stored timer use, which does
+    /// not change when the Rust function is renamed.
     fn handlers() -> Handlers<ShoppingCart> {
         Handlers::new()
             .command("add-item", ShoppingCart::add_item)
@@ -388,6 +392,7 @@ impl Endpoint for CartApi {
             .get("/{cartId}/checkouts", CartApi::checkout_status)
             .post("/ask/{session}", CartApi::ask)
             .get("/{cartId}/checkout-log", CartApi::checkout_log)
+            .post("/{cartId}/items/explained", CartApi::add_item_or_explain)
     }
 }
 ```

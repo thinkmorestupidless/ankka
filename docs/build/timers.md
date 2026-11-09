@@ -54,47 +54,6 @@ final class OrderTimers(context: TimedActionContext) extends TimedAction:
 
 ///
 
-/// tab | Python
-
-```python
-from ankka import Done
-from ankka.effects.timed_action import TimedActionEffect
-from ankka.timed_action import TimedAction, action
-
-
-class Reminder(TimedAction):
-    component_id = "reminder"
-
-    @action("nudge")
-    async def nudge(self, cart_id: str) -> TimedActionEffect:
-        attempts = int(self.metadata.get("ankka.attempts") or "0")
-        if attempts > 5:
-            return self.effects.done()          # give up quietly rather than retry forever
-        assert self.client is not None
-        await self.client.for_key_value_entity("reminders", cart_id).call("record").invoke(reply=Done)
-        return self.effects.done()
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-import { TimedAction, action, s } from "ankka"
-
-export class Reminder extends TimedAction {
-  static readonly componentId = "reminder"
-  static readonly actions = {
-    nudge: action("nudge", s.string, async (r: Reminder, cartId) => {
-      await r.client.of(Reminders, cartId).call(Reminders.handlers.record).invoke()
-      return r.effects.done()
-    }),
-  }
-}
-```
-
-///
-
 /// tab | Java
 
 <!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/Reminder.java#timed-action -->
@@ -156,6 +115,60 @@ class Reminder : TimedAction() {
 
 ///
 
+/// tab | Python
+
+```python
+from ankka import Done
+from ankka.effects.timed_action import TimedActionEffect
+from ankka.timed_action import TimedAction, action
+
+
+class Reminder(TimedAction):
+    component_id = "reminder"
+
+    @action("nudge")
+    async def nudge(self, cart_id: str) -> TimedActionEffect:
+        attempts = int(self.metadata.get("ankka.attempts") or "0")
+        if attempts > 5:
+            return self.effects.done()          # give up quietly rather than retry forever
+        assert self.client is not None
+        await self.client.for_key_value_entity("reminders", cart_id).call("record").invoke(reply=Done)
+        return self.effects.done()
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+import { TimedAction, action, s } from "ankka"
+
+export class Reminder extends TimedAction {
+  static readonly componentId = "reminder"
+  static readonly actions = {
+    nudge: action("nudge", s.string, async (r: Reminder, cartId) => {
+      await r.client.of(Reminders, cartId).call(Reminders.handlers.record).invoke()
+      return r.effects.done()
+    }),
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/orders.rs#expire-order -->
+```rust
+fn expire_order(order_id: String, ctx: &Context) -> Result<(), CommandError> {
+    // The entity answers "cancelled" or "already confirmed"; either way the timer is done.
+    let _outcome: String = ctx.client().invoke(OrderEntity, &order_id, "cancel", ())?;
+    Ok(())
+}
+```
+
+///
+
 /// tab | Go
 
 <!-- include: sdks/go/examples/shopping-cart/conformance/agents.go#timed-action -->
@@ -187,12 +200,155 @@ var Reminder = ankka.TimedAction("reminder",
 The Scala handler reports success whatever the order's state was: an order that had already been
 confirmed has nothing to cancel, and that is not a failure. Its companion registers the handler:
 
+/// tab | Scala
+
 ```scala
 object OrderTimers extends TimedAction.Companion[OrderTimers](ComponentId("order-timers")):
   def create(context: TimedActionContext) = new OrderTimers(context)
 
   val expireOrder = handler("expire-order")(_.expireOrder)
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/Reminder.java#timed-action -->
+```java
+/** A timed action that records on the conformance entity it is given. */
+@ComponentId("reminder")
+public class Reminder extends TimedAction {
+
+  @Action("remind")
+  public TimedActionEffect remind(String id) {
+    record(id, "reminded");
+    return effects().done();
+  }
+
+  /** Records the due time it was run for, as the runtime told it. */
+  @Action("tick")
+  public TimedActionEffect tick(String id) {
+    record(id, "due:" + context().dueTime().toEpochMilli());
+    return effects().done();
+  }
+
+  private void record(String id, String what) {
+    context()
+        .componentClient()
+        .forEventSourcedEntity(id)
+        .call(ConformanceEntity::record)
+        .invoke(what);
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Timers.kt#action -->
+```kotlin
+/** The order's deadlines: what runs when a timer set on an order fires. */
+@ComponentId("order-timers")
+class OrderTimers : TimedAction() {
+    @Action("expire-order")
+    fun expireOrder(orderId: String): TimedActionEffect {
+        val outcome = context().componentClient().forKeyValueEntity(orderId).call(OrderEntity::cancel).invoke()
+        OBSERVED.add("$orderId:$outcome")
+        return effects { done() }
+    }
+
+    companion object {
+        /** Records what fired, so tests can assert on it. */
+        val OBSERVED = ConcurrentLinkedQueue<String>()
+    }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/test_timer_samples.py#order-timers -->
+```python
+class OrderTimers(TimedAction):
+    component_id = "order-timers"
+
+    @action("expire-order")
+    async def expire_order(self, order_id: str) -> TimedActionEffect:
+        assert self.client is not None
+        # Success whatever the order's state was: a confirmed order has nothing to cancel.
+        outcome = await self.client.for_key_value_entity("order", order_id).call("cancel").invoke(reply=str)
+        observed.append(f"{order_id}:{outcome}")
+        return self.effects.done()
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#timed-action -->
+```ts
+export class Reminder extends TimedAction {
+  static readonly componentId = "reminder"
+  static readonly actions = {
+    remind: action("remind", s.string, async (r: Reminder, id) => {
+      await r.client.of(Conformance, id).call(Conformance.handlers.record).invoke("reminded")
+      return r.effects.done()
+    }),
+    // Records the due time it was run for, as the runtime told it.
+    tick: action("tick", s.string, async (r: Reminder, id) => {
+      await r.client.of(Conformance, id).call(Conformance.handlers.record).invoke(`due:${r.dueTime?.getTime()}`)
+      return r.effects.done()
+    }),
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/orders.rs#order-timers -->
+```rust
+impl TimedAction for OrderTimers {
+    const COMPONENT_ID: &'static str = "order-timers";
+
+    fn actions() -> Actions<OrderTimers> {
+        Actions::new().action("expire-order", OrderTimers::expire_order)
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/agents.go#timed-action -->
+```go
+// Reminder records on the conformance entity it is given the id of.
+var Reminder = ankka.TimedAction("reminder",
+	ankka.Action("remind", func(ctx context.Context, id string) (ankka.ActionEffect, error) {
+		if _, err := ankka.Invoke[string](ctx, "conformance", id, "record", "reminded"); err != nil {
+			return ankka.ActionEffect{}, err
+		}
+		return ankka.ActionDone(), nil
+	}),
+	// Records the due time it was run for, as the runtime told it.
+	ankka.Action("tick", func(ctx context.Context, id string) (ankka.ActionEffect, error) {
+		due := "undefined"
+		if t, ok := ankka.TimerFrom(ctx); ok && !t.Due.IsZero() {
+			due = fmt.Sprint(t.Due.UnixMilli())
+		}
+		if _, err := ankka.Invoke[string](ctx, "conformance", id, "record", "due:"+due); err != nil {
+			return ankka.ActionEffect{}, err
+		}
+		return ankka.ActionDone(), nil
+	}),
+)
+```
+
+///
 
 `handler("expire-order")(_.expireOrder)` registers a handler that takes one argument; a handler with no
 argument is registered the same way from a method with no parameters. The argument needs a `Serializer`
@@ -234,6 +390,32 @@ assert(scheduler.exists("expire-o-1"))
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#schedule -->
+```java
+@Post("/conformance/remind/{id}")
+public Done remind(String id) {
+  timers().schedule("remind-" + id, Duration.ofSeconds(1), Reminder::remind, id);
+  return Done.done();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#schedule -->
+```kotlin
+@Post("/conformance/remind/{id}")
+fun remind(id: String): Done {
+    timers().schedule("remind-$id", Duration.ofSeconds(1), Reminder::remind, id)
+    return Done.done()
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -261,32 +443,6 @@ await client.timers.cancel("nudge-c1")
 ```rust
 ctx.client().schedule("nudge-c1", Duration::of_hours(1), Reminder, None, "nudge", "c1".to_string())?;
 ctx.client().cancel("nudge-c1")?;
-```
-
-///
-
-/// tab | Java
-
-<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#schedule -->
-```java
-@Post("/conformance/remind/{id}")
-public Done remind(String id) {
-  timers().schedule("remind-" + id, Duration.ofSeconds(1), Reminder::remind, id);
-  return Done.done();
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#schedule -->
-```kotlin
-@Post("/conformance/remind/{id}")
-fun remind(id: String): Done {
-    timers().schedule("remind-$id", Duration.ofSeconds(1), Reminder::remind, id)
-    return Done.done()
-}
 ```
 
 ///
@@ -335,34 +491,6 @@ scheduler.createRecurringTimer(
 
 ///
 
-/// tab | Python
-
-```python
-from datetime import timedelta
-
-await client.timers.schedule_recurring("sweep-carts", timedelta(0), timedelta(hours=1), "cleanup", "sweep")
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-import { Duration } from "ankka"
-
-await client.timers.scheduleRecurring("sweep-carts", Duration.ZERO, Duration.ofHours(1), { component: Cleanup, handler: Cleanup.actions.sweep })
-```
-
-///
-
-/// tab | Rust
-
-```rust
-ctx.client().schedule_recurring("sweep-carts", Duration::of_seconds(0), Duration::of_hours(1), Cleanup, "sweep", ())?;
-```
-
-///
-
 /// tab | Java
 
 <!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#recurring -->
@@ -388,6 +516,34 @@ fun recur(id: String): Done {
     timers().scheduleRecurring("recur-$id", Duration.ZERO, Duration.ofSeconds(1), Reminder::tick, id)
     return Done.done()
 }
+```
+
+///
+
+/// tab | Python
+
+```python
+from datetime import timedelta
+
+await client.timers.schedule_recurring("sweep-carts", timedelta(0), timedelta(hours=1), "cleanup", "sweep")
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+import { Duration } from "ankka"
+
+await client.timers.scheduleRecurring("sweep-carts", Duration.ZERO, Duration.ofHours(1), { component: Cleanup, handler: Cleanup.actions.sweep })
+```
+
+///
+
+/// tab | Rust
+
+```rust
+ctx.client().schedule_recurring("sweep-carts", Duration::of_seconds(0), Duration::of_hours(1), Cleanup, "sweep", ())?;
 ```
 
 ///
@@ -467,11 +623,30 @@ runs one handler with no sidecar and returns its effect. Scheduling, firing, rep
 the runtime's behaviour, and are tested through the integration test kit with the `TimerRuntime`
 extension registered — a short poll interval keeps such a test fast:
 
+<!-- languages: scala, kotlin; `TimerRuntime` and `TimerProbe` are the Scala runtime's; the Java kit records every run itself (`kit.timerRuns()`), a Python or TypeScript handler is proved with `TimedActionTestKit` and the runtime's timers through the sidecar, and the Go kit has no timer probe -->
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TimerSuite.scala#probe -->
 ```scala
 private val probe  = TimerProbe()
 private val timers = TimerRuntime(pollInterval = 200.millis, observer = probe)
 ```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/TimersTest.kt#timer-start -->
+```kotlin
+// The kit's timer runtime polls every 200ms and tells `timerRuns()` what it did with each timer.
+val service = Ankka.service("orders").register(OrderEntity::class.java).register(OrderTimers::class.java)
+AnkkaTestKit.start(service).use { kit ->
+```
+
+///
+
+<!-- languages: scala, kotlin; `TimerRuntime` and `TimerProbe` are the Scala runtime's; the Java kit records every run itself (`kit.timerRuns()`), a Python or TypeScript handler is proved with `TimedActionTestKit` and the runtime's timers through the sidecar, and the Go kit has no timer probe -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TimerSuite.scala#register -->
 ```scala
@@ -481,14 +656,32 @@ testKit = AnkkaTestKit.start(
 )
 ```
 
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/TimersTest.kt#timer-start -->
+```kotlin
+// The kit's timer runtime polls every 200ms and tells `timerRuns()` what it did with each timer.
+val service = Ankka.service("orders").register(OrderEntity::class.java).register(OrderTimers::class.java)
+AnkkaTestKit.start(service).use { kit ->
+```
+
+///
+
 A timer a week away need not take a week: give the runtime a clock the test moves, and the sweeper, the
 timers it sets and every handler's `clock` move with it. The clock moves forward only.
+
+<!-- languages: scala; `MovableClock` is the Scala kit's: in every other kit a timer fires when its due time arrives on the wall clock -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/MovableClockTimerSuite.scala#clock -->
 ```scala
 private val clock  = MovableClock.at(Instant.parse("2026-10-11T18:00:00Z"))
 private val timers = TimerRuntime(pollInterval = 200.millis, clock = clock)
 ```
+
+///
 
 Another extension that needs the same clock finds the timer runtime by type:
 `service.extension[TimerRuntime].map(_.clock)`.
@@ -499,12 +692,55 @@ holds it with `scheduled(name)`, and it keeps its record across `restartService(
 reads due times from the probe rather than from when its handler was called, since a run starts up to a
 poll interval after its due time:
 
+<!-- languages: scala, java, kotlin; `TimerProbe` and `MovableClock` are the JVM kits'; a Python, TypeScript or Go handler is proved with `TimedActionTestKit`, told its due time as metadata, and the runtime's timers through the sidecar; a module has no integration kit -->
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TimerSuite.scala#due-times -->
 ```scala
 val due = eventually("three runs")(Option(probe.dueTimes("expire-o-7")).filter(_.size >= 3))
 assertEquals(due(1), due(0).plusSeconds(1))
 assertEquals(due(2), due(1).plusSeconds(1))
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TimerChecks.java#due-times -->
+```java
+/** The due times of a recurring timer's first three runs, a second apart. */
+public static List<Instant> threeDueTimes(AnkkaTestKit kit) {
+  kit.timers()
+      .scheduleRecurring("tick-o-7", Duration.ZERO, Duration.ofSeconds(1), CartTimers::tick);
+  kit.eventually(
+      Duration.ofSeconds(20),
+      () -> {
+        if (kit.timerRuns().dueTimes("tick-o-7").size() < 3)
+          throw new AssertionError("fewer than three runs so far");
+      });
+  kit.timers().cancel("tick-o-7");
+  // A run starts up to a poll interval after its due time, so the cadence is read from the due
+  // times the kit recorded, not from when the handler ran: due.get(1) is due.get(0) plus a
+  // second, and due.get(2) a second after that.
+  return kit.timerRuns().dueTimes("tick-o-7");
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/TimersTest.kt#due-times -->
+```kotlin
+// A cadence is read from the due times the runtime ran for, not from when the handler
+// was called: a run starts up to a poll interval after its due time.
+kit.eventually(Duration.ofSeconds(10)) { assertTrue(kit.timerRuns().dueTimes("expire-o-7").size >= 3) }
+val due = kit.timerRuns().dueTimes("expire-o-7")
+assertEquals(due[0].plusSeconds(1), due[1])
+assertEquals(due[1].plusSeconds(1), due[2])
+```
+
+///
 
 A unit test of a handler that reads its due time sets the metadata itself: Python's
 `TimedActionTestKit.of(Reminder).call("nudge", "c1", metadata={"ankka.due": "1767225600000"})`, TypeScript's

@@ -155,6 +155,42 @@ Ankka.service
   .start()
 ```
 
+**Java**
+
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("shopping-cart")
+      .register(ShoppingCart.class)
+      .register(CartRows.class)
+      .register(CheckoutNotifier.class)
+      .register(CheckoutsSeen.class)
+      .withEndpoint(CartEndpoint.class)
+      .withEndpoint(CheckoutsSeenEndpoint.class)
+      .withEndpoint(CartKeysEndpoint.class)
+      .withMcpEndpoint(CartMcpEndpoint.class);
+}
+```
+
+**Kotlin**
+
+```kotlin
+fun service(): ServiceBuilder =
+    Ankka.service("shopping-cart")
+        .register(ShoppingCart::class.java)
+        .register(CartRows::class.java)
+        .register(CheckoutNotifier::class.java)
+        .register(CheckoutsSeen::class.java)
+        .register(CheckoutWorkflow::class.java)
+        .withEndpoint(CartEndpoint::class.java)
+        .withEndpoint(CheckoutsSeenEndpoint::class.java)
+        .withEndpoint(CartKeysEndpoint::class.java)
+        .withMcpEndpoint(CartMcpEndpoint::class.java)
+
+fun main() {
+    service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
 **Python**
 
 ```python
@@ -177,6 +213,40 @@ const service = Ankka.service()
   .register(ShoppingCartEndpoint)
 
 await service.listen()
+```
+
+**Rust**
+
+```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
+pub fn build() -> Service {
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
+}
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
+```
+
+**Go**
+
+```go
+// Service is the whole inventory: registration is explicit, so nothing is found by scanning.
+func Service() *ankka.Service { return ankka.NewService(Entity, API, Calling) }
 ```
 
 In Scala, some kinds need a runtime extension as well as registration: views and consumers need

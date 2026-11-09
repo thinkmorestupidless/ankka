@@ -1,8 +1,8 @@
 ---
 title: HTTP endpoints
-description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Java, Kotlin, Python or TypeScript.
+description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Java, Kotlin, Python, TypeScript, Rust or Go.
 kind: guide
-languages: [scala, python, typescript, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [http-endpoint]
 related: [build/component-client.md, build/streaming.md, deploy/expose.md, concepts/tenancy-and-access.md]
 ---
@@ -93,6 +93,94 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
 
 ///
 
+/// tab | Java
+
+<!-- include: samples/shopping-cart-java/src/main/java/shoppingcart/javasdk/CartEndpoint.java -->
+```java
+package shoppingcart.javasdk;
+
+import com.thinkmorestupidless.ankka.javasdk.Done;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Body;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Delete;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Get;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Post;
+import com.thinkmorestupidless.ankka.javasdk.client.EntityRef;
+import com.thinkmorestupidless.ankka.javasdk.http.Acl;
+import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
+
+/** The cart over HTTP, route for route as the Scala cart serves it. */
+public class CartEndpoint extends HttpEndpoint {
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowAll();
+  }
+
+  @Get("/carts/{cartId}")
+  public Cart get(String cartId) {
+    return cart(cartId).call(ShoppingCart::getCart).invoke();
+  }
+
+  @Get("/carts/{cartId}/total")
+  public Integer total(String cartId) {
+    return cart(cartId).call(ShoppingCart::totalQuantity).invoke();
+  }
+
+  @Post("/carts/{cartId}/items")
+  public Done addItem(String cartId, @Body LineItem item) {
+    return cart(cartId).call(ShoppingCart::addItem).invoke(item);
+  }
+
+  @Delete("/carts/{cartId}/items/{productId}")
+  public Done removeItem(String cartId, String productId) {
+    return cart(cartId).call(ShoppingCart::removeItem).invoke(productId);
+  }
+
+  @Post("/carts/{cartId}/checkout")
+  public Cart checkout(String cartId) {
+    return cart(cartId).call(ShoppingCart::checkout).invoke();
+  }
+
+  @Delete("/carts/{cartId}")
+  public Done discard(String cartId) {
+    return cart(cartId).call(ShoppingCart::discard).invoke();
+  }
+
+  private EntityRef cart(String cartId) {
+    return componentClient().forEventSourcedEntity(cartId);
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/CartEndpoint.kt#endpoint -->
+```kotlin
+/** The cart over HTTP, route for route as the Scala cart serves it, declared in code. */
+class CartEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowAll()
+
+    override fun routes() = routes {
+        get("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::getCart).invokeSuspending() }
+        get("/carts/{cartId}/total") { cart(path("cartId")).call(ShoppingCart::totalQuantity).invokeSuspending() }
+        post<LineItem>("/carts/{cartId}/items") { item ->
+            cart(path("cartId")).call(ShoppingCart::addItem).invokeSuspending(item)
+        }
+        delete("/carts/{cartId}/items/{productId}") {
+            cart(path("cartId")).call(ShoppingCart::removeItem).invokeSuspending(path("productId"))
+        }
+        post("/carts/{cartId}/checkout") { cart(path("cartId")).call(ShoppingCart::checkout).invokeSuspending() }
+        delete("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::discard).invokeSuspending() }
+    }
+
+    private fun cart(cartId: String): EntityRef = componentClient().forEventSourcedEntity(cartId)
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#endpoint -->
@@ -154,6 +242,41 @@ export class ShoppingCartEndpoint extends Endpoint {
     ),
     checkout: post("/{cartId}/checkout", ShoppingCart, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.checkout).invoke()),
     discard: del("/{cartId}", Done, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.discard).invoke()),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#routes -->
+```rust
+impl Endpoint for CartApi {
+    const ENDPOINT_ID: &'static str = "ShoppingCartEndpoint";
+    const PREFIX: &'static str = "/carts";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<CartApi> {
+        Routes::new()
+            .get("/{cartId}", CartApi::get_cart)
+            .get("/{cartId}/total", CartApi::total)
+            .post("/{cartId}/items", CartApi::add_item)
+            .delete("/{cartId}/items/{productId}", CartApi::remove_item)
+            .post("/{cartId}/checkout", CartApi::checkout)
+            .delete("/{cartId}", CartApi::discard)
+            // A literal beside a parameter: the router must prefer it over `/{cartId}`.
+            .get("/awkward", |_: &Request| Ok("literal".to_string()))
+            .get("/{cartId}/rows", CartApi::row)
+            .get("/rows", CartApi::rows)
+            .post("/{cartId}/checkouts", CartApi::start_checkout)
+            .get("/{cartId}/checkouts", CartApi::checkout_status)
+            .post("/ask/{session}", CartApi::ask)
+            .get("/{cartId}/checkout-log", CartApi::checkout_log)
+            .post("/{cartId}/items/explained", CartApi::add_item_or_explain)
+    }
+}
 ```
 
 ///
@@ -248,6 +371,7 @@ handler runs for as long as the socket is open, on a virtual thread in Scala and
 in Python and TypeScript, so it is written as an ordinary loop: wait for a frame, answer it, call a
 component between frames.
 
+<!-- languages: scala, java, kotlin, python, typescript, go; a module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route -->
 /// tab | Scala
 
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/ShoppingCartEndpoint.scala#socket -->
@@ -261,6 +385,52 @@ socket("/{cartId}/watch") { (cartId: String, socket: Socket) =>
       socket.send(writeToString(cart(cartId).call(ShoppingCartEntity.getCart).invoke()))
     case other => socket.send(s"""{"error":"unknown request '$other'; send refresh"}""")
   }
+}
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartRoutes.java#socket -->
+```java
+private static final Serializer<CartState> CART = Serializer.of(CartState.class);
+
+// A socket: the client sends "refresh" and is sent the cart, for as long as it keeps the socket
+// open. The handler is ordinary blocking code on a virtual thread; receive() answers empty once
+// the socket is closed, which ends the loop and the handler.
+@Socket("/{cartId}/watch")
+public void watch(String cartId, WebSocket socket) {
+  Optional<String> frame;
+  while ((frame = socket.receive()).isPresent()) {
+    if (frame.get().equals("refresh")) {
+      var cart =
+          componentClient().forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke();
+      socket.send(new String(CART.toBytes(cart), StandardCharsets.UTF_8));
+    } else {
+      socket.send("{\"error\":\"unknown request '" + frame.get() + "'; send refresh\"}");
+    }
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#socket -->
+```kotlin
+// A socket: the client sends "refresh" and is sent the cart, for as long as it keeps the socket
+// open. The handler is ordinary blocking code on a virtual thread; `receiveOrNull()` answers null
+// once the socket is closed, which ends the loop and the handler.
+@Socket("/carts/{cartId}/watch")
+fun watch(cartId: String, socket: WebSocket) {
+    generateSequence { socket.receiveOrNull() }.forEach { message ->
+        when (message) {
+            "refresh" -> socket.send(cartJson(cartId))
+            else -> socket.send("""{"error":"unknown request '$message'; send refresh"}""")
+        }
+    }
 }
 ```
 
@@ -435,11 +605,112 @@ languages goes through a signed URL, straight between the browser and the bucket
 An endpoint that serves a website rather than an API returns HTML, sends the browser elsewhere, and
 keeps a session. `Respond` wraps any body the endpoint can already answer with a status and headers:
 
+<!-- languages: scala, java, kotlin, rust, go; a Python or TypeScript route answers a value or a problem and cannot set a response's status or headers itself, so pages, redirects and cookies are the other SDKs' -->
+/// tab | Scala
+
 ```scala
 get("/account")(() => Respond(Html(page), headers = Vector("Set-Cookie" -> cookie)))
 post("/logout")(() => Respond.redirect("/"))            // 303 See Other, Location: /
 get("/style.css")(() => Bytes("text/css", stylesheet))
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/SiteRoutes.java#pages -->
+```java
+@Get("/site/account")
+public Response account() {
+  return Response.html(PAGE).header("Set-Cookie", COOKIE);
+}
+
+@Post("/site/logout")
+public Response logout() {
+  return Response.redirect("/"); // 303 See Other, Location: /
+}
+
+@Get("/site/style.css")
+public Response stylesheet() {
+  return Response.bytes(STYLESHEET, "text/css");
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#pages -->
+```kotlin
+get("/account") { Response.html(page).header("Set-Cookie", cookie) }
+post("/logout") { Response.redirect("/") } // 303 See Other, Location: /
+get("/style.css") { Response.bytes(stylesheet, "text/css") }
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/pages.rs#pages -->
+```rust
+/// Returns HTML, sends the browser elsewhere, and keeps a session.
+pub struct PagesEndpoint;
+
+impl PagesEndpoint {
+    fn account(_: &Request) -> Result<Response, HttpProblem> {
+        let cookie = "session=abc123; Path=/; HttpOnly";
+        Ok(Response::html(PAGE).header("Set-Cookie", cookie))
+    }
+
+    /// `303 See Other`, the status that is safe after a form post; `.status(n)` changes it.
+    fn logout(_: &Request, (): ()) -> Result<Response, HttpProblem> {
+        Ok(Response::redirect("/"))
+    }
+
+    /// `Content-Type` is never a header here: a bytes response names its own.
+    fn stylesheet(_: &Request) -> Result<Response, HttpProblem> {
+        Ok(Response::bytes("text/css", STYLESHEET.to_vec()))
+    }
+}
+
+impl Endpoint for PagesEndpoint {
+    const ENDPOINT_ID: &'static str = "PagesEndpoint";
+    const PREFIX: &'static str = "/site";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<PagesEndpoint> {
+        Routes::new()
+            .get("/account", PagesEndpoint::account)
+            .post("/logout", PagesEndpoint::logout)
+            .get("/style.css", PagesEndpoint::stylesheet)
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#pages -->
+```go
+// RawResponse is any body with the status, content type and headers the handler chooses.
+ankka.Get("/account", func(context.Context, *ankka.Request) (ankka.RawResponse, error) {
+	return ankka.RawResponse{Status: 200, ContentType: "text/html; charset=utf-8",
+		Headers: http.Header{"Set-Cookie": {"session=s-1; HttpOnly"}}, Body: []byte(accountPage)}, nil
+}),
+// 303 See Other, the status that is safe after a form post.
+ankka.Post("/logout", func(context.Context, *ankka.Request, ankka.Unit) (ankka.RawResponse, error) {
+	return ankka.RawResponse{Status: 303, Headers: http.Header{"Location": {"/"}}}, nil
+}),
+ankka.Get("/style.css", func(context.Context, *ankka.Request) (ankka.RawResponse, error) {
+	return ankka.RawResponse{Status: 200, ContentType: "text/css", Body: []byte(stylesheet)}, nil
+}),
+```
+
+///
 
 `Respond.redirect` answers `303 See Other`, the status that is safe after a form post; pass another
 status to change it. `Content-Type` is never a header here: it comes from the body, and a `Bytes`
@@ -477,18 +748,7 @@ Path parameters and the body arrive as typed arguments, because they are structu
 has them or is not for that route. Query parameters and headers vary per call, so a handler reads them
 from the request instead:
 
-<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#query -->
-```scala
-/** Required, optional-with-default, repeated, and flag parameters. */
-get("/") { () =>
-  SearchResult(
-    term = query.required[String]("q"),
-    limit = query.optional[Int]("limit").getOrElse(20),
-    tags = query.all[String]("tag").toList,
-    verbose = query.flag("verbose")
-  )
-}
-```
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#header -->
 ```scala
@@ -497,6 +757,81 @@ get("/trace") { () =>
   request.header("X-Trace-Id").getOrElse("none")
 }
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/SearchRoutes.java#header -->
+```java
+/** Headers. */
+@Get("/search/trace")
+public String trace() {
+  return request().header("X-Trace-Id").orElse("none");
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#header -->
+```kotlin
+/** Headers. */
+@Get("/search/trace")
+fun trace(): String = request().headerOrNull("X-Trace-Id") ?: "none"
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/query_endpoint.py#header -->
+```python
+@get("/trace")
+def trace(self) -> str:
+    """Headers."""
+    return self.request.header("X-Trace-Id") or "none"
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#header -->
+```ts
+/** Headers. */
+trace: get("/trace", s.string, (_ep: SearchEndpoint, req) => req.headers.get("X-Trace-Id") ?? "none"),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/pages.rs#header -->
+```rust
+/// Headers.
+fn trace(request: &Request) -> Result<String, HttpProblem> {
+    Ok(request.header("X-Trace-Id").unwrap_or("none").to_string())
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#header -->
+```go
+// Headers, matched by name case-insensitively.
+ankka.Get("/trace", func(_ context.Context, req *ankka.Request) (string, error) {
+	if id := req.Header("X-Trace-Id"); id != "" {
+		return id, nil
+	}
+	return "none", nil
+}),
+```
+
+///
 
 | Method on `query` | Meaning |
 |---|---|
@@ -518,6 +853,9 @@ exactly one request per thread, and the request is cleared when the handler retu
 another thread cannot see it. Read what you need first and pass it on. For a streaming route this means
 reading parameters while building the `Source`, because its elements are pulled later on another thread:
 
+<!-- languages: scala, java, kotlin, python, typescript, go; a module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route -->
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#sse-query -->
 ```scala
 sse("/stream") { () =>
@@ -526,6 +864,88 @@ sse("/stream") { () =>
   org.apache.pekko.stream.scaladsl.Source((1 to count).map(n => s"$term-$n").toVector)
 }
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/SearchRoutes.java#sse-query -->
+```java
+@Sse("/search/stream")
+public Stream<SseEvent> stream() {
+  // Read while the handler runs: the stream's elements are pulled later, on another thread.
+  var term = request().requiredQuery("q");
+  int count = request().query("count").map(Integer::parseInt).orElse(2);
+  return IntStream.rangeClosed(1, count).mapToObj(n -> SseEvent.text(term + "-" + n));
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#sse-query -->
+```kotlin
+/** A streaming route reads its parameters while the stream is built, on the request's thread. */
+@Sse("/search/stream")
+fun stream(): Stream<SseEvent> {
+    val term = request().requiredQuery("q")
+    val count = request().queryOrNull("count")?.toInt() ?: 2
+    return (1..count).map { SseEvent.text("$term-$it") }.stream()
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/query_endpoint.py#sse-query -->
+```python
+@sse("/stream")
+async def stream(self) -> AsyncIterator[str]:
+    term = self.request.query_param("q") or ""
+    count = int(self.request.query_param("count") or 2)
+    for n in range(1, count + 1):
+        yield f"{term}-{n}"
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#sse-query -->
+```ts
+stream: sse("/stream", async function* (_ep: SearchEndpoint, req) {
+  const term = req.query.get("q") ?? ""
+  const count = Number(req.query.get("count") ?? 2)
+  for (let n = 1; n <= count; n++) yield `${term}-${n}`
+}),
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#sse-query -->
+```go
+// The request is the route's argument, so a stream reads its parameters as it is built, before
+// any element is pulled.
+ankka.SSE("/stream", func(_ context.Context, req *ankka.Request) iter.Seq2[string, error] {
+	term, count := req.Query.Get("q"), 2
+	if n, err := strconv.Atoi(req.Query.Get("count")); err == nil {
+		count = n
+	}
+	return func(yield func(string, error) bool) {
+		for n := 1; n <= count; n++ {
+			if !yield(fmt.Sprintf("%s-%d", term, n), nil) {
+				return
+			}
+		}
+	}
+}),
+```
+
+///
 
 ## Access control
 
@@ -542,6 +962,9 @@ compiled.
 
 `AllowIf` inspects the same request the handler will see:
 
+<!-- languages: scala, java, kotlin; an ACL that inspects the request (`AllowIf`) is the Scala, Java and Kotlin SDKs'; a Python, TypeScript, Rust or Go endpoint's rule is one of the declared kinds, applied by the runtime beside it -->
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#gated -->
 ```scala
 /** An endpoint whose ACL inspects the request — the same context the handler sees. */
@@ -553,6 +976,47 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
 
   get("/")(() => "allowed")
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/GatedRoutes.java#gated -->
+```java
+/** An endpoint whose ACL inspects the request: the same request the handler sees. */
+public class GatedRoutes extends HttpEndpoint {
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowIf(
+        request ->
+            request.header("X-Api-Key").filter("let-me-in"::equals).isPresent()
+                || request.flag("public"));
+  }
+
+  @Get("/gated")
+  public String gated() {
+    return "allowed";
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#gated -->
+```kotlin
+/** An endpoint whose ACL inspects the request: the same request the handler sees. */
+class GatedEndpoint : HttpEndpoint() {
+    override fun acl(): Acl = Acl.allowIf { it.header("X-Api-Key").orNull() == "let-me-in" || it.flag("public") }
+
+    @Get("/gated")
+    fun root(): String = "allowed"
+}
+```
+
+///
 
 `Authenticate` returns one of four decisions, so a caller is told which kind of no they got:
 
@@ -571,13 +1035,20 @@ To know which *user* a request is for, verify their token with `ankka-auth-oidc`
 A service whose users sign in with an identity provider lists the issuers it accepts, and an endpoint
 admits a request only when it carries a token one of them signed. Add the module:
 
+<!-- languages: scala; an sbt dependency line; the Java and Kotlin SDKs carry the token verifier already, and a Python, TypeScript, Rust or Go service's tokens are verified by the runtime beside it, with nothing added to the project -->
+/// tab | Scala
+
 ```scala
 "com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion
 ```
 
+///
+
 and declare the access rule with `Oidc.authenticate()`, which reads the issuers from the service's
 environment. The handler reads `principal`: the token's subject, name, email, roles, every other claim
 by name, and the issuer that verified it.
+
+/// tab | Scala
 
 <!-- include: modules/auth-oidc/src/test/scala/com/thinkmorestupidless/ankka/http/OidcAclSuite.scala#endpoint -->
 ```scala
@@ -590,6 +1061,157 @@ final class AccountEndpoint(val acl: Acl = Oidc.authenticate()) extends HttpEndp
       s"tier=${principal.claims.getOrElse("tier", "")}"
   )
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/AccountRoutes.java#oidc -->
+```java
+/** An endpoint whose users sign in with an identity provider the service lists. */
+public class AccountRoutes extends HttpEndpoint {
+
+  /** The issuers the service's environment lists; a test holds its own issuer's rule here. */
+  static Supplier<Acl> rule = Acl::oidc;
+
+  @Override
+  protected Acl acl() {
+    return rule.get();
+  }
+
+  @Get("/account/me")
+  public String me() {
+    var principal = principal().orElseThrow();
+    return principal.subject()
+        + " from "
+        + principal.issuer().orElse("?")
+        + " roles="
+        + String.join(",", new TreeSet<>(principal.roles()))
+        + " tier="
+        + principal.claims().getOrDefault("tier", "");
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#oidc-endpoint -->
+```kotlin
+/** An endpoint whose users sign in with an identity provider the service lists. */
+class AccountEndpoint : HttpEndpoint() {
+    override fun acl(): Acl = Acl.oidc()
+
+    @Get("/account/me")
+    fun me(): String {
+        val principal = principal().orElseThrow()
+        return "${principal.subject()} from ${principal.issuer().orNull() ?: "?"} " +
+            "roles=${principal.roles().sorted().joinToString(",")} " +
+            "tier=${principal.claims()["tier"] ?: ""}"
+    }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/query_endpoint.py#account -->
+```python
+class AccountEndpoint(Endpoint):
+    """An endpoint whose users sign in with an identity provider the service lists."""
+
+    prefix = "/account"
+    acl = Acl.AUTHENTICATED
+
+    @get("/me")
+    def me(self) -> str:
+        principal = self.request.principal
+        assert principal is not None  # the ACL established one before the handler ran
+        return (
+            f"{principal.subject} from {principal.issuer or '?'} "
+            f"roles={','.join(sorted(principal.roles))} tier={principal.claims.get('tier', '')}"
+        )
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#account -->
+```ts
+/** An endpoint whose users sign in with an identity provider the service lists. */
+export class AccountEndpoint extends Endpoint {
+  static readonly prefix = "/account"
+  static readonly acl = Acl.authenticated
+
+  static readonly routes = {
+    me: get("/me", s.string, (_ep: AccountEndpoint, req) => {
+      const p = req.principal!
+      return `${p.subject} from ${p.issuer ?? "?"} roles=${[...p.roles].sort().join(",")} tier=${p.claims.tier ?? ""}`
+    }),
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#private-endpoint -->
+```rust
+pub struct PrivateEndpoint;
+
+impl Endpoint for PrivateEndpoint {
+    const ENDPOINT_ID: &'static str = "PrivateEndpoint";
+    const PREFIX: &'static str = "/private";
+
+    fn acl() -> Acl {
+        Acl::Authenticated
+    }
+
+    fn routes() -> Routes<PrivateEndpoint> {
+        Routes::new()
+            .get("/", |_: &Request| Ok("private".to_string()))
+            .get("/me", |request: &Request| {
+                let p = request
+                    .principal()
+                    .expect("an authenticated route is handed its principal");
+                let mut roles = p.roles.clone();
+                roles.sort();
+                Ok(ankka::serde_json::json!({
+                    "subject": p.subject,
+                    "roles": roles,
+                    "tier": p.claims.get("tier"),
+                    "issuer": p.issuer,
+                })
+                .to_string())
+            })
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#oidc-endpoint -->
+```go
+// AccountEndpoint's users sign in with an identity provider the service lists: the sidecar verifies
+// the token before the process is asked anything, and the handler reads the principal.
+var AccountEndpoint = ankka.NewEndpoint("/account", ankka.Authenticate(ankka.Issuer("corp")),
+	ankka.Get("/me", func(_ context.Context, req *ankka.Request) (string, error) {
+		p := req.Principal
+		roles := append([]string{}, p.Roles...)
+		sort.Strings(roles)
+		return fmt.Sprintf("%s from %s roles=%s tier=%s",
+			p.Subject, p.Issuer, strings.Join(roles, ","), p.Claims["tier"]), nil
+	}),
+)
+```
+
+///
 
 A request with no token, or a token that is expired, for another audience, from an issuer the service
 does not list, or signed with a shared secret, is answered `401` with a challenge. A request that
@@ -614,6 +1236,8 @@ workload, so it cannot be forged by anything the request says about itself:
 | a service of another project, or a registered machine, that this service's project has granted the route | `Callers.granted` |
 | a registered machine, as a request from the internet that proved which machine it is | `Callers.internet` |
 
+/// tab | Scala
+
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/CallersEndpoint.scala#allow-callers -->
 ```scala
 // Only the internet and the orders service in this project; any other caller is refused 403.
@@ -627,12 +1251,268 @@ withAcl(Acl.allowCallers(Callers.self)) {
 }
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CallerRoutes.java#allow-callers -->
+```java
+/**
+ * Only the internet and the orders service in this project; any other caller is refused 403. An
+ * endpoint has one ACL for all its routes, so routes for another audience, such as another
+ * instance of this very service and nothing else ({@code Callers.self()}), are an endpoint of
+ * their own.
+ */
+public class CallerRoutes extends HttpEndpoint {
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowCallers(Callers.internet(), Callers.service("orders"));
+  }
+
+  @Get("/callers/only-orders")
+  public String onlyOrders() {
+    return "admitted: " + describe(caller());
+  }
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#allow-callers -->
+```kotlin
+// An ACL belongs to an endpoint class, so a route admitting other callers is a class of its own.
+
+/** Only the internet and the orders service in this project; any other caller is refused 403. */
+class OnlyOrdersEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowCallers(Callers.internet(), Callers.service("orders"))
+
+    override fun routes() = routes {
+        get("/callers/only-orders") { "admitted: ${describe(request.caller())}" }
+    }
+}
+
+/** Another instance of this very service, and nothing else. */
+class OnlySelfEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowCallers(Callers.self())
+
+    override fun routes() = routes { get("/callers/only-self") { "admitted: myself" } }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#allow-callers -->
+```python
+prefix = "/callers"
+# Only the internet and the orders service in this project; any other caller is refused 403.
+acl = Acl.allow_callers(Callers.internet, Callers.service("orders"))
+
+# Another instance of this very service, and nothing else: a route's own ACL replaces the
+# endpoint's for that route.
+@get("/self", acl=Acl.allow_callers(Callers.self_))
+def only_self(self) -> str:
+    return "self"
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#allow-callers -->
+```ts
+// Only the internet and the orders service in this project; any other caller is refused 403.
+onlyOrders: get("/only-orders", s.string, (_ep: CallersEndpoint, req) => `admitted: ${describe(req.caller)}`, {
+  acl: Acl.allowCallers(Callers.internet, Callers.service("orders")),
+}),
+// Another instance of this very service, and nothing else.
+onlySelf: get("/only-self", s.string, () => "admitted: myself", { acl: Acl.allowCallers(Callers.self) }),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint -->
+```rust
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#allow-callers -->
+```go
+// CallersEndpoint admits only the internet and the orders service in this project; any other
+// caller is refused 403. One route admits another instance of this very service, and nothing else.
+var CallersEndpoint = ankka.NewEndpoint("/callers", ankka.AllowIf(ankka.Internet(), ankka.ServiceNamed("orders")),
+	ankka.Get("/only-orders", func(_ context.Context, req *ankka.Request) (string, error) {
+		return "admitted: " + describeCaller(req.Caller), nil
+	}),
+	ankka.Get("/only-self", func(context.Context, *ankka.Request) (string, error) {
+		return "admitted: myself", nil
+	}).ACL(ankka.AllowIf(ankka.Self())),
+```
+
+///
+
 A handler reads the caller as `caller`, which is always present:
+
+/// tab | Scala
 
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/CallersEndpoint.scala#who-is-calling -->
 ```scala
 get("/whoami")(() => whoIsCalling)
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CallerRoutes.java#who-is-calling -->
+```java
+/** The caller is always present: the platform established it before any ACL ran. */
+@Get("/callers/whoami")
+public String whoami() {
+  return describe(caller());
+}
+
+static String describe(Caller caller) {
+  return switch (caller) {
+    case Caller.Gateway g -> "the internet";
+    case Caller.Service s -> "service " + s.project() + "/" + s.name();
+    case Caller.Machine m -> "machine " + m.organization() + "/" + m.name();
+    case Caller.Local l -> "this machine";
+  };
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#who-is-calling -->
+```kotlin
+get("/callers/whoami") { whoIsCalling(request.caller()) }
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#who-is-calling -->
+```python
+@get("/whoami")
+def whoami(self) -> str:
+    c = self.request.caller
+    if isinstance(c, ServiceCaller):
+        return f"service:{c.project}/{c.name}"
+    if isinstance(c, MachineCaller):
+        return f"machine:{c.organization}/{c.name}"
+    return "gateway" if isinstance(c, Gateway) else "local"
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#who-is-calling -->
+```ts
+whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => whoIsCalling(req.caller)),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint -->
+```rust
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#who-is-calling -->
+```go
+// The caller is always present, set before any ACL runs, and independent of the principal.
+ankka.Get("/whoami", func(_ context.Context, req *ankka.Request) (string, error) {
+	return describeCaller(req.Caller), nil
+}),
+```
+
+///
 
 `caller` is set before any ACL runs, so an `AllowIf` predicate can read it too, and it is independent of
 `principal`: a request from the `orders` service on behalf of a signed-in user has both.
@@ -649,6 +1529,8 @@ grant. Who may call it today is a grant, which an owner of the project's organiz
 as data, with no change to either service. A revocation refuses the caller within two minutes, and closes
 the sockets and event streams the grant admitted. A grant names one route by its method and its path
 template, or one gRPC method, so a caller granted one route is refused every other.
+
+/// tab | Scala
 
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/WalletEndpoint.scala#granted-callers -->
 ```scala
@@ -676,6 +1558,216 @@ final class WalletEndpoint(client: ComponentClient) extends HttpEndpoint("/v1/wa
   }
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WalletRoutes.java#granted-callers -->
+```java
+/**
+ * A player's wallet, which another project may be granted. The endpoint's ACL admits granted
+ * callers: whether anyone outside the project may ever call these routes is decided here, in
+ * reviewed code; who may, today, is a grant the project's owners make and revoke as data.
+ */
+public class WalletRoutes extends HttpEndpoint {
+
+  public record DepositRequest(long amount) {}
+
+  public record DepositMade(String key, String currency, long amount, String by) {}
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowCallers(Callers.granted());
+  }
+
+  /**
+   * A deposit, with the caller's idempotency key: a granted call is delivered at least once, and
+   * the wallet applies each key once. The answer names the caller as the platform established it.
+   */
+  @Post("/v1/wallets/{player}/{currency}/deposits")
+  public DepositMade deposit(String player, String currency, @Body DepositRequest body) {
+    var key =
+        request()
+            .header("Idempotency-Key")
+            .orElseThrow(
+                () ->
+                    new ProblemException(
+                        Problem.badRequest("a deposit needs an Idempotency-Key header")));
+    return new DepositMade(key, currency, body.amount(), CallerRoutes.describe(caller()));
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#granted-callers -->
+```kotlin
+/**
+ * A player's wallet, which another project may be granted. The endpoint's ACL admits granted
+ * callers: whether anyone outside the project may ever call these routes is decided here, in
+ * reviewed code; who may, today, is a grant the project's owners make and revoke as data.
+ */
+class WalletEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowCallers(Callers.granted())
+
+    override fun routes() = routes {
+        /*
+         * A deposit, with the caller's idempotency key: a granted call is delivered at least once,
+         * and the wallet applies each key once. The answer names the caller as the platform
+         * established it.
+         */
+        post<DepositRequest>("/v1/wallets/{player}/{currency}/deposits") { body ->
+            val key =
+                request.headerOrNull("Idempotency-Key")
+                    ?: throw ProblemException(Problem.badRequest("a deposit needs an Idempotency-Key header"))
+            val deposit = Deposit(key, path("currency"), body.amount)
+            val reply = wallet(path("player")).call(WalletEntity::deposit).invokeSuspending(deposit)
+            DepositMade(reply.currency, reply.balance, reply.applied, describe(request.caller()))
+        }
+    }
+
+    private fun wallet(player: String): EntityRef = componentClient().forEventSourcedEntity(player)
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/wallet.py#granted-callers -->
+```python
+class WalletEndpoint(Endpoint):
+    """A player's wallet, which another project may be granted. The endpoint's ACL admits granted
+    callers: whether anyone outside the project may ever call these routes is decided here, in
+    reviewed code; who may, today, is a grant the project's owners make and revoke as data."""
+
+    prefix = "/v1/wallets"
+    acl = Acl.allow_callers(Callers.granted)
+
+    def __init__(self, client: ComponentClient) -> None:
+        self.client = client
+
+    @post("/{player}/{currency}/deposits")
+    async def deposit(self, player: str, currency: str, body: DepositRequest) -> DepositMade:
+        """A deposit, with the caller's idempotency key: a granted call is delivered at least once,
+        and the wallet applies each key once. The answer names the caller as the platform established it."""
+        key = self.request.header("Idempotency-Key")
+        if key is None:
+            raise HttpProblem(400, "a deposit needs an Idempotency-Key header")
+        reply = await self._wallet(player).call("deposit").invoke(Deposit(key, currency, body.amount), reply=DepositReply)
+        return DepositMade(reply.currency, reply.balance, reply.applied, who(self.request.caller))
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#granted-callers -->
+```ts
+const DepositRequest = s.record("DepositRequest", { amount: s.long })
+const DepositMade = s.record("DepositMade", { currency: s.string, balance: s.long, applied: s.boolean, by: s.string })
+
+/**
+ * A player's wallet, which another project may be granted. The endpoint's ACL admits granted
+ * callers: whether anyone outside the project may ever call these routes is decided here, in
+ * reviewed code; who may, today, is a grant the project's owners make and revoke as data.
+ */
+export class WalletEndpoint extends Endpoint {
+  static readonly prefix = "/v1/wallets"
+  static readonly acl = Acl.allowCallers(Callers.granted)
+
+  static readonly routes = {
+    /**
+     * A deposit, with the caller's idempotency key: a granted call is delivered at least once, and
+     * the wallet applies each key once. The answer names the caller as the platform established it.
+     */
+    deposit: post("/{player}/{currency}/deposits", DepositRequest, DepositMade, async (ep: WalletEndpoint, req, body) => {
+      const key = req.headers.get("Idempotency-Key")
+      if (key === null) throw new HttpProblem(400, "a deposit needs an Idempotency-Key header")
+      const deposit = { key, currency: req.params.currency, amount: body.amount }
+      const reply = await ep.client.of(WalletEntity, req.params.player).call(WalletEntity.handlers.deposit).invoke(deposit)
+      return { ...reply, by: describe(req.caller) }
+    }),
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint -->
+```rust
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#granted-callers -->
+```go
+// WalletEndpoint is a player's wallet, which another project may be granted. The endpoint's ACL
+// admits granted callers: whether anyone outside the project may ever call these routes is decided
+// here, in reviewed code; who may, today, is a grant the project's owners make and revoke as data.
+var WalletEndpoint = ankka.NewEndpoint("/v1/wallets", ankka.AllowIf(ankka.Granted()),
+	// A deposit, with the caller's idempotency key: a granted call is delivered at least once, and
+	// the wallet applies each key once. The answer names the caller as the platform established it.
+	ankka.Post("/{player}/{currency}/deposits",
+		func(ctx context.Context, req *ankka.Request, body DepositRequest) (DepositMade, error) {
+			key := req.Header("Idempotency-Key")
+			if key == "" {
+				return DepositMade{}, &ankka.HttpProblem{Status: 400,
+					Message: "a deposit needs an Idempotency-Key header"}
+			}
+			deposit := Deposit{Key: key, Currency: req.Param("currency"), Amount: body.Amount}
+			reply, err := ankka.Invoke[Deposited](ctx, "wallet", req.Param("player"), "deposit", deposit)
+			if err != nil {
+				return DepositMade{}, err
+			}
+			return DepositMade{Currency: reply.Currency, Balance: reply.Balance, Applied: reply.Applied,
+				Caller: describeCaller(req.Caller)}, nil
+		}),
+)
+```
+
+///
+
 A granted call is delivered at least once, as every call is. The platform does not deduplicate it: a
 command another project may send twice must be safe to apply twice, which the wallet above makes it by
 the idempotency key each deposit carries. A registered machine arrives as
@@ -686,6 +1778,9 @@ describes grants, machines and their tokens.
 read, and every `allowCallers` admits it. The service logs once at startup that callers are not enforced.
 A test names a caller through the test kit, which shares a secret with the service in the same JVM:
 
+<!-- languages: scala, java, kotlin, python; the TypeScript and Go kits cannot name a caller: their requests reach the service as the local machine, so an ACL that names callers is proved where a cluster issues certificates; a module has no integration kit -->
+/// tab | Scala
+
 <!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CallersSuite.scala#test-as-caller -->
 ```scala
 test("the orders service is admitted and the payments service is not") {
@@ -693,6 +1788,55 @@ test("the orders service is admitted and the payments service is not") {
   assertEquals(get("/callers/only-orders", Some(Caller.Service("local", "payments")))._1, 403)
 }
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CallerChecks.java#test-as-caller -->
+```java
+/** The status of a GET made as {@code caller}: the kit's header names the caller. */
+public static int statusAs(AnkkaTestKit kit, String path, Caller caller) throws Exception {
+  var asCaller = kit.asCaller(caller);
+  var request =
+      HttpRequest.newBuilder(kit.http().resolve(path))
+          .header(asCaller.getKey(), asCaller.getValue())
+          .build();
+  return kit.httpClient().send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
+}
+
+// statusAs(kit, "/callers/only-orders", new Caller.Service("local", "orders")) is 200;
+// statusAs(kit, "/callers/only-orders", new Caller.Service("local", "payments")) is 403.
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ServiceCallsTest.kt#test-as-caller -->
+```kotlin
+val orders = kit.get("/callers/only-orders", caller = Caller.Service("local", "orders"))
+assertEquals(200, orders.status, "${orders.body} ${orders.headers}")
+assertEquals("admitted: service:local/orders", orders.body)
+assertEquals(403, kit.get("/callers/only-orders", caller = Caller.Service("local", "payments")).status)
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/test_callers.py#test-as-caller -->
+```python
+def test_the_handler_reads_the_caller_the_platform_established() -> None:
+    kit = EndpointTestKit.of(CallersEndpoint)
+    assert kit.get("/callers/whoami", caller=ServiceCaller("local", "orders")).text() == "service:local/orders"
+    assert kit.get("/callers/whoami", caller=Gateway()).text() == "gateway"
+    assert kit.get("/callers/whoami", caller=MachineCaller("acme", "nightly")).text() == "machine:acme/nightly"
+    # Outside a cluster every caller is the local machine.
+    assert kit.get("/callers/whoami").text() == "local"
+```
+
+///
 
 where the request carries the header `testKit.asCaller(caller)` returns. A service running locally is in
 project `local` and is itself `local/local`.
@@ -702,6 +1846,9 @@ project `local` and is itself `local/local`.
 `withAcl` gives the routes declared inside it a different ACL from the endpoint's. It *replaces* the
 endpoint's for those routes rather than adding to it, so an open endpoint can hold one protected route,
 and a closed one can open a single route, without either being split in two at a second prefix:
+
+<!-- languages: scala, kotlin, python, typescript, rust, go; the Java SDK has no per-route ACL: an endpoint's `acl()` covers every route it declares -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#route-acl -->
 ```scala
@@ -727,6 +1874,152 @@ final class MixedAclEndpoint extends HttpEndpoint("/mixed"):
     delete("/{cartId}")((cartId: String) => s"purged:$cartId by ${principal.subject}")
   }
 ```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#route-acl -->
+```kotlin
+/**
+ * One path, two audiences: reading a cart is public, purging one is not.
+ *
+ * An ACL belongs to an endpoint class, so the routes under one path that admit different callers
+ * are two classes, each with its own ACL.
+ */
+class CartReadEndpoint : HttpEndpoint() {
+    override fun acl(): Acl = Acl.allowAll()
+
+    @Get("/mixed/{cartId}")
+    fun read(cartId: String): String = "cart:$cartId"
+}
+
+class CartPurgeEndpoint : HttpEndpoint() {
+    override fun acl(): Acl =
+        Acl.authenticate { request ->
+            request.headerOrNull("X-Support-Id")?.let { AuthDecision.allow(Principal.of(it)) }
+                ?: AuthDecision.unauthenticated("realm=\"support\"")
+        }
+
+    @Delete("/mixed/{cartId}")
+    fun purge(cartId: String): String = "purged:$cartId by ${principal().orElseThrow().subject()}"
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/query_endpoint.py#route-acl -->
+```python
+class MixedAclEndpoint(Endpoint):
+    """One endpoint, two audiences: reading a cart is public, purging one is not. A route's own
+    ``acl`` replaces the endpoint's for that route, so neither audience needs an endpoint of its
+    own at a second prefix."""
+
+    prefix = "/mixed"
+    acl = Acl.ALLOW_ALL
+
+    @get("/{cartId}")
+    def cart(self, cartId: str) -> str:
+        return f"cart:{cartId}"
+
+    @delete("/{cartId}", acl=Acl.AUTHENTICATED)
+    def purge(self, cartId: str) -> str:
+        principal = self.request.principal
+        return f"purged:{cartId} by {principal.subject if principal else '?'}"
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#route-acl -->
+```ts
+/**
+ * One endpoint, two audiences: reading a cart is public, purging one is not.
+ *
+ * A route's `acl` replaces the endpoint's for that route, so neither audience needs an endpoint of
+ * its own at a second prefix.
+ */
+export class MixedAclEndpoint extends Endpoint {
+  static readonly prefix = "/mixed"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    read: get("/{cartId}", s.string, (_ep: MixedAclEndpoint, req) => `cart:${req.params.cartId}`),
+    purge: del(
+      "/{cartId}",
+      s.string,
+      (_ep: MixedAclEndpoint, req) => `purged:${req.params.cartId} by ${req.principal!.subject}`,
+      { acl: Acl.authenticated },
+    ),
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint -->
+```rust
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#route-acl -->
+```go
+// MixedAclEndpoint is one endpoint, two audiences: reading a cart is public, purging one is not.
+// A route's ACL replaces the endpoint's for that route, so neither audience needs an endpoint of
+// its own at a second prefix.
+var MixedAclEndpoint = ankka.NewEndpoint("/mixed", ankka.AllowAll(),
+	ankka.Get("/{cartId}", func(_ context.Context, req *ankka.Request) (string, error) {
+		return "cart:" + req.Param("cartId"), nil
+	}),
+	ankka.Delete("/{cartId}", func(_ context.Context, req *ankka.Request) (string, error) {
+		return "purged:" + req.Param("cartId") + " by " + req.Principal.Subject, nil
+	}).ACL(ankka.Authenticate(ankka.Issuer("support"))),
+)
+```
+
+///
 
 Scopes nest, and the innermost one wins. A request whose path matches no route of the endpoint is judged
 by the endpoint's own ACL, so an endpoint that refuses answers the same way for a path that exists and one
@@ -758,6 +2051,48 @@ Ankka.service
 
 ///
 
+/// tab | Java
+
+<!-- include: samples/shopping-cart-java/src/main/java/shoppingcart/javasdk/Main.java#service -->
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("shopping-cart")
+      .register(ShoppingCart.class)
+      .register(CartRows.class)
+      .register(CheckoutNotifier.class)
+      .register(CheckoutsSeen.class)
+      .withEndpoint(CartEndpoint.class)
+      .withEndpoint(CheckoutsSeenEndpoint.class)
+      .withEndpoint(CartKeysEndpoint.class)
+      .withMcpEndpoint(CartMcpEndpoint.class);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#service -->
+```kotlin
+fun service(): ServiceBuilder =
+    Ankka.service("shopping-cart")
+        .register(ShoppingCart::class.java)
+        .register(CartRows::class.java)
+        .register(CheckoutNotifier::class.java)
+        .register(CheckoutsSeen::class.java)
+        .register(CheckoutWorkflow::class.java)
+        .withEndpoint(CartEndpoint::class.java)
+        .withEndpoint(CheckoutsSeenEndpoint::class.java)
+        .withEndpoint(CartKeysEndpoint::class.java)
+        .withMcpEndpoint(CartMcpEndpoint::class.java)
+
+fun main() {
+    service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -780,6 +2115,36 @@ const service = Ankka.service()
   .register(ShoppingCartEndpoint)
 
 await service.listen()
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/lib.rs#service -->
+```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
+pub fn build() -> Service {
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
+}
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
 ```
 
 ///
@@ -835,6 +2200,34 @@ get("/{cartId}/rows") { (cartId: String) =>
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartRoutes.java#problem -->
+```java
+@Get("/{cartId}/checkout-row")
+public CheckoutRows.Row checkoutRow(String cartId) {
+  return viewClient()
+      .forView(CheckoutRows.class)
+      .get(cartId)
+      .orElseThrow(
+          () -> new ProblemException(Problem.notFound("no row for cart '" + cartId + "'")));
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#problem -->
+```kotlin
+get("/carts/{cartId}/rows") {
+    viewClient().forView(CartRows::class.java).getOrNull(path("cartId"))
+        ?: throw ProblemException(Problem.notFound("no row for cart '${path("cartId")}'"))
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#problem -->
@@ -858,6 +2251,23 @@ row: get("/{cartId}/rows", CartRow, async (ep: ShoppingCartEndpoint, req) => {
   if (found === null) throw new HttpProblem(404, `no row for cart '${req.params.cartId}'`)
   return found
 }),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#problem -->
+```rust
+fn row(request: &Request) -> Result<CartRow, HttpProblem> {
+    let cart_id = request.path("cartId");
+    let rows: Vec<CartRow> = request
+        .client()
+        .query(CartRows, "by-id", cart_id.to_string())?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| HttpProblem::new(404, format!("no row for cart '{cart_id}'")))
+}
 ```
 
 ///
@@ -891,6 +2301,38 @@ Rust `Acl::Authenticated` and Go `ankka.Authenticate(ankka.Issuer(name))`, with 
 rule and lists no issuer does not start, and its report names the route and the variable. A route decorator
 takes an `acl` of its own, which replaces the endpoint's for that route exactly as `withAcl` does in Scala:
 
+<!-- languages: scala, python, typescript, rust, go; a Java or Kotlin endpoint holds one ACL and a route has none of its own, so routes under one path that admit different callers are separate endpoint classes -->
+/// tab | Scala
+
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#route-acl -->
+```scala
+/**
+ * One endpoint, two audiences: reading a cart is public, purging one is not.
+ *
+ * `withAcl` replaces the endpoint's ACL for the routes declared inside it, so neither audience
+ * needs an endpoint of its own at a second prefix.
+ */
+final class MixedAclEndpoint extends HttpEndpoint("/mixed"):
+
+  val acl: Acl = Acl.AllowAll
+
+  get("/{cartId}")((cartId: String) => s"cart:$cartId")
+
+  withAcl(
+    Acl.Authenticate(context =>
+      context.header("X-Support-Id") match
+        case Some(id) => AuthDecision.Allow(Principal(id))
+        case None     => AuthDecision.Unauthenticated("""realm="support"""")
+    )
+  ) {
+    delete("/{cartId}")((cartId: String) => s"purged:$cartId by ${principal.subject}")
+  }
+```
+
+///
+
+/// tab | Python
+
 ```python
 class CartsEndpoint(Endpoint):
     prefix = "/carts"
@@ -903,8 +2345,159 @@ class CartsEndpoint(Endpoint):
     async def purge(self, cart_id: str) -> None: ...
 ```
 
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/access.ts#route-acl-closed -->
+```ts
+export class CartsEndpoint extends Endpoint {
+  static readonly prefix = "/carts"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    getCart: get("/{cartId}", s.string, (_ep: CartsEndpoint, req) => `cart:${req.params.cartId}`),
+    purge: del("/{cartId}", s.string, () => "never reached", { acl: Acl.denyAll }),
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint -->
+```rust
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/endpoints.go#route-acl-deny -->
+```go
+// CartsEndpoint is open, but for one route nobody may reach until a rule of its own says otherwise.
+var CartsEndpoint = ankka.NewEndpoint("/carts-admin", ankka.AllowAll(),
+	ankka.Get("/{cartId}", func(_ context.Context, req *ankka.Request) (string, error) {
+		return "cart:" + req.Param("cartId"), nil
+	}),
+	ankka.Delete("/{cartId}", func(_ context.Context, req *ankka.Request) (ankka.Done, error) {
+		return ankka.Done{}, nil
+	}).ACL(ankka.DenyAll()),
+)
+```
+
+///
+
 Every SDK names callers as Scala does, with the same meaning; the sidecar applies the ACL before the process
 is asked anything, and hands the handler the caller:
+
+/// tab | Scala
+
+<!-- include: sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/ConformanceReference.scala#callers -->
+```scala
+final class CallersEndpoint extends HttpEndpoint("/callers"):
+  val acl: Acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
+
+  get("/whoami")(() =>
+    caller match
+      case Caller.Service(project, name) => s"service:$project/$name"
+      case Caller.Machine(org, name)     => s"machine:$org/$name"
+      case Caller.Gateway                => "gateway"
+      case Caller.Local                  => "local"
+  )
+
+  withAcl(Acl.allowCallers(Callers.self)) {
+    get("/self")(() => "self")
+    sse("/events")(() => Source.single("tick"))
+  }
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CallerRoutes.java#allow-callers -->
+```java
+/**
+ * Only the internet and the orders service in this project; any other caller is refused 403. An
+ * endpoint has one ACL for all its routes, so routes for another audience, such as another
+ * instance of this very service and nothing else ({@code Callers.self()}), are an endpoint of
+ * their own.
+ */
+public class CallerRoutes extends HttpEndpoint {
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowCallers(Callers.internet(), Callers.service("orders"));
+  }
+
+  @Get("/callers/only-orders")
+  public String onlyOrders() {
+    return "admitted: " + describe(caller());
+  }
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#allow-callers -->
+```kotlin
+// An ACL belongs to an endpoint class, so a route admitting other callers is a class of its own.
+
+/** Only the internet and the orders service in this project; any other caller is refused 403. */
+class OnlyOrdersEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowCallers(Callers.internet(), Callers.service("orders"))
+
+    override fun routes() = routes {
+        get("/callers/only-orders") { "admitted: ${describe(request.caller())}" }
+    }
+}
+
+/** Another instance of this very service, and nothing else. */
+class OnlySelfEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowCallers(Callers.self())
+
+    override fun routes() = routes { get("/callers/only-self") { "admitted: myself" } }
+}
+```
+
+///
 
 /// tab | Python
 
@@ -940,6 +2533,48 @@ export class CallersEndpoint extends Endpoint {
     }),
     onlySelf: get("/self", s.string, () => "self", { acl: Acl.allowCallers(Callers.self) }),
   }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint -->
+```rust
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Machine { organization, name } => format!("machine:{organization}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+            .get("/granted", |_: &Request| Ok("granted".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::Granted]))
+    }
 }
 ```
 

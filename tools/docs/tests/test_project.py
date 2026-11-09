@@ -33,6 +33,10 @@ extra:
   docs:
     facets:
       flavours: [sweet, sour]
+      tongues: [scala, python]
+    samples:
+      facet: tongues
+      fences: {python: [py]}
     skills:
       source: docs-skills
       targets:
@@ -71,6 +75,7 @@ title: Make a widget
 description: Build one widget from its recipe.
 kind: guide
 flavours: [sweet]
+tongues: [scala, python]
 related: [index.md]
 ---
 
@@ -78,6 +83,7 @@ related: [index.md]
 
 ## The recipe
 
+<!-- tongues: scala; the recipe is read by the Scala build alone -->
 <!-- include: src/Widget.scala#recipe -->
 ```scala
 ```
@@ -228,7 +234,9 @@ def test_a_synced_repository_passes_every_check_and_renders_everything(repo: Pat
     index = json.loads((site / "docs-index.json").read_text())
     make = next(r for r in index if r["path"] == "build/make.md")
     assert make["flavours"] == ["sweet"]
+    assert make["tongues"] == ["scala", "python"]
     assert "languages" not in make, "only this repository's facets are indexed"
+    assert "<!-- tongues:" not in rendered, "the tooling's comments are stripped off the site"
     assert make["headings"] == ["The recipe"]
     assert (site / "llms-full.txt").read_text().startswith("# widget documentation\n")
 
@@ -290,6 +298,45 @@ def test_an_image_must_exist_under_docs_and_say_what_it_shows(repo: Path) -> Non
     assert any("image '../assets/flow.svg' has no alt text" in p for p in found)
     assert any("image '../assets/gone.svg' points at a file that does not exist" in p for p in found)
     assert any("image '../../x.svg' leaves docs/" in p for p in found)
+
+
+def test_every_sample_is_shown_in_every_tongue_or_says_why(repo: Path) -> None:
+    tabs = MAKE[MAKE.index("/// tab | Scala") :]
+    before = MAKE[: MAKE.index("/// tab | Scala")]
+
+    found = problems(repo)
+    assert not any("tongue" in p for p in found), "the fixture's tabs show both tongues and its lone block says why"
+
+    write(repo, "docs/build/make.md", before + tabs.replace("\n/// tab | Python\n\n```python\nw = Widget(\"sweet\")\n```\n\n///\n", ""))
+    found = problems(repo)
+    assert any("the tab set shows scala; the page's tongues also name python: show it in each, or say why not in `<!-- tongues: scala; <reason> -->`" in p for p in found)
+
+    write(repo, "docs/build/make.md", before + "<!-- tongues: scala; Python cannot make a sour widget -->\n" + tabs.replace("\n/// tab | Python\n\n```python\nw = Widget(\"sweet\")\n```\n\n///\n", ""))
+    assert not any("tongue" in p for p in problems(repo)), "a comment naming the tongues shown and a reason is accepted"
+
+    write(repo, "docs/build/make.md", before + "<!-- tongues: scala, python; nothing is missing -->\n" + tabs)
+    assert any("names every language the page does; remove it" in p for p in problems(repo))
+
+    write(repo, "docs/build/make.md", before + "<!-- tongues: scala -->\n" + tabs)
+    assert any("comment is malformed" in p for p in problems(repo))
+
+    write(repo, "docs/build/make.md", before + tabs + "\n```py\nw = Widget(\"sour\")\n```\n")
+    assert any("a `py` block outside a tab set shows python; the page's tongues also name scala" in p for p in problems(repo))
+
+    write(repo, "docs/build/make.md", before + tabs + "\n/// tab | Rust\n\n```rust\nlet w = Widget::new();\n```\n\n///\n")
+    assert any("tab 'Rust' is not one of the tongues: scala, python" in p for p in problems(repo))
+
+    python_first = tabs.replace("/// tab | Scala", "/// tab | TEMP").replace("/// tab | Python", "/// tab | Scala").replace("/// tab | TEMP", "/// tab | Python")
+    write(repo, "docs/build/make.md", before + python_first)
+    assert any("the tabs are in the order python, scala; put them in the order mkdocs.yml lists the tongues: scala, python" in p for p in problems(repo))
+
+    write(repo, "docs/build/make.md", MAKE.replace("tongues: [scala, python]\n", "").replace("<!-- tongues: scala; the recipe is read by the Scala build alone -->\n", ""))
+    found = problems(repo)
+    assert any("a `scala` block outside a tab set shows scala but the page names no tongues" in p for p in found)
+    assert any("a 'Scala' tab on a page whose tongues do not name scala" not in p for p in found), "with nothing declared a tab is not out of place"
+
+    write(repo, "docs/build/make.md", MAKE.replace("tongues: [scala, python]", "tongues: [scala]"))
+    assert any("a 'Python' tab on a page whose tongues do not name python; add it to the frontmatter" in p for p in problems(repo))
 
 
 def test_a_repository_with_no_skills_and_no_generators_is_fine(tmp_path: Path) -> None:

@@ -84,10 +84,12 @@ class WebTemplateSuite extends munit.FunSuite:
     finally socket.close()
 
   test("a web-hosted service started from the template passes its tests") {
-    // Every token rendered, and GitHub's own expressions left as they are.
+    // Every token rendered, and GitHub's own expressions left as they are. A token is `{{word}}`; a
+    // bare `{{` is also a brace in a skill's Rust or Go sample.
+    val token     = "\\{\\{\\s*[A-Za-z_][A-Za-z0-9_]*\\s*\\}\\}".r
     val leftovers = files.flatMap { f =>
       val text = Files.readString(f).replace("${{", "")
-      Vector("{{name}}", "{{ankka_version}}", "{{").find(text.contains).map(t => s"$f: $t")
+      token.findFirstIn(text).map(found => s"$f: $found")
     }
     assertEquals(leftovers, Vector.empty)
     val descriptor =

@@ -286,6 +286,7 @@ jobs:
               - '.gitignore'
               - 'LICENSE.md'
               - 'CLAUDE.md'
+              - 'REVIEW.md'                       # the review checklist the pr-review plugin reads; no job runs it
               - 'assets/**'                       # images for the repository's own pages, not the site's
               - '.claude/**'                      # the rules and settings for developing ankka; its skills are `scala`'s too
               - '.specify/**'

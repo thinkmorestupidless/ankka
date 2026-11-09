@@ -62,6 +62,90 @@ final class CartMcpEndpoint(client: ComponentClient) extends McpEndpoint("/mcp")
     .command(ShoppingCartEntity.checkout, id = "cartId")
 ```
 
+**Java**
+
+```java
+/**
+ * The cart as an MCP server at {@code /mcp}: a customer's assistant reads a cart, adds to it and
+ * checks it out through these tools rather than the cart's routes. Two tools are the entity's own
+ * handlers, declared by reference; one has a handler of its own, because its arguments are not the
+ * command's input.
+ */
+public class CartMcpEndpoint extends McpEndpoint {
+
+  public record AddItemArgs(
+      @Describe("The cart's id") String cartId,
+      @Describe("The product's id") String productId,
+      @Describe("How many; greater than zero") int quantity) {}
+
+  public CartMcpEndpoint() {
+    tool("get_cart")
+        .describedAs("Reads one cart: its lines, and whether it is checked out")
+        .query(ShoppingCart::getCart, "cartId");
+
+    tool("add_item")
+        .describedAs("Adds a quantity of a product to a cart")
+        .arguments(AddItemArgs.class)
+        .handle(
+            args ->
+                componentClient()
+                    .forEventSourcedEntity(args.cartId())
+                    .call(ShoppingCart::addItem)
+                    .invoke(new LineItem(args.productId(), args.productId(), args.quantity())));
+
+    tool("checkout")
+        .describedAs("Checks a cart out, answering what it held")
+        .command(ShoppingCart::checkout, "cartId");
+  }
+
+  // A request carrying one of the cart's client keys, as the key's subject (CartKeysEndpoint).
+  @Override
+  protected Acl acl() {
+    return Acl.clientKeys();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+class CartMcp : McpEndpoint() {
+
+    @Manifest("tool-cart")
+    data class ToolCart(val cart: ShoppingCart, val subject: String?, val claims: Map<String, String>)
+
+    data class CartArgs(@Describe("The cart's id") val cartId: String)
+
+    data class AddItemArgs(
+        @Describe("The cart's id") val cartId: String,
+        @Describe("The product's id") val productId: String,
+        @Describe("How many; greater than zero") val quantity: Int,
+    )
+
+    init {
+        tool("get_cart").describedAs("Reads one cart").handling<CartArgs> { args ->
+            val p = principal().orNull()
+            ToolCart(
+                componentClient().forEventSourcedEntity(args.cartId).call(ShoppingCartEntity::getCart).invokeSuspending(),
+                p?.subject,
+                p?.claims ?: emptyMap(),
+            )
+        }
+
+        tool("add_item").describedAs("Adds an item to a cart").handling<AddItemArgs> { args ->
+            componentClient()
+                .forEventSourcedEntity(args.cartId)
+                .call(ShoppingCartEntity::addItem)
+                .invokeSuspending(LineItem(args.productId, args.productId, args.quantity))
+        }
+
+        tool("checkout").describedAs("Checks a cart out").command(ShoppingCartEntity::checkout, "cartId")
+    }
+
+    override fun acl(): Acl = Acl.anyOf(Acl.clientKeys(), KotlinReference.authenticated)
+}
+```
+
 **Python**
 
 ```python
@@ -176,90 +260,6 @@ impl McpEndpoint for CartMcp {
 }
 ```
 
-**Java**
-
-```java
-/**
- * The cart as an MCP server at {@code /mcp}: a customer's assistant reads a cart, adds to it and
- * checks it out through these tools rather than the cart's routes. Two tools are the entity's own
- * handlers, declared by reference; one has a handler of its own, because its arguments are not the
- * command's input.
- */
-public class CartMcpEndpoint extends McpEndpoint {
-
-  public record AddItemArgs(
-      @Describe("The cart's id") String cartId,
-      @Describe("The product's id") String productId,
-      @Describe("How many; greater than zero") int quantity) {}
-
-  public CartMcpEndpoint() {
-    tool("get_cart")
-        .describedAs("Reads one cart: its lines, and whether it is checked out")
-        .query(ShoppingCart::getCart, "cartId");
-
-    tool("add_item")
-        .describedAs("Adds a quantity of a product to a cart")
-        .arguments(AddItemArgs.class)
-        .handle(
-            args ->
-                componentClient()
-                    .forEventSourcedEntity(args.cartId())
-                    .call(ShoppingCart::addItem)
-                    .invoke(new LineItem(args.productId(), args.productId(), args.quantity())));
-
-    tool("checkout")
-        .describedAs("Checks a cart out, answering what it held")
-        .command(ShoppingCart::checkout, "cartId");
-  }
-
-  // A request carrying one of the cart's client keys, as the key's subject (CartKeysEndpoint).
-  @Override
-  protected Acl acl() {
-    return Acl.clientKeys();
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-class CartMcp : McpEndpoint() {
-
-    @Manifest("tool-cart")
-    data class ToolCart(val cart: ShoppingCart, val subject: String?, val claims: Map<String, String>)
-
-    data class CartArgs(@Describe("The cart's id") val cartId: String)
-
-    data class AddItemArgs(
-        @Describe("The cart's id") val cartId: String,
-        @Describe("The product's id") val productId: String,
-        @Describe("How many; greater than zero") val quantity: Int,
-    )
-
-    init {
-        tool("get_cart").describedAs("Reads one cart").handling<CartArgs> { args ->
-            val p = principal().orNull()
-            ToolCart(
-                componentClient().forEventSourcedEntity(args.cartId).call(ShoppingCartEntity::getCart).invokeSuspending(),
-                p?.subject,
-                p?.claims ?: emptyMap(),
-            )
-        }
-
-        tool("add_item").describedAs("Adds an item to a cart").handling<AddItemArgs> { args ->
-            componentClient()
-                .forEventSourcedEntity(args.cartId)
-                .call(ShoppingCartEntity::addItem)
-                .invokeSuspending(LineItem(args.productId, args.productId, args.quantity))
-        }
-
-        tool("checkout").describedAs("Checks a cart out").command(ShoppingCartEntity::checkout, "cartId")
-    }
-
-    override fun acl(): Acl = Acl.anyOf(Acl.clientKeys(), KotlinReference.authenticated)
-}
-```
-
 **Go**
 
 ```go
@@ -303,10 +303,117 @@ Most tools are a handler the service already has. Rather than write a handler th
 **refer** to it: a command or a query of an entity, named by its handle, with the argument that is the
 entity's id, or a route of one of the service's own HTTP endpoints, named by its method and path.
 
+**Scala**
+
 ```scala
 val getCart = tool("get_cart")
   .describedAs("Reads one cart: its lines, and whether it is checked out")
   .query(ShoppingCartEntity.getCart, id = "cartId")
+```
+
+**Java**
+
+```java
+tool("get_cart")
+    .describedAs("Reads one cart: its lines, and whether it is checked out")
+    .query(ShoppingCart::getCart, "cartId");
+```
+
+**Kotlin**
+
+```kotlin
+tool("get_cart").describedAs("Reads one cart: its lines, and whether it is checked out").query(ShoppingCart::getCart, "cartId")
+```
+
+**Python**
+
+```python
+get_cart = tool.query(
+    ShoppingCartEntity, "get-cart", id="cartId", description="Reads one cart: its lines, and whether it is checked out"
+)
+```
+
+**TypeScript**
+
+```typescript
+.query("get_cart", "Reads one cart: its lines, and whether it is checked out", ShoppingCartEntity, "get-cart", {
+  id: "cartId",
+})
+```
+
+**Rust**
+
+```rust
+/// The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case
+/// can see who a client key or a token made the caller, and that nothing in it reads as the key.
+pub struct CartMcp;
+
+impl McpEndpoint for CartMcp {
+    const ENDPOINT_ID: &'static str = "cart-mcp";
+    const PATH: &'static str = "/mcp";
+
+    fn acl() -> Acl {
+        Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])
+    }
+
+    fn tools() -> McpTools<CartMcp> {
+        McpTools::new()
+            .tool(
+                "get_cart",
+                "Reads one cart",
+                Schema::object().string("cartId", "The cart's id"),
+                |args: CartArgs, request: &McpRequest| {
+                    let cart: crate::domain::ShoppingCart =
+                        request
+                            .client()
+                            .invoke(ShoppingCart, &args.cart_id, "get-cart", ())?;
+                    let principal = request.principal();
+                    Ok(ToolCart {
+                        cart,
+                        subject: principal.map(|p| p.subject.clone()),
+                        claims: principal.map(|p| p.claims.clone()).unwrap_or_default(),
+                    })
+                },
+            )
+            .tool(
+                "add_item",
+                "Adds an item to a cart",
+                Schema::object()
+                    .string("cartId", "The cart's id")
+                    .string("productId", "The product's id")
+                    .integer("quantity", "How many; greater than zero"),
+                |args: AddItemArgs, request: &McpRequest| {
+                    let item = crate::domain::LineItem {
+                        product_id: args.product_id.clone(),
+                        name: args.product_id,
+                        quantity: args.quantity,
+                    };
+                    request.client().invoke::<_, _, Done, _>(
+                        ShoppingCart,
+                        &args.cart_id,
+                        "add-item",
+                        item,
+                    )
+                },
+            )
+            .command(
+                "checkout",
+                "Checks a cart out",
+                ShoppingCart,
+                "checkout",
+                "cartId",
+                Schema::object(),
+            )
+    }
+}
+```
+
+**Go**
+
+```go
+// A tool that refers to a query of the entity: the argument named is the entity's id.
+ankka.McpQueryRef("get_cart", "Reads one cart: its lines, and whether it is checked out",
+	cart.ComponentID, "get-cart", "cartId"),
 ```
 
 A reference is checked when the service starts: a command, query or route that does not exist fails the
@@ -317,6 +424,8 @@ rules still apply.
 
 A tool with a handler of its own is for arguments that are not the command's input, or for a tool that
 calls more than one component:
+
+**Scala**
 
 ```scala
 val addItem = tool("add_item")
@@ -330,6 +439,129 @@ val addItem = tool("add_item")
       .call(ShoppingCartEntity.addItem)
       .invoke(LineItem(productId, productId, quantity))
   }
+```
+
+**Java**
+
+```java
+tool("add_item")
+    .describedAs("Adds a quantity of a product to a cart")
+    .arguments(AddItemArgs.class)
+    .handle(
+        args ->
+            componentClient()
+                .forEventSourcedEntity(args.cartId())
+                .call(ShoppingCart::addItem)
+                .invoke(new LineItem(args.productId(), args.productId(), args.quantity())));
+```
+
+**Kotlin**
+
+```kotlin
+tool("add_item").describedAs("Adds a quantity of a product to a cart").handling<AddItemArgs> { args ->
+    componentClient()
+        .forEventSourcedEntity(args.cartId)
+        .call(ShoppingCart::addItem)
+        .invokeSuspending(LineItem(args.productId, args.productId, args.quantity))
+}
+```
+
+**Python**
+
+```python
+@tool("Adds a quantity of a product to a cart")
+async def add_item(self, cartId: str, productId: str, quantity: int) -> Done:
+    assert self.client is not None
+    cart = self.client.with_metadata(self.request.metadata).for_event_sourced_entity("shopping-cart", cartId)
+    return await cart.call("add-item").invoke(LineItem(productId, productId, quantity), reply=Done)
+```
+
+**TypeScript**
+
+```typescript
+.tool("add_item", "Adds a quantity of a product to a cart", AddItem, undefined, async (args, ep) => {
+  const item = { productId: args.productId, name: args.productId, quantity: args.quantity }
+  await ep.client.of(ShoppingCartEntity, args.cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)
+  return done
+})
+```
+
+**Rust**
+
+```rust
+/// The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case
+/// can see who a client key or a token made the caller, and that nothing in it reads as the key.
+pub struct CartMcp;
+
+impl McpEndpoint for CartMcp {
+    const ENDPOINT_ID: &'static str = "cart-mcp";
+    const PATH: &'static str = "/mcp";
+
+    fn acl() -> Acl {
+        Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])
+    }
+
+    fn tools() -> McpTools<CartMcp> {
+        McpTools::new()
+            .tool(
+                "get_cart",
+                "Reads one cart",
+                Schema::object().string("cartId", "The cart's id"),
+                |args: CartArgs, request: &McpRequest| {
+                    let cart: crate::domain::ShoppingCart =
+                        request
+                            .client()
+                            .invoke(ShoppingCart, &args.cart_id, "get-cart", ())?;
+                    let principal = request.principal();
+                    Ok(ToolCart {
+                        cart,
+                        subject: principal.map(|p| p.subject.clone()),
+                        claims: principal.map(|p| p.claims.clone()).unwrap_or_default(),
+                    })
+                },
+            )
+            .tool(
+                "add_item",
+                "Adds an item to a cart",
+                Schema::object()
+                    .string("cartId", "The cart's id")
+                    .string("productId", "The product's id")
+                    .integer("quantity", "How many; greater than zero"),
+                |args: AddItemArgs, request: &McpRequest| {
+                    let item = crate::domain::LineItem {
+                        product_id: args.product_id.clone(),
+                        name: args.product_id,
+                        quantity: args.quantity,
+                    };
+                    request.client().invoke::<_, _, Done, _>(
+                        ShoppingCart,
+                        &args.cart_id,
+                        "add-item",
+                        item,
+                    )
+                },
+            )
+            .command(
+                "checkout",
+                "Checks a cart out",
+                ShoppingCart,
+                "checkout",
+                "cartId",
+                Schema::object(),
+            )
+    }
+}
+```
+
+**Go**
+
+```go
+// A tool with a handler of its own, for arguments that are not the command's input.
+ankka.McpTool("add_item", "Adds a quantity of a product to a cart",
+	func(ctx context.Context, in AddItemArguments) (ankka.Done, error) {
+		item := cart.LineItem{ProductID: in.ProductID, Name: in.ProductID, Quantity: in.Quantity}
+		return ankka.Invoke[ankka.Done](ctx, cart.ComponentID, in.CartID, "add-item", item)
+	}),
 ```
 
 ## Who may call
@@ -346,9 +578,116 @@ admitted, alone or together with `Acl.anyOf`:
 
 The sample admits its client keys:
 
+**Scala**
+
 ```scala
 // A request carrying one of the cart's client keys, as the key's subject (`CartKeysEndpoint`).
 val acl: Acl = ClientKeys.authenticate()
+```
+
+**Java**
+
+```java
+// A request carrying one of the cart's client keys, as the key's subject (CartKeysEndpoint).
+@Override
+protected Acl acl() {
+  return Acl.clientKeys();
+}
+```
+
+**Kotlin**
+
+```kotlin
+// A request carrying one of the cart's client keys, as the key's subject (CartKeysEndpoint).
+override fun acl(): Acl = Acl.clientKeys()
+```
+
+**Python**
+
+```python
+# A request carrying one of the cart's client keys, as the key's subject (`CartKeysEndpoint`).
+acl = Acl.CLIENT_KEYS
+```
+
+**TypeScript**
+
+```typescript
+// A request carrying one of the cart's client keys, as the key's subject (`CartKeysEndpoint`).
+static readonly acl = Acl.clientKeys
+```
+
+**Rust**
+
+```rust
+/// The cart's MCP endpoint at `/mcp`. `get_cart` answers the principal beside the cart, so a case
+/// can see who a client key or a token made the caller, and that nothing in it reads as the key.
+pub struct CartMcp;
+
+impl McpEndpoint for CartMcp {
+    const ENDPOINT_ID: &'static str = "cart-mcp";
+    const PATH: &'static str = "/mcp";
+
+    fn acl() -> Acl {
+        Acl::AnyOf(vec![Acl::ClientKeys, Acl::Authenticated])
+    }
+
+    fn tools() -> McpTools<CartMcp> {
+        McpTools::new()
+            .tool(
+                "get_cart",
+                "Reads one cart",
+                Schema::object().string("cartId", "The cart's id"),
+                |args: CartArgs, request: &McpRequest| {
+                    let cart: crate::domain::ShoppingCart =
+                        request
+                            .client()
+                            .invoke(ShoppingCart, &args.cart_id, "get-cart", ())?;
+                    let principal = request.principal();
+                    Ok(ToolCart {
+                        cart,
+                        subject: principal.map(|p| p.subject.clone()),
+                        claims: principal.map(|p| p.claims.clone()).unwrap_or_default(),
+                    })
+                },
+            )
+            .tool(
+                "add_item",
+                "Adds an item to a cart",
+                Schema::object()
+                    .string("cartId", "The cart's id")
+                    .string("productId", "The product's id")
+                    .integer("quantity", "How many; greater than zero"),
+                |args: AddItemArgs, request: &McpRequest| {
+                    let item = crate::domain::LineItem {
+                        product_id: args.product_id.clone(),
+                        name: args.product_id,
+                        quantity: args.quantity,
+                    };
+                    request.client().invoke::<_, _, Done, _>(
+                        ShoppingCart,
+                        &args.cart_id,
+                        "add-item",
+                        item,
+                    )
+                },
+            )
+            .command(
+                "checkout",
+                "Checks a cart out",
+                ShoppingCart,
+                "checkout",
+                "cartId",
+                Schema::object(),
+            )
+    }
+}
+```
+
+**Go**
+
+```go
+// A request carrying one of the cart's client keys, as the key's subject (McpKeys issues them).
+ankka.AllowClientKeys(),
 ```
 
 The references in the other languages admit a client key or a token, either one:
@@ -369,6 +708,8 @@ it.
 A **client key** is a credential a service issues to one customer's assistant, for one MCP endpoint. Only
 the service knows who its customers are, so the service's own code issues keys, from a route behind the
 service's own sign-in; the platform keeps them, checks them on every request and revokes them.
+
+**Scala**
 
 ```scala
 /**
@@ -400,6 +741,82 @@ final class CartKeysEndpoint(keys: ClientKeys) extends HttpEndpoint("/mcp-keys")
     keys.revoke(id)
     "revoked"
   }
+```
+
+**Java**
+
+```java
+public class McpKeysEndpoint extends HttpEndpoint {
+
+  /** What a post is asked to issue: a key that never expires, for the cases. */
+  @Manifest("mcp-key-request")
+  public record McpKeyRequest(
+      String subject, Optional<Set<String>> scope, Optional<Map<String, String>> attributes) {}
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowAll();
+  }
+
+  @Post("/mcp-keys")
+  public IssuedClientKey issue(@Body McpKeyRequest body) {
+    return clientKeys()
+        .issue(
+            new ClientKeyRequest(
+                body.subject(),
+                Expiry.never(),
+                Optional.empty(),
+                body.scope().orElse(Set.of()),
+                body.attributes().orElse(Map.of()),
+                Optional.empty()));
+  }
+
+  @Get("/mcp-keys")
+  public List<ClientKeySummary> list() {
+    return clientKeys().list();
+  }
+
+  @Delete("/mcp-keys/{id}")
+  public String revoke(String id) {
+    clientKeys().revoke(id);
+    return "revoked";
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+class McpKeysEndpoint : HttpEndpoint() {
+
+    /** What a post is asked to issue: a key that never expires, for the cases. */
+    @Manifest("mcp-key-request")
+    data class McpKeyRequest(val subject: String, val scope: Set<String>?, val attributes: Map<String, String>?)
+
+    override fun acl(): Acl = Acl.allowAll()
+
+    @Post("/mcp-keys")
+    fun issue(@Body body: McpKeyRequest): IssuedClientKey =
+        clientKeys().issue(
+            ClientKeyRequest(
+                body.subject,
+                Expiry.never(),
+                Optional.empty(),
+                body.scope ?: emptySet(),
+                body.attributes ?: emptyMap(),
+                Optional.empty(),
+            )
+        )
+
+    @Get("/mcp-keys")
+    fun list(): List<ClientKeySummary> = clientKeys().list()
+
+    @Delete("/mcp-keys/{id}")
+    fun revoke(id: String): String {
+        clientKeys().revoke(id)
+        return "revoked"
+    }
+}
 ```
 
 **Python**
@@ -485,82 +902,6 @@ impl Endpoint for McpKeysEndpoint {
                 keys_of(request)?.revoke(request.path("id"))?;
                 Ok("revoked".to_string())
             })
-    }
-}
-```
-
-**Java**
-
-```java
-public class McpKeysEndpoint extends HttpEndpoint {
-
-  /** What a post is asked to issue: a key that never expires, for the cases. */
-  @Manifest("mcp-key-request")
-  public record McpKeyRequest(
-      String subject, Optional<Set<String>> scope, Optional<Map<String, String>> attributes) {}
-
-  @Override
-  protected Acl acl() {
-    return Acl.allowAll();
-  }
-
-  @Post("/mcp-keys")
-  public IssuedClientKey issue(@Body McpKeyRequest body) {
-    return clientKeys()
-        .issue(
-            new ClientKeyRequest(
-                body.subject(),
-                Expiry.never(),
-                Optional.empty(),
-                body.scope().orElse(Set.of()),
-                body.attributes().orElse(Map.of()),
-                Optional.empty()));
-  }
-
-  @Get("/mcp-keys")
-  public List<ClientKeySummary> list() {
-    return clientKeys().list();
-  }
-
-  @Delete("/mcp-keys/{id}")
-  public String revoke(String id) {
-    clientKeys().revoke(id);
-    return "revoked";
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-class McpKeysEndpoint : HttpEndpoint() {
-
-    /** What a post is asked to issue: a key that never expires, for the cases. */
-    @Manifest("mcp-key-request")
-    data class McpKeyRequest(val subject: String, val scope: Set<String>?, val attributes: Map<String, String>?)
-
-    override fun acl(): Acl = Acl.allowAll()
-
-    @Post("/mcp-keys")
-    fun issue(@Body body: McpKeyRequest): IssuedClientKey =
-        clientKeys().issue(
-            ClientKeyRequest(
-                body.subject,
-                Expiry.never(),
-                Optional.empty(),
-                body.scope ?: emptySet(),
-                body.attributes ?: emptyMap(),
-                Optional.empty(),
-            )
-        )
-
-    @Get("/mcp-keys")
-    fun list(): List<ClientKeySummary> = clientKeys().list()
-
-    @Delete("/mcp-keys/{id}")
-    fun revoke(id: String): String {
-        clientKeys().revoke(id)
-        return "revoked"
     }
 }
 ```
@@ -685,6 +1026,8 @@ An MCP endpoint is tested as an HTTP endpoint is: start the service with `AnkkaT
 the MCP runtime, and send the protocol's requests. The sample's suite issues a key through its own route
 and calls the tools as an assistant would:
 
+**Scala**
+
 ```scala
 /** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
 private def mcp(method: String, params: String): String =
@@ -699,6 +1042,123 @@ private def mcp(method: String, params: String): String =
 
 private def callTool(name: String, arguments: String): Unit =
   last = (0, mcp("tools/call", s"""{"name":"$name","arguments":$arguments}"""))
+```
+
+**Java**
+
+```java
+/** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
+static String mcp(AnkkaTestKit kit, String assistantKey, String method, String params)
+    throws Exception {
+  var message =
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + method + "\",\"params\":" + params + "}";
+  var request =
+      HttpRequest.newBuilder(kit.http().resolve("/mcp"))
+          .header("Content-Type", "application/json")
+          .header("Accept", "application/json, text/event-stream")
+          .header("MCP-Protocol-Version", "2025-06-18")
+          .header("Authorization", "Bearer " + assistantKey)
+          .POST(HttpRequest.BodyPublishers.ofString(message))
+          .build();
+  var response = kit.httpClient().send(request, HttpResponse.BodyHandlers.ofString());
+  if (response.statusCode() != 200)
+    throw new AssertionError(response.statusCode() + ": " + response.body());
+  return response.body();
+}
+
+static String callTool(AnkkaTestKit kit, String assistantKey, String name, String arguments)
+    throws Exception {
+  var params = "{\"name\":\"" + name + "\",\"arguments\":" + arguments + "}";
+  return mcp(kit, assistantKey, "tools/call", params);
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
+private fun mcp(method: String, params: String): String {
+    val (status, body) =
+        send("POST", "/mcp", """{"jsonrpc":"2.0","id":1,"method":"$method","params":$params}""", "Authorization" to "Bearer $assistantKey")
+    assertEquals(200, status, body)
+    return body
+}
+
+private fun callTool(name: String, arguments: String) {
+    last = 0 to mcp("tools/call", """{"name":"$name","arguments":$arguments}""")
+}
+```
+
+**Python**
+
+```python
+async def mcp(kit: AnkkaTestKit, key: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    """One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it."""
+    response = await kit.http.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+        headers={"Authorization": f"Bearer {key}", "Accept": "application/json, text/event-stream"},
+    )
+    assert response.status_code == 200, response.text
+    body: dict[str, Any] = response.json()
+    result: dict[str, Any] = body["result"]
+    return result
+```
+
+**TypeScript**
+
+```typescript
+test("an assistant lists and calls the tools with a key the cart issued", async () => {
+  const kit = await AnkkaTestKit.start(service())
+  try {
+    const issued = (await kit.http.post("/mcp-keys/", { subject: "acme", scope: [], label: null })).json() as IssuedKey
+    /** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
+    const mcp = async (method: string, params: unknown) => {
+      const request = { jsonrpc: "2.0", id: 1, method, params }
+      const r = await kit.http.post("/mcp", request, { Authorization: `Bearer ${issued.clientKey}` })
+      assert.equal(r.status, 200, r.text())
+      return r.json() as { result: { tools?: { name: string }[]; isError?: boolean; content?: { text: string }[] } }
+    }
+    const listed = await mcp("tools/list", {})
+    assert.deepEqual(listed.result.tools?.map((t) => t.name), ["get_cart", "add_item"])
+    const added = await mcp("tools/call", { name: "add_item", arguments: { cartId: "m1", productId: "p1", quantity: 2 } })
+    assert.notEqual(added.result.isError, true, JSON.stringify(added))
+    const read = await mcp("tools/call", { name: "get_cart", arguments: { cartId: "m1" } })
+    assert.match(read.result.content?.[0]?.text ?? "", /"quantity":2/)
+  } finally {
+    await kit.stop()
+  }
+})
+```
+
+**Go**
+
+```go
+func TestAnAssistantFillsACartThroughTheTools(t *testing.T) {
+	ctx := context.Background()
+	// The kit runs the tools as the platform would once it has admitted the caller: the key's
+	// subject is the principal the tools see.
+	kit := testkit.Mcp(CartMcpEndpoint, cart.Entity)
+	defer kit.Close()
+	assistant := &ankka.Principal{Subject: "assistant-1"}
+
+	added, err := kit.Call(ctx, "add_item", map[string]any{"cartId": "c1", "productId": "pen", "quantity": 2}, assistant)
+	if err != nil {
+		t.Fatalf("add_item answered %v", err)
+	}
+	if added.Text == "" {
+		t.Fatal("add_item answered nothing")
+	}
+	got, err := kit.Call(ctx, "get_cart", map[string]any{"cartId": "c1"}, assistant)
+	if err != nil || !strings.Contains(got.StructuredJSON, `"productId":"pen"`) {
+		t.Fatalf("get_cart answered %+v, %v", got, err)
+	}
+	// A refused command is the tool's error, which a model reads and can act on.
+	zero := map[string]any{"cartId": "c1", "productId": "ink", "quantity": 0}
+	if _, err := kit.Call(ctx, "add_item", zero, assistant); err == nil {
+		t.Fatal("a zero quantity was added")
+	}
+}
 ```
 
 ## What it does not do

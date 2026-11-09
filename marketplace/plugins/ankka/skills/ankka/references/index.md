@@ -54,6 +54,138 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
 
+**Java**
+
+```java
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
+
+  @Override
+  protected Cart emptyState() {
+    return Cart.empty(context().entityId());
+  }
+
+  @Command("add-item")
+  public Effect<Done> addItem(LineItem item) {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (item.quantity() <= 0)
+      return effects().error("quantity must be greater than zero, was " + item.quantity());
+    return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+  }
+
+  @Command("remove-item")
+  public Effect<Done> removeItem(String productId) {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (!currentState().contains(productId))
+      return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+    return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+  }
+
+  @Command("checkout")
+  public Effect<Cart> checkout() {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (currentState().isEmpty()) return effects().error("cannot check out an empty cart");
+    return effects().persist(new CartEvent.CheckedOut()).thenReplyState();
+  }
+
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty. The event is
+   * persisted before the deletion takes effect, so a consumer or view downstream still observes
+   * that this cart was discarded rather than merely vanishing.
+   */
+  @Command("discard")
+  public Effect<Done> discard() {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    return effects().persist(new CartEvent.Discarded()).thenDelete().thenDone();
+  }
+
+  @Query("get-cart")
+  public ReadOnlyEffect<Cart> getCart() {
+    return effects().reply(currentState());
+  }
+
+  @Query("total-quantity")
+  public ReadOnlyEffect<Integer> totalQuantity() {
+    return effects().reply(currentState().totalQuantity());
+  }
+
+  @Override
+  protected Cart applyEvent(Cart state, CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded added -> state.addItem(added.item());
+      case CartEvent.ItemRemoved removed -> state.removeItem(removed.productId());
+      case CartEvent.CheckedOut ignored -> state.onCheckedOut();
+      case CartEvent.Discarded ignored -> state;
+    };
+  }
+
+  private static Problem checkedOut() {
+    return Problem.conflict("cart is already checked out");
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
+    override fun emptyState() = Cart.empty(context().entityId())
+
+    // A suspend fun, as any handler may be: it waits without holding a thread.
+    @Command("add-item")
+    suspend fun addItem(item: LineItem): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
+            else -> persist(CartEvent.ItemAdded(item)).thenDone()
+        }
+    }
+
+    @Command("remove-item")
+    fun removeItem(productId: String): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            !currentState().contains(productId) -> error(Problem.notFound("cart does not contain '$productId'"))
+            else -> persist(CartEvent.ItemRemoved(productId)).thenDone()
+        }
+    }
+
+    @Command("checkout")
+    fun checkout(): Effect<Cart> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            currentState().items.isEmpty() -> error("cannot check out an empty cart")
+            else -> persist(CartEvent.CheckedOut).thenReplyState()
+        }
+    }
+
+    @Command("discard")
+    fun discard(): Effect<Done> = effects {
+        if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
+    }
+
+    @Query("get-cart")
+    fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }
+
+    @Query("total-quantity")
+    fun totalQuantity(): ReadOnlyEffect<Int> = effects { reply(currentState().totalQuantity) }
+
+    override fun applyEvent(state: Cart, event: CartEvent): Cart =
+        when (event) {
+            is CartEvent.ItemAdded -> state.addItem(event.item)
+            is CartEvent.ItemRemoved -> state.removeItem(event.productId)
+            CartEvent.CheckedOut -> state.copy(checkedOut = true)
+            CartEvent.Discarded -> state
+        }
+
+    private val checkedOut: Problem
+        get() = Problem.conflict("cart is already checked out")
+}
+```
+
 **Python**
 
 ```python
@@ -155,130 +287,78 @@ impl EventSourcedEntity for ShoppingCart {
 }
 ```
 
-**Java**
+**Go**
 
-```java
-/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
-@ComponentId("shopping-cart")
-public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
+```go
+// Entity is the shopping cart: the same wire names and manifests as the Scala sample's. The
+// string each handler is registered under is its wire name, separate from the Go function's.
+var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
+	ankka.Command("add-item", addItem),
+	ankka.Command("remove-item", removeItem),
+	ankka.Command("checkout", checkout),
+	ankka.Command("discard", discard),
+	ankka.Query("get-cart", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[Cart], error) {
+		return ankka.Reply(c), nil
+	}),
+	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
+		return ankka.Reply(TotalQuantity(c)), nil
+	}),
+	// A JSON codec derived from the type, under the manifest the journal records it by.
+	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
+	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
+	ankka.SnapshotEvery(3),
+)
 
-  @Override
-  protected Cart emptyState() {
-    return Cart.empty(context().entityId());
-  }
 
-  @Command("add-item")
-  public Effect<Done> addItem(LineItem item) {
-    if (currentState().checkedOut()) return effects().error(checkedOut());
-    if (item.quantity() <= 0)
-      return effects().error("quantity must be greater than zero, was " + item.quantity());
-    return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
-  }
+var checkedOut = ankka.Refuse(ankka.Conflict, "cart is already checked out")
 
-  @Command("remove-item")
-  public Effect<Done> removeItem(String productId) {
-    if (currentState().checkedOut()) return effects().error(checkedOut());
-    if (!currentState().contains(productId))
-      return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
-    return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
-  }
+func done(Cart) ankka.Done { return ankka.Done{} }
 
-  @Command("checkout")
-  public Effect<Cart> checkout() {
-    if (currentState().checkedOut()) return effects().error(checkedOut());
-    if (currentState().isEmpty()) return effects().error("cannot check out an empty cart");
-    return effects().persist(new CartEvent.CheckedOut()).thenReplyState();
-  }
 
-  @Command("discard")
-  public Effect<Done> discard() {
-    if (currentState().checkedOut()) return effects().error(checkedOut());
-    return effects().persist(new CartEvent.Discarded()).thenDelete().thenDone();
-  }
-
-  @Query("get-cart")
-  public ReadOnlyEffect<Cart> getCart() {
-    return effects().reply(currentState());
-  }
-
-  @Query("total-quantity")
-  public ReadOnlyEffect<Integer> totalQuantity() {
-    return effects().reply(currentState().totalQuantity());
-  }
-
-  @Override
-  protected Cart applyEvent(Cart state, CartEvent event) {
-    return switch (event) {
-      case CartEvent.ItemAdded added -> state.addItem(added.item());
-      case CartEvent.ItemRemoved removed -> state.removeItem(removed.productId());
-      case CartEvent.CheckedOut ignored -> state.onCheckedOut();
-      case CartEvent.Discarded ignored -> state;
-    };
-  }
-
-  private static Problem checkedOut() {
-    return Problem.conflict("cart is already checked out");
-  }
+// addItem describes what should happen: a refusal is a returned error and nothing is persisted; an
+// accepted item is an event the runtime persists before it replies.
+func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	if item.Quantity <= 0 {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.BadRequest, "quantity must be greater than zero, was %d", item.Quantity)
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
 }
-```
 
-**Kotlin**
 
-```kotlin
-/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
-@ComponentId("shopping-cart")
-class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
-    override fun emptyState() = Cart.empty(context().entityId())
+func removeItem(_ context.Context, c Cart, productID string) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	if !Contains(c, productID) {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.NotFound, "cart does not contain '%s'", productID)
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](ItemRemoved{ProductID: productID}).ThenReply(done), nil
+}
 
-    // A suspend fun, as any handler may be: it waits without holding a thread.
-    @Command("add-item")
-    suspend fun addItem(item: LineItem): Effect<Done> = effects {
-        when {
-            currentState().checkedOut -> error(checkedOut)
-            item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
-            else -> persist(CartEvent.ItemAdded(item)).thenDone()
-        }
-    }
+// checkout keeps the cart, the record of what was ordered, and refuses every later change to it.
+func checkout(_ context.Context, c Cart, _ ankka.Unit) (effect[Cart], error) {
+	if c.CheckedOut {
+		return effect[Cart]{}, checkedOut
+	}
+	if len(c.Items) == 0 {
+		return effect[Cart]{}, ankka.Refuse(ankka.BadRequest, "cannot check out an empty cart")
+	}
+	return ankka.Persist[Cart, Event, Cart](CheckedOut{}).ThenReplyState(), nil
+}
 
-    @Command("remove-item")
-    fun removeItem(productId: String): Effect<Done> = effects {
-        when {
-            currentState().checkedOut -> error(checkedOut)
-            !currentState().contains(productId) -> error(Problem.notFound("cart does not contain '$productId'"))
-            else -> persist(CartEvent.ItemRemoved(productId)).thenDone()
-        }
-    }
 
-    @Command("checkout")
-    fun checkout(): Effect<Cart> = effects {
-        when {
-            currentState().checkedOut -> error(checkedOut)
-            currentState().items.isEmpty() -> error("cannot check out an empty cart")
-            else -> persist(CartEvent.CheckedOut).thenReplyState()
-        }
-    }
-
-    @Command("discard")
-    fun discard(): Effect<Done> = effects {
-        if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
-    }
-
-    @Query("get-cart")
-    fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }
-
-    @Query("total-quantity")
-    fun totalQuantity(): ReadOnlyEffect<Int> = effects { reply(currentState().totalQuantity) }
-
-    override fun applyEvent(state: Cart, event: CartEvent): Cart =
-        when (event) {
-            is CartEvent.ItemAdded -> state.addItem(event.item)
-            is CartEvent.ItemRemoved -> state.removeItem(event.productId)
-            CartEvent.CheckedOut -> state.copy(checkedOut = true)
-            CartEvent.Discarded -> state
-        }
-
-    private val checkedOut: Problem
-        get() = Problem.conflict("cart is already checked out")
+// discard records the discard and then deletes the cart, so the same id starts again empty. The
+// event is persisted before the deletion takes effect, so a consumer or view downstream still
+// observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+// record of an order and is not discarded.
+func discard(_ context.Context, c Cart, _ ankka.Unit) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](Discarded{}).DeleteEntity().ThenReply(done), nil
 }
 ```
 

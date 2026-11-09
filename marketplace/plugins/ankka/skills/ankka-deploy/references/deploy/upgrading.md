@@ -25,6 +25,8 @@ proxy.
 
 In a service created from the template:
 
+**Scala**
+
 ```scala
 // build.sbt
 val ankkaVersion = "0.16.0"

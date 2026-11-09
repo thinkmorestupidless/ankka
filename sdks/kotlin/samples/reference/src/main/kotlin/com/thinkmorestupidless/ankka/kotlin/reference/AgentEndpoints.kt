@@ -127,7 +127,14 @@ class AutonomousEndpoint : HttpEndpoint(), RouteRegistrar {
         get("/autonomous/instances/{instance}/state") { instance(path("instance")).state().json() }
     }
 
+    // docs:start notifications
+    /**
+     * What an instance does, as it happens, as server-sent events. Each event's data is the
+     * notification's JSON, as a JSON string, as every event's data is, so a reader parses the field
+     * and then the notification. Watching keeps the instance in memory while the stream is open.
+     */
     @Sse("/autonomous/instances/{instance}/notifications")
     fun notifications(instance: String): Flow.Publisher<SseEvent> =
         instance(instance).notificationsFlow().map { SseEvent.text(it.json()) }.asPublisher()
+    // docs:end notifications
 }

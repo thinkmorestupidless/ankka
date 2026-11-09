@@ -160,8 +160,8 @@ The Go API differs from the other SDKs' in four deliberate ways:
   persists does not compile.
 - **The empty state is a function of the entity id**, `func(entityID string) S`, so a state can carry its
   own id from the start.
-- **There is no personal-data envelope.** The erasable envelope the Scala SDK carries has no Go
-  counterpart.
+- **`ankka.Personal[T]` is the personal-data envelope.** A field of that type is about one data subject and
+  reads as erased once the subject is, as in every SDK; [Personal data](../build/personal-data.md) shows it.
 
 `ankka.NewService(declarations…)` takes every component in any order. Registration is explicit;
 `Start` refuses before it binds anything when the declarations have problems, naming every one at
@@ -180,7 +180,8 @@ once, and `Problems()` returns them for a test.
 
 <!-- include: sdks/go/examples/shopping-cart/cart/entity.go#entity -->
 ```go
-// Entity is the shopping cart: the same wire names and manifests as the Scala sample's.
+// Entity is the shopping cart: the same wire names and manifests as the Scala sample's. The
+// string each handler is registered under is its wire name, separate from the Go function's.
 var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
 	ankka.Command("add-item", addItem),
 	ankka.Command("remove-item", removeItem),
@@ -192,15 +193,20 @@ var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
 	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
 		return ankka.Reply(TotalQuantity(c)), nil
 	}),
+	// A JSON codec derived from the type, under the manifest the journal records it by.
 	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
 	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
 	ankka.SnapshotEvery(3),
 )
 
+
 var checkedOut = ankka.Refuse(ankka.Conflict, "cart is already checked out")
 
 func done(Cart) ankka.Done { return ankka.Done{} }
 
+
+// addItem describes what should happen: a refusal is a returned error and nothing is persisted; an
+// accepted item is an event the runtime persists before it replies.
 func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
 	if c.CheckedOut {
 		return effect[ankka.Done]{}, checkedOut
@@ -210,6 +216,7 @@ func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], erro
 	}
 	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
 }
+
 
 func removeItem(_ context.Context, c Cart, productID string) (effect[ankka.Done], error) {
 	if c.CheckedOut {
@@ -232,8 +239,11 @@ func checkout(_ context.Context, c Cart, _ ankka.Unit) (effect[Cart], error) {
 	return ankka.Persist[Cart, Event, Cart](CheckedOut{}).ThenReplyState(), nil
 }
 
-// discard persists the event, then deletes the cart, so a consumer downstream sees the discard
-// rather than a cart that vanished; the same id then starts again empty.
+
+// discard records the discard and then deletes the cart, so the same id starts again empty. The
+// event is persisted before the deletion takes effect, so a consumer or view downstream still
+// observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+// record of an order and is not discarded.
 func discard(_ context.Context, c Cart, _ ankka.Unit) (effect[ankka.Done], error) {
 	if c.CheckedOut {
 		return effect[ankka.Done]{}, checkedOut

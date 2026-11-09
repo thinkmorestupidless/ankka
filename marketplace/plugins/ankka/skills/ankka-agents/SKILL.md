@@ -234,12 +234,12 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
-- `references/build/agents.md` — Write an agent in Scala, Java, Kotlin, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
+- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python, TypeScript, Rust or Go — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+- `references/build/agents.md` — Write an agent in Scala, Java, Kotlin, Python, TypeScript, Rust or Go — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 - `references/build/judgments.md` — Ask a System One model typed questions about a state — a choice, a score, a yes or no — read typed answers with their probabilities, guard agents with them, and test them offline.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
-- `references/build/autonomous-agents.md` — Write an autonomous agent in Scala or Python — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.
+- `references/build/autonomous-agents.md` — Write an autonomous agent in any SDK language — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.
 - `references/build/blueprints.md` — Describe workers and the steps between them as data the platform runs — ask, work, for-each, gather, judge, critique and call steps — register it, start runs by hand or on a schedule, follow them, and test with a scripted model.
 - `references/build/mcp-servers.md` — Offer an agent the tools of MCP servers beside its own — where each server is, the credential it is sent, approval for a whole server, result guardrails that check what a server answers — and test it against a scripted server.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.

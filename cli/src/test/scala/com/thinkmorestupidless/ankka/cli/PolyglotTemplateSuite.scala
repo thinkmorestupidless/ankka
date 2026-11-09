@@ -77,20 +77,12 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
     (process.waitFor(), text)
 
   test("every token is rendered, and GitHub's own expressions are untouched") {
+    // A token is `{{word}}`; a bare `{{` is also a Rust format string's brace or a Go composite literal
+    // in a skill's sample, so only the token form counts.
+    val token     = "\\{\\{\\s*[A-Za-z_][A-Za-z0-9_]*\\s*\\}\\}".r
     val leftovers = files.flatMap { f =>
       val text = Files.readString(f).replace("${{", "")
-      Vector(
-        "{{name}}",
-        "{{module}}",
-        "{{module_snake}}",
-        "{{ankka_version}}",
-        "{{protocol_version}}",
-        "{{package}}",
-        "{{package_path}}",
-        "{{"
-      )
-        .find(text.contains)
-        .map(token => s"$f: $token")
+      token.findFirstIn(text).map(found => s"$f: $found")
     }
     assertEquals(leftovers, Vector.empty)
     val deploy = Files.readString(project.resolve(".github/workflows/deploy.yml"))

@@ -1,8 +1,8 @@
 ---
 title: Workflows
-description: Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+description: Build a durable multi-step process in Scala, Java, Kotlin, Python, TypeScript, Rust or Go — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 kind: guide
-languages: [scala, java, kotlin, python, typescript, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [workflow]
 related: [build/multi-agent-orchestration.md, build/component-client.md, concepts/consistency.md, build/testing.md]
 ---
@@ -32,10 +32,13 @@ The runtime hosts each workflow instance as a sharded, event-sourced actor whose
 transitions. That is what makes the transitions durable and what makes one instance single-writer: two
 steps of one instance never run at the same time.
 
-## A workflow in Scala, step by step
+## A workflow, step by step
 
 This workflow moves money between two wallets and puts it back if the deposit fails. The class holds the
 handlers; the companion registers them under their wire names.
+
+<!-- languages: scala, java, kotlin, typescript, rust, go; python has no companion: step and handler wire names are on the `@step`, `@command` and `@query` decorators, shown in the two blocks that follow (start, steps) -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TransferWorkflow.scala#companion -->
 ```scala
@@ -57,6 +60,168 @@ object TransferWorkflow
   val status = query("status")(_.status)
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TransferWorkflow.java#steps -->
+```java
+@Step("withdraw")
+public StepEffect withdraw(Transfer transfer) {
+  wallet(transfer.from()).call(Wallet::withdraw).invoke(transfer.amount());
+  return stepEffects()
+      .updateState(new TransferState(transfer, "withdrawn"))
+      .thenTransitionTo(TransferWorkflow::deposit, transfer);
+}
+
+@Step("deposit")
+public StepEffect deposit(Transfer transfer) {
+  wallet(transfer.to()).call(Wallet::deposit).invoke(transfer.amount());
+  return stepEffects().updateState(new TransferState(transfer, "completed")).thenEnd();
+}
+
+/**
+ * Puts the money back.
+ *
+ * <p>Takes no input and reads the transfer from the state, which is why failover steps are
+ * declared without one: the runtime names the step, and the state carries what it needs.
+ */
+@Step("compensate")
+public StepEffect compensate() {
+  var transfer = currentState().transfer();
+  wallet(transfer.from()).call(Wallet::deposit).invoke(transfer.amount());
+  return stepEffects().updateState(new TransferState(transfer, "compensated")).thenEnd();
+}
+
+private EntityRef wallet(String id) {
+  return context().componentClient().forKeyValueEntity(id);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#steps -->
+```kotlin
+@Step("withdraw")
+fun withdrawStep(transfer: Transfer): StepEffect {
+    wallet(transfer.from).call(WalletEntity::withdraw).invoke(transfer.amount)
+    return stepEffects {
+        updateState(currentState().copy(status = "withdrawn")).thenTransitionTo(stepRef(TransferWorkflow::depositStep), transfer)
+    }
+}
+
+@Step("deposit")
+fun depositStep(transfer: Transfer): StepEffect {
+    wallet(transfer.to).call(WalletEntity::deposit).invoke(transfer.amount)
+    return stepEffects { updateState(currentState().copy(status = "completed")).thenEnd() }
+}
+
+/**
+ * Puts the money back. Takes no input and reads the transfer from the state, which is why
+ * failover steps are input-free: what needs compensating is whatever the workflow has
+ * recorded, not whatever was known when the settings were written.
+ */
+@Step("compensate")
+fun compensateStep(): StepEffect {
+    val transfer = currentState().transfer
+    wallet(transfer.from).call(WalletEntity::deposit).invoke(transfer.amount)
+    return stepEffects { updateState(currentState().copy(status = "compensated")).thenEnd() }
+}
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/transfer.ts#declarations -->
+```ts
+export class TransferWorkflow extends Workflow<TransferState> {
+  static readonly componentId = "transfer"
+  static readonly state = jsonCodec(TransferState, "transfer-state")
+  static readonly settings = workflowSettings({ steps: { deposit: { recovery: { maxRetries: 1, failoverTo: "compensate" } } } })
+
+  // Step names and handler names are wire names: renaming a method is safe, renaming the string is a
+  // protocol change for every instance already in flight.
+  static readonly steps = {
+    withdraw: step("withdraw", Transfer, (w: TransferWorkflow, transfer) => w.withdrawStep(transfer)),
+    deposit: step("deposit", Transfer, (w: TransferWorkflow, transfer) => w.depositStep(transfer)),
+    compensate: step("compensate", (w: TransferWorkflow) => w.compensateStep()),
+  }
+
+  static readonly handlers = {
+    start: command("start", Transfer, Done, (w: TransferWorkflow, transfer) => w.start(transfer)),
+    status: query("status", TransferState, (w: TransferWorkflow) => w.effects.reply(w.state)),
+  }
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-companion -->
+```rust
+impl Workflow for TransferWorkflow {
+    type State = TransferState;
+    const COMPONENT_ID: &'static str = "transfer";
+    const STATE_MANIFEST: Option<&'static str> = Some("transfer-state");
+
+    fn empty_state(_: &str) -> TransferState {
+        TransferState {
+            transfer: Transfer {
+                from: String::new(),
+                to: String::new(),
+                amount: 0,
+            },
+            status: "not-started".to_string(),
+        }
+    }
+
+    fn handlers() -> WorkflowHandlers<TransferWorkflow> {
+        WorkflowHandlers::new()
+            .command("start", TransferWorkflow::start)
+            .query("status", TransferWorkflow::status)
+    }
+
+    // `deposit` takes an input, a `Transfer`; `compensate` takes none. Step names and handler
+    // names are wire names: renaming the Rust function is safe, renaming the string is a
+    // protocol change for every instance already in flight.
+    fn steps() -> Steps<TransferWorkflow> {
+        Steps::new()
+            .step("withdraw", TransferWorkflow::withdraw)
+            .step("deposit", TransferWorkflow::deposit)
+            .step("compensate", TransferWorkflow::compensate)
+    }
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/wallet.go#transfer-companion -->
+```go
+// TransferWorkflow moves money between two wallets and puts it back if the deposit fails. Every
+// step and handler is registered under a wire name: renaming a Go function is safe, renaming the
+// string is a protocol change for every instance already in flight.
+var TransferWorkflow = ankka.Workflow[TransferState]("transfer",
+	func(string) TransferState { return TransferState{Status: "not-started"} },
+	ankka.WorkflowCommand("start", startTransfer),
+	ankka.Query("status", func(_ context.Context, s TransferState, _ ankka.Unit) (ankka.ReadOnlyEffect[string], error) {
+		return ankka.Reply(s.Status), nil
+	}),
+	// A step with an input, stored in the journal with the transition, and two without.
+	ankka.Step("withdraw", withdrawStep),
+	ankka.Step("deposit", depositStep),
+	ankka.Step("compensate", compensateStep),
+	// A deposit that fails after its retry is compensated rather than left half done.
+	ankka.ForStep("deposit", ankka.StepRecovery(ankka.Recovery{MaxRetries: 1, FailoverTo: "compensate"})),
+	ankka.StateCodec(ankka.CodecFor[TransferState](ankka.Manifest("transfer-state"))),
+)
+```
+
+///
+
 `step("deposit")(_.depositStep)` registers a step that takes an input, because `depositStep` takes a
 `Transfer`; the `given Serializer[Transfer]` in the companion is how that input is stored in the
 journal. `step("compensate")(_.compensateStep)` registers a step with no input. `command` and `query` work
@@ -65,6 +230,8 @@ renaming the string is a protocol change for every instance already in flight. S
 [Handlers and wire names](../concepts/wire-names.md).
 
 A command sets the initial state and starts the workflow at its first step:
+
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TransferWorkflow.scala#start -->
 ```scala
@@ -79,12 +246,133 @@ def start(transfer: Transfer): Effect[Done] =
       .thenReply(Done)
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TransferWorkflow.java#start -->
+```java
+@Command("start")
+public Effect<Done> start(Transfer transfer) {
+  if (transfer.amount() <= 0)
+    return effects().error("transfer amount must be greater than zero");
+  if (!currentState().status().equals("not-started"))
+    return effects().error(Problem.conflict("transfer already started"));
+  return effects()
+      .updateState(new TransferState(transfer, "started"))
+      .transitionTo(TransferWorkflow::withdraw, transfer)
+      .thenDone();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#start -->
+```kotlin
+@Command("start")
+fun start(transfer: Transfer): Effect<Done> = effects {
+    when {
+        transfer.amount <= 0 -> error("transfer amount must be greater than zero")
+        currentState().status != "not-started" -> error(Problem.conflict("transfer already started"))
+        else ->
+            updateState(TransferState(transfer, "started"))
+                .transitionTo(stepRef(TransferWorkflow::withdrawStep), transfer)
+                .thenDone()
+    }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/transfer_workflow.py#start -->
+```python
+@command("start")
+def start(self, transfer: Transfer) -> WorkflowEffect[TransferState, Done]:
+    if transfer.amount <= 0:
+        return self.effects.error("transfer amount must be greater than zero")
+    if self.state.status != "not-started":
+        return self.effects.error("transfer already started", ErrorCode.CONFLICT)
+    return self.effects.update_state(TransferState(transfer, "started")).then_transition_to("withdraw", transfer).then_reply(lambda _: DONE)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/transfer.ts#start -->
+```ts
+start(transfer: Transfer) {
+  if (transfer.amount <= 0) return this.effects.error("transfer amount must be greater than zero")
+  if (this.state.status !== "not-started") return this.effects.error("transfer already started", ErrorCode.Conflict)
+  return this.effects.updateState({ transfer, status: "started" }).thenTransitionTo("withdraw", transfer).thenReply(() => done)
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-start -->
+```rust
+fn start(
+    state: &TransferState,
+    transfer: Transfer,
+    _: &Context,
+) -> WorkflowEffect<TransferState, Done> {
+    if transfer.amount <= 0 {
+        let message = "transfer amount must be greater than zero";
+        return effects::error(ErrorCode::BadRequest, message).into();
+    }
+    if state.status != "not-started" {
+        return effects::error(ErrorCode::Conflict, "transfer already started").into();
+    }
+    workflow::update_state(TransferState {
+        transfer: transfer.clone(),
+        status: "started".to_string(),
+    })
+    .transition_to_with("withdraw", transfer)
+    .then_reply_value(Done)
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/wallet.go#transfer-start -->
+```go
+// startTransfer sets the initial state and starts the workflow at its first step. The reply is sent
+// once the new state and the transition are journalled, so a caller that sees it knows the
+// workflow will run.
+func startTransfer(_ context.Context, s TransferState, t Transfer) (transferStart, error) {
+	if t.Amount <= 0 {
+		return ankka.WorkflowEffect[TransferState, ankka.Done]{},
+			ankka.Refuse(ankka.BadRequest, "transfer amount must be greater than zero")
+	}
+	if s.Status != "not-started" {
+		return ankka.WorkflowEffect[TransferState, ankka.Done]{},
+			ankka.Refuse(ankka.Conflict, "transfer already started")
+	}
+	return ankka.WorkflowUpdate[TransferState, ankka.Done](TransferState{Transfer: t, Status: "started"}).
+		ThenTransitionTo("withdraw", t).
+		ThenReplyValue(ankka.Done{}), nil
+}
+```
+
+///
+
 `withInput(transfer)` names the step and the value it will receive. A step with no input is used directly
 as a transition target. The reply is sent once the new state and the transition are journalled, so a
 caller that sees `Done` knows the workflow will run.
 
 Steps are ordinary sequential code. They call other components with the blocking `invoke`, which costs
 nothing because steps run on virtual threads:
+
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TransferWorkflow.scala#steps -->
 ```scala
@@ -111,6 +399,237 @@ def compensateStep: StepEffect =
   stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TransferWorkflow.java#steps -->
+```java
+@Step("withdraw")
+public StepEffect withdraw(Transfer transfer) {
+  wallet(transfer.from()).call(Wallet::withdraw).invoke(transfer.amount());
+  return stepEffects()
+      .updateState(new TransferState(transfer, "withdrawn"))
+      .thenTransitionTo(TransferWorkflow::deposit, transfer);
+}
+
+@Step("deposit")
+public StepEffect deposit(Transfer transfer) {
+  wallet(transfer.to()).call(Wallet::deposit).invoke(transfer.amount());
+  return stepEffects().updateState(new TransferState(transfer, "completed")).thenEnd();
+}
+
+/**
+ * Puts the money back.
+ *
+ * <p>Takes no input and reads the transfer from the state, which is why failover steps are
+ * declared without one: the runtime names the step, and the state carries what it needs.
+ */
+@Step("compensate")
+public StepEffect compensate() {
+  var transfer = currentState().transfer();
+  wallet(transfer.from()).call(Wallet::deposit).invoke(transfer.amount());
+  return stepEffects().updateState(new TransferState(transfer, "compensated")).thenEnd();
+}
+
+private EntityRef wallet(String id) {
+  return context().componentClient().forKeyValueEntity(id);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#steps -->
+```kotlin
+@Step("withdraw")
+fun withdrawStep(transfer: Transfer): StepEffect {
+    wallet(transfer.from).call(WalletEntity::withdraw).invoke(transfer.amount)
+    return stepEffects {
+        updateState(currentState().copy(status = "withdrawn")).thenTransitionTo(stepRef(TransferWorkflow::depositStep), transfer)
+    }
+}
+
+@Step("deposit")
+fun depositStep(transfer: Transfer): StepEffect {
+    wallet(transfer.to).call(WalletEntity::deposit).invoke(transfer.amount)
+    return stepEffects { updateState(currentState().copy(status = "completed")).thenEnd() }
+}
+
+/**
+ * Puts the money back. Takes no input and reads the transfer from the state, which is why
+ * failover steps are input-free: what needs compensating is whatever the workflow has
+ * recorded, not whatever was known when the settings were written.
+ */
+@Step("compensate")
+fun compensateStep(): StepEffect {
+    val transfer = currentState().transfer
+    wallet(transfer.from).call(WalletEntity::deposit).invoke(transfer.amount)
+    return stepEffects { updateState(currentState().copy(status = "compensated")).thenEnd() }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/transfer_workflow.py#steps -->
+```python
+@step("withdraw")
+async def withdraw(self, transfer: Transfer) -> WorkflowStepEffect[TransferState]:
+    await self._wallet(transfer.source).call("withdraw").invoke(transfer.amount, reply=Balance)
+    return self.step_effects.update_state(replace(self.state, status="withdrawn")).then_transition_to("deposit", transfer)
+
+@step("deposit")
+async def deposit(self, transfer: Transfer) -> WorkflowStepEffect[TransferState]:
+    await self._wallet(transfer.target).call("deposit").invoke(transfer.amount, reply=Balance)
+    return self.step_effects.update_state(replace(self.state, status="completed")).then_end()
+
+@step("compensate")
+async def compensate(self) -> WorkflowStepEffect[TransferState]:
+    """Puts the money back.
+
+    Takes no input and reads the transfer from the state, which is why failover steps are
+    input-free: what needs compensating is whatever the workflow has recorded, not whatever
+    was known when the settings were written."""
+    transfer = self.state.transfer
+    await self._wallet(transfer.source).call("deposit").invoke(transfer.amount, reply=Balance)
+    return self.step_effects.update_state(replace(self.state, status="compensated")).then_end()
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/transfer.ts#steps -->
+```ts
+async withdrawStep(transfer: Transfer) {
+  await this.balance(transfer.from).call(Balances.handlers.withdraw).invoke(transfer.amount)
+  return this.stepEffects.updateState({ ...this.state, status: "withdrawn" }).thenTransitionTo("deposit", transfer)
+}
+
+async depositStep(transfer: Transfer) {
+  await this.balance(transfer.to).call(Balances.handlers.deposit).invoke(transfer.amount)
+  return this.stepEffects.updateState({ ...this.state, status: "completed" }).thenEnd()
+}
+
+/**
+ * Puts the money back.
+ *
+ * Takes no input and reads the transfer from the state, which is why failover steps are input-free:
+ * what needs compensating is whatever the workflow has recorded, not whatever was known when the
+ * settings were written.
+ */
+async compensateStep() {
+  const transfer = this.state.transfer
+  await this.balance(transfer.from).call(Balances.handlers.deposit).invoke(transfer.amount)
+  return this.stepEffects.updateState({ ...this.state, status: "compensated" }).thenEnd()
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-steps -->
+```rust
+fn withdraw(
+    state: &TransferState,
+    transfer: Transfer,
+    ctx: &Context,
+) -> StepEffect<TransferState> {
+    let withdrawn: Result<Done, CommandError> =
+        ctx.client()
+            .invoke(WalletEntity, &transfer.from, "withdraw", transfer.amount);
+    if let Err(e) = withdrawn {
+        return step_effects::fail(e);
+    }
+    step_effects::update_state(TransferState {
+        status: "withdrawn".to_string(),
+        ..state.clone()
+    })
+    .then_transition_to_with("deposit", transfer)
+}
+
+fn deposit(
+    state: &TransferState,
+    transfer: Transfer,
+    ctx: &Context,
+) -> StepEffect<TransferState> {
+    let deposited: Result<Done, CommandError> =
+        ctx.client()
+            .invoke(WalletEntity, &transfer.to, "deposit", transfer.amount);
+    if let Err(e) = deposited {
+        return step_effects::fail(e);
+    }
+    step_effects::update_state(TransferState {
+        status: "completed".to_string(),
+        ..state.clone()
+    })
+    .then_end()
+}
+
+/// Puts the money back.
+///
+/// Takes no input and reads the transfer from the state, which is why failover steps are
+/// input-free: what needs compensating is whatever the workflow has recorded, not whatever
+/// was known when the settings were written.
+fn compensate(state: &TransferState, _: (), ctx: &Context) -> StepEffect<TransferState> {
+    let transfer = &state.transfer;
+    let returned: Result<Done, CommandError> =
+        ctx.client()
+            .invoke(WalletEntity, &transfer.from, "deposit", transfer.amount);
+    if let Err(e) = returned {
+        return step_effects::fail(e);
+    }
+    step_effects::update_state(TransferState {
+        status: "compensated".to_string(),
+        ..state.clone()
+    })
+    .then_end()
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/wallet.go#transfer-steps -->
+```go
+// Steps are ordinary sequential code: they call other components and wait for the answer.
+
+func withdrawStep(ctx context.Context, s TransferState, t Transfer) (transferStep, error) {
+	if _, err := ankka.Invoke[int](ctx, "wallet", t.From, "withdraw", t.Amount); err != nil {
+		return transferStep{}, err
+	}
+	s.Status = "withdrawn"
+	return ankka.StepUpdate(s).ThenTransitionTo("deposit", t), nil
+}
+
+func depositStep(ctx context.Context, s TransferState, t Transfer) (transferStep, error) {
+	if _, err := ankka.Invoke[int](ctx, "wallet", t.To, "deposit-amount", t.Amount); err != nil {
+		return transferStep{}, err
+	}
+	s.Status = "completed"
+	return ankka.StepUpdate(s).ThenEnd(), nil
+}
+
+// compensateStep puts the money back. It takes no input and reads the transfer from the state,
+// which is why failover steps are input-free: what needs compensating is whatever the workflow has
+// recorded, not whatever was known when the settings were written.
+func compensateStep(ctx context.Context, s TransferState, _ ankka.Unit) (transferStep, error) {
+	t := s.Transfer
+	if _, err := ankka.Invoke[int](ctx, "wallet", t.From, "deposit-amount", t.Amount); err != nil {
+		return transferStep{}, err
+	}
+	s.Status = "compensated"
+	return ankka.StepUpdate(s).ThenEnd(), nil
+}
+```
+
+///
+
 The class is `final class TransferWorkflow(context: WorkflowContext) extends Workflow[TransferState]`,
 with `def emptyState` giving the state before the workflow starts and `context.componentClient` giving
 the client its steps call through. The whole file is
@@ -118,11 +637,90 @@ the client its steps call through. The whole file is
 
 Register it on the service like any other component:
 
+/// tab | Scala
+
 ```scala
 Ankka.service
   .register(TransferWorkflow.descriptor)
   .start()
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TransferCalls.java#register -->
+```java
+/** A workflow is registered on the service like any other component. */
+public static ServiceBuilder service() {
+  return Ankka.service("banking")
+      .register(Wallet.class)
+      .register(TransferWorkflow.class)
+      .register(KycWorkflow.class)
+      .register(OnboardingWorkflow.class);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/TransfersTest.kt#register -->
+```kotlin
+Ankka.service("transfers")
+    .register(WalletEntity::class.java)
+    .register(TransferWorkflow::class.java)
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/test_workflow_samples.py#register -->
+```python
+return Ankka.service().register(WalletBalance).register(TransferWorkflow).register(KycWorkflow).register(OnboardingWorkflow)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/transfer.ts#registration -->
+```ts
+export function transferService() {
+  return Ankka.service().register(Balances).register(TransferWorkflow)
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-service -->
+```rust
+/// The wallets and the workflows over them, as a service the tests run against.
+pub fn build() -> Service {
+    Service::new("ankka-rust")
+        .register(WalletEntity)
+        .register(TransferWorkflow)
+        .register(QuoteWorkflow)
+        .register(KycWorkflow)
+        .register(OnboardingWorkflow)
+        .endpoint(QuoteEndpoint)
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/wallet.go#transfer-service -->
+```go
+// TransferService registers the workflow and the wallets it moves money between.
+func TransferService() *ankka.Service { return ankka.NewService(WalletEntity, TransferWorkflow) }
+```
+
+///
 
 ## One workflow, in every language
 
@@ -205,6 +803,127 @@ object CheckoutWorkflow
 
   val start  = command("start")(_.start)
   val status = query("status")(_.status)
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/Checkout.java#workflow -->
+```java
+@ComponentId("checkout")
+public class Checkout extends Workflow<Checkout.CheckoutState> {
+
+  @Manifest("checkout")
+  public record CheckoutState(String id, String mode, String status) {
+    CheckoutState withStatus(String next) {
+      return new CheckoutState(id, mode, next);
+    }
+  }
+
+  private static final Set<String> DECLINED = Set.of("fail", "abort", "drop", "doomed");
+
+  @Override
+  protected CheckoutState emptyState() {
+    return new CheckoutState(context().entityId(), "", "new");
+  }
+
+  @Override
+  protected WorkflowSettings settings() {
+    return WorkflowSettings.builder()
+        .defaultStepTimeout(Duration.ofSeconds(10))
+        .stepRecovery(Checkout::charge, RecoverStrategy.maxRetries(1).failoverTo(Checkout::compensate))
+        .build();
+  }
+
+  @Command("start")
+  public Effect<String> start(String mode) {
+    if (!currentState().status().equals("new"))
+      return effects().error(Problem.conflict("already started"));
+    return effects()
+        .updateState(new CheckoutState(currentState().id(), mode, "reserving"))
+        .transitionTo(Checkout::reserve)
+        .thenReply("started");
+  }
+
+  @Step("reserve")
+  public StepEffect reserve() {
+    // A client call from a step: what the cart holds.
+    context()
+        .componentClient()
+        .forEventSourcedEntity(currentState().id())
+        .call(ShoppingCartEntity::totalQuantity)
+        .invoke();
+    var reserved = stepEffects().updateState(currentState().withStatus("reserved"));
+    return currentState().mode().equals("pause")
+        ? reserved.thenTransitionTo(Checkout::waitStep)
+        : reserved.thenTransitionTo(Checkout::charge);
+  }
+
+  @Step("wait")
+  public StepEffect waitStep() {
+    return stepEffects()
+        .updateState(currentState().withStatus("waiting"))
+        .thenPause(Duration.ofMillis(1500), Checkout::charge);
+  }
+
+  @Step("charge")
+  public StepEffect charge() {
+    if (DECLINED.contains(currentState().mode())) throw new RuntimeException("payment declined");
+    return stepEffects().updateState(currentState().withStatus("charged")).thenEnd();
+  }
+
+  @Step("compensate")
+  public StepEffect compensate() {
+    return switch (currentState().mode()) {
+      case "abort" ->
+          stepEffects()
+              .updateState(currentState().withStatus("aborted"))
+              .thenFail("payment declined");
+      case "drop" -> stepEffects().thenFail("payment declined");
+      case "doomed" -> throw new RuntimeException("compensation failed too");
+      default -> stepEffects().updateState(currentState().withStatus("compensated")).thenEnd();
+    };
+  }
+
+  @Query("status")
+  public ReadOnlyEffect<String> status() {
+    return effects().reply(currentState().status());
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Checkout.kt#workflow -->
+```kotlin
+/** A checkout carried out as a workflow: what it is checking out, and what the cart held once it was. */
+@Manifest("checkout")
+data class Checkout(val cartId: String, val ordered: Cart?)
+
+/**
+ * Checks a cart out in a step. The step is a suspend fun: while it waits for the cart's answer the
+ * workflow holds no thread.
+ */
+@ComponentId("checkout")
+class CheckoutWorkflow : Workflow<Checkout>() {
+    @Command("start")
+    fun start(cartId: String): Effect<Done> = effects {
+        updateState(Checkout(cartId, null)).transitionTo(CheckoutWorkflow::checkOut).thenDone()
+    }
+
+    @Query("get")
+    fun get(): ReadOnlyEffect<Checkout> = effects { reply(currentState()) }
+
+    @Step("check-out")
+    suspend fun checkOut(): StepEffect {
+        val ordered =
+            context().componentClient().forEventSourcedEntity(currentState().cartId).call(ShoppingCart::checkout).invokeSuspending()
+        return stepEffects { updateState(currentState().copy(ordered = ordered)).thenEnd() }
+    }
+}
 ```
 
 ///
@@ -342,6 +1061,148 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   cart() {
     return this.client.of(ShoppingCartEntity, this.state.cartId)
   }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/checkout_workflow.rs#workflow -->
+```rust
+pub struct CheckoutWorkflow;
+
+impl CheckoutWorkflow {
+    /// `mode`: `ok`, `fail` (the charge is declined and compensated), `pause` (a pause before it),
+    /// `abort` (declined; the compensation records it and fails the workflow) or `drop` (declined;
+    /// the compensation fails the workflow and records nothing).
+    fn start(checkout: &Checkout, mode: String, _: &Context) -> WorkflowEffect<Checkout, Done> {
+        if checkout.status != "new" {
+            let message = format!("checkout is already {}", checkout.status);
+            return effects::error(ErrorCode::Conflict, message).into();
+        }
+        let mode = if mode.is_empty() {
+            "ok".to_string()
+        } else {
+            mode
+        };
+        let reserving = Checkout {
+            status: "reserving".into(),
+            mode,
+            ..checkout.clone()
+        };
+        workflow::update_state(reserving)
+            .transition_to("reserve")
+            .then_reply_value(Done)
+    }
+
+    fn status(checkout: &Checkout, _: (), _: &Context) -> ReadOnlyEffect<Checkout> {
+        effects::reply(checkout.clone())
+    }
+
+    fn reserve(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
+        // A client call from a step: what the cart holds.
+        let total: i32 = ctx
+            .client()
+            .invoke(ShoppingCart, &checkout.cart_id, "total-quantity", ())
+            .expect("the cart answers");
+        let next = if checkout.mode == "pause" {
+            "wait"
+        } else {
+            "charge"
+        };
+        let reserved = Checkout {
+            status: "reserved".into(),
+            reserved: total,
+            ..checkout.clone()
+        };
+        step_effects::update_state(reserved).then_transition_to(next)
+    }
+
+    fn wait(checkout: &Checkout, _: (), _: &Context) -> StepEffect<Checkout> {
+        let waiting = Checkout {
+            status: "waiting".into(),
+            ..checkout.clone()
+        };
+        step_effects::update_state(waiting).then_pause_for(Duration::of_millis(1500), "charge")
+    }
+
+    fn charge(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
+        if matches!(checkout.mode.as_str(), "fail" | "abort" | "drop" | "doomed") {
+            panic!("payment declined");
+        }
+        // Not idempotent — a retry after the cart was checked out is refused — which is why
+        // `charge` is allowed one retry and then fails over, and why compensation exists.
+        if checkout.reserved > 0 {
+            let _: Cart = ctx
+                .client()
+                .invoke(ShoppingCart, &checkout.cart_id, "checkout", ())
+                .expect("the cart checks out");
+        }
+        let charged = Checkout {
+            status: "charged".into(),
+            ..checkout.clone()
+        };
+        step_effects::update_state(charged).then_end()
+    }
+
+    fn compensate(checkout: &Checkout, _: (), _: &Context) -> StepEffect<Checkout> {
+        let declined = || CommandError::new(ErrorCode::Internal, "payment declined");
+        match checkout.mode.as_str() {
+            "abort" => {
+                let aborted = Checkout {
+                    status: "aborted".into(),
+                    reserved: 0,
+                    ..checkout.clone()
+                };
+                return step_effects::update_state(aborted).then_fail(declined());
+            }
+            "drop" => return step_effects::fail(declined()),
+            "doomed" => panic!("compensation failed too"),
+            _ => {}
+        }
+        let compensated = Checkout {
+            status: "compensated".into(),
+            reserved: 0,
+            ..checkout.clone()
+        };
+        step_effects::update_state(compensated).then_end()
+    }
+}
+
+impl Workflow for CheckoutWorkflow {
+    type State = Checkout;
+    const COMPONENT_ID: &'static str = "checkout";
+    const STATE_MANIFEST: Option<&'static str> = Some("checkout");
+
+    fn empty_state(cart_id: &str) -> Checkout {
+        Checkout {
+            cart_id: cart_id.into(),
+            status: "new".into(),
+            reserved: 0,
+            mode: "ok".into(),
+        }
+    }
+
+    fn handlers() -> WorkflowHandlers<CheckoutWorkflow> {
+        WorkflowHandlers::new()
+            .command("start", CheckoutWorkflow::start)
+            .query("status", CheckoutWorkflow::status)
+    }
+
+    fn steps() -> Steps<CheckoutWorkflow> {
+        Steps::new()
+            .step("reserve", CheckoutWorkflow::reserve)
+            .step("wait", CheckoutWorkflow::wait)
+            .step("charge", CheckoutWorkflow::charge)
+            .step("compensate", CheckoutWorkflow::compensate)
+    }
+
+    fn settings() -> WorkflowSettings {
+        WorkflowSettings::new()
+            .default_step_timeout(Duration::of_seconds(10))
+            .step_recovery("charge", Recovery::retries(1).failover_to("compensate"))
+    }
 }
 ```
 
@@ -496,6 +1357,45 @@ override def settings: WorkflowSettings =
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TransferWorkflow.java#settings -->
+```java
+@Override
+protected WorkflowSettings settings() {
+  return WorkflowSettings.builder()
+      .timeout(Duration.ofSeconds(60))
+      .defaultStepTimeout(Duration.ofSeconds(10))
+      // One retry, then compensate. The deposit is the step that can fail for reasons
+      // outside this workflow's control, so it is the one worth a second attempt.
+      .stepRecovery(
+          TransferWorkflow::deposit,
+          RecoverStrategy.maxRetries(1).failoverTo(TransferWorkflow::compensate))
+      .build();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#settings -->
+```kotlin
+override fun settings(): WorkflowSettings =
+    WorkflowSettings.builder()
+        .timeout(Duration.ofSeconds(60))
+        .defaultStepTimeout(Duration.ofSeconds(10))
+        // One retry, then compensate. The deposit is the step that can fail for reasons
+        // outside this workflow's control, so it is the one worth a second attempt.
+        .stepRecovery(
+            stepRef(TransferWorkflow::depositStep),
+            RecoverStrategy.maxRetries(1).failoverTo(stepRef(TransferWorkflow::compensateStep)),
+        )
+        .build()
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -515,6 +1415,22 @@ static readonly settings = workflowSettings({
   defaultStepTimeout: Duration.ofSeconds(10),
   steps: { charge: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
 })
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-settings -->
+```rust
+fn settings() -> WorkflowSettings {
+    WorkflowSettings::new()
+        .timeout(Duration::of_seconds(60))
+        .default_step_timeout(Duration::of_seconds(10))
+        // One retry, then compensate. The deposit is the step that can fail for reasons
+        // outside this workflow's control, so it is the one worth a second attempt.
+        .step_recovery("deposit", Recovery::retries(1).failover_to("compensate"))
+}
 ```
 
 ///
@@ -581,6 +1497,9 @@ in flight or the workflow failed an hour ago.
 Every Scala workflow therefore answers a lifecycle query the runtime implements itself, whatever handlers
 its author declared:
 
+<!-- languages: scala, java, kotlin; a Python, TypeScript, Rust or Go client has no `lifecycle` query of a workflow; a workflow that must show whether it is still going records it in its state, and a view or a consumer reads the standing with each state -->
+/// tab | Scala
+
 <!-- include: samples/multi-agent-planner/src/main/scala/planner/api/PlannerEndpoint.scala#lifecycle -->
 ```scala
 /** The engine's own view: running, paused, completed or failed, and why. */
@@ -589,6 +1508,37 @@ get("/{planId}/lifecycle") { (planId: String) =>
   s"${lifecycle.status}${lifecycle.failure.map(reason => s": $reason").getOrElse("")}"
 }
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/PlanRoutes.java#lifecycle -->
+```java
+/** The engine's own view: running, paused, completed or failed, and why. */
+@Get("/plans/{planId}/lifecycle")
+public String lifecycle(String planId) {
+  var lifecycle =
+      componentClient().forWorkflow(planId).lifecycle(PlannerWorkflow.class).invoke();
+  return lifecycle.status() + lifecycle.failure().map(reason -> ": " + reason).orElse("");
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#lifecycle -->
+```kotlin
+/** The engine's own view: running, paused, completed or failed, and why. */
+@Get("/transfers/{id}/lifecycle")
+fun lifecycle(id: String): String {
+    val lifecycle = componentClient().forWorkflow(id).lifecycle(TransferWorkflow::class.java).invoke()
+    return lifecycle.status() + (lifecycle.failure().orNull()?.let { ": $it" } ?: "")
+}
+```
+
+///
 
 `WorkflowLifecycle` carries `status` (`Running`, `Paused`, `Completed` or `Failed`), the pending step, a
 count of retries per step, and the failure reason when there is one. `isTerminal` is true once the
@@ -626,31 +1576,6 @@ postBody("/{id}") { (id: String, request: QuoteRequest) =>
     .thenAwaitEnd(30.seconds)
     .invoke(request)
 }
-```
-
-///
-
-/// tab | Python
-
-<!-- include: sdks/python/examples/shopping_cart/endpoint.py#start-and-await -->
-```python
-@post("/{cartId}/checkouts/wait")
-async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
-    """Starts the checkout and answers with how it ended, as one request."""
-    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
-    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
-```
-
-///
-
-/// tab | TypeScript
-
-<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#start-and-await -->
-```typescript
-/** Starts the checkout and answers with how it ended, as one request. */
-checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
-  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
-),
 ```
 
 ///
@@ -696,6 +1621,49 @@ fun checkoutAwait(id: String, @Body mode: String): String =
 
 ///
 
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/endpoint.py#start-and-await -->
+```python
+@post("/{cartId}/checkouts/wait")
+async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
+    """Starts the checkout and answers with how it ended, as one request."""
+    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#start-and-await -->
+```typescript
+/** Starts the checkout and answers with how it ended, as one request. */
+checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
+  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
+),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#start-and-await -->
+```rust
+/// Starts the quote and answers the request with the quote, once the workflow has ended.
+fn quote(request: &Request, asked: QuoteRequest) -> Result<Quote, HttpProblem> {
+    Ok(request.client().invoke_then_await_end(
+        QuoteWorkflow,
+        request.path("id"),
+        "start",
+        asked,
+        Duration::of_seconds(30),
+    )?)
+}
+```
+
+///
+
 /// tab | Go
 
 <!-- include: sdks/go/examples/shopping-cart/conformance/endpoints.go#start-and-await -->
@@ -734,6 +1702,32 @@ get("/{id}/wait") { (id: String) =>
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/PlanRoutes.java#await-later -->
+```java
+/** A plan started earlier, by anyone: at once if it has ended, when it ends if not. */
+@Get("/plans/{planId}/wait")
+public PlannerWorkflow.Plan await(String planId) {
+  return componentClient()
+      .forWorkflow(planId)
+      .awaitEnd(PlannerWorkflow.class, Duration.ofSeconds(10));
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#await-later -->
+```kotlin
+/** Answers with a transfer started earlier, by anyone: at once if it has ended, when it ends if not. */
+@Get("/transfers/{id}/end")
+fun end(id: String): TransferState = componentClient().forWorkflow(id).awaitEnd(TransferWorkflow::class.java, Duration.ofSeconds(10))
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#await-later -->
@@ -754,6 +1748,40 @@ async def checkout_end(self, cartId: str) -> Checkout:
 checkoutEnd: get("/{cartId}/checkouts/end", Checkout, (ep: ShoppingCartEndpoint, req) =>
   ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEnd<Checkout>(10_000),
 ),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#await-later -->
+```rust
+/// Answers with a quote started earlier, by anyone: at once if it has ended, when it ends if
+/// not.
+fn wait(request: &Request) -> Result<Quote, HttpProblem> {
+    Ok(request.client().await_end(
+        QuoteWorkflow,
+        request.path("id"),
+        Duration::of_seconds(10),
+    )?)
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/awaiting.go#await-later -->
+```go
+// Answers with a quote started earlier, by anyone: at once if it has ended, when it ends if
+// not. A quote that failed is 424, naming the step and the reason.
+ankka.Get("/{id}/wait", func(ctx context.Context, req *ankka.Request) (Quote, error) {
+	quote, err := ankka.AwaitEnd[Quote](ctx, "quote", req.Param("id"), 10*time.Second)
+	if r, ok := ankka.AsRefusal(err); ok && r.Code == ankka.WorkflowFailed {
+		return Quote{}, &ankka.HttpProblem{Status: 424, Message: r.Details["step"] + ": " + r.Details["reason"]}
+	}
+	return quote, err
+}),
 ```
 
 ///
@@ -789,6 +1817,8 @@ it holds that slice of the consumer's events for as long as the wait lasts: star
 consumer and wait for it from an endpoint instead. A step that waits for another workflow is bounded by
 its own timeout, and fails as timed out if the other has not ended by then; the other runs on.
 
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/awaiting/CompositionWorkflows.scala#step-awaits -->
 ```scala
 def verifyStep: StepEffect =
@@ -802,6 +1832,129 @@ def verifyStep: StepEffect =
   else stepEffects.thenTransitionTo(OnboardingWorkflow.decline)
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/OnboardingWorkflow.java#step-awaits -->
+```java
+@Step("verify")
+public StepEffect verify() {
+  var kyc =
+      context()
+          .componentClient()
+          .forWorkflow("kyc-" + context().entityId())
+          .callThenAwaitEnd(KycWorkflow::start, VERIFY_TIMEOUT)
+          .invoke(currentState().applicant());
+  return kyc.decision().equals("approved")
+      ? stepEffects().thenTransitionTo(OnboardingWorkflow::welcome)
+      : stepEffects().thenTransitionTo(OnboardingWorkflow::decline);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Onboarding.kt#step-awaits -->
+```kotlin
+@Step("verify")
+fun verifyStep(): StepEffect {
+    val kyc =
+        context()
+            .componentClient()
+            .forWorkflow("kyc-${context().entityId()}")
+            .callThenAwaitEnd(KycWorkflow::start, VERIFY_TIMEOUT)
+            .invoke(currentState().applicant)
+    return stepEffects {
+        if (kyc.decision == "approved") thenTransitionTo(stepRef(OnboardingWorkflow::welcomeStep))
+        else thenTransitionTo(stepRef(OnboardingWorkflow::declineStep))
+    }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/tests/transfer_workflow.py#step-awaits -->
+```python
+@step("verify")
+async def verify(self) -> WorkflowStepEffect[Onboarding]:
+    kyc = await (
+        self.context.client.for_workflow("kyc", f"kyc-{self.entity_id}")
+        .call("start")
+        .then_await_end(VERIFY_TIMEOUT)
+        .invoke(self.state.applicant, reply=Kyc)
+    )
+    if kyc.decision == "approved":
+        return self.step_effects.transition_to("welcome")
+    return self.step_effects.transition_to("decline")
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/onboarding.ts#step-awaits -->
+```ts
+async verifyStep() {
+  const kyc = await this.client
+    .of(KycWorkflow, `kyc-${this.entityId}`)
+    .call(KycWorkflow.handlers.start)
+    .thenAwaitEnd<Kyc>(OnboardingWorkflow.VerifyTimeout)
+    .invoke(this.state.applicant)
+  return this.stepEffects.transitionTo(kyc.decision === "approved" ? "welcome" : "decline")
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#step-awaits -->
+```rust
+fn verify(onboarding: &Onboarding, _: (), ctx: &Context) -> StepEffect<Onboarding> {
+    let kyc: Kyc = match ctx.client().invoke_then_await_end(
+        KycWorkflow,
+        &format!("kyc-{}", ctx.entity_id()),
+        "start",
+        onboarding.applicant.clone(),
+        OnboardingWorkflow::verify_timeout(),
+    ) {
+        Ok(kyc) => kyc,
+        Err(e) => return step_effects::fail(e),
+    };
+    if kyc.decision.as_deref() == Some("approved") {
+        step_effects::transition_to("welcome")
+    } else {
+        step_effects::transition_to("decline")
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/awaiting.go#step-awaits -->
+```go
+// verifyStep starts the applicant's check and waits for it to end, as one call: the step is
+// bounded by its own timeout, and fails as timed out if the check has not ended by then.
+func verifyStep(ctx context.Context, o Onboarding, _ ankka.Unit) (onboardingStep, error) {
+	kyc, err := ankka.SendAndAwait[Kyc](ctx, "kyc", "kyc-"+onboardingID(ctx), "start", o.Applicant, VerifyTimeout)
+	if err != nil {
+		return onboardingStep{}, err
+	}
+	if kyc.Decision == "approved" {
+		return ankka.StepUpdate(o).ThenTransitionTo("welcome", ankka.Unit{}), nil
+	}
+	return ankka.StepUpdate(o).ThenTransitionTo("decline", ankka.Unit{}), nil
+}
+```
+
+///
+
 ### Serving a wait as a stream
 
 Serve a wait as server-sent events when it may outlast a connection's idle timeout. The service ends an
@@ -812,6 +1965,7 @@ or `timed-out` — and closes. The heartbeat is every event stream's, `ankka.htt
 or half the idle timeout when that is sooner, and the caller does not set it; see
 [configuration](../reference/configuration.md).
 
+<!-- languages: scala, java, kotlin, python, typescript, go; a module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route -->
 /// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/awaiting/QuoteEndpoint.scala#sse-await -->
@@ -823,6 +1977,33 @@ or half the idle timeout when that is sooner, and the caller does not set it; se
 sseEvents("/{id}/events") { (id: String) =>
   clients.awaitEnd(EntityId(id), QuoteWorkflow, 10.minutes)
 }
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CheckoutEvents.java#sse-await -->
+```java
+@Sse("/checkouts/{id}/end")
+public Flow.Publisher<SseEvent> end(String id) {
+  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#sse-await -->
+```kotlin
+/**
+ * A transfer's end as server-sent events: a heartbeat while it runs, then the state, on one
+ * connection however long that takes.
+ */
+@Sse("/transfers/{id}/events")
+fun events(id: String): Flow.Publisher<SseEvent> =
+    componentClient().forWorkflow(id).awaitEndEvents(TransferWorkflow::class.java, Duration.ofMinutes(10))
 ```
 
 ///
@@ -853,14 +2034,28 @@ checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingC
 
 ///
 
-/// tab | Java
+/// tab | Go
 
-<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CheckoutEvents.java#sse-await -->
-```java
-@Sse("/checkouts/{id}/end")
-public Flow.Publisher<SseEvent> end(String id) {
-  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
-}
+<!-- include: sdks/go/examples/shopping-cart/samples/awaiting.go#sse-await -->
+```go
+// A quote's end as server-sent events: the wait as one event, on one connection. A Go route
+// sends no heartbeat of its own while it waits, so a wait longer than a connection's idle
+// timeout is served as a plain wait made again by the caller.
+ankka.SSEEvents("/{id}/events", func(ctx context.Context, req *ankka.Request) iter.Seq2[ankka.SSEEvent, error] {
+	return func(yield func(ankka.SSEEvent, error) bool) {
+		quote, err := ankka.AwaitEnd[Quote](ctx, "quote", req.Param("id"), 10*time.Minute)
+		switch r, refused := ankka.AsRefusal(err); {
+		case err == nil:
+			yield(ankka.SSEEvent{Name: "ended", Data: quote}, nil)
+		case refused && r.Code == ankka.WorkflowFailed:
+			yield(ankka.SSEEvent{Name: "failed", Text: r.Details["reason"]}, nil)
+		case refused && r.Code == ankka.Timeout:
+			yield(ankka.SSEEvent{Name: "timed-out"}, nil)
+		default:
+			yield(ankka.SSEEvent{}, err)
+		}
+	}
+}),
 ```
 
 ///
@@ -887,6 +2082,6 @@ agents in parallel and combines their answers. Two properties make that safe:
 
 ## Testing a workflow
 
-In Scala, a workflow is tested through the integration test kit, which starts the whole service against
-a throwaway Postgres, because transitions, recovery and timeouts are the runtime's behaviour. In Python,
-`WorkflowTestKit` runs commands and steps by hand with no sidecar. [Testing](testing.md) shows both.
+A workflow's commands and steps are driven by hand with `WorkflowTestKit`, with no runtime. Its
+transitions, recovery and timeouts are the runtime's behaviour, tested through the integration test kit,
+which starts the whole service against a throwaway Postgres. [Testing](testing.md) shows both.

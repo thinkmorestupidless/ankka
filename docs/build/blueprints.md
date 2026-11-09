@@ -2,7 +2,7 @@
 title: Blueprints
 description: Describe workers and the steps between them as data the platform runs — ask, work, for-each, gather, judge, critique and call steps — register it, start runs by hand or on a schedule, follow them, and test with a scripted model.
 kind: guide
-languages: [scala]
+languages: [scala, java, kotlin]
 components: [agent, autonomous-agent]
 related: [build/agents.md, build/autonomous-agents.md, build/multi-agent-orchestration.md, build/judgments.md, build/timers.md, build/testing.md, reference/limitations.md]
 ---
@@ -31,6 +31,8 @@ Blueprints are for Scala, Java and Kotlin services for now; see [Limitations](..
 Every step is an **action**, how many times it is done (**over**), and optionally what its worker drafts
 **until**. The named patterns are the common combinations; each is a builder on `Step`. This blueprint
 has one of each of the five that run once:
+
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/GuideSamples.scala#blueprint -->
 ```scala
@@ -75,6 +77,83 @@ val brief: Blueprint = Blueprint("brief")
   .runBudget(20)
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/GuideBlueprints.java#blueprint -->
+```java
+public static final Shape TEXT = Shape.obj(Map.of("text", Shape.string()));
+
+public static final Blueprint BRIEF =
+    Blueprint.named("brief")
+        .input(Shape.obj(Map.of("topic", Shape.string())))
+        // Workers are data: instructions, tools by name, a model by name, and a budget of calls.
+        .worker(Worker.named("writer").instructions("You write briefly.").tools("note").budget(4))
+        .worker(
+            Worker.named("researcher")
+                .instructions("You research until you have a draft.")
+                .tools("note")
+                .budget(6))
+        .worker(
+            Worker.named("critic")
+                .instructions("You pass a draft only when it is on topic.")
+                .budget(2))
+        // An ask step: one turn of a worker, its answer checked against the step's shape.
+        .step(
+            Step.named("outline")
+                .ask("writer")
+                .reads("input")
+                .result(Shape.obj(Map.of("points", Shape.arr(Shape.string())))))
+        // A work step: an autonomous task the worker iterates until it completes it.
+        .step(Step.named("draft").work("researcher").reads("outline").result(TEXT))
+        // A judge step: a judgment's answers to questions about what the step reads.
+        .step(Step.named("check").judge("on-topic").reads("draft").result(Shape.any()))
+        // A critique step: the writer drafts until the critic's verdict passes, in two rounds.
+        .step(
+            Step.named("polish")
+                .critique("writer", Verdict.critic("critic"), 2)
+                .reads("draft", "check")
+                .result(TEXT))
+        // A call step: a handler the service registered, with what the step reads.
+        .step(
+            Step.named("file")
+                .call("archive")
+                .reads("polish")
+                .result(Shape.obj(Map.of("filed", Shape.bool(), "run", Shape.string()))))
+        .runBudget(20);
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#blueprint -->
+```kotlin
+val text: Shape = Shape.obj(mapOf("text" to Shape.string()))
+
+val brief: Blueprint =
+    Blueprint.named("brief")
+        .input(Shape.obj(mapOf("topic" to Shape.string())))
+        // Workers are data: instructions, tools by name, a model by name, and a budget of model calls.
+        .worker(Worker.named("writer").instructions("You write briefly.").tools("note").budget(4))
+        .worker(Worker.named("researcher").instructions("You research until you have a draft.").tools("note").budget(6))
+        .worker(Worker.named("critic").instructions("You pass a draft only when it is on topic.").budget(2))
+        // An ask step: one turn of a worker, its answer checked against the step's shape.
+        .step(Step.named("outline").ask("writer").reads("input").result(Shape.obj(mapOf("points" to Shape.arr(Shape.string())))))
+        // A work step: an autonomous task the worker iterates until it completes it, within its budget.
+        .step(Step.named("draft").work("researcher").reads("outline").result(text))
+        // A judge step: a judgment's answers to questions about what the step reads.
+        .step(Step.named("check").judge("on-topic").reads("draft").result(Shape.any()))
+        // A critique step: the writer drafts until the critic's verdict passes, within two rounds.
+        .step(Step.named("polish").critique("writer", Verdict.critic("critic"), 2).reads("draft", "check").result(text))
+        // A call step: a handler the service registered, with what the step reads.
+        .step(Step.named("file").call("archive").reads("polish").result(Shape.obj(mapOf("filed" to Shape.bool(), "run" to Shape.string()))))
+        .runBudget(20)
+```
+
+///
+
 - An **ask step** is one turn of a worker: its instructions as the system message, what the step reads
   as the user message, its tools; the answer is checked against the step's result shape and, when it
   does not fit, sent back with the problems for the worker to correct, within the worker's budget of
@@ -113,10 +192,42 @@ The two patterns that repeat take their list or their workers from the step:
 Any action may repeat and any turn may draft until a verdict, so a for-each of work steps, or a critique
 whose drafter is a worker with tools, is a combination, not a new pattern:
 
+/// tab | Scala
+
 ```scala
 Step("dig").work("researcher").each("papers.papers", limit = 4).result(Shape.arr(text))
 Step("views").ask("reviewer").times(3).reads("draft").result(Shape.arr(Shape.obj("n" -> Shape.integer, "result" -> text)))
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/GuideBlueprints.java#combinations -->
+```java
+public static final Step DIG =
+    Step.named("dig").work("researcher").each("papers.papers", 4, false).result(Shape.arr(TEXT));
+
+public static final Step VIEWS =
+    Step.named("views")
+        .ask("reviewer")
+        .times(3)
+        .reads("draft")
+        .result(Shape.arr(Shape.obj(Map.of("n", Shape.integer(), "result", TEXT))));
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#combinations -->
+```kotlin
+val dig: Step = Step.named("dig").work("researcher").each("papers.papers", 4, false).result(Shape.arr(text))
+val views: Step =
+    Step.named("views").ask("reviewer").times(3).reads("draft").result(Shape.arr(Shape.obj(mapOf("n" to Shape.integer(), "result" to text))))
+```
+
+///
 
 The check refuses the combinations that mean nothing — a judgment or a call repeated over workers, a
 call drafting until a verdict — naming the step.
@@ -147,6 +258,8 @@ A blueprint names tools, MCP servers, models, guardrails, judgment questions and
 says which exist, when it starts, from a `BlueprintContext` that gives the registry's builder the
 component client and the view client, so a tool can call an entity or read a view:
 
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/GuideSamples.scala#tools -->
 ```scala
 /** A tool a worker may name; it calls an entity in a real service. */
@@ -168,6 +281,82 @@ val archive: BlueprintHandler = BlueprintHandler("archive") { (run, input) =>
 val onTopic: YesNoQuestion = Question.yesNo("on-topic", "Is the draft about the topic asked for?")
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/GuideBlueprints.java#tools -->
+```java
+/** What the note tool takes: a record's components are the tool's parameters. */
+public record Note(@Describe("What to note.") String text) {}
+
+/** A tool a worker may name; it calls an entity in a real service. */
+public static final FunctionTool NOTE =
+    FunctionTool.of(
+        "note",
+        "Keeps a note for the reader.",
+        Note.class,
+        note -> {
+          NOTED.add(note.text());
+          return "noted";
+        });
+
+/** A handler a call step runs: code with the run's durability, given what the step reads. */
+public static final BlueprintHandler ARCHIVE =
+    BlueprintHandler.of(
+        "archive",
+        (run, input) ->
+            "{\"filed\":" + input.contains("\"polish\"") + ",\"run\":\"" + run.runId() + "\"}");
+
+/** A judgment question a judge step asks, and a verdict a critique step may draft until. */
+public static final YesNoQuestion ON_TOPIC =
+    Question.yesNo("on-topic", "Is the draft about the topic asked for?");
+
+/** A tool built from the service's context, so it can read an entity. */
+public static final class CartTools {
+  private final ComponentClient client;
+
+  CartTools(ComponentClient client) {
+    this.client = client;
+  }
+
+  @Tool(value = "cart_total", description = "Counts the items in a cart.")
+  public String total(@Describe("The id of the cart.") String cartId) {
+    var items = client.forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke().items();
+    return "cart " + cartId + " holds " + items.stream().mapToInt(LineItem::quantity).sum();
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#tools -->
+```kotlin
+data class Note(@Describe("What to note.") val text: String)
+
+/** A tool a worker may name; it calls an entity in a real service. */
+val note: FunctionTool =
+    FunctionTool.of("note", "Keeps a note for the reader.", Note::class.java) {
+        noted.add(it.text)
+        "noted"
+    }
+
+/** A handler a call step runs: code with the run's durability, given what the step reads, as JSON. */
+val archive: BlueprintHandler =
+    BlueprintHandler.of("archive") { run, input -> """{"filed":${"\"polish\"" in input},"run":"${run.runId()}"}""" }
+
+/** A judgment question a judge step asks, and a verdict a critique step may draft until. */
+val onTopic: YesNoQuestion = Question.yesNo("on-topic", "Is the draft about the topic asked for?")
+```
+
+///
+
+The registry is what the service's blueprints may name; one it carries is registered when the service starts:
+
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/GuideSamples.scala#registry -->
 ```scala
 /**
@@ -182,6 +371,47 @@ val registry: BlueprintRegistry =
     .carrying(brief) // registered when the service starts; a changed blueprint is a new version
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/GuideBlueprints.java#registry -->
+```java
+/**
+ * What the service's blueprints may name. A tool that needs the service is built from its
+ * context.
+ */
+public static BlueprintRegistry registry(BlueprintContext context) {
+  return BlueprintRegistry.empty()
+      .tools(NOTE, new CartTools(context.componentClient()))
+      .handlers(ARCHIVE)
+      .questions(ON_TOPIC)
+      // registered when the service starts; a changed blueprint is a new version
+      .carrying(BRIEF);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#registry -->
+```kotlin
+/** What the service's blueprints may name. */
+val registry: BlueprintRegistry =
+    BlueprintRegistry.empty()
+        .tools(note)
+        .handlers(archive)
+        .questions(onTopic)
+        .carrying(brief) // registered when the service starts; a changed blueprint is a new version
+```
+
+///
+
+The runtime takes the registry beside its default model and its judgment provider:
+
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/GuideSamplesSuite.scala#runtime -->
 ```scala
 private val agents = AgentRuntime
@@ -189,6 +419,34 @@ private val agents = AgentRuntime
   .withJudgments(judge)
   .withBlueprints(_ => GuideSamples.registry)
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/BlueprintService.java#runtime -->
+```java
+public static ServiceBuilder service(ModelProvider model, JudgmentProvider judge) {
+  return Ankka.service("guide")
+      .withModule(
+          Agents.module()
+              .withModelProvider(model)
+              .withJudgments(judge)
+              .withBlueprints(GuideBlueprints::registry))
+      .register(ShoppingCart.class);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamplesTest.kt#runtime -->
+```kotlin
+private val agents = Agents.module().withModelProvider(model).withBlueprints { GuideSamples.registry }
+```
+
+///
 
 Register `AgentRuntime.descriptors` with the service, as for agents: the platform's blueprint, run and
 worker components are among them. A blueprint with a schedule needs `TimerRuntime`, and listing a
@@ -200,12 +458,49 @@ A blueprint carried in the registry (`carrying`) is registered when the service 
 received later is registered through the runtime's calls, which are available once the service has
 started — inject `agents.blueprints` into an endpoint or a workflow, as a `TimerRuntime`'s scheduler is:
 
+/// tab | Scala
+
 ```scala
 val registered = agents.blueprints.register(brief)      // Registered(name, version, isNew, notes)
 agents.blueprints.register(jsonText)                    // the same, from a blueprint written as JSON
 agents.blueprints.versions("brief")                     // every version, oldest first
 agents.blueprints.version("brief", 2)                   // one, as it was registered
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/BlueprintCalls.java#registering -->
+```java
+public static BlueprintsRef.Registered register(ComponentClient client, String jsonText) {
+  var blueprints = AgentClients.blueprints(client);
+  // Registered(name, version, isNew, notes)
+  var registered = blueprints.register(GuideBlueprints.BRIEF);
+  // the same, from a blueprint written as JSON
+  blueprints.register(jsonText);
+  // every version, oldest first
+  List<BlueprintsRef.Version> versions = blueprints.versions("brief");
+  // the version a run started now would use
+  Optional<Blueprint> current = blueprints.current("brief");
+  return registered;
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamplesTest.kt#register -->
+```kotlin
+val blueprints = AgentClients.blueprints(kit.componentClient())
+val registered = blueprints.register(GuideSamples.brief) // Registered(name, version, isNew, notes)
+blueprints.register(GuideSamples.brief.json()) // the same, from a blueprint written as JSON
+val versions = blueprints.versions("brief") // every version, oldest first
+val current = blueprints.current("brief") // the current one, as it was registered
+```
+
+///
 
 Registering checks the blueprint whole first: every name resolves, every read names the input or an
 earlier step, every shape is one the platform checks, a schedule's zone and cadence are sound and the
@@ -364,6 +659,8 @@ says every statement names a paper, on a schedule.
 }
 ```
 
+/// tab | Scala
+
 <!-- include: samples/research-digest/src/main/scala/digest/application/Blueprints.scala#registry -->
 ```scala
 /**
@@ -378,11 +675,57 @@ def registry(
   BlueprintRegistry.empty.tools(tools.all(sources)*).questions(namesPaper).carrying(watch, digest)
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/GuideBlueprints.java#registry -->
+```java
+/**
+ * What the service's blueprints may name. A tool that needs the service is built from its
+ * context.
+ */
+public static BlueprintRegistry registry(BlueprintContext context) {
+  return BlueprintRegistry.empty()
+      .tools(NOTE, new CartTools(context.componentClient()))
+      .handlers(ARCHIVE)
+      .questions(ON_TOPIC)
+      // registered when the service starts; a changed blueprint is a new version
+      .carrying(BRIEF);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#context-registry -->
+```kotlin
+data class Traveller(@Describe("The traveller.") val userId: String)
+
+/**
+ * What the service's blueprints may name, when a tool needs the service: the registry is built
+ * from its context, which gives the component client.
+ */
+fun registry(context: BlueprintContext): BlueprintRegistry {
+    val preferences =
+        FunctionTool.of("get_preferences", "The traveller's stored preferences.", Traveller::class.java) {
+            context.componentClient().forKeyValueEntity(it.userId).call(PreferencesEntity::get).invoke().summary
+        }
+    return BlueprintRegistry.empty().tools(note, preferences).handlers(archive).questions(onTopic).carrying(brief)
+}
+```
+
+///
+
 ## Runs
 
 A run is one carrying out of one blueprint version under a run id the caller chooses. It is not a task
 and not a workflow instance: it is a record, with the version it ran, its input, each step's result, the
 sessions each step used, its usage and its status.
+
+<!-- languages: scala, java; the Java SDK cannot script a judgment -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/GuideSamplesSuite.scala#run -->
 ```scala
@@ -395,6 +738,25 @@ assertEquals(
   Some(Json.obj("text" -> Json.str("ducks, polished")))
 )
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/BlueprintCalls.java#run -->
+```java
+public static RunsRef.RunSnapshot brief(ComponentClient client, String topic) {
+  var runs = AgentClients.runs(client);
+  var started = runs.start("brief", "{\"topic\":\"" + topic + "\"}", "brief-7");
+  var run = runs.await("brief-7", Duration.ofSeconds(60));
+  if (!run.status().equals("completed")) {
+    throw new IllegalStateException("the brief " + started.runId() + " " + run.status());
+  }
+  return run;
+}
+```
+
+///
 
 `start` checks the input against the blueprint's input shape and refuses one that does not fit. It is
 idempotent: a run already held under the id with the same blueprint and input is answered as it stands,
@@ -430,6 +792,9 @@ agent's do. A handler may run again, as a tool may.
 The multi-agent planner's three steps as a blueprint, beside [the workflow](multi-agent-orchestration.md)
 that does the same by hand: select is an ask whose result shape lists the specialists it may name, consult
 is a gather *chosen by* what select named, summarise reads the contributions.
+
+<!-- languages: scala; a Java or Kotlin blueprint's gather step cannot be chosen by an earlier step's result: `Step.gather` takes the workers, or one worker so many times -->
+/// tab | Scala
 
 <!-- include: samples/multi-agent-planner/src/main/scala/planner/application/PlannerBlueprint.scala#blueprint -->
 ```scala
@@ -493,6 +858,8 @@ val blueprint: Blueprint =
     .step(Step("summarise").ask("summary").reads("input", "consult").result(Shape.string))
 ```
 
+///
+
 The selector cannot name a specialist that does not exist, because the shape refuses it and asks again.
 What the workflow does with a selection that names nothing usable — fall back to one specialist — is a
 condition, and a blueprint has none: the selector is asked to choose again, within its budget.
@@ -507,11 +874,54 @@ gap and no overlap; the first starts one cadence before the first due time. Due 
 zone, so a weekly digest at 20:00 stays at 20:00 when the clocks change, and that week's period is an hour
 longer or shorter.
 
+/// tab | Scala
+
 ```scala
 Blueprint("digest")
   .input(Period.shape)
   .schedule(Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London")).perMissedPeriod)
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/DigestBlueprint.java#schedule -->
+```java
+/** The input a scheduled run is given: the period it covers and the due times it stands for. */
+public static final Shape PERIOD =
+    Shape.obj(
+        Map.of(
+            "from", Shape.string(),
+            "to", Shape.string(),
+            "dueTimes", Shape.arr(Shape.string())));
+
+public static final Blueprint DIGEST =
+    Blueprint.named("digest")
+        .input(PERIOD)
+        .worker(Worker.named("editor").instructions("You write the week's digest.").budget(2))
+        .step(Step.named("write").ask("editor").reads("input").result(GuideBlueprints.TEXT))
+        .schedule(
+            Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London"))
+                .perMissedPeriod());
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#schedule -->
+```kotlin
+/** A scheduled run's input: the period from the previous due time to this one. */
+val period: Shape = Shape.obj(mapOf("from" to Shape.string(), "to" to Shape.string(), "dueTimes" to Shape.arr(Shape.string())))
+
+val digest: Blueprint =
+    Blueprint.named("digest")
+        .input(period)
+        .schedule(Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London")).perMissedPeriod())
+```
+
+///
 
 Due times missed while the service was down are those of the schedule of the version current when it is
 back, and their runs use that version. By default one run starts, covering from the end of the last
@@ -528,6 +938,9 @@ a schedule is refused in a service without timers.
 
 A tool called during a run can read which run it serves, so what it writes can say so:
 
+<!-- languages: scala; a Java or Kotlin tool cannot read which run called it: the Java SDK has no `RunContext` -->
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/FollowingFeatures.scala#run-context -->
 ```scala
 /** A tool that records which run it was told it serves: `None` outside any run. */
@@ -542,11 +955,16 @@ object Told:
     }
 ```
 
+///
+
 A service's consumers and views subscribe to the platform's runs and blueprint versions as to any entity's
 changes — `ChangeSource.eventsOf(RunEntity)` and `ChangeSource.eventsOf(BlueprintEntity)` — and see a run's
 `Started`, each step's `StepEnded` with its result, and `Ended`, in order; a blueprint's
 `VersionRegistered` carries the version's canonical text. This is how another component, or another
 system, keeps its own record of every run.
+
+<!-- languages: scala; a Java or Kotlin consumer or view cannot subscribe to the platform's runs or blueprint versions: the Java SDK has no type for them, and `ChangeSource.of` takes the service's own components -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/FollowingFeatures.scala#follow -->
 ```scala
@@ -568,6 +986,8 @@ object RunFollower:
       parallelism = 1
     )
 ```
+
+///
 
 ## Testing
 

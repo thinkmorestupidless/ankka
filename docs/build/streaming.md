@@ -2,7 +2,7 @@
 title: Streaming responses
 description: Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, go]
 components: [agent, http-endpoint]
 related: [build/agents.md, build/http-endpoints.md, build/component-client.md]
 ---
@@ -36,6 +36,36 @@ def chat(question: String): StreamEffect =
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#chat -->
+```java
+/** Streams the reply token by token, tools and all: a stream, not a command. */
+@Stream("chat")
+public StreamEffect chat(String question) {
+  return effects()
+      .systemMessage(SYSTEM_MESSAGE)
+      .userMessage(question)
+      .tools(Tools.class)
+      .thenStream();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#chat -->
+```kotlin
+/** Streams the reply token by token, tools and all. */
+@Stream("chat")
+fun chat(question: String): StreamEffect = effects {
+    systemMessage(SYSTEM_MESSAGE).userMessage(question).tools<WeatherTools>().thenStream()
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -56,12 +86,97 @@ static readonly handlers = {
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/agents.go#chat -->
+```go
+// Streams the reply token by token, tools and all: registered as a stream, not an ask, so a
+// caller cannot await one value from a handler that produces many.
+ankka.AskStream("chat", func(_ context.Context, question string) (ankka.AgentEffect, error) {
+	return ankka.SystemMessage(weatherSystemMessage).UserMessage(question).
+		Tools("get_weather").ThenReply(), nil
+}),
+```
+
+///
+
 In Scala the handler returns a `StreamEffect`, built with `thenStream()`, and the companion registers it
 with `stream` rather than `command`:
+
+/// tab | Scala
 
 ```scala
 val chat = stream("chat")(_.chat)
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#chat -->
+```java
+/** Streams the reply token by token, tools and all: a stream, not a command. */
+@Stream("chat")
+public StreamEffect chat(String question) {
+  return effects()
+      .systemMessage(SYSTEM_MESSAGE)
+      .userMessage(question)
+      .tools(Tools.class)
+      .thenStream();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#chat -->
+```kotlin
+/** Streams the reply token by token, tools and all. */
+@Stream("chat")
+fun chat(question: String): StreamEffect = effects {
+    systemMessage(SYSTEM_MESSAGE).userMessage(question).tools<WeatherTools>().thenStream()
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/assistant.py#stream -->
+```python
+@stream("chat")
+def chat(self, question: str) -> AgentEffect[str]:
+    return self._describe(question)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/assistant.ts#stream-handler -->
+```ts
+static readonly handlers = {
+  ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
+  chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/agents.go#chat -->
+```go
+// Streams the reply token by token, tools and all: registered as a stream, not an ask, so a
+// caller cannot await one value from a handler that produces many.
+ankka.AskStream("chat", func(_ context.Context, question string) (ankka.AgentEffect, error) {
+	return ankka.SystemMessage(weatherSystemMessage).UserMessage(question).
+		Tools("get_weather").ThenReply(), nil
+}),
+```
+
+///
 
 The two registrations are separate on purpose. A `command` is called with `.call(...)` and answers once;
 a `stream` is called with `.stream(...)` and answers many times. Keeping them apart means a caller cannot
@@ -82,6 +197,29 @@ val tokens: Source[String, NotUsed] =
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ChatCalls.java#consume -->
+```java
+/** The reply as it is written: a publisher of tokens, read at the caller's pace. */
+static Flow.Publisher<String> tokens(ComponentClient client, String session, String question) {
+  return AgentClients.forAgent(client, session).stream(WeatherAgent::chat, question);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/StreamingTest.kt#consume -->
+```kotlin
+val tokens: Flow<String> =
+    kit.componentClient().forAgent("s-1").streamFlow(streamRef(WeatherAgent::chat), "What is the weather?")
+val text = runBlocking { tokens.toList() }.joinToString("")
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -96,6 +234,26 @@ async for token in client.for_agent("assistant", "s-1").call("chat").stream("Wil
 ```ts
 for await (const token of client.of(CartAssistant, "s-1").call(CartAssistant.handlers.chat).stream("Will it rain?")) {
   process.stdout.write(token)
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/streaming.go#consume-stream -->
+```go
+// askOnce reads a whole streamed answer: tokens are pushed from wherever the session is hosted to
+// here as the model produces them, and a refusal ends the stream with its error.
+func askOnce(ctx context.Context, session, question string) (string, error) {
+	var answer strings.Builder
+	for token, err := range ankka.InvokeStream(ctx, "weather-agent", session, "chat", question) {
+		if err != nil {
+			return "", err
+		}
+		answer.WriteString(token)
+	}
+	return answer.String(), nil
 }
 ```
 
@@ -131,6 +289,65 @@ sse("/{session}") { (session: String) =>
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ChatRoutes.java#sse -->
+```java
+/** Each token the agent writes, as one event. */
+@Sse("/chat/{session}")
+public Flow.Publisher<SseEvent> chat(String session) {
+  var tokens =
+      AgentClients.forAgent(componentClient(), session)
+          .stream(WeatherAgent::chat, "What is the weather?");
+  return asEvents(tokens);
+}
+
+// The SDK has no mapper over a Flow.Publisher; this one passes each token on, at the
+// subscriber's pace.
+private static Flow.Publisher<SseEvent> asEvents(Flow.Publisher<String> tokens) {
+  return subscriber ->
+      tokens.subscribe(
+          new Flow.Subscriber<String>() {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+              subscriber.onSubscribe(subscription);
+            }
+
+            @Override
+            public void onNext(String token) {
+              subscriber.onNext(SseEvent.text(token));
+            }
+
+            @Override
+            public void onError(Throwable failure) {
+              subscriber.onError(failure);
+            }
+
+            @Override
+            public void onComplete() {
+              subscriber.onComplete();
+            }
+          });
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ChatEndpoint.kt#sse -->
+```kotlin
+@Sse("/chat/{session}")
+fun chat(session: String): Flow.Publisher<SseEvent> =
+    componentClient()
+        .forAgent(session)
+        .streamFlow(streamRef(WeatherAgent::chat), "What is the weather?")
+        .map { SseEvent.text(it) }
+        .asPublisher()
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#agent-routes -->
@@ -158,6 +375,18 @@ ask: post("/ask/{session}", s.string, s.string, (ep: ShoppingCartEndpoint, req, 
 chat: sse("/chat/{session}", (ep: ShoppingCartEndpoint, req) =>
   ep.client.of(CartAssistant, req.params.session).call(CartAssistant.handlers.chat).stream(req.query.get("q") ?? ""),
 ),
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/streaming.go#sse-stream -->
+```go
+// Each token is one server-sent event, as the agent produces it.
+ankka.SSE("/{session}", func(ctx context.Context, req *ankka.Request) iter.Seq2[string, error] {
+	return ankka.InvokeStream(ctx, "weather-agent", req.Param("session"), "chat", "What is the weather?")
+}),
 ```
 
 ///

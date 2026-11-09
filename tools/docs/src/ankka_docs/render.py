@@ -23,7 +23,9 @@ from typing import Any
 
 from .pages import Page, Tree, fenced_lines, headings
 
-COMMENT = re.compile(r"^<!--\s*(include|generated):.*-->\s*\n", re.MULTILINE)
+# The tooling's own comments: an include, a generated block's edges, and the `<!-- <facet>: ...; reason -->`
+# that says which languages a sample deliberately leaves out. None is for a reader.
+COMMENT = re.compile(r"^<!--\s*[a-z-]+:.*-->\s*\n", re.MULTILINE)
 
 # Language tabs exist for the site only. A model receives a page as Markdown with no renderer, so the
 # tab markers are flattened back to a bold language label above each block. `/// tab | Python` becomes

@@ -30,7 +30,8 @@ A topic already made uncompacted is made compacted when its declaration says so.
 
 The sink is a consumer. Register it beside the service's other components with the topic and the
 store, and it reads the topic from its start, in parallel over the partitions the instance holds
-unless told `parallel = false`:
+unless told `parallel = false`. The sink and its stores are Scala libraries: a service in another
+language runs the sink as the sidecar image beside it rather than registering it.
 
 ```scala
 import com.thinkmorestupidless.ankka.graph.sink.{GraphSink, InMemoryGraphStore}

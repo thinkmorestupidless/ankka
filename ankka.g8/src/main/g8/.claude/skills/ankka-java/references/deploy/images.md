@@ -27,6 +27,8 @@ That builds two tags of one image into the local Docker daemon, both named after
 The image is based on `eclipse-temurin:21-jre`, exposes port 9000 and starts the service's main class.
 The relevant settings in the template's `build.sbt` are:
 
+**Scala**
+
 ```scala
 Docker / packageName  := serviceName,
 dockerBuildxPlatforms := sys.env.get("ANKKA_IMAGE_PLATFORMS").toSeq.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty),

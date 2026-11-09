@@ -60,9 +60,12 @@ to review the commit range <base>...HEAD in the repository at <worktree path>. Y
 not the author: nothing of the implementation session is available to you, on purpose. The change
 has no pull request yet; its description is <FEATURE_DIR>/spec.md and <FEATURE_DIR>/plan.md, and
 <FEATURE_DIR>/tasks.md says what was meant to be done. Review what the diff does against what they
-say, as well as against the skill's checklists. Write the report, in the skill's template, to
-<FEATURE_DIR>/review.md, and reply with the verdict line and the number of findings at each
-severity. Post nothing anywhere.
+say, as well as against the skill's checklists. The feature is done only when its documentation
+shows every sample in every language the project supports: where the repository states that rule (a
+REVIEW.md, a contributing page, a docs check), hold the diff to it, and report a page, a sample or a
+limitations entry a supported language is missing as a finding, blocking when the rule says so.
+Write the report, in the skill's template, to <FEATURE_DIR>/review.md, and reply with the verdict
+line and the number of findings at each severity. Post nothing anywhere.
 ```
 
 Wait for it. Do not review in parallel yourself, and do not answer its findings before reading them.
@@ -126,4 +129,5 @@ coupling to `pr-review` is the brief above.
 
 - [ ] `review.md` in the feature directory holds the report with a resolution line under every finding
 - [ ] Every blocking and should-fix finding is fixed, or declined with its reason; the fixes are committed and checked
+- [ ] Every language the feature reaches has its documentation sample, or the report says which is missing and why
 - [ ] The tree is clean and the three report lines were printed

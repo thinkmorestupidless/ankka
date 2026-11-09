@@ -2,7 +2,7 @@
 title: Judgments
 description: Ask a System One model typed questions about a state — a choice, a score, a yes or no — read typed answers with their probabilities, guard agents with them, and test them offline.
 kind: guide
-languages: [scala]
+languages: [scala, java, kotlin]
 components: [agent]
 related: [concepts/agents.md, concepts/designing-agents.md, build/agents.md, build/testing.md]
 ---
@@ -26,6 +26,8 @@ facts that are not in the state.
 
 A question is a value, declared once on the agent's companion and used both to ask and to read the
 answer.
+
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TriageAgent.scala#questions -->
 ```scala
@@ -53,6 +55,71 @@ val urgent: YesNoQuestion =
     .describing(yes = "A deadline, an outage or money at risk", no = "It can wait")
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageAgent.java#questions -->
+```java
+public static final ChoiceQuestion<Team> ROUTE =
+    Question.choice(
+        "route",
+        "Which team should handle this ticket?",
+        ChoiceOption.of(Team.BILLING, "billing", "Payments, invoicing, refunds"),
+        ChoiceOption.of(Team.TECHNICAL, "technical", "Bugs, outages, integrations"),
+        ChoiceOption.of(Team.SALES, "sales", "Pricing, upgrades, new accounts"));
+
+public static final ScoreQuestion FRUSTRATION =
+    Question.score(
+        "frustration",
+        "How frustrated is the customer?",
+        "Calm, stating facts",
+        "Frustrated but civil",
+        "Angry, strong language",
+        "Abusive");
+
+public static final YesNoQuestion REFUND =
+    Question.yesNo("refund", "The customer asks for a refund");
+
+public static final YesNoQuestion URGENT =
+    Question.yesNo("urgent", "The ticket needs a reply today")
+        .describing("A deadline, an outage or money at risk", "It can wait");
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#questions -->
+```kotlin
+val ROUTE: ChoiceQuestion<Team> =
+    Question.choice(
+        "route",
+        "Which team should handle this ticket?",
+        ChoiceOption.of(Team.BILLING, "billing", "Payments, invoicing, refunds"),
+        ChoiceOption.of(Team.TECHNICAL, "technical", "Bugs, outages, integrations"),
+        ChoiceOption.of(Team.SALES, "sales", "Pricing, upgrades, new accounts"),
+    )
+
+val FRUSTRATION: ScoreQuestion =
+    Question.score(
+        "frustration",
+        "How frustrated is the customer?",
+        "Calm, stating facts",
+        "Frustrated but civil",
+        "Angry, strong language",
+        "Abusive",
+    )
+
+val REFUND: YesNoQuestion = Question.yesNo("refund", "The customer asks for a refund")
+
+val URGENT: YesNoQuestion =
+    Question.yesNo("urgent", "The ticket needs a reply today")
+        .describing("A deadline, an outage or money at risk", "It can wait")
+```
+
+///
+
 - `Question.choice[T](id, instructions)(value -> (key, description), …)` offers two to 255 options that
   are values of your own type; `Question.choiceByKey` offers plain keys. A question need not offer every
   value of its type.
@@ -73,6 +140,8 @@ service at startup, not at its first request.
 An agent's handler describes a judgment as an effect and returns it, as it would an interaction with a
 text model:
 
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TriageAgent.scala#triage -->
 ```scala
 def triage(ticket: Ticket): Effect[Judgment] =
@@ -82,9 +151,41 @@ def triage(ticket: Ticket): Effect[Judgment] =
     .thenReply()
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageAgent.java#triage -->
+```java
+@Command("triage")
+public AgentEffect<Judgment> triage(Ticket ticket) {
+  return effects()
+      .judgment()
+      .state(ticket.text())
+      .question(ROUTE, FRUSTRATION, REFUND)
+      .thenReply();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#triage -->
+```kotlin
+@Command("triage")
+fun triage(ticket: Ticket): AgentEffect<Judgment> = effects {
+    judgment().state(ticket.text).question(ROUTE, FRUSTRATION, REFUND).thenReply()
+}
+```
+
+///
+
 The handler is registered like any other, `val triage = command("triage")(_.triage)`, and called through
 the component client. The caller reads each answer through the question that asked it, and the answer is
 typed:
+
+/// tab | Scala
 
 ```scala
 val judgment = client.forAgent(SessionId(ticket.id)).call(TriageAgent.triage).invoke(ticket)
@@ -93,11 +194,49 @@ if team.confidence < 0.5 then sendToAPerson(ticket)
 else queue(team.choice, refundAsked = judgment(TriageAgent.refund).probability >= 0.7)
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageCalls.java#reading -->
+```java
+/** Where a ticket goes: each answer is read through the question that asked it, typed. */
+public static String dispatch(ComponentClient client, TriageAgent.Ticket ticket) {
+  var judgment =
+      AgentClients.forAgent(client, ticket.id()).call(TriageAgent::triage).invoke(ticket);
+  var team = judgment.answer(TriageAgent.ROUTE); // ChoiceAnswer<Team>
+  if (team.confidence() < 0.5) return "a person";
+  boolean refundAsked = judgment.answer(TriageAgent.REFUND).probability() >= 0.7;
+  return team.choice().name().toLowerCase() + (refundAsked ? ", refund asked" : "");
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#read-answers -->
+```kotlin
+/** What a caller does with a judgment: reads each answer through the question that asked it. */
+fun dispatch(judgment: Judgment, ticket: Ticket, toAPerson: (Ticket) -> Unit, queue: (Team, Boolean) -> Unit) {
+    val team = judgment.answer(ROUTE) // ChoiceAnswer<Team>
+    if (team.confidence() < 0.5) {
+        toAPerson(ticket)
+    } else {
+        queue(team.choice(), judgment.answer(REFUND).probability() >= 0.7)
+    }
+}
+```
+
+///
+
 Reading a question that was not asked throws, naming it; a judgment never answers with a default.
 
 A handler can reply with a value of the service's own instead, computed from the judgment, so its caller
 never sees the judgment at all. The state can be a structured value, which the provider receives as
 structured data:
+
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TriageAgent.scala#routing -->
 ```scala
@@ -117,6 +256,50 @@ def routing(ticket: Ticket): Effect[Routing] =
     }
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageAgent.java#routing -->
+```java
+/** Judges the whole ticket, and replies with the service's own decision, not the judgment. */
+@Command("routing")
+public AgentEffect<Routing> routing(Ticket ticket) {
+  return effects()
+      .judgment()
+      .state(ticket)
+      .question(ROUTE, URGENT)
+      .thenReply(
+          judgment -> {
+            var team = judgment.answer(ROUTE);
+            return new Routing(
+                team.confidence() >= 0.5 ? Optional.of(team.choice()) : Optional.empty(),
+                judgment.answer(URGENT).probability() >= 0.7);
+          });
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#routing -->
+```kotlin
+/** Judges the whole ticket, and replies with the service's own decision rather than the judgment. */
+@Command("routing")
+fun routing(ticket: Ticket): AgentEffect<Routing> = effects {
+    judgment().state(ticket).question(ROUTE, URGENT).thenReply { judgment ->
+        val team = judgment.answer(ROUTE)
+        Routing(
+            team = team.choice().takeIf { team.confidence() >= 0.5 },
+            urgent = judgment.answer(URGENT).probability() >= 0.7,
+        )
+    }
+}
+```
+
+///
+
 A `Judgment` has a serializer, so it can be a reply, cross between services, and be kept in an entity's
 or a workflow's state. Its stored form holds only the declared ids and keys and the numbers.
 
@@ -135,6 +318,8 @@ or a workflow's state. Its stored form holds only the declared ids and keys and 
 
 The service's judgment provider is configured on the agent runtime, beside its text model:
 
+/// tab | Scala
+
 ```scala
 Ankka.service
   .register(TriageAgent.descriptor)
@@ -146,6 +331,43 @@ Ankka.service
   )
   .start()
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageCalls.java#provider -->
+```java
+/**
+ * The judgment provider is configured on the agent module, beside the text model; a deployed
+ * service gives {@code JudgmentProviders.jev()}, which reads its key from {@code
+ * TYPESAFE_API_KEY}. A service that only judges needs no text model.
+ */
+public static ServiceBuilder service(ModelProvider model, JudgmentProvider judge) {
+  return Ankka.service("support")
+      .register(TriageAgent.class)
+      .withModule(Agents.module().withModelProvider(model).withJudgments(judge));
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#configure -->
+```kotlin
+/** The service's judgment provider is configured on the agent module, beside its text model. */
+fun triageService(): ServiceBuilder =
+    Ankka.service("support")
+        .withModule(
+            Agents.module()
+                .withModelProvider(ModelProviders.anthropic("claude-opus-5")) // ANTHROPIC_API_KEY
+                .withJudgments(JudgmentProviders.jev()), // TYPESAFE_API_KEY, read when the service is built
+        )
+        .register(TriageAgent::class.java)
+```
+
+///
 
 `withJudgments(provider, timeout)` bounds every judgment by the timeout, five seconds unless given
 another; the provider's retries happen inside it. A service that only judges needs no text model:
@@ -181,6 +403,8 @@ caller is told.
 A judged guardrail asks questions about the text going into a model, or coming out of it, and refuses
 the interaction when an answer meets a rule:
 
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TriageAgent.scala#guardrail -->
 ```scala
 val safety: Guardrail =
@@ -194,6 +418,39 @@ val safety: Guardrail =
     )
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageAgent.java#guardrail -->
+```java
+public static final Guardrail SAFETY =
+    Guardrail.judged("safety")
+        .onInput(Refusal.ifYes(Safety.OVERRIDES_INSTRUCTIONS, 0.7))
+        .onOutput(
+            Refusal.ifYes(Safety.GIVES_MEDICAL_ADVICE, 0.7),
+            Refusal.ifScore(Safety.HOSTILITY, 2),
+            Refusal.ifChosen(Safety.TOPIC, 0.6, "legal", "medical"));
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#guardrail -->
+```kotlin
+val SAFETY: Guardrail =
+    Guardrail.judged("safety")
+        .onInput(Refusal.ifYes(Safety.OVERRIDES_INSTRUCTIONS, 0.7))
+        .onOutput(
+            Refusal.ifYes(Safety.GIVES_MEDICAL_ADVICE, 0.7),
+            Refusal.ifScore(Safety.HOSTILITY, 2.0),
+            Refusal.ifChosen(Safety.TOPIC, 0.6, "legal", "medical"),
+        )
+```
+
+///
+
 `Refuse.ifYes(question, atLeast)` refuses at or above a probability; `Refuse.ifChosen(question,
 minConfidence)(options*)` when one of the named options is chosen with at least that confidence;
 `Refuse.ifScore(question, atLeast)` at or above a point on the scale; `Refuse.when(question)(f)` when your
@@ -201,6 +458,8 @@ own function of the typed answer says so. Each rule is checked against its quest
 declared.
 
 It goes in the same list as the deterministic guardrails:
+
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TriageAgent.scala#guarded -->
 ```scala
@@ -212,6 +471,41 @@ def guarded(message: String): Effect[String] =
     .guardrails(Guardrail.maxInputLength(200), TriageAgent.safety)
     .thenReply()
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/TriageAgent.java#guarded -->
+```java
+/** A support conversation, checked going in and coming out. */
+@Command("guarded")
+public AgentEffect<String> guarded(String message) {
+  return effects()
+      .systemMessage("You answer support questions.")
+      .userMessage(message)
+      .guardrails(Guardrail.maxInputLength(200), SAFETY)
+      .thenReply();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#guarded -->
+```kotlin
+/** A support conversation, checked going in and coming out. */
+@Command("guarded")
+fun guarded(message: String): AgentEffect<String> = effects {
+    systemMessage("You answer support questions.")
+        .userMessage(message)
+        .guardrails(Guardrail.maxInputLength(200), SAFETY)
+        .thenReply()
+}
+```
+
+///
 
 - **One judgment per text checked**, carrying all of that direction's questions. The first rule met, in
   declaration order, is the one a refusal names.
@@ -268,6 +562,9 @@ version, and read `judgment.model` when a threshold that worked stops working.
 `TestJudgmentProvider` answers from a script, offline and with no key, as `TestModelProvider` does for
 text. Give it to the test service through the agent runtime:
 
+<!-- languages: scala; the Java SDK cannot script a judgment, and a Kotlin agent is tested with the Java kits -->
+/// tab | Scala
+
 ```scala
 val model = TestModelProvider()
 val judge = TestJudgmentProvider()
@@ -278,9 +575,14 @@ val testKit = AnkkaTestKit.start(
 )
 ```
 
+///
+
 `expect(answers*)` queues one judgment's answers, taken in order. `always(answers*)` gives standing
 answers by question, used every time the question is asked without consuming the queue — which is what a
 guardrail asked on every request needs:
+
+<!-- languages: scala; the Java SDK cannot script a judgment, and a Kotlin agent is tested with the Java kits -->
+/// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/JudgmentAgentSuite.scala#testing -->
 ```scala
@@ -301,6 +603,8 @@ assertEquals((first, second), ("Your order ships tomorrow.", "It left the wareho
 assertEquals(judge.callCount, 4) // an input and an output check per call
 assertEquals(model.callCount, 2)
 ```
+
+///
 
 `Answers.choice`, `Answers.score` and `Answers.yesNo` script an answer by its value and give it
 probabilities and a confidence consistent with it; `Answers.choiceWith` and `Answers.scoreWith` take the

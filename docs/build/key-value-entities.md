@@ -2,7 +2,7 @@
 title: Key value entities
 description: Store only the latest value of a piece of state, replace it with updateState, delete or expire it, and decide when that is a better fit than event sourcing.
 kind: guide
-languages: [scala, python, typescript, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [key-value-entity]
 related: [build/event-sourced-entities.md, concepts/components.md, build/views.md]
 ---
@@ -70,6 +70,63 @@ object CheckoutLog
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CheckoutLog.java#key-value -->
+```java
+/** When a cart was checked out: the value is the record, and nothing cares how it got there. */
+@ComponentId("checkout-log")
+public class CheckoutLog extends KeyValueEntity<CheckoutLog.CheckoutRecord> {
+
+  @Manifest("checkout-record")
+  public record CheckoutRecord(String cartId, long at, boolean notified) {}
+
+  @Override
+  protected CheckoutRecord emptyState() {
+    return new CheckoutRecord(context().entityId(), 0L, false);
+  }
+
+  @Command("record")
+  public Effect<Done> record(Long at) {
+    return effects().updateState(new CheckoutRecord(currentState().cartId(), at, true)).thenDone();
+  }
+
+  @Query("get")
+  public ReadOnlyEffect<CheckoutRecord> get() {
+    return effects().reply(currentState());
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLog.kt#key-value -->
+```kotlin
+/**
+ * Where the notifier records checkouts: a key value entity per cart holding when it happened.
+ *
+ * Nothing needs to know how the record came to be, only what it is now, so this stores the latest
+ * value rather than a journal of events. The cart itself is the opposite case, and is event sourced.
+ */
+@ComponentId("checkout-log")
+class CheckoutLog : KeyValueEntity<CheckoutRecord>() {
+    private val cartId: String
+        get() = context().entityId()
+
+    override fun emptyState() = CheckoutRecord(cartId)
+
+    @Command("record")
+    fun record(at: Long): Effect<Done> = effects { updateState(CheckoutRecord(cartId, at, notified = true)).thenDone() }
+
+    @Query("get")
+    fun get(): ReadOnlyEffect<CheckoutRecord> = effects { reply(currentState()) }
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/checkout_log.py -->
@@ -130,6 +187,50 @@ export class CheckoutLog extends KeyValueEntity<CheckoutRecord> {
   emptyState(): CheckoutRecord {
     return { cartId: this.entityId, at: 0n, notified: false }
   }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/checkout_log.rs#key-value -->
+```rust
+pub struct CheckoutLog;
+
+impl CheckoutLog {
+    fn record(_: &CheckoutRecord, at: i64, ctx: &Context) -> KeyValueEffect<CheckoutRecord, Done> {
+        let record = CheckoutRecord {
+            cart_id: ctx.entity_id().to_string(),
+            at,
+            notified: true,
+        };
+        effects::update_state(record).then_reply_value(Done)
+    }
+
+    fn get(record: &CheckoutRecord, _: (), _: &Context) -> ReadOnlyEffect<CheckoutRecord> {
+        effects::reply(record.clone())
+    }
+}
+
+impl KeyValueEntity for CheckoutLog {
+    type State = CheckoutRecord;
+    const COMPONENT_ID: &'static str = "checkout-log";
+    const STATE_MANIFEST: Option<&'static str> = Some("checkout-record");
+
+    fn empty_state(cart_id: &str) -> CheckoutRecord {
+        CheckoutRecord {
+            cart_id: cart_id.to_string(),
+            at: 0,
+            notified: false,
+        }
+    }
+
+    fn handlers() -> KeyValueHandlers<CheckoutLog> {
+        KeyValueHandlers::new()
+            .command("record", CheckoutLog::record)
+            .query("get", CheckoutLog::get)
+    }
 }
 ```
 
@@ -225,6 +326,33 @@ val record =
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartCalls.java#key-value-call -->
+```java
+/** Registered like any other component, and called through the component client. */
+public static ServiceBuilder checkoutLogService() {
+  return Ankka.service("carts").register(CheckoutLog.class);
+}
+
+public static CheckoutLog.CheckoutRecord checkoutRecord(ComponentClient client, String cartId) {
+  return client.forKeyValueEntity(cartId).call(CheckoutLog::get).invoke();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLogTest.kt#register-and-call -->
+```kotlin
+val service = Ankka.service("shopping-cart").register(CheckoutLog::class.java)
+ankkaTestKit(service) { // `service.start()` in a main; here the kit starts it
+    val record = componentClient().forKeyValueEntity("c1").call(CheckoutLog::get).invoke()
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -241,6 +369,35 @@ record = await client.for_key_value_entity("checkout-log", "c1").call("get").inv
 const service = Ankka.service().register(CheckoutLog)
 
 const record = await client.of(CheckoutLog, "c1").call(CheckoutLog.handlers.get).invoke()
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#call-key-value -->
+```rust
+fn checkout_log(request: &Request) -> Result<CheckoutRecord, HttpProblem> {
+    let cart_id = request.path("cartId");
+    Ok(request.client().invoke(CheckoutLog, cart_id, "get", ())?)
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/keyvalue.go#register-and-call -->
+```go
+// CheckoutLogService registers the entity like any other component.
+func CheckoutLogService() *ankka.Service { return ankka.NewService(CheckoutLog, CheckoutLogEndpoint) }
+
+// CheckoutLogEndpoint reads a record through the client.
+var CheckoutLogEndpoint = ankka.NewEndpoint("/checkout-log", ankka.AllowAll(),
+	ankka.Get("/{cartId}", func(ctx context.Context, req *ankka.Request) (CheckoutRecord, error) {
+		return ankka.Invoke[CheckoutRecord](ctx, "checkout-log", req.Param("cartId"), "get", ankka.Unit{})
+	}),
+)
 ```
 
 ///
@@ -276,6 +433,35 @@ test("recording a checkout replaces the value and acknowledges") {
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/KitSamples.java#key-value-test -->
+```java
+public static Result<Done> recordCheckout() {
+  var kit = KeyValueEntityTestKit.of(CheckoutLog.class, "c1");
+  var result = kit.call(CheckoutLog::record, 1_700_000_000_000L);
+
+  // result.reply() is Done, and result.state() is CheckoutRecord("c1", 1700000000000, true)
+  return result;
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLogTest.kt#key-value-test -->
+```kotlin
+val kit = KeyValueEntityTestKit.of(CheckoutLog::class.java, "c1")
+val result = kit.call(CheckoutLog::record, 1_700_000_000_000L)
+
+assertEquals(Done.done(), result.reply())
+assertEquals(1_700_000_000_000L, kit.state().at)
+assertEquals(true, kit.state().notified)
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/test_cart.py#key-value-test -->
@@ -299,6 +485,48 @@ test("recording a checkout replaces the value", async () => {
   assert.equal(kit.state.notified, true)
   assert.equal(kit.state.at, 1700000000000n)
 })
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/tests/cart.rs#key-value-test -->
+```rust
+#[test]
+fn recording_a_checkout_replaces_the_value_and_acknowledges() {
+    let mut kit = KeyValueEntityTestKit::<CheckoutLog>::new("c1");
+    let result = kit.command("record", 1_700_000_000_000_i64);
+    assert_eq!(result.answer.reply::<Done>(), Ok(Done));
+    assert!(result.written, "recording should write a new value");
+    assert_eq!(result.state.at, 1_700_000_000_000);
+    assert!(result.state.notified);
+    assert_eq!(kit.state().cart_id, "c1");
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/keyvalue_test.go#key-value-test -->
+```go
+func TestRecordingACheckoutReplacesTheValue(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.KeyValue(CheckoutLog, testkit.EntityID("c1"))
+	defer kit.Close()
+	r := kit.Command(ctx, "record", int64(1_700_000_000_000))
+	if r.Refusal() != nil || r.Reply() != (ankka.Done{}) {
+		t.Fatalf("record answered %v, %v", r.Reply(), r.Refusal())
+	}
+	if s := kit.State(); s.At != 1_700_000_000_000 || !s.Notified || s.CartID != "c1" {
+		t.Fatalf("the record is %+v", s)
+	}
+	want := CheckoutRecord{CartID: "c1", At: 1_700_000_000_000, Notified: true}
+	if q := kit.Query(ctx, "get", ankka.Unit{}); q.Reply() != want {
+		t.Fatalf("get answered %+v", q.Reply())
+	}
+}
 ```
 
 ///

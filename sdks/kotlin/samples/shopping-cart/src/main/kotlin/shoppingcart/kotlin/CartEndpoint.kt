@@ -54,6 +54,7 @@ class CheckoutsSeenEndpoint : HttpEndpoint() {
 }
 // docs:end annotated-endpoint
 
+// docs:start keys
 /**
  * Issues and revokes the keys a customer's assistant carries to the cart's tools. Open to anyone,
  * as the Scala sample's is: a real product puts this behind its own sign-in.
@@ -82,3 +83,4 @@ class CartKeysEndpoint : HttpEndpoint() {
         return "revoked"
     }
 }
+// docs:end keys

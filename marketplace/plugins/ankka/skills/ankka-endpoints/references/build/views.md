@@ -125,6 +125,93 @@ object CartRows
   def create(ctx: ViewComponentContext) = new CartRowsView
 ```
 
+**Java**
+
+```java
+@ComponentId("cart-rows")
+public class CartRows extends View<CartEvent, CartRows.CartRow> {
+
+  @Manifest("cart-row")
+  public record CartRow(
+      String cartId,
+      Map<String, Integer> quantities,
+      boolean checkedOut,
+      Map<String, String> names) {}
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCart.class);
+  }
+
+  @Override
+  protected ViewEffect<CartRow> onChange(CartEvent event) {
+    var current =
+        rowState().orElse(new CartRow(updateContext().subject(), Map.of(), false, Map.of()));
+    var quantities = new HashMap<>(current.quantities());
+    var names = new HashMap<>(current.names());
+    return switch (event) {
+      case CartEvent.ItemAdded added -> {
+        quantities.merge(added.item().productId(), added.item().quantity(), Integer::sum);
+        names.put(added.item().productId(), added.item().name());
+        yield effects()
+            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
+      }
+      case CartEvent.ItemRemoved removed -> {
+        quantities.remove(removed.productId());
+        names.remove(removed.productId());
+        yield effects()
+            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
+      }
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .updateRow(
+                  new CartRow(current.cartId(), current.quantities(), true, current.names()));
+      // The deletion that follows removes the row: a discarded cart leaves the listing.
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Every cart as a row, to answer what the entity cannot: which carts hold a product, which are
+ * checked out. The row's JSON is the Scala cart's `cart-row`.
+ */
+@ComponentId("cart-rows")
+class CartRows : View<CartEvent, CartRows.CartRow>() {
+    @Manifest("cart-row")
+    data class CartRow(
+        val cartId: String,
+        val quantities: Map<String, Int>,
+        val checkedOut: Boolean,
+        val names: Map<String, String>,
+    )
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
+
+    override fun onChange(event: CartEvent): ViewEffect<CartRow> = effects {
+        val row = rowState().orNull() ?: CartRow(updateContext().subject(), emptyMap(), false, emptyMap())
+        when (event) {
+            is CartEvent.ItemAdded ->
+                updateRow(
+                    row.copy(
+                        quantities = row.quantities + (event.item.productId to (row.quantities[event.item.productId] ?: 0) + event.item.quantity),
+                        names = row.names + (event.item.productId to event.item.name),
+                    )
+                )
+            is CartEvent.ItemRemoved ->
+                updateRow(row.copy(quantities = row.quantities - event.productId, names = row.names - event.productId))
+            CartEvent.CheckedOut -> updateRow(row.copy(checkedOut = true))
+            // The deletion that follows removes the row: a discarded cart leaves the listing.
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -213,89 +300,45 @@ export class CartRows extends View<ShoppingCartEvent, CartRow> {
 }
 ```
 
-**Java**
+**Rust**
 
-```java
-@ComponentId("cart-rows")
-public class CartRows extends View<CartEvent, CartRows.CartRow> {
+```rust
+pub struct CartRows;
 
-  @Manifest("cart-row")
-  public record CartRow(
-      String cartId,
-      Map<String, Integer> quantities,
-      boolean checkedOut,
-      Map<String, String> names) {}
+impl View for CartRows {
+    type Row = CartRow;
+    type Event = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "cart-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("cart-row");
 
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCart.class);
-  }
+    fn source() -> Source {
+        Source::of(ShoppingCart)
+    }
 
-  @Override
-  protected ViewEffect<CartRow> onChange(CartEvent event) {
-    var current =
-        rowState().orElse(new CartRow(updateContext().subject(), Map.of(), false, Map.of()));
-    var quantities = new HashMap<>(current.quantities());
-    var names = new HashMap<>(current.names());
-    return switch (event) {
-      case CartEvent.ItemAdded added -> {
-        quantities.merge(added.item().productId(), added.item().quantity(), Integer::sum);
-        names.put(added.item().productId(), added.item().name());
-        yield effects()
-            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
-      }
-      case CartEvent.ItemRemoved removed -> {
-        quantities.remove(removed.productId());
-        names.remove(removed.productId());
-        yield effects()
-            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
-      }
-      case CartEvent.CheckedOut ignored ->
-          effects()
-              .updateRow(
-                  new CartRow(current.cartId(), current.quantities(), true, current.names()));
-      // The deletion that follows removes the row: a discarded cart leaves the listing.
-      case CartEvent.Discarded ignored -> effects().ignore();
-    };
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-/**
- * Every cart as a row, to answer what the entity cannot: which carts hold a product, which are
- * checked out. The row's JSON is the Scala cart's `cart-row`.
- */
-@ComponentId("cart-rows")
-class CartRows : View<CartEvent, CartRows.CartRow>() {
-    @Manifest("cart-row")
-    data class CartRow(
-        val cartId: String,
-        val quantities: Map<String, Int>,
-        val checkedOut: Boolean,
-        val names: Map<String, String>,
-    )
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
-
-    override fun onChange(event: CartEvent): ViewEffect<CartRow> = effects {
-        val row = rowState().orNull() ?: CartRow(updateContext().subject(), emptyMap(), false, emptyMap())
-        when (event) {
-            is CartEvent.ItemAdded ->
-                updateRow(
-                    row.copy(
-                        quantities = row.quantities + (event.item.productId to (row.quantities[event.item.productId] ?: 0) + event.item.quantity),
-                        names = row.names + (event.item.productId to event.item.name),
-                    )
-                )
-            is CartEvent.ItemRemoved ->
-                updateRow(row.copy(quantities = row.quantities - event.productId, names = row.names - event.productId))
-            CartEvent.CheckedOut -> updateRow(row.copy(checkedOut = true))
-            // The deletion that follows removes the row: a discarded cart leaves the listing.
-            CartEvent.Discarded -> ignore()
+    fn on_event(
+        row: Option<CartRow>,
+        event: ShoppingCartEvent,
+        ctx: &Context,
+    ) -> ViewEffect<CartRow> {
+        let cart_id = ctx.metadata().subject().unwrap_or_default();
+        let mut row = row.unwrap_or_else(|| CartRow::new(cart_id));
+        match event {
+            ShoppingCartEvent::ItemAdded { item } => {
+                *row.quantities.entry(item.product_id).or_default() += item.quantity;
+            }
+            ShoppingCartEvent::ItemRemoved { product_id } => {
+                row.quantities.remove(&product_id);
+            }
+            ShoppingCartEvent::CheckedOut => row.checked_out = true,
+            // The deletion that follows removes the row: a discarded cart leaves the listing, which
+            // is the view's default when its source is deleted.
+            ShoppingCartEvent::Discarded => return view::ignore(),
         }
+        view::update_row(row)
+    }
+
+    fn queries() -> Vec<&'static str> {
+        vec!["by-id", "all"]
     }
 }
 ```
@@ -453,6 +496,92 @@ object CheckoutRows
   )
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-rows")
+public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.CheckoutRow> {
+
+  @Manifest("checkout-row")
+  public record CheckoutRow(
+      String id,
+      String status,
+      String standing,
+      Optional<String> step,
+      Optional<String> failure) {}
+
+  public static final ViewQuery BY_STANDING =
+      ViewQuery.declare(
+          "by-standing",
+          "SELECT payload FROM "
+              + ViewQuery.tableOf(CheckoutRows.class)
+              + " WHERE payload::jsonb->>'standing' = :standing");
+
+  private static final WorkflowLifecycle UNKNOWN =
+      new WorkflowLifecycle("Unknown", Optional.empty(), Map.of(), Optional.empty());
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ViewEffect<CheckoutRow> onChange(Checkout.CheckoutState state) {
+    // A change from a workflow carries its standing: where it stood once the effect that
+    // recorded `state` was applied.
+    var standing = updateContext().standing().orElse(UNKNOWN);
+    return effects()
+        .updateRow(
+            new CheckoutRow(
+                updateContext().subject(),
+                state.status(),
+                standing.status(),
+                standing.pendingStep(),
+                standing.failure()));
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-rows")
+class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
+
+    @Manifest("checkout-row")
+    data class CheckoutRow(val id: String, val status: String, val standing: String, val step: String?, val failure: String?)
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ViewEffect<CheckoutRow> {
+        // A change from a workflow carries its standing: where it stood once the effect that
+        // recorded `state` was applied.
+        val standing = updateContext().standingOrNull ?: UNKNOWN
+        return effects {
+            updateRow(
+                CheckoutRow(
+                    updateContext().subject(),
+                    state.status,
+                    standing.status,
+                    standing.pendingStep.orNull(),
+                    standing.failure.orNull(),
+                )
+            )
+        }
+    }
+
+    companion object {
+        val BY_STANDING: ViewQuery =
+            ViewQuery.declare(
+                "by-standing",
+                "SELECT payload FROM ${ViewQuery.tableOf(CheckoutRows::class.java)} WHERE payload::jsonb->>'standing' = :standing",
+            )
+
+        private val UNKNOWN = WorkflowLifecycle("Unknown", Optional.empty(), emptyMap(), Optional.empty())
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -572,92 +701,6 @@ impl View for CheckoutRows {
 }
 ```
 
-**Java**
-
-```java
-@ComponentId("checkout-rows")
-public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.CheckoutRow> {
-
-  @Manifest("checkout-row")
-  public record CheckoutRow(
-      String id,
-      String status,
-      String standing,
-      Optional<String> step,
-      Optional<String> failure) {}
-
-  public static final ViewQuery BY_STANDING =
-      ViewQuery.declare(
-          "by-standing",
-          "SELECT payload FROM "
-              + ViewQuery.tableOf(CheckoutRows.class)
-              + " WHERE payload::jsonb->>'standing' = :standing");
-
-  private static final WorkflowLifecycle UNKNOWN =
-      new WorkflowLifecycle("Unknown", Optional.empty(), Map.of(), Optional.empty());
-
-  @Override
-  protected ChangeSource<Checkout.CheckoutState> source() {
-    return ChangeSource.ofWorkflow(Checkout.class);
-  }
-
-  @Override
-  protected ViewEffect<CheckoutRow> onChange(Checkout.CheckoutState state) {
-    // A change from a workflow carries its standing: where it stood once the effect that
-    // recorded `state` was applied.
-    var standing = updateContext().standing().orElse(UNKNOWN);
-    return effects()
-        .updateRow(
-            new CheckoutRow(
-                updateContext().subject(),
-                state.status(),
-                standing.status(),
-                standing.pendingStep(),
-                standing.failure()));
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-rows")
-class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
-
-    @Manifest("checkout-row")
-    data class CheckoutRow(val id: String, val status: String, val standing: String, val step: String?, val failure: String?)
-
-    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
-
-    override fun onChange(state: Checkout.CheckoutState): ViewEffect<CheckoutRow> {
-        // A change from a workflow carries its standing: where it stood once the effect that
-        // recorded `state` was applied.
-        val standing = updateContext().standingOrNull ?: UNKNOWN
-        return effects {
-            updateRow(
-                CheckoutRow(
-                    updateContext().subject(),
-                    state.status,
-                    standing.status,
-                    standing.pendingStep.orNull(),
-                    standing.failure.orNull(),
-                )
-            )
-        }
-    }
-
-    companion object {
-        val BY_STANDING: ViewQuery =
-            ViewQuery.declare(
-                "by-standing",
-                "SELECT payload FROM ${ViewQuery.tableOf(CheckoutRows::class.java)} WHERE payload::jsonb->>'standing' = :standing",
-            )
-
-        private val UNKNOWN = WorkflowLifecycle("Unknown", Optional.empty(), emptyMap(), Optional.empty())
-    }
-}
-```
-
 **Go**
 
 ```go
@@ -721,24 +764,6 @@ val service = Ankka.service
   .start()
 ```
 
-**Python**
-
-```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CartRows)
-)
-```
-
-**TypeScript**
-
-```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CartRows)
-```
-
 **Java**
 
 ```java
@@ -775,6 +800,51 @@ fun main() {
 }
 ```
 
+**Python**
+
+```python
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+)
+```
+
+**TypeScript**
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CartRows)
+```
+
+**Rust**
+
+```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
+pub fn build() -> Service {
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
+}
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
+```
+
 **Go**
 
 ```go
@@ -804,8 +874,56 @@ A view's rows live in a Postgres table, one row per source id, with the row stor
 real SQL over that JSON, not a query language of ankka's own. Get a handle on a view's rows from the
 view client:
 
+**Scala**
+
 ```scala
 private def rows = testKit.service.viewClient.forView(CartRows)
+```
+
+**Java**
+
+```java
+@Get("/checkouts")
+public List<CheckoutRows.Row> checkouts() {
+  var rows = viewClient().forView(CheckoutRows.class);
+  return rows.all();
+}
+```
+
+**Kotlin**
+
+```kotlin
+val rows = viewClient().forView(CartRows::class.java)
+```
+
+**Python**
+
+```python
+async def every_cart(client: ComponentClient) -> list[CartRow]:
+    rows: list[CartRow] = await client.views.all("cart-rows", CartRow)
+    return rows
+```
+
+**TypeScript**
+
+```ts
+rows: get("/rows", s.list(CartRow), (ep: ShoppingCartEndpoint) => ep.client.views.all(CartRows.componentId, CartRow)),
+```
+
+**Go**
+
+```go
+// One row by its key, or 404; every row, up to 1000.
+ankka.Get("/carts/{cartId}", func(ctx context.Context, req *ankka.Request) (CartSummary, error) {
+	row, found, err := ankka.ViewRow[CartSummary](ctx, SummariesID, req.Param("cartId"))
+	if err == nil && !found {
+		err = &ankka.HttpProblem{Status: 404, Message: "no cart '" + req.Param("cartId") + "'"}
+	}
+	return row, err
+}),
+ankka.Get("/carts", func(ctx context.Context, _ *ankka.Request) ([]CartSummary, error) {
+	return ankka.QueryView[CartSummary](ctx, SummariesID, ankka.All())
+}),
 ```
 
 The view client is `testKit.service.viewClient` in a test, `clients.viewClient` in an
@@ -824,15 +942,74 @@ Each has an `…Async` variant returning a `Future`, for fanning several queries
 Conditions are built with the `sql"…"` interpolator and a few helpers that reach into the row's JSON, all
 from `com.thinkmorestupidless.ankka.runtime.SqlSyntax`:
 
+**Scala**
+
 ```scala
 // Query by an attribute rather than by key — the reason views exist.
 val found = rows.where(jsonText("cartId") ++ sql" = ${"view-q-1"}")
 ```
 
+**Kotlin**
+
+```kotlin
+val rows = kit.viewClient().forView(CartRows::class.java)
+kit.eventually(Duration.ofSeconds(10)) {
+    assertTrue(rows.count() >= 1L)
+    assertTrue(rows.all().isNotEmpty())
+    assertEquals(mapOf("p1" to 2), rows.getOrNull("view-q-1")?.quantities)
+}
+```
+
+**Go**
+
+```go
+// A query is SQL over the row's JSON, declared with the view and checked when the service
+// starts; a value the caller gives is bound as a parameter, never spliced into the text.
+ankka.Queries(
+	// By an attribute rather than by key: the reason views exist.
+	ankka.Declared("by-cart-id",
+		"SELECT payload FROM "+ankka.TableOf(SummariesID)+" WHERE payload::jsonb->>'cartId' = :cart_id"),
+	// The first twenty open carts, by id, descending. Every field reads as text, so a boolean
+	// compares against 'true' or 'false'.
+	ankka.Declared("open-carts",
+		"SELECT payload FROM "+ankka.TableOf(SummariesID)+
+			" WHERE payload::jsonb->>'checkedOut' = 'false' ORDER BY payload::jsonb->>'cartId' DESC LIMIT 20"),
+),
+```
+
+**Scala**
+
 ```scala
 assert(rows.count() >= 1L)
 assert(rows.all().nonEmpty)
 assert(rows.count(jsonText("cartId") ++ sql" = ${"nope-does-not-exist"}") == 0L)
+```
+
+**Kotlin**
+
+```kotlin
+val rows = kit.viewClient().forView(CartRows::class.java)
+kit.eventually(Duration.ofSeconds(10)) {
+    assertTrue(rows.count() >= 1L)
+    assertTrue(rows.all().isNotEmpty())
+    assertEquals(mapOf("p1" to 2), rows.getOrNull("view-q-1")?.quantities)
+}
+```
+
+**Go**
+
+```go
+// One row by its key, or 404; every row, up to 1000.
+ankka.Get("/carts/{cartId}", func(ctx context.Context, req *ankka.Request) (CartSummary, error) {
+	row, found, err := ankka.ViewRow[CartSummary](ctx, SummariesID, req.Param("cartId"))
+	if err == nil && !found {
+		err = &ankka.HttpProblem{Status: 404, Message: "no cart '" + req.Param("cartId") + "'"}
+	}
+	return row, err
+}),
+ankka.Get("/carts", func(ctx context.Context, _ *ankka.Request) ([]CartSummary, error) {
+	return ankka.QueryView[CartSummary](ctx, SummariesID, ankka.All())
+}),
 ```
 
 | Helper | Renders | Use |
@@ -849,6 +1026,8 @@ is only for text the developer writes, never for input.
 
 An ordered query over the cart rows, returning the first twenty open carts by id, looks like this:
 
+**Scala**
+
 ```scala
 import com.thinkmorestupidless.ankka.runtime.SqlFragment
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
@@ -858,6 +1037,23 @@ val openCarts = rows.ordered(
   order = jsonText("cartId") ++ SqlFragment.raw(" DESC"),
   limit = 20
 )
+```
+
+**Go**
+
+```go
+// A query is SQL over the row's JSON, declared with the view and checked when the service
+// starts; a value the caller gives is bound as a parameter, never spliced into the text.
+ankka.Queries(
+	// By an attribute rather than by key: the reason views exist.
+	ankka.Declared("by-cart-id",
+		"SELECT payload FROM "+ankka.TableOf(SummariesID)+" WHERE payload::jsonb->>'cartId' = :cart_id"),
+	// The first twenty open carts, by id, descending. Every field reads as text, so a boolean
+	// compares against 'true' or 'false'.
+	ankka.Declared("open-carts",
+		"SELECT payload FROM "+ankka.TableOf(SummariesID)+
+			" WHERE payload::jsonb->>'checkedOut' = 'false' ORDER BY payload::jsonb->>'cartId' DESC LIMIT 20"),
+),
 ```
 
 `jsonText` reads every field as text, so a boolean compares against `"true"` or `"false"`. Use
@@ -872,9 +1068,77 @@ at scale needs a Postgres expression index on the same term the query uses, such
 
 A Python service reads a view through the component client, by source id or all at once:
 
+**Scala**
+
+```scala
+val row      = rows.get(id) // one row, or None
+val everyRow = rows.all()   // every row, up to 1000
+```
+
+**Java**
+
+```java
+public static Optional<CartRows.Row> row(ViewClient views, String cartId) {
+  return views.forView(CartRows.class).get(cartId); // one row, or empty
+}
+
+public static List<CartRows.Row> rows(ViewClient views) {
+  return views.forView(CartRows.class).all(); // every row, up to 1000
+}
+```
+
+**Kotlin**
+
+```kotlin
+val rows = kit.viewClient().forView(CartRows::class.java)
+kit.eventually(Duration.ofSeconds(10)) {
+    assertTrue(rows.count() >= 1L)
+    assertTrue(rows.all().isNotEmpty())
+    assertEquals(mapOf("p1" to 2), rows.getOrNull("view-q-1")?.quantities)
+}
+```
+
+**Python**
+
 ```python
 row = await self.client.views.get("cart-rows", cart_id, CartRow)     # one row, or None
 rows = await self.client.views.all("cart-rows", CartRow)             # every row, up to 1000
+```
+
+**TypeScript**
+
+```ts
+rows: get("/rows", s.list(CartRow), (ep: ShoppingCartEndpoint) => ep.client.views.all(CartRows.componentId, CartRow)),
+```
+
+**Rust**
+
+```rust
+fn row(request: &Request) -> Result<CartRow, HttpProblem> {
+    let cart_id = request.path("cartId");
+    let rows: Vec<CartRow> = request
+        .client()
+        .query(CartRows, "by-id", cart_id.to_string())?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| HttpProblem::new(404, format!("no row for cart '{cart_id}'")))
+}
+```
+
+**Go**
+
+```go
+// One row by its key, or 404; every row, up to 1000.
+ankka.Get("/carts/{cartId}", func(ctx context.Context, req *ankka.Request) (CartSummary, error) {
+	row, found, err := ankka.ViewRow[CartSummary](ctx, SummariesID, req.Param("cartId"))
+	if err == nil && !found {
+		err = &ankka.HttpProblem{Status: 404, Message: "no cart '" + req.Param("cartId") + "'"}
+	}
+	return row, err
+}),
+ankka.Get("/carts", func(ctx context.Context, _ *ankka.Request) ([]CartSummary, error) {
+	return ankka.QueryView[CartSummary](ctx, SummariesID, ankka.All())
+}),
 ```
 
 Beyond those two, a view in any language answers the queries it declares; see
@@ -908,49 +1172,6 @@ Ask it through the view client, with each value it takes by name:
 ```scala
 val under = clients.viewClient.forView(Nodes).ask(Nodes.under, "row" -> nodeId)
 val first = clients.viewClient.forView(Nodes).ask(Nodes.under, 100, "row" -> nodeId)   // at most 100 rows
-```
-
-**Python**
-
-```python
-from ankka.view import query, table_of
-
-class Nodes(View[NodeEvent, NodeRow]):
-    component_id = "nodes"
-    source = NodeEntity
-    event_codec = NODE_EVENTS
-    row_codec = NODE_ROW
-    under = query("under", f"""
-        WITH RECURSIVE below AS (
-          SELECT row_key, payload FROM {table_of("nodes")} WHERE payload::jsonb->>'under' = :row
-          UNION
-          SELECT n.row_key, n.payload FROM {table_of("nodes")} n
-            JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
-        SELECT payload FROM below""")
-
-rows = await self.client.views.ask("nodes", "under", NodeRow, {"row": node_id})
-```
-
-**TypeScript**
-
-```ts
-import { declaredQuery, tableOf } from "ankka"
-
-export class Nodes extends View<NodeEvent, NodeRow> {
-  static readonly componentId = "nodes"
-  static readonly declared = [
-    declaredQuery("under", `
-      WITH RECURSIVE below AS (
-        SELECT row_key, payload FROM ${tableOf("nodes")} WHERE payload::jsonb->>'under' = :row
-        UNION
-        SELECT n.row_key, n.payload FROM ${tableOf("nodes")} n
-          JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
-      SELECT payload FROM below`),
-  ]
-  // ...
-}
-
-const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
 ```
 
 **Java**
@@ -1011,6 +1232,69 @@ Ask it through the view client, with each value it takes by name:
 @Get("/tree/{nodeId}/below")
 fun below(nodeId: String): List<String> =
     viewClient().forView(TreeRows::class.java).ask(TreeRows.UNDER, mapOf("row" to nodeId)).map { it.key }
+```
+
+**Python**
+
+```python
+from ankka.view import query, table_of
+
+class Nodes(View[NodeEvent, NodeRow]):
+    component_id = "nodes"
+    source = NodeEntity
+    event_codec = NODE_EVENTS
+    row_codec = NODE_ROW
+    under = query("under", f"""
+        WITH RECURSIVE below AS (
+          SELECT row_key, payload FROM {table_of("nodes")} WHERE payload::jsonb->>'under' = :row
+          UNION
+          SELECT n.row_key, n.payload FROM {table_of("nodes")} n
+            JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
+        SELECT payload FROM below""")
+
+rows = await self.client.views.ask("nodes", "under", NodeRow, {"row": node_id})
+```
+
+**TypeScript**
+
+```ts
+import { declaredQuery, tableOf } from "ankka"
+
+export class Nodes extends View<NodeEvent, NodeRow> {
+  static readonly componentId = "nodes"
+  static readonly declared = [
+    declaredQuery("under", `
+      WITH RECURSIVE below AS (
+        SELECT row_key, payload FROM ${tableOf("nodes")} WHERE payload::jsonb->>'under' = :row
+        UNION
+        SELECT n.row_key, n.payload FROM ${tableOf("nodes")} n
+          JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
+      SELECT payload FROM below`),
+  ]
+  // ...
+}
+
+const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
+```
+
+**Rust**
+
+```rust
+/// Every row under the row `row`, to any depth, in key order.
+fn declared() -> Vec<DeclaredQuery> {
+    let table = table_of(Self::COMPONENT_ID);
+    vec![query(
+        "under",
+        format!(
+            "WITH RECURSIVE below AS (\n  \
+             SELECT row_key, payload FROM {table} WHERE payload::jsonb->>'under' = :row\n  \
+             UNION\n  \
+             SELECT n.row_key, n.payload FROM {table} n JOIN below b ON n.payload::jsonb->>'under' = b.row_key\n\
+             )\n\
+             SELECT payload FROM below ORDER BY row_key"
+        ),
+    )]
+}
 ```
 
 **Go**
@@ -1088,28 +1372,6 @@ unless the caller gives one — the way to read every row of a large view withou
 val everyCart = rows.allStream().runWith(Sink.seq)
 ```
 
-**Python**
-
-`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
-
-```python
-@sse("/streamed")
-async def streamed(self) -> AsyncIterator[str]:
-    views = self.client.with_metadata(self.request.metadata).views
-    async for row in views.stream("tree-rows", "all-rows", TreeRow):
-        yield row.key
-```
-
-**TypeScript**
-
-`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
-
-```ts
-streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
-  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
-}),
-```
-
 **Java**
 
 `askStream(query, values)` answers a `Flow.Publisher` of the rows, which an `@Sse` route serves as it is:
@@ -1132,6 +1394,28 @@ public Flow.Publisher<SseEvent> streamed() {
 @Sse("/tree/streamed")
 fun streamed(): Flow.Publisher<SseEvent> =
     viewClient().forView(TreeRows::class.java).askFlow(TreeRows.ALL_ROWS).map { SseEvent.text(it.key) }.asPublisher()
+```
+
+**Python**
+
+`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
+
+```python
+@sse("/streamed")
+async def streamed(self) -> AsyncIterator[str]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for row in views.stream("tree-rows", "all-rows", TreeRow):
+        yield row.key
+```
+
+**TypeScript**
+
+`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
+
+```ts
+streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+}),
 ```
 
 **Go**
@@ -1189,18 +1473,6 @@ val openCarts = query("open-carts")(
 ).watched
 ```
 
-**Python**
-
-```python
-all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
-```
-
-**TypeScript**
-
-```ts
-declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
-```
-
 **Java**
 
 ```java
@@ -1215,6 +1487,18 @@ public static final ViewQuery ALL_ROWS =
 ```kotlin
 /** Every row, by key, watchable: the same statement in every language. */
 val ALL_ROWS: ViewQuery = ViewQuery.declare("all-rows", "SELECT row_key, payload FROM $TABLE ORDER BY row_key").watched()
+```
+
+**Python**
+
+```python
+all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+```
+
+**TypeScript**
+
+```ts
+declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
 ```
 
 **Go**
@@ -1242,6 +1526,28 @@ key and the row as JSON:
 sseEvents("/")(() => views.forView(CartRows).watch(CartRows.openCarts).asSse)
 ```
 
+**Java**
+
+`watch(query, values)` and `watchRow(key)` answer a `ViewWatch`, whose `asSse()` an `@Sse` route returns:
+
+```java
+// The rows now, `caught-up`, then each row as it is written, as named events.
+@Sse("/tree/watched")
+public Flow.Publisher<SseEvent> watched() {
+  return viewClient().forView(TreeRows.class).watch(TreeRows.ALL_ROWS, Map.of()).asSse();
+}
+```
+
+**Kotlin**
+
+The Java SDK's `ViewWatch`, served by an `@Sse` route through `asSse()`:
+
+```kotlin
+// The rows now, `caught-up`, then each row as it is written, as named events.
+@Sse("/tree/watched")
+fun watched(): Flow.Publisher<SseEvent> = viewClient().forView(TreeRows::class.java).watch(TreeRows.ALL_ROWS, emptyMap()).asSse()
+```
+
 **Python**
 
 `views.watch(view_id, name, row, values, unread=…, overflow=…)` and `views.watch_row(view_id, key, row)`
@@ -1264,28 +1570,6 @@ an `sse` route:
 
 ```ts
 watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
-```
-
-**Java**
-
-`watch(query, values)` and `watchRow(key)` answer a `ViewWatch`, whose `asSse()` an `@Sse` route returns:
-
-```java
-// The rows now, `caught-up`, then each row as it is written, as named events.
-@Sse("/tree/watched")
-public Flow.Publisher<SseEvent> watched() {
-  return viewClient().forView(TreeRows.class).watch(TreeRows.ALL_ROWS, Map.of()).asSse();
-}
-```
-
-**Kotlin**
-
-The Java SDK's `ViewWatch`, served by an `@Sse` route through `asSse()`:
-
-```kotlin
-// The rows now, `caught-up`, then each row as it is written, as named events.
-@Sse("/tree/watched")
-fun watched(): Flow.Publisher<SseEvent> = viewClient().forView(TreeRows::class.java).watch(TreeRows.ALL_ROWS, emptyMap()).asSse()
 ```
 
 **Go**
@@ -1365,6 +1649,8 @@ rows it writes and deletes by key. The view below reads two entities. An event o
 row and the right entity it holds, and the left's handler writes that row from what it held before. The
 right's handler finds every row holding it by asking the view's own declared query, and writes each.
 
+**Scala**
+
 ```scala
 /** A row the left writes under the key it names, holding a right entity's id. */
 final case class JoinedRow(key: String, holding: String, notes: Vector[String])
@@ -1397,6 +1683,232 @@ object JoinedRows
   def create(ctx: ViewComponentContext) = new JoinedRowsView
 ```
 
+**Java**
+
+```java
+@ComponentId("joined-rows")
+public class JoinedRows extends KeyedView<JoinedRows.JoinedRow> {
+
+  /** A row the left writes under the key it names, holding a right entity's id. */
+  @Manifest("joined-row")
+  public record JoinedRow(String key, String holding, List<String> notes) {
+    JoinedRow noting(String who) {
+      var more = new ArrayList<>(notes);
+      more.add(who);
+      return new JoinedRow(key, holding, List.copyOf(more));
+    }
+  }
+
+  /** The rows holding one right entity, by key: the same statement in every language. */
+  public static final ViewQuery OF_RIGHT =
+      ViewQuery.declare(
+          "of-right",
+          "SELECT payload FROM "
+              + ViewQuery.tableOf(JoinedRows.class)
+              + " WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key");
+
+  /** The left names a row {@code key|holding}, and writes it from what it held, noting itself. */
+  @Source(JoinedLeft.class)
+  public KeyedViewEffect<JoinedRow> onLeft(Noted event, KeyedChange<JoinedRow> change) {
+    var parts = event.text().split("\\|", 2);
+    var key = parts[0];
+    var holding = parts[1];
+    var held = change.rows().get(key).map(JoinedRow::notes).orElse(List.of());
+    return effects().updateRow(key, new JoinedRow(key, holding, held).noting("left"));
+  }
+
+  /** The right finds every row holding it by asking the view's own query, and notes itself. */
+  @Source(JoinedRight.class)
+  public KeyedViewEffect<JoinedRow> onRight(Noted event, KeyedChange<JoinedRow> change) {
+    var theirs = change.rows().ask(OF_RIGHT, Map.of("holding", change.subject()));
+    var rows = new LinkedHashMap<String, JoinedRow>();
+    for (var row : theirs) rows.put(row.key(), row.noting("right"));
+    return effects().updateRows(rows);
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("joined-rows")
+class JoinedRows : KeyedView<JoinedRows.JoinedRow>() {
+
+    /** A row the left writes under the key it names, holding a right entity's id. */
+    @Manifest("joined-row")
+    data class JoinedRow(val key: String, val holding: String, val notes: List<String>) {
+        fun noting(who: String): JoinedRow = copy(notes = notes + who)
+    }
+
+    /** The left names a row `key|holding`, and writes it from what it held, noting itself. */
+    @Source(JoinedLeft::class)
+    fun onLeft(event: Noted, change: KeyedChange<JoinedRow>): KeyedViewEffect<JoinedRow> {
+        val (key, holding) = event.text.split("|", limit = 2)
+        val held = change.rows().getOrNull(key)?.notes ?: emptyList()
+        return effects { updateRow(key, JoinedRow(key, holding, held).noting("left")) }
+    }
+
+    /** The right finds every row holding it by asking the view's own query, and notes itself. */
+    @Source(JoinedRight::class)
+    fun onRight(event: Noted, change: KeyedChange<JoinedRow>): KeyedViewEffect<JoinedRow> {
+        val theirs = change.rows().ask(OF_RIGHT, mapOf("holding" to change.subject()))
+        return effects { updateRows(theirs.associate { it.key to it.noting("right") }) }
+    }
+
+    companion object {
+        /** The rows holding one right entity, by key: the same statement in every language. */
+        val OF_RIGHT: ViewQuery =
+            ViewQuery.declare(
+                "of-right",
+                "SELECT payload FROM ${ViewQuery.tableOf(JoinedRows::class.java)} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+            )
+    }
+}
+```
+
+**Python**
+
+```python
+class JoinedRows(KeyedView[JoinedRow]):
+    """A keyed view of two sources: the left names a row ``key|holding`` and notes itself on it; the
+    right finds every row holding it by asking the view's own query, and notes itself on each."""
+
+    component_id = "joined-rows"
+    row_codec = json_codec(JoinedRow, "joined-row")
+    of_right = declare(
+        "of-right",
+        f"SELECT payload FROM {table_of('joined-rows')} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+    )
+
+    @on(JoinedLeft, JoinedLeft.event_codec)
+    async def on_left(self, event: JoinedNote) -> KeyedViewEffect:
+        key, holding = event.text.split("|")
+        held = await self.rows.get(key)
+        notes = held.notes if held is not None else []
+        return self.effects.update_row(key, JoinedRow(key, holding, [*notes, "left"]))
+
+    @on(JoinedRight, JoinedRight.event_codec)
+    async def on_right(self, event: JoinedNote) -> KeyedViewEffect:
+        theirs = await self.rows.ask("of-right", holding=self.subject)
+        return self.effects.update_rows({row.key: JoinedRow(row.key, row.holding, [*row.notes, "right"]) for row in theirs})
+```
+
+**TypeScript**
+
+```ts
+static readonly sources = [on(JoinedLeft, Noted, (v: JoinedRows, e) => v.onLeft(e)), on(JoinedRight, Noted, (v: JoinedRows) => v.onRight())]
+static readonly declared = [
+  declaredQuery("of-right", `SELECT payload FROM ${tableOf("joined-rows")} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key`),
+]
+
+async onLeft(event: Noted) {
+  const [key, holding] = event.text.split("|")
+  const held = (await this.rows.get(key))?.notes ?? []
+  return this.effects.updateRow(key, { key, holding, notes: [...held, "left"] })
+}
+
+async onRight() {
+  const theirs = await this.rows.ask("of-right", { holding: this.subject })
+  return this.effects.updateRows(theirs.map((row) => [row.key, { ...row, notes: [...row.notes, "right"] }] as const))
+}
+```
+
+**Rust**
+
+```rust
+pub struct JoinedRows;
+
+impl JoinedRows {
+    /// The left names a row `key|holding`, and writes it from what it held, noting itself.
+    fn on_left(event: Noted, ctx: &Context) -> KeyedViewEffect<JoinedRow> {
+        let (key, holding) = event
+            .text
+            .split_once('|')
+            .unwrap_or((event.text.as_str(), ""));
+        let mut notes = ctx
+            .rows()
+            .get::<JoinedRow>(key)
+            .map(|row| row.notes)
+            .unwrap_or_default();
+        notes.push("left".to_string());
+        KeyedViewEffect::update_row(
+            key,
+            JoinedRow {
+                key: key.to_string(),
+                holding: holding.to_string(),
+                notes,
+            },
+        )
+    }
+
+    /// The right finds every row holding it by asking the view's own query, and notes itself.
+    fn on_right(_: Noted, ctx: &Context) -> KeyedViewEffect<JoinedRow> {
+        let subject = ctx.metadata().subject().unwrap_or_default();
+        let theirs: Vec<JoinedRow> = ctx.rows().ask("of-right", &[("holding", subject)]);
+        KeyedViewEffect::update_rows(theirs.into_iter().map(|mut row| {
+            row.notes.push("right".to_string());
+            (row.key.clone(), row)
+        }))
+    }
+}
+
+impl KeyedView for JoinedRows {
+    type Row = JoinedRow;
+    const COMPONENT_ID: &'static str = "joined-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("joined-row");
+
+    fn sources() -> Sources<JoinedRows> {
+        Sources::new()
+            .on::<Noted>(Source::of(JoinedLeft), JoinedRows::on_left)
+            .on::<Noted>(Source::of(JoinedRight), JoinedRows::on_right)
+    }
+
+    /// The rows holding one right entity, by key: the same statement in every language.
+    fn declared() -> Vec<DeclaredQuery> {
+        vec![query(
+            "of-right",
+            format!(
+                "SELECT payload FROM {} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+                table_of(Self::COMPONENT_ID)
+            ),
+        )]
+    }
+}
+```
+
+**Go**
+
+```go
+// JoinedRows: the left names a row key|holding and writes it from what it held, noting itself;
+// the right finds every row holding it by asking the view's own query, and notes itself on each.
+var JoinedRows = ankka.KeyedView[JoinedRow]("joined-rows",
+	ankka.On(ankka.Changes(JoinedLeft), func(_ context.Context, e Noted, rows ankka.ViewRows[JoinedRow]) (ankka.KeyedViewEffect[JoinedRow], error) {
+		key, holding, _ := strings.Cut(e.Text, "|")
+		held, _, err := rows.Get(key)
+		if err != nil {
+			return ankka.KeyedViewEffect[JoinedRow]{}, err
+		}
+		notes := append(slices.Clone(held.Notes), "left")
+		return ankka.UpdateRowAt(key, JoinedRow{Key: key, Holding: holding, Notes: notes}), nil
+	}),
+	ankka.On(ankka.Changes(JoinedRight), func(ctx context.Context, _ Noted, rows ankka.ViewRows[JoinedRow]) (ankka.KeyedViewEffect[JoinedRow], error) {
+		c, _ := ankka.ChangeFrom(ctx)
+		theirs, err := rows.Ask("of-right", map[string]string{"holding": c.Subject})
+		if err != nil {
+			return ankka.KeyedViewEffect[JoinedRow]{}, err
+		}
+		var each []ankka.KeyedViewEffect[JoinedRow]
+		for _, r := range theirs {
+			r.Notes = append(slices.Clone(r.Notes), "right")
+			each = append(each, ankka.UpdateRowAt(r.Key, r))
+		}
+		return ankka.AllRows(each...), nil
+	}),
+	ankka.RowCodec(ankka.CodecFor[JoinedRow](ankka.Manifest("joined-row"))),
+	ankka.Queries(ankka.Declared("of-right", "SELECT payload FROM "+ankka.TableOf("joined-rows")+" WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key")),
+)
+```
+
 A handler is handed the change and a handle on the view's own rows: `change.rows.get(key)` and
 `change.rows.ask(query, values*)`, with `change.subject`, the id of the entity the change came from. It
 reads no other view. It returns row changes: `effects.updateRow(key, row)`, `effects.deleteRow(key)`, their
@@ -1404,8 +1916,237 @@ plural forms, and `++` to say several things at once. In Python a keyed view's h
 `@on(Entity, codec)`, in TypeScript `static sources = [on(Entity, Events, handler)]`, in Rust
 `Sources::new().on(...)`, and in Go one `ankka.On(source, handler)` each given to `ankka.KeyedView`; each reads its rows through `rows` and answers the same row changes.
 
-The same view in Go, whose handlers are given the rows as an `ankka.ViewRows` and answer
-`ankka.UpdateRowAt`, `ankka.DeleteRowAt` and `ankka.AllRows`:
+The same view in each language; in Go its handlers are given the rows as an `ankka.ViewRows` and
+answer `ankka.UpdateRowAt`, `ankka.DeleteRowAt` and `ankka.AllRows`:
+
+**Scala**
+
+```scala
+/** A row the left writes under the key it names, holding a right entity's id. */
+final case class JoinedRow(key: String, holding: String, notes: Vector[String])
+
+final class JoinedRowsView extends KeyedView[JoinedRow]:
+
+  /** The left names a row `key|holding`, and writes it from what it held, noting itself. */
+  def onLeft(event: Noted, change: Change): Effect =
+    val Array(key, holding) = event.text.split('|')
+    val held                = change.rows.get(key).fold(Vector.empty[String])(_.notes)
+    effects.updateRow(key, JoinedRow(key, holding, held :+ "left"))
+
+  /** The right finds every row holding it by asking the view's own query, and notes itself. */
+  def onRight(@scala.annotation.unused event: Noted, change: Change): Effect =
+    val theirs = change.rows.ask(JoinedRows.ofRight, "holding" -> change.subject)
+    effects.updateRows(theirs.map(row => row.key -> row.copy(notes = row.notes :+ "right")))
+
+object JoinedRows
+    extends KeyedView.Companion[JoinedRowsView, JoinedRow](
+      ComponentId("joined-rows"),
+      Codecs.serializer[JoinedRow]("joined-row")
+    ):
+  val lefts  = source(ChangeSource.eventsOf(JoinedLeft))(_.onLeft)
+  val rights = source(ChangeSource.eventsOf(JoinedRight))(_.onRight)
+
+  /** The rows holding one right entity, by key: the same statement in every language. */
+  val ofRight = query("of-right")(
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key"
+  )
+  def create(ctx: ViewComponentContext) = new JoinedRowsView
+```
+
+**Java**
+
+```java
+@ComponentId("joined-rows")
+public class JoinedRows extends KeyedView<JoinedRows.JoinedRow> {
+
+  /** A row the left writes under the key it names, holding a right entity's id. */
+  @Manifest("joined-row")
+  public record JoinedRow(String key, String holding, List<String> notes) {
+    JoinedRow noting(String who) {
+      var more = new ArrayList<>(notes);
+      more.add(who);
+      return new JoinedRow(key, holding, List.copyOf(more));
+    }
+  }
+
+  /** The rows holding one right entity, by key: the same statement in every language. */
+  public static final ViewQuery OF_RIGHT =
+      ViewQuery.declare(
+          "of-right",
+          "SELECT payload FROM "
+              + ViewQuery.tableOf(JoinedRows.class)
+              + " WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key");
+
+  /** The left names a row {@code key|holding}, and writes it from what it held, noting itself. */
+  @Source(JoinedLeft.class)
+  public KeyedViewEffect<JoinedRow> onLeft(Noted event, KeyedChange<JoinedRow> change) {
+    var parts = event.text().split("\\|", 2);
+    var key = parts[0];
+    var holding = parts[1];
+    var held = change.rows().get(key).map(JoinedRow::notes).orElse(List.of());
+    return effects().updateRow(key, new JoinedRow(key, holding, held).noting("left"));
+  }
+
+  /** The right finds every row holding it by asking the view's own query, and notes itself. */
+  @Source(JoinedRight.class)
+  public KeyedViewEffect<JoinedRow> onRight(Noted event, KeyedChange<JoinedRow> change) {
+    var theirs = change.rows().ask(OF_RIGHT, Map.of("holding", change.subject()));
+    var rows = new LinkedHashMap<String, JoinedRow>();
+    for (var row : theirs) rows.put(row.key(), row.noting("right"));
+    return effects().updateRows(rows);
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("joined-rows")
+class JoinedRows : KeyedView<JoinedRows.JoinedRow>() {
+
+    /** A row the left writes under the key it names, holding a right entity's id. */
+    @Manifest("joined-row")
+    data class JoinedRow(val key: String, val holding: String, val notes: List<String>) {
+        fun noting(who: String): JoinedRow = copy(notes = notes + who)
+    }
+
+    /** The left names a row `key|holding`, and writes it from what it held, noting itself. */
+    @Source(JoinedLeft::class)
+    fun onLeft(event: Noted, change: KeyedChange<JoinedRow>): KeyedViewEffect<JoinedRow> {
+        val (key, holding) = event.text.split("|", limit = 2)
+        val held = change.rows().getOrNull(key)?.notes ?: emptyList()
+        return effects { updateRow(key, JoinedRow(key, holding, held).noting("left")) }
+    }
+
+    /** The right finds every row holding it by asking the view's own query, and notes itself. */
+    @Source(JoinedRight::class)
+    fun onRight(event: Noted, change: KeyedChange<JoinedRow>): KeyedViewEffect<JoinedRow> {
+        val theirs = change.rows().ask(OF_RIGHT, mapOf("holding" to change.subject()))
+        return effects { updateRows(theirs.associate { it.key to it.noting("right") }) }
+    }
+
+    companion object {
+        /** The rows holding one right entity, by key: the same statement in every language. */
+        val OF_RIGHT: ViewQuery =
+            ViewQuery.declare(
+                "of-right",
+                "SELECT payload FROM ${ViewQuery.tableOf(JoinedRows::class.java)} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+            )
+    }
+}
+```
+
+**Python**
+
+```python
+class JoinedRows(KeyedView[JoinedRow]):
+    """A keyed view of two sources: the left names a row ``key|holding`` and notes itself on it; the
+    right finds every row holding it by asking the view's own query, and notes itself on each."""
+
+    component_id = "joined-rows"
+    row_codec = json_codec(JoinedRow, "joined-row")
+    of_right = declare(
+        "of-right",
+        f"SELECT payload FROM {table_of('joined-rows')} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+    )
+
+    @on(JoinedLeft, JoinedLeft.event_codec)
+    async def on_left(self, event: JoinedNote) -> KeyedViewEffect:
+        key, holding = event.text.split("|")
+        held = await self.rows.get(key)
+        notes = held.notes if held is not None else []
+        return self.effects.update_row(key, JoinedRow(key, holding, [*notes, "left"]))
+
+    @on(JoinedRight, JoinedRight.event_codec)
+    async def on_right(self, event: JoinedNote) -> KeyedViewEffect:
+        theirs = await self.rows.ask("of-right", holding=self.subject)
+        return self.effects.update_rows({row.key: JoinedRow(row.key, row.holding, [*row.notes, "right"]) for row in theirs})
+```
+
+**TypeScript**
+
+```ts
+static readonly sources = [on(JoinedLeft, Noted, (v: JoinedRows, e) => v.onLeft(e)), on(JoinedRight, Noted, (v: JoinedRows) => v.onRight())]
+static readonly declared = [
+  declaredQuery("of-right", `SELECT payload FROM ${tableOf("joined-rows")} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key`),
+]
+
+async onLeft(event: Noted) {
+  const [key, holding] = event.text.split("|")
+  const held = (await this.rows.get(key))?.notes ?? []
+  return this.effects.updateRow(key, { key, holding, notes: [...held, "left"] })
+}
+
+async onRight() {
+  const theirs = await this.rows.ask("of-right", { holding: this.subject })
+  return this.effects.updateRows(theirs.map((row) => [row.key, { ...row, notes: [...row.notes, "right"] }] as const))
+}
+```
+
+**Rust**
+
+```rust
+pub struct JoinedRows;
+
+impl JoinedRows {
+    /// The left names a row `key|holding`, and writes it from what it held, noting itself.
+    fn on_left(event: Noted, ctx: &Context) -> KeyedViewEffect<JoinedRow> {
+        let (key, holding) = event
+            .text
+            .split_once('|')
+            .unwrap_or((event.text.as_str(), ""));
+        let mut notes = ctx
+            .rows()
+            .get::<JoinedRow>(key)
+            .map(|row| row.notes)
+            .unwrap_or_default();
+        notes.push("left".to_string());
+        KeyedViewEffect::update_row(
+            key,
+            JoinedRow {
+                key: key.to_string(),
+                holding: holding.to_string(),
+                notes,
+            },
+        )
+    }
+
+    /// The right finds every row holding it by asking the view's own query, and notes itself.
+    fn on_right(_: Noted, ctx: &Context) -> KeyedViewEffect<JoinedRow> {
+        let subject = ctx.metadata().subject().unwrap_or_default();
+        let theirs: Vec<JoinedRow> = ctx.rows().ask("of-right", &[("holding", subject)]);
+        KeyedViewEffect::update_rows(theirs.into_iter().map(|mut row| {
+            row.notes.push("right".to_string());
+            (row.key.clone(), row)
+        }))
+    }
+}
+
+impl KeyedView for JoinedRows {
+    type Row = JoinedRow;
+    const COMPONENT_ID: &'static str = "joined-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("joined-row");
+
+    fn sources() -> Sources<JoinedRows> {
+        Sources::new()
+            .on::<Noted>(Source::of(JoinedLeft), JoinedRows::on_left)
+            .on::<Noted>(Source::of(JoinedRight), JoinedRows::on_right)
+    }
+
+    /// The rows holding one right entity, by key: the same statement in every language.
+    fn declared() -> Vec<DeclaredQuery> {
+        vec![query(
+            "of-right",
+            format!(
+                "SELECT payload FROM {} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+                table_of(Self::COMPONENT_ID)
+            ),
+        )]
+    }
+}
+```
+
+**Go**
 
 ```go
 // JoinedRows: the left names a row key|holding and writes it from what it held, noting itself;
@@ -1469,9 +2210,106 @@ recorded; for a view that reads a topic, as far back as the broker retains (see
 [Broker topics](topics.md#rebuilding-by-version)). A view that declares no version is at version 1 and is
 never rebuilt.
 
+**Scala**
+
 ```scala
 object Shipments extends KeyedView.Companion[ShipmentsView, ShipmentRow](...):
   override def version = Some(2)
+```
+
+**Java**
+
+```java
+package com.thinkmorestupidless.ankka.javasdk.testkit.kinds;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.cart.CartEvent;
+import com.thinkmorestupidless.ankka.javasdk.cart.ShoppingCart;
+import com.thinkmorestupidless.ankka.javasdk.client.ViewQuery;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.View;
+import com.thinkmorestupidless.ankka.javasdk.effect.ViewEffect;
+import java.util.OptionalInt;
+
+/** One row per cart from the cart's events, at version 2. */
+@ComponentId("cart-rows")
+public class CartRows extends View<CartEvent, CartRows.Row> {
+
+  public record Row(String cartId, int lines, boolean checkedOut) {}
+
+  /** The carts not checked out. */
+  public static final ViewQuery OPEN =
+      ViewQuery.declare(
+          "open",
+          "SELECT payload FROM "
+              + ViewQuery.tableOf(CartRows.class)
+              + " WHERE (payload::jsonb->>'checkedOut')::boolean = false");
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCart.class);
+  }
+
+  @Override
+  protected OptionalInt version() {
+    return OptionalInt.of(2);
+  }
+
+  @Override
+  protected ViewEffect<Row> onChange(CartEvent event) {
+    Row row = rowState().orElse(new Row(updateContext().subject(), 0, false));
+    return switch (event) {
+      case CartEvent.ItemAdded added ->
+          effects().updateRow(new Row(row.cartId(), row.lines() + 1, row.checkedOut()));
+      case CartEvent.ItemRemoved removed ->
+          effects().updateRow(new Row(row.cartId(), row.lines() - 1, row.checkedOut()));
+      case CartEvent.CheckedOut ignored ->
+          effects().updateRow(new Row(row.cartId(), row.lines(), true));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+// Raised from 1 once: every reference declares 2, which names the group it reads under.
+override fun version(): OptionalInt = OptionalInt.of(2)
+```
+
+**Python**
+
+```python
+component_id = "shipments"
+row_codec = json_codec(ShipmentRow, "shipment-row")
+version = 2
+```
+
+**TypeScript**
+
+```ts
+export class Shipments extends KeyedView<ShipmentRow> {
+  static readonly componentId = "shipments"
+  static readonly row = jsonCodec(ShipmentRow, "shipment-row")
+  // Raised from 1: the table is emptied once and every vehicle is read again from its beginning.
+  static readonly version = 2
+```
+
+**Rust**
+
+```rust
+/// Raising the version rebuilds the view, as far back as the broker retains.
+fn version() -> Option<u32> {
+    Some(2)
+}
+```
+
+**Go**
+
+```go
+// Raising the version rebuilds the view from every cart's first event.
+ankka.SourceVersion(2),
 ```
 
 While it is rebuilt, the view answers from the rows written so far. During a rolling update, an instance
@@ -1516,6 +2354,8 @@ A declared query that compares a personal field would compare ciphertext, so it 
 service starts, naming the view, the query and the field. A field the companion marks for lookup may be
 compared by equality with a value the caller gives, which the runtime answers from a token of the value:
 
+**Scala**
+
 ```scala
 lookup(_.email)
 val byEmail = query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
@@ -1550,6 +2390,44 @@ See [Limitations](../reference/limitations.md) for the full list.
 In Python, `ViewTestKit` feeds changes to a view and keeps one row per key, as the sidecar would, with no
 sidecar:
 
+**Scala**
+
+```scala
+test("an added item writes the cart's row, and a deletion removes it") {
+  val kit = ViewTestKit(CartRows)
+  kit.change("c1", ItemAdded(LineItem("p1", "Pen", 2))): Unit
+  assertEquals(
+    kit.row("c1"),
+    Some(CartRow("c1", Map("p1" -> 2), checkedOut = false, names = Map("p1" -> "Pen")))
+  )
+  assertEquals(kit.deleted("c1"), ViewEffect.DeleteRow)
+  assertEquals(kit.row("c1"), None)
+}
+```
+
+**Java**
+
+```java
+/** One change to a view's handler, and the row it wrote, with no runtime. */
+public static Optional<CartRows.Row> cartRow() {
+  var kit = ViewTestKit.of(CartRows.class);
+  kit.change("c1", new CartEvent.ItemAdded(new LineItem("p1", "Pen", 2)));
+  return kit.row("c1"); // Row("c1", 1, false)
+}
+```
+
+**Kotlin**
+
+```kotlin
+val kit = ViewTestKit.of(CartRows::class.java)
+kit.change("c1", CartEvent.ItemAdded(LineItem("p1", "Pen", 2)))
+assertEquals(CartRows.CartRow("c1", mapOf("p1" to 2), false, mapOf("p1" to "Pen")), kit.row("c1").orNull())
+kit.deleted("c1")
+assertNull(kit.row("c1").orNull())
+```
+
+**Python**
+
 ```python
 kit = ViewTestKit.of(CartRows)
 kit.on_change("c1", ItemAdded(LineItem("p1", "Pen", 2)))
@@ -1557,11 +2435,68 @@ assert kit.get("c1") == CartRow("c1", {"p1": 2}, False)
 assert isinstance(kit.on_delete("c1"), UpdateRow)
 ```
 
+**TypeScript**
+
+```ts
+test("the rows follow the cart's events, one row per cart", async () => {
+  const kit = ViewTestKit.of(CartRows)
+  await kit.onChange("c1", { type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 2 } })
+  assert.deepEqual(kit.get("c1"), { cartId: "c1", quantities: { p1: 2 }, checkedOut: false })
+  await kit.onChange("c1", { type: "CheckedOut" })
+  assert.equal(kit.get("c1")?.checkedOut, true)
+  assert.equal((await kit.onDelete("c1")).kind, "delete-row")
+  assert.equal(kit.get("c1"), null)
+})
+```
+
+**Rust**
+
+```rust
+#[test]
+fn the_row_counts_each_product_and_leaves_with_a_discarded_cart() {
+    let mut kit = ViewTestKit::<CartRows>::new();
+    kit.on_event("cart-1", ShoppingCartEvent::ItemAdded { item: pen(2) });
+    kit.on_event("cart-1", ShoppingCartEvent::ItemAdded { item: pen(3) });
+    assert_eq!(kit.row("cart-1").unwrap().quantities["p1"], 5);
+    kit.on_event("cart-1", ShoppingCartEvent::CheckedOut);
+    assert!(kit.row("cart-1").unwrap().checked_out);
+    // A discarded cart's row goes with it: the event changes nothing, the deletion removes it.
+    kit.on_event("cart-2", ShoppingCartEvent::ItemAdded { item: pen(1) });
+    kit.on_event("cart-2", ShoppingCartEvent::Discarded);
+    assert!(kit.row("cart-2").is_some());
+    kit.on_deleted("cart-2");
+    assert!(kit.row("cart-2").is_none());
+}
+```
+
+**Go**
+
+```go
+func TestTheRowsFollowTheCart(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.View(cart.Rows)
+	defer kit.Close()
+	change, err := kit.OnChange(ctx, "c1", cart.ItemAdded{Item: cart.LineItem{ProductID: "p1", Name: "Pen", Quantity: 2}})
+	if err != nil || change.Updated == nil {
+		t.Fatalf("an item added wrote %+v, %v", change, err)
+	}
+	row, _ := kit.Row("c1")
+	if row.CartID != "c1" || row.Quantities["p1"] != 2 || row.CheckedOut {
+		t.Fatalf("the row is %+v", row)
+	}
+	if change, _ := kit.OnDelete(ctx, "c1"); !change.Deleted {
+		t.Fatalf("a deletion was %+v", change)
+	}
+}
+```
+
 A keyed view's handlers are tested with `KeyedViewTestKit`, with no actor system and no database. A change
 of a source goes to that source's handler, the rows it names are written to a map the test reads, and every
 row round-trips through the view's serializer. A declared query is SQL and there is no database to run it,
 so the test says what each query answers; a handler that asks a query the test has not answered fails the
 test, naming the query. Building the kit checks the view's declared statements as a service's start would.
+
+**Scala**
 
 ```scala
 test("the right's change notes every row holding it, found by the view's own query") {
@@ -1580,16 +2515,234 @@ test("the right's change notes every row holding it, found by the view's own que
 }
 ```
 
+**Java**
+
+```java
+/** The right's change notes every row holding it, found by the view's own query. */
+public static KeyedViewTestKit<JoinedRows.JoinedRow> rightNotesEveryRow() {
+  var kit = KeyedViewTestKit.of(JoinedRows.class);
+  kit.change(JoinedLeft.class, "a", new Noted("r1|b"));
+  kit.change(JoinedLeft.class, "a", new Noted("r2|b"));
+  kit.change(JoinedLeft.class, "a", new Noted("r3|c"));
+  // The query is the database's to run; the test says what it answers.
+  kit.answering(
+      JoinedRows.OF_RIGHT,
+      values ->
+          kit.rows().values().stream()
+              .filter(row -> row.holding().equals(values.get("holding")))
+              .toList());
+  kit.change(JoinedRight.class, "b", new Noted("anything"));
+  // kit.row("r1") and kit.row("r2") carry the notes [left, right]; kit.row("r3") only [left]
+  return kit;
+}
+```
+
+**Kotlin**
+
+```kotlin
+val kit = KeyedViewTestKit.of(JoinedRows::class.java)
+kit.change(JoinedLeft::class.java, "a", Noted("r1|b"))
+kit.change(JoinedLeft::class.java, "a", Noted("r2|b"))
+kit.change(JoinedLeft::class.java, "a", Noted("r3|c"))
+// The query is the database's to run; the test says what it answers.
+kit.answering(JoinedRows.OF_RIGHT) { values -> kit.rows().values.filter { it.holding == values["holding"] } }
+kit.change(JoinedRight::class.java, "b", Noted("anything"))
+assertEquals(listOf("left", "right"), kit.row("r1").orNull()?.notes)
+assertEquals(listOf("left", "right"), kit.row("r2").orNull()?.notes)
+assertEquals(listOf("left"), kit.row("r3").orNull()?.notes)
+```
+
+**Python**
+
+```python
+kit = KeyedViewTestKit.of(Shipments)
+kit.change(CounterEntity, "s1", Incremented(1))
+assert kit.get("s1") == ShipmentRow("s1", "c1", ("shipment",))
+with pytest.raises(LookupError, match="of-customer"):
+    kit.change(Customer, "c1", Note("renamed"))
+kit.answering("of-customer", lambda values: [r for r in kit.rows.values() if r.customer == values["customer"]])
+kit.change(Customer, "c1", Note("renamed"))
+assert kit.get("s1") == ShipmentRow("s1", "c1", ("shipment", "renamed"))
+```
+
+**TypeScript**
+
+```ts
+test("the right's change notes every row holding it, found by the view's own query", async () => {
+  const kit = KeyedViewTestKit.of(JoinedRows)
+  await kit.change(JoinedLeft, "a", { text: "r1|b" })
+  await kit.change(JoinedLeft, "a", { text: "r2|b" })
+  await kit.change(JoinedLeft, "a", { text: "r3|c" })
+  // The query is the database's to run; the test says what it answers.
+  kit.answering("of-right", (values) => [...kit.rows.values()].filter((row) => row.holding === values.holding))
+  await kit.change(JoinedRight, "b", { text: "anything" })
+  assert.deepEqual(kit.get("r1")?.notes, ["left", "right"])
+  assert.deepEqual(kit.get("r2")?.notes, ["left", "right"])
+  assert.deepEqual(kit.get("r3")?.notes, ["left"])
+})
+```
+
+**Rust**
+
+```rust
+#[test]
+fn the_rights_change_notes_every_row_holding_it_found_by_the_views_own_query() {
+    // The query is the database's to run; the test says what it answers.
+    let mut kit = KeyedViewTestKit::<JoinedRows>::new().answering("of-right", |values, rows| {
+        rows.iter()
+            .filter(|row| row.holding == values["holding"])
+            .cloned()
+            .collect()
+    });
+    kit.change(Source::of(JoinedLeft), "a", noted("r1|b"));
+    kit.change(Source::of(JoinedLeft), "a", noted("r2|b"));
+    kit.change(Source::of(JoinedLeft), "a", noted("r3|c"));
+    kit.change(Source::of(JoinedRight), "b", noted("anything"));
+    assert_eq!(
+        kit.row("r1").map(|r| r.notes),
+        Some(vec!["left".to_string(), "right".to_string()])
+    );
+    assert_eq!(
+        kit.row("r2").map(|r| r.notes),
+        Some(vec!["left".to_string(), "right".to_string()])
+    );
+    assert_eq!(
+        kit.row("r3").map(|r| r.notes),
+        Some(vec!["left".to_string()])
+    );
+}
+```
+
+**Go**
+
+```go
+func TestTheRightsChangeNotesEveryRowHoldingIt(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.KeyedView(conformance.JoinedRows)
+	defer kit.Close()
+	for _, text := range []string{"r1|b", "r2|b", "r3|c"} {
+		if _, _, err := kit.Change(ctx, conformance.JoinedLeft.ID(), "a", conformance.Noted{Text: text}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The query is the database's to run; the test says what it answers.
+	kit.Answering("of-right", func(values map[string]string) []conformance.JoinedRow {
+		var rows []conformance.JoinedRow
+		for _, r := range kit.Rows() {
+			if r.Holding == values["holding"] {
+				rows = append(rows, r)
+			}
+		}
+		return rows
+	})
+	written, _, err := kit.Change(ctx, conformance.JoinedRight.ID(), "b", conformance.Noted{Text: "anything"})
+	if err != nil || len(written) != 2 {
+		t.Fatalf("the right wrote %v, %v", written, err)
+	}
+	for key, want := range map[string][]string{"r1": {"left", "right"}, "r2": {"left", "right"}, "r3": {"left"}} {
+		if row, _ := kit.Row(key); !slices.Equal(row.Notes, want) {
+			t.Fatalf("%s is noted %v", key, row.Notes)
+		}
+	}
+}
+```
+
 Java, Kotlin, Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape, and Go has `testkit.KeyedView`.
 
-In Scala, a plain view is tested with the integration testkit, which runs the real projection against a
+A plain view is tested with the integration test kit as well, which runs the real projection against a
 real database:
+
+**Scala**
 
 ```scala
 testKit = AnkkaTestKit.start(
   Seq(ShoppingCartEntity.descriptor, CartRows.descriptor, CheckoutNotifier.descriptor),
   Seq(ProjectionRuntime.withPublisher(publisher))
 )
+```
+
+**Java**
+
+```java
+/** The whole service, with its view projected into a real database. */
+public static AnkkaTestKit cartService() {
+  return AnkkaTestKit.start(
+      Ankka.service("carts").register(ShoppingCart.class).register(CartRows.class));
+}
+```
+
+**Kotlin**
+
+```kotlin
+// Every port is a free loopback one, never 9000: `http()` is where the routes answer.
+val kit = AnkkaTestKit.start(service())
+val baseUrl = kit.http()
+```
+
+**TypeScript**
+
+```ts
+test("items survive the sidecar restarting", async () => {
+  const kit = await AnkkaTestKit.start(service())
+  try {
+    const added = await kit.http.post("/carts/c1/items", { productId: "p1", name: "Pen", quantity: 2 })
+    assert.equal(added.status, 204)
+    await kit.restart()                                  // a new sidecar, the same database
+    const cart = (await kit.http.get("/carts/c1")).json() as { items: unknown[] }
+    assert.equal(cart.items.length, 1)
+  } finally {
+    await kit.stop()
+  }
+})
+```
+
+**Go**
+
+```go
+// A view's rows are written by the sidecar's projection, so reading one is proved through the
+// integration kit: the whole service, a real sidecar and a throwaway database.
+func TestTheSummariesAreReadThroughTheSidecar(t *testing.T) {
+	kit := testkit.StartT(t, SummariesService())
+	ctx := t.Context()
+	h := kit.HTTP()
+
+	for _, item := range []cart.LineItem{pen, ink} {
+		if r, err := h.Post(ctx, "/carts/v1/items", item); err != nil || r.Status != 204 {
+			t.Fatalf("adding answered %v, %v", r, err)
+		}
+	}
+	if r, err := h.Post(ctx, "/carts/v2/items", pen); err != nil || r.Status != 204 {
+		t.Fatalf("adding answered %v, %v", r, err)
+	}
+	if r, err := h.Post(ctx, "/carts/v2/checkout", nil); err != nil || r.Status != 200 {
+		t.Fatalf("checking out answered %v, %v", r, err)
+	}
+
+	// A projection runs behind the write: read until the row holds what was written, never once.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		row, err := testkit.GetJSON[CartSummary](ctx, h, "/summaries/carts/v1")
+		if err == nil && row.Items == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("v1 reads %+v, %v\n%s", row, err, kit.SidecarLogs(ctx))
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	open, err := testkit.GetJSON[[]CartSummary](ctx, h, "/summaries/open")
+	if err != nil || len(open) != 1 || open[0].CartID != "v1" {
+		t.Fatalf("the open carts are %+v, %v", open, err)
+	}
+	byID, err := testkit.GetJSON[[]CartSummary](ctx, h, "/summaries/by-cart-id/v2")
+	if err != nil || len(byID) != 1 || !byID[0].CheckedOut {
+		t.Fatalf("v2 by id is %+v, %v", byID, err)
+	}
+	all, err := testkit.GetJSON[[]CartSummary](ctx, h, "/summaries/carts")
+	if err != nil || len(all) != 2 {
+		t.Fatalf("every row is %+v, %v", all, err)
+	}
+}
 ```
 
 See [Testing](testing.md).

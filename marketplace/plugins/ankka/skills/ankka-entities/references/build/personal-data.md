@@ -119,21 +119,6 @@ const PlayerRegistered = s.record("PlayerRegistered", {
 const event = { playerId: id, email: personal(subject(`player/${id}`), email), currency: "EUR" }
 ```
 
-**Go**
-
-```go
-type PlayerRegistered struct {
-	PlayerID string                 `json:"playerId"`
-	Email    ankka.Personal[string] `json:"email"`
-	Currency string                 `json:"currency"`
-}
-
-event := PlayerRegistered{PlayerID: id, Email: ankka.PersonalOf(ankka.MustSubject("player/"+id), email), Currency: "EUR"}
-```
-
-`ankka.Subject(text)` answers an error instead of panicking. A zero `Personal` has no data subject and
-cannot be written, so a field that may be absent is a pointer, `*ankka.Personal[string]`.
-
 **Rust**
 
 ```rust
@@ -150,6 +135,21 @@ struct PlayerRegistered {
 let subject = DataSubject::new(format!("player/{id}"))?;
 PlayerRegistered { player_id: id, email: Personal::present(subject, email), currency: "EUR".into() }
 ```
+
+**Go**
+
+```go
+type PlayerRegistered struct {
+	PlayerID string                 `json:"playerId"`
+	Email    ankka.Personal[string] `json:"email"`
+	Currency string                 `json:"currency"`
+}
+
+event := PlayerRegistered{PlayerID: id, Email: ankka.PersonalOf(ankka.MustSubject("player/"+id), email), Currency: "EUR"}
+```
+
+`ankka.Subject(text)` answers an error instead of panicking. A zero `Personal` has no data subject and
+cannot be written, so a field that may be absent is a pointer, `*ankka.Personal[string]`.
 
 A field marked this way is held encrypted wherever ankka's serializers write it: an event in the
 journal, a snapshot, a key value entity's state, a view's row, a workflow's state, a message published to
@@ -253,6 +253,8 @@ A declared query that compares a personal field compares ciphertext, which never
 refused when the service starts, naming the view, the query and the field. One kind of comparison is
 allowed: equality with a value the caller gives, on a field the view marks for **lookup**.
 
+**Scala**
+
 ```scala
 object PlayersByEmail
     extends View.Companion[PlayersByEmailView, PlayerEvent, PlayerRow](
@@ -337,6 +339,15 @@ client.forAutonomousAgent("resolver", "case-91", { subject: "player/8c1f" });
 
 A task takes one with `subject` in the options of `client.tasks.create`.
 
+**Rust**
+
+```rust
+let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
+// every call to an agent made through it names the data subject
+```
+
+A task takes one with `NewTask::subject`, an instance with `InstanceCalls::with_subject`.
+
 **Go**
 
 ```go
@@ -347,15 +358,6 @@ instance := ankka.Instance(client, "case-91").WithSubject(ankka.MustSubject("pla
 ```
 
 A task takes one in `TaskOptions.Subject`.
-
-**Rust**
-
-```rust
-let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
-// every call to an agent made through it names the data subject
-```
-
-A task takes one with `NewTask::subject`, an instance with `InstanceCalls::with_subject`.
 
 The data subject is fixed by the first call; a later call naming another data subject is refused. Once
 the subject is erased:
@@ -458,6 +460,17 @@ Ankka.service({ client }).erasureHandler(async (ctx, subject) => {
 })
 ```
 
+**Rust**
+
+```rust
+Service::new("players").erasure_handler(|ctx, subject| {
+    let storage = ctx.storage().expect("an erasure handler has the buckets");
+    Ok(storage.bucket("kyc").erase(subject)?)
+})
+```
+
+`service!` exports the handler as `ankka1_erase`.
+
 **Go**
 
 ```go
@@ -472,17 +485,6 @@ svc.ErasureHandler(func(ctx context.Context, subject ankka.DataSubject) (ankka.E
 ```
 
 `ankka.ErasureFrom(ctx)` is the erasure's sequence and whether this run is a re-run.
-
-**Rust**
-
-```rust
-Service::new("players").erasure_handler(|ctx, subject| {
-    let storage = ctx.storage().expect("an erasure handler has the buckets");
-    Ok(storage.bucket("kyc").erase(subject)?)
-})
-```
-
-`service!` exports the handler as `ankka1_erase`.
 
 A handler that erases from a bucket the service's descriptor does not give is refused, naming the bucket,
 and the service's completion says so.
@@ -547,12 +549,6 @@ asked = await self.erasures.ask("player/8c1f", not_before=date(2031, 10, 8), rea
 const asked = await this.erasures.ask({ subject: "player/8c1f", reason: "aml-retention", correlation: "closure-4411" })
 ```
 
-**Go**
-
-```go
-asked, err := ankka.Erasures(ctx).Ask(ankka.AskErasure{Subject: ankka.MustSubject("player/8c1f"), Reason: "aml-retention"})
-```
-
 **Rust**
 
 ```rust
@@ -561,6 +557,12 @@ let asked = erasures.ask(AskErasure::of(subject).reason("aml-retention"))?;
 ```
 
 A WebAssembly module asks through the `erasure_ask` import, wherever it may make a request.
+
+**Go**
+
+```go
+asked, err := ankka.Erasures(ctx).Ask(ankka.AskErasure{Subject: ankka.MustSubject("player/8c1f"), Reason: "aml-retention"})
+```
 
 The request is asked in the service's own project unless it names another. The service needs the
 `erasure` grant of the project it asks in, its own project included, and is recorded as who asked:
@@ -604,12 +606,144 @@ only against services running on this machine.
 `AnkkaTestKit` gives the service a keyring in memory of its own, kept across `restartService()` as an
 installation's keyring outlives a restart:
 
+**Scala**
+
 ```scala
 kit.erase(DataSubject("player/8c1f"))           // destroys the key now and sends the notice
 kit.restartService()                            // read from the database, not from memory
 assertEquals(card("8c1f").call(ContactCardEntity.email).invoke(), "erased")
 
 kit.assertNoPersonalValue("ada@example.com")    // fails naming the table and column holding it
+```
+
+**Java**
+
+```java
+/** Registers a player, erases them, and reads the email back after a restart. */
+static String emailAfterErasure(AnkkaTestKit kit) {
+  var players = kit.componentClient();
+  players.forEventSourcedEntity("8c1f").call(Players::register).invoke("ada@example.com");
+
+  kit.erase("player/8c1f"); // destroys the key now and sends the notice
+  kit.restartService(); // read from the database, not from memory: a fresh client, too
+  var restarted = kit.componentClient();
+  var email = restarted.forEventSourcedEntity("8c1f").call(Players::email).invoke();
+
+  kit.assertNoPersonalValue("ada@example.com"); // fails naming the table and column holding it
+  return email; // "erased"
+}
+```
+
+**Kotlin**
+
+```kotlin
+erase("player/8c1f") // destroys the key now and sends the notice
+restartService() // read from the database, not from memory
+assertEquals("erased", componentClient().forEventSourcedEntity("8c1f").call(PlayerEntity::email).invoke())
+
+assertNoPersonalValue("ada@example.com") // fails naming the table and column holding it
+```
+
+**Python**
+
+```python
+seq = await kit.keyring.erase("member/8c1f")
+assert seq >= 1
+await kit.restart()
+member = kit.client.for_event_sourced_entity("member", "8c1f")
+assert await member.call("email").invoke(reply=str) == "erased"
+await kit.assert_no_personal_value("ada@example.com", "grace@example.com")
+```
+
+**TypeScript**
+
+```ts
+test("a personal field is sealed, erased and refused in an outage through the sidecar", async () => {
+  const kit = await AnkkaTestKit.start(Ankka.service().register(Member))
+  try {
+    const member = (id: string) => kit.client.of(Member, id)
+    assert.equal(await member("8c1f").call(Member.handlers.join).invoke("ada@example.com"), "joined")
+    await kit.assertNoPersonalValue("ada@example.com")
+    // The assertion can fail: the envelope names its data subject in the clear.
+    await assert.rejects(kit.assertNoPersonalValue("member/8c1f"), /event_journal/)
+
+    // An outage refuses a key the sidecar has not fetched, and an erasure, as unavailable.
+    await kit.keyring.outage(600)
+    await assert.rejects(member("9d2e").call(Member.handlers.join).invoke("grace@example.com"), (e: unknown) => {
+      assert.ok(e instanceof CommandError, String(e))
+      assert.equal(e.code, ErrorCode.Unavailable, e.message)
+      return true
+    })
+    await assert.rejects(kit.keyring.erase("member/8c1f"), /503/)
+    await kit.keyring.recover()
+
+    assert.ok((await kit.keyring.erase("member/8c1f")) >= 1)
+    await kit.restart()
+    assert.equal(await member("8c1f").call(Member.handlers.email).invoke(), "erased")
+    await kit.assertNoPersonalValue("ada@example.com", "grace@example.com")
+  } finally {
+    await kit.stop()
+  }
+})
+```
+
+**Rust**
+
+```rust
+#[test]
+fn an_erased_subjects_field_reads_back_erased_and_the_record_stands() {
+    let keyring = InMemoryKeyring::new();
+    let mut kit = EventSourcedTestKit::<PersonalContact>::new("c-1");
+    let recorded = with_keyring(&keyring, || kit.command("record", ada()));
+    assert_eq!(recorded.reply::<String>(), Ok("done".to_string()));
+    // The value was sealed under the subject's key, never written as it is.
+    let seals = keyring.seals();
+    assert!(seals.iter().all(|s| s.subject == "player/8c1f"));
+    assert!(seals.iter().any(|s| s.value == br#""ada@example.com""#));
+
+    keyring.erase("player/8c1f"); // destroys the key now
+    let read: Contact = with_keyring(&keyring, || kit.command("email", ()))
+        .reply()
+        .unwrap();
+    let email = read.email.expect("the record stands");
+    assert!(email.is_erased());
+    assert_eq!(email.or_else("erased".to_string()), "erased");
+}
+```
+
+**Go**
+
+```go
+func TestAnErasedSubjectReadsAsErasedAfterARestart(t *testing.T) {
+	service := ankka.NewService(conformance.PersonalContact, conformance.API).
+		ErasureHandler(func(context.Context, ankka.DataSubject) (ankka.ErasureReport, error) {
+			return ankka.ErasureReport{}, nil
+		})
+	kit := testkit.StartT(t, service)
+	ctx := t.Context()
+	h := kit.HTTP()
+
+	contact := conformance.RecordContact{Subject: "player/8c1f", Email: "ada@example.com"}
+	r, err := h.Post(ctx, "/conformance/personal/card-1", contact)
+	if err != nil || r.Status != 200 {
+		t.Fatalf("recording answered %v, %v", r, err)
+	}
+	// Destroys the key now and sends the notice; the kit's keyring outlives a restart as an
+	// installation's does.
+	if _, err := kit.Keyring().Erase(ctx, "player/8c1f"); err != nil {
+		t.Fatal(err)
+	}
+	if err := kit.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Read from the database, not from memory.
+	record, err := testkit.GetJSON[conformance.PersonalRecord](ctx, kit.HTTP(), "/conformance/personal/card-1")
+	if err != nil || record.Outcome != "erased" {
+		t.Fatalf("the contact reads %+v, %v\n%s", record, err, kit.SidecarLogs(ctx))
+	}
+	// Fails naming the table and column holding the value, as written, in base64 or in hex.
+	kit.AssertNoPersonalValue(t, "ada@example.com")
+}
 ```
 
 `kit.assertNoPersonalValue(values*)` reads every table of the service's database and fails, naming the

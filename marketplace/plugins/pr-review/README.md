@@ -31,6 +31,10 @@ and reports findings labelled by severity (blocking, should fix, nit, question, 
 verdict: Request changes, Approve with comments, or Approve. Nothing is posted anywhere unless you
 ask; `/pr-review 123 and post it` posts inline comments on the pull request as a `COMMENT` review.
 
+A project that ships in several languages is held to showing each documented sample in every language
+that can do it, or naming the reason a language is left out: a feature documented in one language of
+several is not done.
+
 Each skill's `SKILL.md` is the checklist in use; `references/` holds every item with its concrete
 diff signal, its reason and its source.
 

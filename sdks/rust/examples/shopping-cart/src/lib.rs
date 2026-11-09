@@ -11,10 +11,19 @@ pub mod checkout_log;
 pub mod checkout_notifier;
 pub mod checkout_workflow;
 pub mod conformance;
+pub mod credentials;
 pub mod domain;
 pub mod endpoint;
 pub mod entity;
+pub mod fleet;
+pub mod listing;
+pub mod orders;
+pub mod pages;
+pub mod planner;
 pub mod service_calls;
+pub mod stock;
+pub mod transfer;
+pub mod weather;
 
 use ankka::Service;
 

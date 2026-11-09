@@ -27,6 +27,86 @@ object ShoppingCartEntity
   val getCart = query("get-cart")(_.getCart)
 ```
 
+**Java**
+
+```java
+@Command("add-item")
+public Effect<Done> addItem(LineItem item) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (item.quantity() <= 0)
+    return effects().error("quantity must be greater than zero, was " + item.quantity());
+  return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+}
+
+@Command("remove-item")
+public Effect<Done> removeItem(String productId) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (!currentState().contains(productId))
+    return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+  return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
+    override fun emptyState() = Cart.empty(context().entityId())
+
+    // A suspend fun, as any handler may be: it waits without holding a thread.
+    @Command("add-item")
+    suspend fun addItem(item: LineItem): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
+            else -> persist(CartEvent.ItemAdded(item)).thenDone()
+        }
+    }
+
+    @Command("remove-item")
+    fun removeItem(productId: String): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            !currentState().contains(productId) -> error(Problem.notFound("cart does not contain '$productId'"))
+            else -> persist(CartEvent.ItemRemoved(productId)).thenDone()
+        }
+    }
+
+    @Command("checkout")
+    fun checkout(): Effect<Cart> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            currentState().items.isEmpty() -> error("cannot check out an empty cart")
+            else -> persist(CartEvent.CheckedOut).thenReplyState()
+        }
+    }
+
+    @Command("discard")
+    fun discard(): Effect<Done> = effects {
+        if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
+    }
+
+    @Query("get-cart")
+    fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }
+
+    @Query("total-quantity")
+    fun totalQuantity(): ReadOnlyEffect<Int> = effects { reply(currentState().totalQuantity) }
+
+    override fun applyEvent(state: Cart, event: CartEvent): Cart =
+        when (event) {
+            is CartEvent.ItemAdded -> state.addItem(event.item)
+            is CartEvent.ItemRemoved -> state.removeItem(event.productId)
+            CartEvent.CheckedOut -> state.copy(checkedOut = true)
+            CartEvent.Discarded -> state
+        }
+
+    private val checkedOut: Problem
+        get() = Problem.conflict("cart is already checked out")
+}
+```
+
 **Python**
 
 ```python
@@ -57,18 +137,159 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
 }
 ```
 
-In Scala the declaration is a value on the companion object, and a call site uses that value:
+**Rust**
 
-```scala
-componentClient.forEventSourcedEntity(cartId).call(ShoppingCartEntity.addItem).invoke(item)
+```rust
+/// Every handler under its wire name: the name a caller and a stored timer use, which does
+/// not change when the Rust function is renamed.
+fn handlers() -> Handlers<ShoppingCart> {
+    Handlers::new()
+        .command("add-item", ShoppingCart::add_item)
+        .command("remove-item", ShoppingCart::remove_item)
+        .command("checkout", ShoppingCart::checkout)
+        .command("discard", ShoppingCart::discard)
+        .query("get-cart", ShoppingCart::get_cart)
+        .query("total-quantity", ShoppingCart::total_quantity)
+}
 ```
 
-The call is fully typed — the argument and the reply type come from the declaration — and involves no
+**Go**
+
+```go
+// Entity is the shopping cart: the same wire names and manifests as the Scala sample's. The
+// string each handler is registered under is its wire name, separate from the Go function's.
+var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
+	ankka.Command("add-item", addItem),
+	ankka.Command("remove-item", removeItem),
+	ankka.Command("checkout", checkout),
+	ankka.Command("discard", discard),
+	ankka.Query("get-cart", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[Cart], error) {
+		return ankka.Reply(c), nil
+	}),
+	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
+		return ankka.Reply(TotalQuantity(c)), nil
+	}),
+	// A JSON codec derived from the type, under the manifest the journal records it by.
+	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
+	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
+	ankka.SnapshotEvery(3),
+)
+```
+
+
+In Scala the declaration is a value on the companion object, and a call site uses that value. The
+call is fully typed — the argument and the reply type come from the declaration — and involves no
 reflection. There is no classpath scanning and no inspection of method names or bytecode. In Python a call
 names the component id and the wire name as strings:
 
+**Scala**
+
+```scala
+val added = componentClient
+  .forEventSourcedEntity(EntityId(id))
+  .call(ShoppingCartEntity.addItem)
+  .invoke(LineItem("p1", "Widget", 2))
+```
+
+**Java**
+
+```java
+public static CartState addAndRead(ComponentClient client) {
+  var cart = client.forEventSourcedEntity("cart-1");
+
+  cart.call(ShoppingCart::addItem).invoke(new LineItem("p1", "Widget", 2)); // Done
+  return cart.call(ShoppingCart::getCart).invoke(); // CartState
+}
+```
+
+**Kotlin**
+
+```kotlin
+val cart = componentClient.forEventSourcedEntity("cart-1")
+cart.call(ShoppingCart::addItem).invokeSuspending(LineItem("p1", "Widget", 2))
+val held: Cart = cart.call(ShoppingCart::getCart).invokeSuspending()
+```
+
+**Python**
+
 ```python
 await client.for_event_sourced_entity("shopping-cart", cart_id).call("add-item").invoke(item, reply=Done)
+```
+
+**TypeScript**
+
+```ts
+addItem: post("/{cartId}/items", LineItem, Done, (ep: ShoppingCartEndpoint, req, item) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)),
+```
+
+**Rust**
+
+```rust
+/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, and `DELETE
+/// /carts/{cartId}`, open to anyone.
+pub struct CartApi;
+
+impl CartApi {
+    fn get_cart(request: &Request) -> Result<Cart, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "get-cart", ())?)
+    }
+
+    fn total(request: &Request) -> Result<i32, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "total-quantity", ())?)
+    }
+
+    fn add_item(request: &Request, item: LineItem) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "add-item", item)?)
+    }
+
+    fn remove_item(request: &Request) -> Result<Done, HttpProblem> {
+        let (cart_id, product_id) = (request.path("cartId"), request.path("productId"));
+        let removed = request.client().invoke(
+            ShoppingCart,
+            cart_id,
+            "remove-item",
+            product_id.to_string(),
+        )?;
+        Ok(removed)
+    }
+
+    fn checkout(request: &Request, (): ()) -> Result<Cart, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "checkout", ())?)
+    }
+
+    fn discard(request: &Request) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "discard", ())?)
+    }
+}
+```
+
+**Go**
+
+```go
+ankka.Get("/{cartId}", func(ctx context.Context, req *ankka.Request) (Cart, error) {
+	return ankka.Invoke[Cart](ctx, ComponentID, req.Param("cartId"), "get-cart", ankka.Unit{})
+}),
+ankka.Get("/{cartId}/total", func(ctx context.Context, req *ankka.Request) (int, error) {
+	return ankka.Invoke[int](ctx, ComponentID, req.Param("cartId"), "total-quantity", ankka.Unit{})
+}),
+ankka.Post("/{cartId}/items", func(ctx context.Context, req *ankka.Request, item LineItem) (ankka.Done, error) {
+	return ankka.Invoke[ankka.Done](ctx, ComponentID, req.Param("cartId"), "add-item", item)
+}),
 ```
 
 Because Scala and Python address a handler by the same component id and wire name, and store data under

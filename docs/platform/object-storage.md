@@ -69,8 +69,10 @@ has. What follows is for a client of your own. Any S3 client works, configured t
   checksum with every upload by default, which the store refuses as an invalid payload signature. Set the
   client to calculate request checksums, and validate response checksums, only when required.
 
-With the AWS SDK for Java:
+With the AWS SDK for Java, as the platform's own suite builds it; a service reaches its bucket through its
+SDK's storage client instead:
 
+<!-- languages: scala; the client is the AWS SDK for Java as the platform's own suite builds it, not a service's storage client -->
 <!-- include: operator/src/test/scala/com/thinkmorestupidless/ankka/operator/GarageStoreSuite.scala#s3-client -->
 ```scala
 private def s3(key: IssuedKey, region: String = "garage"): S3Client =
@@ -331,6 +333,7 @@ where S3 says `<VersionId>`, so without the interceptor below an S3 client reads
 and a read or delete of "that version" lands on the current one. Google accepts the number as
 `versionId` on a read or a delete; only the listing's element needs renaming.
 
+<!-- languages: scala; the interceptor is the platform's own, on the AWS SDK for Java, not something a service writes -->
 <!-- include: controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/GcsCompatibilitySuite.scala#gcs-client -->
 ```scala
 /** Google lists an object's versions as `<Generation>`; S3 clients read `<VersionId>`. */
@@ -393,6 +396,7 @@ a retention policy: the platform refuses no deletion on account of an object's a
 document for as long as a rule requires is the service's own to do. Deleting every version of an object
 removes it once the soft-delete window has passed:
 
+<!-- languages: scala; the platform's own compatibility suite, which drives the store with the AWS SDK for Java -->
 <!-- include: controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/GcsCompatibilitySuite.scala#delete-every-version -->
 ```scala
 test("deleting every version of an object leaves none listed") {

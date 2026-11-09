@@ -2,7 +2,7 @@
 title: Components
 description: The component kinds an ankka service is built from, what each is for, how the runtime hosts it, and how to choose between them.
 kind: concept
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
 related: [concepts/designing-services.md, concepts/effects.md, concepts/consistency.md, concepts/architecture.md]
 ---
@@ -163,6 +163,48 @@ Ankka.service
 
 ///
 
+/// tab | Java
+
+<!-- include: samples/shopping-cart-java/src/main/java/shoppingcart/javasdk/Main.java#service -->
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("shopping-cart")
+      .register(ShoppingCart.class)
+      .register(CartRows.class)
+      .register(CheckoutNotifier.class)
+      .register(CheckoutsSeen.class)
+      .withEndpoint(CartEndpoint.class)
+      .withEndpoint(CheckoutsSeenEndpoint.class)
+      .withEndpoint(CartKeysEndpoint.class)
+      .withMcpEndpoint(CartMcpEndpoint.class);
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#service -->
+```kotlin
+fun service(): ServiceBuilder =
+    Ankka.service("shopping-cart")
+        .register(ShoppingCart::class.java)
+        .register(CartRows::class.java)
+        .register(CheckoutNotifier::class.java)
+        .register(CheckoutsSeen::class.java)
+        .register(CheckoutWorkflow::class.java)
+        .withEndpoint(CartEndpoint::class.java)
+        .withEndpoint(CheckoutsSeenEndpoint::class.java)
+        .withEndpoint(CartKeysEndpoint::class.java)
+        .withMcpEndpoint(CartMcpEndpoint::class.java)
+
+fun main() {
+    service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -187,6 +229,46 @@ const service = Ankka.service()
   .register(ShoppingCartEndpoint)
 
 await service.listen()
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/lib.rs#service -->
+```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
+pub fn build() -> Service {
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
+}
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/cart/api.go#service -->
+```go
+// Service is the whole inventory: registration is explicit, so nothing is found by scanning.
+func Service() *ankka.Service { return ankka.NewService(Entity, API, Calling) }
 ```
 
 ///

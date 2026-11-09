@@ -46,7 +46,9 @@ class BlueprintsDocumentationSuite extends munit.FunSuite:
       "samples/multi-agent-planner/src/main/scala/planner/application/PlannerBlueprint.scala",
       "samples/research-digest/src/main/resources/blueprints/digest.json",
       "samples/research-digest/src/main/scala/digest/application/Blueprints.scala",
-      "modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/"
+      "modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/blueprint/",
+      "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/",
+      "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/"
     )
     includes.foreach { include =>
       val file = include.takeWhile(_ != '#')

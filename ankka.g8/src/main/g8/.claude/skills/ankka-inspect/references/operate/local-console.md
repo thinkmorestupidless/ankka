@@ -36,6 +36,8 @@ appear.
 A service is listed under the name it was started with. For a Scala service that is the name passed to
 `start`, which defaults to `ankka`, so give each service its own when you run several:
 
+**Scala**
+
 ```scala
 Ankka.service.register(ShoppingCartEntity.descriptor).start(name = "cart")
 ```

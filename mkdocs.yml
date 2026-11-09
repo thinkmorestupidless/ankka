@@ -137,6 +137,12 @@ extra:
       # Written by console/package/test/docs-properties.test.ts from src/ui/tokens.ts.
       console-properties:
         kind: external
+    # Every code sample is shown in every language the page's `languages` names: a tab per language, in
+    # this order, and no block in one language outside a tab set. A language a feature cannot have is
+    # left out with its reason on the line before: `<!-- languages: scala, java; <reason> -->`.
+    samples:
+      facet: languages
+      fences: {typescript: [ts]}
     # Files outside docs/ that link to the site. The site's first home, GitHub Pages' project address,
     # is dead; a link to it reads as correct and goes nowhere, so it is refused wherever the site is
     # linked from.

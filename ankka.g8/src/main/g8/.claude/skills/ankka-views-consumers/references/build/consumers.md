@@ -72,6 +72,8 @@ A consumer that publishes declares an output type, a serializer for it and a top
 notifier decides which of the cart's internal events are worth telling the outside world about, and in what
 shape, so the cart's own event type stays free to change without breaking anyone downstream:
 
+**Scala**
+
 ```scala
 package shoppingcart.application
 
@@ -112,6 +114,207 @@ object CheckoutNotifier
 
   /** The topic with its project: another project's when `CART_PUBLISH_TO` names one. */
   override def produces: Option[Publication] = Some(CheckoutTopic.publishTo)
+```
+
+**Java**
+
+```java
+package shoppingcart.javasdk;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.codec.Manifest;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
+import com.thinkmorestupidless.ankka.javasdk.component.Publication;
+import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
+import java.util.Optional;
+
+/**
+ * Turns the cart's checkout into a notice on the {@code cart-checkouts} topic. The cart's own
+ * events stay an implementation detail; the notice is what the outside world is told.
+ */
+@ComponentId("checkout-notifier")
+public class CheckoutNotifier extends Consumer<CartEvent, CheckoutNotifier.CheckoutNotice> {
+
+  /** The topic checkout notices are published to, and read from. */
+  public static final String TOPIC = "cart-checkouts";
+
+  /** What leaves the service when a cart is checked out. */
+  @Manifest("checkout-notice")
+  public record CheckoutNotice(String cartId, long at) {}
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCart.class);
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(Publication.to(TOPIC));
+  }
+
+  @Override
+  protected ConsumerEffect<CheckoutNotice> onChange(CartEvent event) {
+    return switch (event) {
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publish(new CheckoutNotice(messageContext().subject(), System.currentTimeMillis()));
+      case CartEvent.ItemAdded ignored -> effects().ignore();
+      case CartEvent.ItemRemoved ignored -> effects().ignore();
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Turns the cart's checkout into a notice on the `cart-checkouts` topic. The cart's own events stay
+ * an implementation detail; the notice is what the outside world is told.
+ */
+@ComponentId("checkout-notifier")
+class CheckoutNotifier : Consumer<CartEvent, CheckoutNotifier.CheckoutNotice>() {
+    /** What leaves the service when a cart is checked out. */
+    @Manifest("checkout-notice")
+    data class CheckoutNotice(val cartId: String, val at: Long)
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to(TOPIC))
+
+    override fun onChange(event: CartEvent): ConsumerEffect<CheckoutNotice> = effects {
+        if (event == CartEvent.CheckedOut) publish(CheckoutNotice(messageContext().subject(), System.currentTimeMillis()))
+        else ignore()
+    }
+
+    companion object {
+        /** The topic checkout notices are published to, and read from. */
+        const val TOPIC = "cart-checkouts"
+    }
+}
+```
+
+**Python**
+
+```python
+@dataclass(frozen=True)
+class CheckoutNotice:
+    """What leaves the service when a cart is checked out."""
+
+    cartId: str
+    at: int
+
+
+class CheckoutNoticePublisher(Consumer[ShoppingCartEvent, CheckoutNotice]):
+    """Turns an internal event into a published one.
+
+    The cart's own event type is an implementation detail; this consumer decides which events are
+    worth telling the outside world about and in what shape, so the domain stays free to change
+    without breaking downstream consumers."""
+
+    component_id = "checkout-notice-publisher"
+    source = ShoppingCartEntity
+    message_codec = ShoppingCartEntity.event_codec
+    produces_to = "cart-checkouts"
+    out_codec = json_codec(CheckoutNotice, "checkout-notice")
+
+    def on_message(self, event: ShoppingCartEvent) -> ConsumerEffect:
+        if not isinstance(event, CheckedOut):
+            return self.effects.ignore()
+        return self.effects.produce(CheckoutNotice(self.metadata.subject or "", int(time.time() * 1000)))
+```
+
+**TypeScript**
+
+```ts
+import { Consumer, jsonCodec, s, type Infer } from "ankka"
+import { ShoppingCartEvent } from "./domain.ts"
+import { ShoppingCartEntity } from "./entity.ts"
+
+/** What leaves the service when a cart is checked out. */
+export const CheckoutNotice = s.record("CheckoutNotice", { cartId: s.string, at: s.long })
+export type CheckoutNotice = Infer<typeof CheckoutNotice>
+
+/**
+ * Turns an internal event into a published one.
+ *
+ * The cart's own event type is an implementation detail; this consumer decides which events are
+ * worth telling the outside world about and in what shape — so the domain stays free to change
+ * without breaking downstream consumers.
+ */
+export class CheckoutNotices extends Consumer<ShoppingCartEvent, CheckoutNotice> {
+  static readonly componentId = "checkout-notices"
+  static readonly source = ShoppingCartEntity
+  static readonly message = ShoppingCartEntity.events
+  static readonly out = jsonCodec(CheckoutNotice, "checkout-notice")
+  static readonly producesTo = "cart-checkouts"
+
+  onMessage(event: ShoppingCartEvent) {
+    switch (event.type) {
+      case "CheckedOut":
+        return this.effects.produce({ cartId: this.subject, at: BigInt(Date.now()) })
+      case "ItemAdded":
+      case "ItemRemoved":
+      case "Discarded":
+        return this.effects.ignore()
+    }
+  }
+}
+```
+
+**Rust**
+
+```rust
+pub struct CheckoutNotifier;
+
+impl Consumer for CheckoutNotifier {
+    type Message = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "checkout-notifier";
+
+    fn source() -> Source {
+        Source::of(ShoppingCart)
+    }
+
+    fn on_message(event: ShoppingCartEvent, ctx: &Context) -> ConsumerEffect {
+        let ShoppingCartEvent::CheckedOut = event else {
+            return consumer::ignore();
+        };
+        let cart_id = ctx.metadata().subject().unwrap_or_default();
+        let at = ctx.now().epoch_millis();
+        // A panic sends the message again, which is what a consumer that could not act wants.
+        let recorded: Result<Done, CommandError> =
+            ctx.client().invoke(CheckoutLog, cart_id, "record", at);
+        recorded.expect("the checkout log answers");
+        consumer::done()
+    }
+}
+```
+
+**Go**
+
+```go
+// CheckoutNotice is what leaves the service when a cart is checked out.
+type CheckoutNotice struct {
+	CartID string `json:"cartId"`
+	At     int64  `json:"at"`
+}
+
+// CheckoutNotifier turns an internal event into a published one. The cart's own event type is an
+// implementation detail; this consumer decides which events are worth telling the outside world
+// about and in what shape, so the domain stays free to change without breaking anyone downstream.
+var CheckoutNotifier = ankka.Consumer[cart.Event]("checkout-notifier", ankka.Changes(cart.Entity),
+	func(ctx context.Context, e cart.Event) (ankka.ConsumerEffect, error) {
+		if _, ok := e.(cart.CheckedOut); !ok {
+			return ankka.ConsumerIgnore(), nil
+		}
+		change, _ := ankka.ChangeFrom(ctx)
+		return ankka.Produce(CheckoutNotice{CartID: change.Subject, At: time.Now().UnixMilli()}), nil
+	},
+	// The topic, and the codec every message is written with.
+	ankka.ProducesWith("cart-checkouts", ankka.CodecFor[CheckoutNotice](ankka.Manifest("checkout-notice"))),
+)
 ```
 
 In Scala, `produceTo` names the topic and `outputSerializer` encodes the message; a companion with a
@@ -176,6 +379,68 @@ object CheckoutFanout
     Some(Codecs.serializer[Fanned]("fanned"))
 
   override val produceTo: Option[String] = Some("conformance-fanout")
+```
+
+**Java**
+
+```java
+@ComponentId("checkout-fanout")
+public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(Publication.to("conformance-fanout"));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
+      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publishMessages(
+                  List.of(
+                      Outgoing.of(new Fanned(1)),
+                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
+                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-fanout")
+class CheckoutFanout : Consumer<CartEvent, Fanned>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
+        when (event) {
+            is CartEvent.ItemAdded -> publishAll(emptyList())
+            is CartEvent.ItemRemoved -> publish(Fanned(0))
+            CartEvent.CheckedOut ->
+                publishMessages(
+                    listOf(
+                        Outgoing.of(Fanned(1)),
+                        Outgoing.of(Fanned(2)).withKey("second:\${messageContext().subject()}"),
+                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
+                    )
+                )
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
 ```
 
 **Python**
@@ -292,68 +557,6 @@ impl Consumer for CheckoutFanout {
 }
 ```
 
-**Java**
-
-```java
-@ComponentId("checkout-fanout")
-public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected Optional<Publication> publishes() {
-    return Optional.of(Publication.to("conformance-fanout"));
-  }
-
-  @Override
-  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
-    return switch (event) {
-      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
-      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
-      case CartEvent.CheckedOut ignored ->
-          effects()
-              .publishMessages(
-                  List.of(
-                      Outgoing.of(new Fanned(1)),
-                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
-                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
-      case CartEvent.Discarded ignored -> effects().ignore();
-    };
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-fanout")
-class CheckoutFanout : Consumer<CartEvent, Fanned>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
-
-    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
-        when (event) {
-            is CartEvent.ItemAdded -> publishAll(emptyList())
-            is CartEvent.ItemRemoved -> publish(Fanned(0))
-            CartEvent.CheckedOut ->
-                publishMessages(
-                    listOf(
-                        Outgoing.of(Fanned(1)),
-                        Outgoing.of(Fanned(2)).withKey("second:\${messageContext().subject()}"),
-                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
-                    )
-                )
-            CartEvent.Discarded -> ignore()
-        }
-    }
-}
-```
-
 **Go**
 
 ```go
@@ -438,6 +641,45 @@ object CheckoutRecorder
   def create(ctx: ConsumerContext) = new CheckoutRecorder(ctx.componentClient)
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-recorder")
+public class CheckoutRecorder extends Consumer<CartEvent, Void> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(CartEvent event) {
+    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
+    componentClient()
+        .forEventSourcedEntity(messageContext().subject())
+        .call(ConformanceEntity::record)
+        .invoke("checkout");
+    return effects().done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-recorder")
+class CheckoutRecorder : Consumer<CartEvent, Void>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
+        if (event != CartEvent.CheckedOut) return effects { ignore() }
+        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
+        return effects { done() }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -512,45 +754,6 @@ impl Consumer for CheckoutNotifier {
             ctx.client().invoke(CheckoutLog, cart_id, "record", at);
         recorded.expect("the checkout log answers");
         consumer::done()
-    }
-}
-```
-
-**Java**
-
-```java
-@ComponentId("checkout-recorder")
-public class CheckoutRecorder extends Consumer<CartEvent, Void> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected ConsumerEffect<Void> onChange(CartEvent event) {
-    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
-    componentClient()
-        .forEventSourcedEntity(messageContext().subject())
-        .call(ConformanceEntity::record)
-        .invoke("checkout");
-    return effects().done();
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-recorder")
-class CheckoutRecorder : Consumer<CartEvent, Void>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
-        if (event != CartEvent.CheckedOut) return effects { ignore() }
-        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
-        return effects { done() }
     }
 }
 ```
@@ -650,6 +853,52 @@ object CheckoutEnds
   def create(ctx: ConsumerContext) = new CheckoutEnds(ctx.componentClient)
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-ends")
+public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
+    var standing = messageContext().standing();
+    // Running or paused: not an end, and nothing to do.
+    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
+    var lifecycle = standing.get();
+    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
+    componentClient()
+        .forKeyValueEntity("end-" + messageContext().subject())
+        .call(Profile::set)
+        .invoke(end.orElse(lifecycle.status()));
+    return effects().done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-ends")
+class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
+        val lifecycle = messageContext().standingOrNull
+        // Running or paused: not an end, and nothing to do.
+        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
+        val end = lifecycle.failure.orNull()?.let { why -> "\${lifecycle.status}: \$why" } ?: lifecycle.status
+        componentClient().forKeyValueEntity("end-\${messageContext().subject()}").call(Profile::set).invoke(end)
+        return effects { done() }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -722,52 +971,6 @@ impl Consumer for CheckoutEnds {
 }
 ```
 
-**Java**
-
-```java
-@ComponentId("checkout-ends")
-public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
-
-  @Override
-  protected ChangeSource<Checkout.CheckoutState> source() {
-    return ChangeSource.ofWorkflow(Checkout.class);
-  }
-
-  @Override
-  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
-    var standing = messageContext().standing();
-    // Running or paused: not an end, and nothing to do.
-    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
-    var lifecycle = standing.get();
-    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
-    componentClient()
-        .forKeyValueEntity("end-" + messageContext().subject())
-        .call(Profile::set)
-        .invoke(end.orElse(lifecycle.status()));
-    return effects().done();
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-ends")
-class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
-
-    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
-
-    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
-        val lifecycle = messageContext().standingOrNull
-        // Running or paused: not an end, and nothing to do.
-        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
-        val end = lifecycle.failure.orNull()?.let { why -> "\${lifecycle.status}: \$why" } ?: lifecycle.status
-        componentClient().forKeyValueEntity("end-\${messageContext().subject()}").call(Profile::set).invoke(end)
-        return effects { done() }
-    }
-}
-```
-
 **Go**
 
 ```go
@@ -808,6 +1011,8 @@ publishes nothing is given every change, local and mirrored, at every installati
 may be each installation's own: one that calls components at every installation reads `localOrigin` and
 decides.
 
+**Scala**
+
 ```scala
 def onMessage(message: VehicleEvent): Effect =
   val change = messageContext
@@ -818,6 +1023,117 @@ def onMessage(message: VehicleEvent): Effect =
     case VehicleEvent.StepAdded(step) =>
       effects.produce(Build(change.subject, step, change.installation, change.localOrigin))
     case _ => effects.ignore()
+```
+
+**Java**
+
+```java
+@Override
+protected ConsumerEffect<Entry> onChange(Ledger.Entered event) {
+  var change = messageContext();
+  return effects()
+      .publish(
+          new Entry(
+              change.subject(),
+              event.text(),
+              change.installation().orElse("unreplicated"),
+              change.localOrigin()));
+}
+```
+
+**Kotlin**
+
+```kotlin
+override fun onChange(message: VehicleEvent): ConsumerEffect<Build> {
+    val change = messageContext()
+    GIVEN.add(Handed(change.subject(), message.toString(), change.installationOrNull, change.localOrigin()))
+    return effects {
+        when (message) {
+            is VehicleEvent.StepAdded ->
+                publish(Build(change.subject(), message.step, change.installationOrNull, change.localOrigin()))
+            else -> ignore()
+        }
+    }
+}
+```
+
+**Python**
+
+```python
+class VehicleBuilds(Consumer[StepAdded, Build]):
+    component_id = "vehicle-builds"
+    source = VehicleEntity
+    message_codec = VehicleEntity.event_codec
+    produces_to = "vehicle-builds"
+    out_codec = json_codec(Build, "build")
+
+    def on_message(self, event: StepAdded) -> ConsumerEffect:
+        change = self.metadata
+        return self.effects.produce(Build(change.subject or "", event.step, self.installation, self.local_origin))
+```
+
+**TypeScript**
+
+```ts
+onMessage(message: VehicleEvent) {
+  // The installation that wrote the change, and whether that is this one.
+  const { installation, localOrigin } = this
+  if (message.type !== "StepAdded") return this.effects.ignore()
+  const build = { vehicle: this.subject, step: message.step, installation: installation ?? "", local: localOrigin }
+  return this.effects.produce(build)
+}
+```
+
+**Rust**
+
+```rust
+/// Publishes each step to "vehicle-builds" at every installation that holds the vehicle: declared
+/// to be given mirrored changes, it reads where each change was written and decides.
+pub struct BuildsConsumer;
+
+impl Consumer for BuildsConsumer {
+    type Message = StepAdded;
+    const COMPONENT_ID: &'static str = "builds";
+
+    fn source() -> Source {
+        Source::of(ReplicatedVehicle)
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("vehicle-builds")
+    }
+
+    fn mirrored_changes() -> bool {
+        true
+    }
+
+    fn on_message(message: StepAdded, ctx: &Context) -> ConsumerEffect {
+        consumer::produce(Build {
+            vehicle: ctx.metadata().subject().unwrap_or_default().to_string(),
+            step: message.step,
+            // The installation that wrote the change, and whether that was this one.
+            installation: ctx.written_at().unwrap_or_default().to_string(),
+            local: ctx.local_origin(),
+        })
+    }
+}
+```
+
+**Go**
+
+```go
+// VehicleBuilds publishes each step of a replicated vehicle, noting where the change was written
+// and whether it was written here. Publishing, it is given local changes only; MirroredChanges()
+// among its parts would hand it the mirrored ones too.
+var VehicleBuilds = ankka.Consumer[conformance.StepAdded]("vehicle-builds",
+	ankka.Changes(conformance.ReplicatedVehicle),
+	func(ctx context.Context, e conformance.StepAdded) (ankka.ConsumerEffect, error) {
+		change, _ := ankka.ChangeFrom(ctx)
+		return ankka.Produce(Build{Vehicle: change.Subject, Step: e.Step,
+			Installation: change.Installation, Local: change.Local}), nil
+	},
+	ankka.ProducesWith("vehicle-builds", ankka.CodecFor[Build](ankka.Manifest("build"))),
+)
 ```
 
 A consumer that publishes and should be given mirrored changes too declares it, and then publishes every
@@ -862,37 +1178,6 @@ val service = Ankka.service
   .start()
 ```
 
-**Python**
-
-```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CheckoutLog)
-    .register(CheckoutNotifier)
-)
-```
-
-**TypeScript**
-
-```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CheckoutLog)
-  .register(CheckoutNotifier)
-```
-
-**Rust**
-
-```rust
-pub fn build() -> Service {
-    Service::new("cart")
-        .register(ShoppingCart)
-        .register(CheckoutLog)
-        .register(CheckoutNotifier)
-}
-```
-
 **Java**
 
 ```java
@@ -926,6 +1211,37 @@ fun service(): ServiceBuilder =
 
 fun main() {
     service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
+**Python**
+
+```python
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CheckoutLog)
+    .register(CheckoutNotifier)
+)
+```
+
+**TypeScript**
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CheckoutLog)
+  .register(CheckoutNotifier)
+```
+
+**Rust**
+
+```rust
+pub fn build() -> Service {
+    Service::new("cart")
+        .register(ShoppingCart)
+        .register(CheckoutLog)
+        .register(CheckoutNotifier)
 }
 ```
 
@@ -965,6 +1281,8 @@ sequence number and gives back what it would publish.
 | A change | `onMessage(message, subject, sequenceNumber)` | `on_message(message, subject, sequence=…)` | `onMessage(message, subject, metadata)` | `.at(sequence).on_message(subject, message)` |
 | What it published | the result's `messages`: `payload`, `key`, `metadata` | `kit.messages`: `payload`, `key`, `metadata` | `kit.produced`: `payload`, `key`, `metadata` | `ConsumerTestKit::<C>::messages(&effect)` |
 
+**Scala**
+
 ```scala
 test("a checkout is answered with three messages, the second under a key of its own") {
   val kit    = ConsumerTestKit.of(CheckoutFanout)
@@ -978,6 +1296,143 @@ test("a checkout is answered with three messages, the second under a key of its 
 }
 ```
 
+**Java**
+
+```java
+public static ConsumerResult<Fanned> fanout() {
+  var kit = ConsumerTestKit.of(CheckoutFanout.class);
+  var result = kit.onMessage(new CartEvent.CheckedOut(), "c1", 4);
+
+  // result.payloads() is [Fanned(1), Fanned(2), Fanned(3)];
+  // result.recordKeys() is [c1, second:c1, c1]: the key a message named, else its subject;
+  // result.messages().get(2).metadata().get("x-n") is "3".
+  return result;
+}
+```
+
+**Kotlin**
+
+```kotlin
+val kit = ConsumerTestKit.of(CheckoutFanout::class.java)
+val result = kit.onMessage(CartEvent.CheckedOut, "c1", 4)
+
+assertEquals(listOf(Fanned(1), Fanned(2), Fanned(3)), result.payloads())
+// The key each record carries: the one a message named, or the subject, the cart's id.
+assertEquals(listOf(Optional.of("c1"), Optional.of("second:c1"), Optional.of("c1")), result.recordKeys())
+assertEquals("3", result.messages()[2].metadata()["x-n"])
+```
+
+**Python**
+
+```python
+def test_the_reference_fans_a_checkout_out_into_three_messages() -> None:
+    from ankka import Metadata
+    from ankka.effects.consumer import Produce, ProduceAll
+    from ankka.testkit import Produced
+    from examples.shopping_cart.conformance import CheckoutFanout, Fanned
+
+    kit = ConsumerTestKit.of(CheckoutFanout)
+    assert kit.on_message(ItemAdded(PEN), "k1") == ProduceAll(())
+    assert isinstance(kit.on_message(ItemRemoved("p1"), "k1"), Produce)
+    assert kit.messages == [Produced(Fanned(0), None, Metadata())]
+    kit.on_message(CheckedOut(), "k1")
+    assert kit.messages[1:] == [
+        Produced(Fanned(1), None, Metadata()),
+        Produced(Fanned(2), "second:k1", Metadata()),
+        Produced(Fanned(3), None, Metadata().set("x-n", "3")),
+    ]
+    assert kit.on_message(Discarded(), "k1").__class__.__name__ == "Ignore"
+    assert CheckoutFanout.out_codec.encode(Fanned(2)) == b'{"n":2}'
+    assert CheckoutFanout.out_codec.manifest == "fanned"
+```
+
+**TypeScript**
+
+```ts
+test("a checkout fans out into three messages, the second under a key of its own", async () => {
+  const kit = ConsumerTestKit.of(CheckoutFanout)
+  // An item added answers with no messages; an item removed with one, keyed by its subject.
+  await kit.onMessage({ type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 1 } }, "c1")
+  assert.deepEqual(kit.produced, [])
+  await kit.onMessage({ type: "CheckedOut" }, "c1", { "ankka.sequence": "4" })
+  assert.deepEqual(kit.produced, [
+    { payload: { n: 1 }, metadata: {} },
+    { payload: { n: 2 }, metadata: {}, key: "second:c1" },
+    { payload: { n: 3 }, metadata: { "x-n": "3" } },
+  ])
+})
+```
+
+**Rust**
+
+```rust
+/// The fan-out the suite's several-message cases read, as every reference publishes it.
+#[test]
+fn the_reference_fans_a_checkout_out_into_three_messages() {
+    let kit = ConsumerTestKit::<CheckoutFanout>::new().at(2);
+    let added = ShoppingCartEvent::ItemAdded {
+        item: LineItem {
+            product_id: "p1".into(),
+            name: "Pen".into(),
+            quantity: 1,
+        },
+    };
+    assert!(matches!(kit.on_message("c1", added), ConsumerEffect::Done));
+
+    let messages = ConsumerTestKit::<CheckoutFanout>::messages(
+        &kit.on_message("c1", ShoppingCartEvent::CheckedOut),
+    );
+    let ns: Vec<i32> = messages.iter().map(|m| m.read::<Fanned>().n).collect();
+    assert_eq!(ns, vec![1, 2, 3]);
+    let keys: Vec<Option<&str>> = messages.iter().map(|m| m.key.as_deref()).collect();
+    assert_eq!(keys, vec![None, Some("second:c1"), None]);
+    assert_eq!(messages[2].metadata.get("x-n"), Some("3"));
+    assert!(messages.iter().all(|m| m.payload.manifest == "fanned"));
+    assert_eq!(messages[0].payload.data, br#"{"n":1}"#);
+
+    // An item removed is one message, the old way, on a runtime of any version.
+    let removed = ShoppingCartEvent::ItemRemoved {
+        product_id: "p1".into(),
+    };
+    let earlier = ConsumerTestKit::<CheckoutFanout>::new().speaking(None);
+    match earlier.on_message("c1", removed) {
+        ConsumerEffect::Produce(Ok(payload), _) => {
+            assert_eq!(payload.manifest, "fanned");
+            assert_eq!(payload.data, br#"{"n":0}"#);
+        }
+        other => panic!("{other:?}"),
+    }
+    let discarded = kit.on_message("c1", ShoppingCartEvent::Discarded);
+    assert!(matches!(discarded, ConsumerEffect::Ignore));
+}
+```
+
+**Go**
+
+```go
+func TestACheckoutIsAnsweredWithThreeMessages(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.Consumer(conformance.CheckoutFanout)
+	defer kit.Close()
+	out, err := kit.OnMessage(ctx, "c1", cart.CheckedOut{}, testkit.Sequence(4))
+	if err != nil || len(out) != 3 {
+		t.Fatalf("a checkout published %v, %v", out, err)
+	}
+	for i, n := range []int{1, 2, 3} {
+		if out[i].Payload != (conformance.Fanned{N: n}) {
+			t.Fatalf("message %d is %+v", i, out[i].Payload)
+		}
+	}
+	// The key the second message named; the others are keyed by their subject, the cart's id.
+	if out[0].Key != "c1" || out[1].Key != "second:c1" || out[2].Key != "c1" {
+		t.Fatalf("the keys are %q %q %q", out[0].Key, out[1].Key, out[2].Key)
+	}
+	if out[2].Metadata["x-n"] != "3" {
+		t.Fatalf("the third message's metadata is %v", out[2].Metadata)
+	}
+}
+```
+
 The Scala kit applies the handler's effect with the function the runtime applies it with, so a result the
 runtime would refuse — no topic to publish to, an empty key — fails in the test. A consumer that calls
 other components is given a client that answers: a `TestTransport` with stubs in Scala, a client double
@@ -988,6 +1443,8 @@ What a consumer does in a running service — delivery, redelivery, what reaches
 the integration test kit. In Scala, `InMemoryPublisher` captures what a consumer published, with no
 broker, and `InMemoryBroker` also delivers it to the service's own topic sources:
 
+**Scala**
+
 ```scala
 val publisher = InMemoryPublisher()
 val testKit = AnkkaTestKit.start(
@@ -996,6 +1453,36 @@ val testKit = AnkkaTestKit.start(
 )
 // ... check out a cart, then poll until the notice arrives:
 publisher.publishedTo("cart-checkouts").map(_.recordKey)
+```
+
+**Java**
+
+```java
+/** The keys of the notices the notifier published, once one has: the cart's id. */
+public static List<Optional<String>> noticeKeys() {
+  try (var kit = AnkkaTestKit.start(Main.service())) {
+    var cart = kit.componentClient().forEventSourcedEntity("c-7");
+    cart.call(ShoppingCart::addItem).invoke(new LineItem("p1", "Pen", 1));
+    cart.call(ShoppingCart::checkout).invoke();
+    // Poll until the notice arrives: the consumer publishes after the entity has replied.
+    kit.eventually(
+        Duration.ofSeconds(20),
+        () -> {
+          if (kit.published(CheckoutNotifier.TOPIC).isEmpty()) throw new AssertionError("no notice");
+        });
+    return kit.published(CheckoutNotifier.TOPIC).stream().map(Published::key).toList();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+eventually {
+    val notices = published("cart-checkouts")
+    assertEquals(listOf("n1"), notices.map { it.key().orNull() })
+    assertTrue(notices.single().text().contains("\"cartId\":\"n1\""), notices.single().text())
+}
 ```
 
 See [Testing](testing.md#testing-a-consumer).

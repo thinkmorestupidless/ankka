@@ -1,6 +1,6 @@
 # gRPC endpoints
 
-> Serve a .proto service definition from a Scala service — every kind of method, access control, statuses, streams, reflection, calling another service's gRPC endpoint, and testing it.
+> Serve a .proto service definition from a Scala, Java or Kotlin service — every kind of method, access control, statuses, streams, reflection, calling another service's gRPC endpoint, and testing it.
 
 Source: https://docs.ankka.cloud/build/grpc-endpoints/
 A gRPC endpoint serves the methods of a service definition written in a `.proto` file. Like an
@@ -52,6 +52,8 @@ ScalaPB generates the messages and the descriptors an endpoint is declared again
 files and the generated code in a subproject of their own, because generated code does not compile
 cleanly under the warnings a service's own code is held to. In `project/plugins.sbt`:
 
+**Scala**
+
 ```scala
 addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
@@ -60,6 +62,8 @@ libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
 And in `build.sbt`, the subproject beside the service, which depends on it and on `ankka-grpc`. Both
 must be built with the same Scala version, so set it for the whole build (`ThisBuild / scalaVersion`)
 rather than on the service's project alone; a service made with `ankka init` already does:
+
+**Scala**
 
 ```scala
 lazy val api = project
@@ -86,6 +90,8 @@ none of it.
 An endpoint names the service definition it implements, states its access control list (ACL), and
 declares a handler for each method. This is the excerpt of the sample's endpoint that answers the two
 cart methods; the whole file is the shopping cart sample's `CartGrpcEndpoint.scala`:
+
+**Scala**
 
 ```scala
 /**
@@ -122,6 +128,92 @@ final class CartGrpcEndpoint(clients: EndpointClients)
   }
 ```
 
+**Java**
+
+```java
+/**
+ * The cart's gRPC API: the service definition in {@link CartApi}, implemented over the same entity
+ * the HTTP endpoint calls.
+ *
+ * <p>Like the HTTP endpoint it holds no state and maps no errors: a refusal from the entity
+ * reaches the caller as the matching gRPC status. What it does do is translate, between the
+ * messages of the API and the cart's own types: the API is a contract with callers, and the
+ * domain is free to change behind it.
+ */
+public class CartGrpc extends GrpcEndpoint {
+
+  public CartGrpc() {
+    super(CartApi.SERVICE);
+
+    unary(CartApi.GET_CART, request -> cart(request.cartId()).call(ShoppingCart::getCart).invoke());
+
+    unary(
+        CartApi.ADD_ITEM,
+        request -> {
+          cart(request.cartId()).call(ShoppingCart::addItem).invoke(request.item());
+          return cart(request.cartId()).call(ShoppingCart::getCart).invoke();
+        });
+
+    // The cart's lines, one part each. The publisher is fed once the caller has subscribed, and
+    // closing it ends the call; a publisher that fails ends the call with the failure's status.
+    serverStream(
+        CartApi.LIST_ITEMS,
+        request -> {
+          var items = cart(request.cartId()).call(ShoppingCart::getCart).invoke().items();
+          var parts = new SubmissionPublisher<LineItem>();
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    while (parts.getNumberOfSubscribers() == 0) Thread.onSpinWait();
+                    items.forEach(parts::submit);
+                    parts.close();
+                  });
+          return parts;
+        });
+
+    // Each item is added as it arrives, and the caller is answered once the stream ends. A
+    // refusal, a checked-out cart, ends the call at once, with the items before it added.
+    clientStream(
+        CartApi.IMPORT_ITEMS,
+        requests -> {
+          int added = 0;
+          while (requests.hasNext()) {
+            var request = requests.next();
+            cart(request.cartId()).call(ShoppingCart::addItem).invoke(request.item());
+            added++;
+          }
+          return new CartApi.ImportSummary(added);
+        });
+
+    // A conversation: each line is answered as it arrives, and the answers end when the lines do.
+    bidiStream(
+        CartApi.CONVERSE,
+        lines -> {
+          var answers = new SubmissionPublisher<CartApi.Line>();
+          Thread.ofVirtual()
+              .start(
+                  () -> {
+                    while (answers.getNumberOfSubscribers() == 0) Thread.onSpinWait();
+                    lines.forEachRemaining(
+                        line -> answers.submit(new CartApi.Line("heard: " + line.text())));
+                    answers.close();
+                  });
+          return answers;
+        });
+  }
+
+  /** Any service of this project, and the internet through the gateway when the cart is exposed. */
+  @Override
+  protected Acl acl() {
+    return Acl.allowCallers(Callers.anyInProject(), Callers.internet());
+  }
+
+  private EntityRef cart(String cartId) {
+    return componentClient().forEventSourcedEntity(cartId);
+  }
+}
+```
+
 Handlers block. Each runs on a virtual thread of its own, so a blocking component call inside one costs
 nothing, exactly as in an HTTP handler. The endpoint translates between the API's messages and the
 service's own types: the API is a contract with callers, and the domain is free to change behind it.
@@ -152,6 +244,8 @@ and a part is taken from the `Source` only while the caller can receive it. When
 the `Source` is cancelled. A `Source` that fails ends the call with the failure's status, after every
 part already produced:
 
+**Scala**
+
 ```scala
 // The cart as the view writes it, for as long as the caller watches: a watch of the cart's row,
 // which the view announces on every write, so nothing polls. A row given twice is sent once; the
@@ -169,10 +263,33 @@ serverStream(CartStreamsGrpc.METHOD_WATCH_CART) { request =>
 }
 ```
 
+**Java**
+
+```java
+// The cart's lines, one part each. The publisher is fed once the caller has subscribed, and
+// closing it ends the call; a publisher that fails ends the call with the failure's status.
+serverStream(
+    CartApi.LIST_ITEMS,
+    request -> {
+      var items = cart(request.cartId()).call(ShoppingCart::getCart).invoke().items();
+      var parts = new SubmissionPublisher<LineItem>();
+      Thread.ofVirtual()
+          .start(
+              () -> {
+                while (parts.getNumberOfSubscribers() == 0) Thread.onSpinWait();
+                items.forEach(parts::submit);
+                parts.close();
+              });
+      return parts;
+    });
+```
+
 A stream of requests arrives as `Requests`, a blocking iterator that asks the caller for one more part
 each time it is read, and never before. A handler may answer — or refuse — before it has read them all,
 and the rest is never read. When the caller goes away before ending its stream, the next read throws
 `CallCancelled`:
+
+**Scala**
 
 ```scala
 // Each item is added as it arrives, and the caller is answered once the stream ends. A refusal —
@@ -190,13 +307,53 @@ clientStream(CartStreamsGrpc.METHOD_IMPORT_ITEMS) { items =>
 }
 ```
 
+**Java**
+
+```java
+// Each item is added as it arrives, and the caller is answered once the stream ends. A
+// refusal, a checked-out cart, ends the call at once, with the items before it added.
+clientStream(
+    CartApi.IMPORT_ITEMS,
+    requests -> {
+      int added = 0;
+      while (requests.hasNext()) {
+        var request = requests.next();
+        cart(request.cartId()).call(ShoppingCart::addItem).invoke(request.item());
+        added++;
+      }
+      return new CartApi.ImportSummary(added);
+    });
+```
+
 `Requests.asSource` gives the same parts as a `Source`, with the same demand, which is the natural shape
 for a conversation:
+
+**Scala**
 
 ```scala
 bidiStream(CartStreamsGrpc.METHOD_CONVERSE) { lines =>
   lines.asSource.map(line => Line(s"heard: ${line.text}"))
 }
+```
+
+**Java**
+
+```java
+// A conversation: each line is answered as it arrives, and the answers end when the lines do.
+bidiStream(
+    CartApi.CONVERSE,
+    lines -> {
+      var answers = new SubmissionPublisher<CartApi.Line>();
+      Thread.ofVirtual()
+          .start(
+              () -> {
+                while (answers.getNumberOfSubscribers() == 0) Thread.onSpinWait();
+                lines.forEachRemaining(
+                    line -> answers.submit(new CartApi.Line("heard: " + line.text())));
+                answers.close();
+              });
+      return answers;
+    });
 ```
 
 A part of a stream of requests that is not a request of the method's type ends the call as an invalid
@@ -268,11 +425,22 @@ machine every caller is the local caller. See [Tenancy and access](../concepts/t
 A gRPC endpoint is served by a `GrpcServer`, registered with the service like any other extension. Its
 factories take the same clients an HTTP endpoint's do:
 
+**Scala**
+
 ```scala
 val server = GrpcServer.of(
   clients => CartGrpcEndpoint(clients),
   clients => CartStreamsEndpoint(clients)
 )
+```
+
+**Java**
+
+```java
+/** The cart service serves gRPC: its endpoint is registered beside its components. */
+public static ServiceBuilder cartService() {
+  return Ankka.service("cart").register(ShoppingCart.class).withGrpcEndpoint(CartGrpc.class);
+}
 ```
 
 The server listens on `ankka.grpc.port`, 9090 unless set, beside the HTTP port. A deployed service serves
@@ -284,6 +452,8 @@ gRPC only when its descriptor says `"grpc": true`; see
 
 A service can let a tool such as `grpcurl` ask what it serves — its service definitions, their methods and
 their messages — with no `.proto` file. It opts in, and states who may ask:
+
+**Scala**
 
 ```scala
 // A tool such as grpcurl may ask what the cart serves: from this machine, and through the
@@ -308,19 +478,49 @@ grpcurl -plaintext localhost:9090 list
 A service calls another's gRPC endpoint through `GrpcClients`, created once and handed to whatever calls
 it, as everything a component uses is:
 
+**Scala**
+
 ```scala
 val grpcClients = GrpcClients()
+```
+
+**Java**
+
+```java
+/** A service that calls other services' gRPC asks for the clients when it is built. */
+public static ServiceBuilder ordersService() {
+  return Ankka.service("orders").withGrpcClients();
+}
 ```
 
 `grpcClients("cart")` is a channel to the `cart` service of this project, and
 `grpcClients("shop", "cart")` to the one in project `shop`; the stub generated from that service's
 `.proto` file is built on it:
 
+**Scala**
+
 ```scala
 // Asks another cart service of this project who it read the call as coming from: the answer is
 // how that service saw this one.
 get("/{service}") { (service: String) =>
   CartServiceGrpc.blockingStub(grpc(service)).whoCalled(WhoCalledRequest()).caller
+}
+```
+
+**Java**
+
+```java
+/**
+ * Asks the cart service of this project for a cart: {@code channel("cart")} is a channel to it,
+ * and {@code channel("shop", "cart")} to the one in project {@code shop}. A stub generated from
+ * the service's {@code .proto} file is built on the channel the same way.
+ */
+public static CartState readCart(GrpcClients clients, String cartId) {
+  return ClientCalls.blockingUnaryCall(
+      clients.channel("cart"),
+      CartApi.GET_CART,
+      CallOptions.DEFAULT,
+      new CartApi.GetCartRequest(cartId));
 }
 ```
 
@@ -340,6 +540,8 @@ lets it pass answers its own caller with the same refusal.
 
 A test starts the whole service with the test kit, the gRPC server on a port the system picks, and calls it
 through the stub generated from the `.proto` file:
+
+**Scala**
 
 ```scala
 private val grpc = GrpcServer.at("127.0.0.1", 0)(clients => CartGrpcEndpoint(clients))
@@ -363,6 +565,29 @@ test("an item added is in the cart read back") {
   val _    = carts.addItem(AddItemRequest("grpc-1", Some(LineItem("p1", "Widget", 2))))
   val cart = carts.getCart(GetCartRequest("grpc-1"))
   assertEquals(cart.items.map(i => (i.productId, i.quantity)), Seq("p1" -> 2))
+}
+```
+
+**Java**
+
+```java
+/** Starts the whole service, with gRPC on a port the system picks, and calls it as a client. */
+public static CartState addThenRead() {
+  try (var kit = AnkkaTestKit.start(cartService())) {
+    var channel = ManagedChannelBuilder.forTarget(kit.grpcAddress()).usePlaintext().build();
+    try {
+      var item = new LineItem("p1", "Widget", 2);
+      ClientCalls.blockingUnaryCall(
+          channel,
+          CartApi.ADD_ITEM,
+          CallOptions.DEFAULT,
+          new CartApi.AddItemRequest("g-1", item));
+      return ClientCalls.blockingUnaryCall(
+          channel, CartApi.GET_CART, CallOptions.DEFAULT, new CartApi.GetCartRequest("g-1"));
+    } finally {
+      channel.shutdownNow();
+    }
+  }
 }
 ```
 

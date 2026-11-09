@@ -38,8 +38,10 @@ entity keeps the state it had. See the [Rust SDK](../reference/rust-sdk.md#calli
 
 ## Calling from an endpoint
 
-An endpoint that calls another service and answers what it answered, in Scala; the tabs below show the
-same in each other language, through `services().of(name)` in Java and Kotlin:
+An endpoint that calls another service and answers what it answered, through `services().of(name)` in
+Java and Kotlin:
+
+**Scala**
 
 ```scala
 // Calls another service in this project, as this service: `/callers/whoami` unless `path` says
@@ -48,50 +50,6 @@ get("/call/{service}") { (service: String) =>
   val path = query.optional[String]("path").getOrElse("/callers/whoami")
   try services(service).getText(path)
   catch case e: ServiceUnresolvable => throw HttpProblem(503, e.getMessage)
-}
-```
-
-**Python**
-
-```python
-class CallingEndpoint(Endpoint):
-    """Calls another service of this project, as this service: the answer is what that service
-    answered, and the service it called saw this one as the caller."""
-
-    prefix = "/calling"
-    acl = Acl.allow_callers(Callers.self_)
-
-    @get("/call/{service}")
-    async def call(self, service: str) -> str:
-        path = self.request.query_param("path") or "/callers/whoami"
-        try:
-            return await self.services(service).get_text(path)
-        except ServiceUnresolvable as unresolvable:
-            raise HttpProblem(503, str(unresolvable)) from unresolvable
-```
-
-**TypeScript**
-
-```ts
-/**
- * Calls another service of this project, as this service: the answer is what that service answered,
- * and the service it called saw this one as the caller.
- */
-export class CallingEndpoint extends Endpoint {
-  static readonly prefix = "/calling"
-  static readonly acl = Acl.allowCallers(Callers.self)
-
-  static readonly routes = {
-    call: get("/call/{service}", s.string, async (ep: CallingEndpoint, req) => {
-      const path = req.query.get("path") ?? "/callers/whoami"
-      try {
-        return await ep.services.service(req.params.service).getText(path)
-      } catch (e) {
-        if (e instanceof ServiceUnresolvable) throw new HttpProblem(503, e.message)
-        throw e
-      }
-    }),
-  }
 }
 ```
 
@@ -170,6 +128,86 @@ fun serviceCall(@Body body: String): ServiceCallRecord {
 }
 ```
 
+**Python**
+
+```python
+class CallingEndpoint(Endpoint):
+    """Calls another service of this project, as this service: the answer is what that service
+    answered, and the service it called saw this one as the caller."""
+
+    prefix = "/calling"
+    acl = Acl.allow_callers(Callers.self_)
+
+    @get("/call/{service}")
+    async def call(self, service: str) -> str:
+        path = self.request.query_param("path") or "/callers/whoami"
+        try:
+            return await self.services(service).get_text(path)
+        except ServiceUnresolvable as unresolvable:
+            raise HttpProblem(503, str(unresolvable)) from unresolvable
+```
+
+**TypeScript**
+
+```ts
+/**
+ * Calls another service of this project, as this service: the answer is what that service answered,
+ * and the service it called saw this one as the caller.
+ */
+export class CallingEndpoint extends Endpoint {
+  static readonly prefix = "/calling"
+  static readonly acl = Acl.allowCallers(Callers.self)
+
+  static readonly routes = {
+    call: get("/call/{service}", s.string, async (ep: CallingEndpoint, req) => {
+      const path = req.query.get("path") ?? "/callers/whoami"
+      try {
+        return await ep.services.service(req.params.service).getText(path)
+      } catch (e) {
+        if (e instanceof ServiceUnresolvable) throw new HttpProblem(503, e.message)
+        throw e
+      }
+    }),
+  }
+}
+```
+
+**Rust**
+
+```rust
+/// Calls another service in this project, as this service: `/callers/whoami` unless `path` says
+/// otherwise. The answer is what that service answered, and it saw this one as the caller.
+pub struct NeighbourEndpoint;
+
+impl NeighbourEndpoint {
+    fn call(request: &Request) -> Result<String, HttpProblem> {
+        let path = request.query("path").unwrap_or("/callers/whoami");
+        let services = request
+            .context()
+            .services()
+            .ok_or_else(|| HttpProblem::new(500, "a route may call another service"))?;
+        match services.service(request.path("service")).get_text(path) {
+            Ok(answer) => Ok(answer),
+            Err(e @ ServiceError::Unresolvable { .. }) => Err(HttpProblem::new(503, e.to_string())),
+            Err(e) => Err(HttpProblem::new(502, e.to_string())),
+        }
+    }
+}
+
+impl Endpoint for NeighbourEndpoint {
+    const ENDPOINT_ID: &'static str = "NeighbourEndpoint";
+    const PREFIX: &'static str = "/neighbour";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<NeighbourEndpoint> {
+        Routes::new().get("/call/{service}", NeighbourEndpoint::call)
+    }
+}
+```
+
 **Go**
 
 The Go reference's route makes the call a request names, and records what came back:
@@ -228,6 +266,8 @@ func serviceCall(ctx context.Context, req *ankka.Request, body string) (ServiceC
 A step asks another service to do something and goes on with the answer. The context's `services` is
 the same client an endpoint has:
 
+**Scala**
+
 ```scala
 /**
  * Asks the PSP gateway service to start a payout, from a step: a step may call another service, as
@@ -246,6 +286,73 @@ final class PayoutWorkflow(context: WorkflowContext) extends Workflow[PayoutStat
   def initiatePayout(amount: Int): StepEffect =
     val answer = context.services("psp-gateway").getText(s"/payouts?amount=$amount")
     stepEffects.updateState(currentState.copy(answer = answer)).thenEnd
+```
+
+**Java**
+
+```java
+/**
+ * Asks the PSP gateway service to start a payout, from a step: a step may call another service, as
+ * this service, and goes on with the answer.
+ */
+@ComponentId("payout")
+public class PayoutWorkflow extends Workflow<PayoutWorkflow.State> {
+
+  public record Payout(int amount) {}
+
+  public record State(String status, String answer) {}
+
+  @Override
+  protected State emptyState() {
+    return new State("", "");
+  }
+
+  @Command("start")
+  public Effect<Done> start(Payout payout) {
+    return effects()
+        .updateState(emptyState())
+        .transitionTo(PayoutWorkflow::initiatePayout, payout)
+        .thenDone();
+  }
+
+  @Step("initiate-payout")
+  public StepEffect initiatePayout(Payout payout) {
+    var answer = services().of("psp-gateway").getText("/payouts?amount=" + payout.amount());
+    return stepEffects().updateState(new State("initiated", answer)).thenEnd();
+  }
+
+  @Query("get")
+  public ReadOnlyEffect<State> get() {
+    return effects().reply(currentState());
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Asks the PSP gateway service to start a payout, from a step: a step may call another service, as
+ * this service, and goes on with the answer.
+ */
+@ComponentId("payout")
+class PayoutWorkflow : Workflow<PayoutState>() {
+    override fun emptyState() = PayoutState("")
+
+    @Command("start")
+    fun start(amount: Int): Effect<Done> = effects {
+        updateState(emptyState()).transitionTo(stepRef(PayoutWorkflow::initiatePayout), amount).thenDone()
+    }
+
+    @Step("initiate-payout")
+    fun initiatePayout(amount: Int): StepEffect {
+        val answer = services().of("psp-gateway").getText("/payouts?amount=$amount")
+        return stepEffects { updateState(currentState().copy(answer = answer)).thenEnd() }
+    }
+
+    @Query("get")
+    fun get(): ReadOnlyEffect<PayoutState> = effects { reply(currentState()) }
+}
 ```
 
 **Python**
@@ -301,6 +408,26 @@ test("a workflow's step calls another service and goes on with the answer", asyn
   assert.equal(await workflow.initiatePayout(25), "started /payouts?amount=25")
   assert.deepEqual(scripted.requests.map((r) => r.path), ["/payouts?amount=25"])
 })
+```
+
+**Rust**
+
+```rust
+/// Asks the other service, from a step: a step may call another service, as this service,
+/// and goes on with the answer.
+fn call(stepped: &Stepped, _: (), ctx: &Context) -> StepEffect<Stepped> {
+    let at = ctx.now().epoch_millis();
+    let services = ctx.services().expect("a step may call another service");
+    let answer = call(services, &stepped.service, &stepped.path);
+    step_effects::update_state(Stepped {
+        status: answer.status,
+        body: answer.body,
+        at,
+        done: true,
+        ..stepped.clone()
+    })
+    .then_end()
+}
 ```
 
 **Go**

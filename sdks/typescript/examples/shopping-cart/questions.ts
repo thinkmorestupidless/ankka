@@ -29,7 +29,8 @@ export class QuestionsEndpoint extends Endpoint {
     /** Where the task has got to, with the answer once there is one. */
     read: get("/{taskId}", Question, async (ep: QuestionsEndpoint, req) => {
       const task = await ep.client.forTask(req.params.taskId).get(ANSWER)
-      return { taskId: task.id, status: task.status, answer: task.result ?? null, reason: task.reason ?? null, iterations: task.iterations }
+      const { id: taskId, status, iterations } = task
+      return { taskId, status, answer: task.result ?? null, reason: task.reason ?? null, iterations }
     }),
     // docs:end run-task
     // docs:start assign-tasks

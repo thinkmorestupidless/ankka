@@ -132,9 +132,12 @@ export class MixedAclEndpoint extends Endpoint {
 
   static readonly routes = {
     read: get("/{cartId}", s.string, (_ep: MixedAclEndpoint, req) => `cart:${req.params.cartId}`),
-    purge: del("/{cartId}", s.string, (_ep: MixedAclEndpoint, req) => `purged:${req.params.cartId} by ${req.principal!.subject}`, {
-      acl: Acl.authenticated,
-    }),
+    purge: del(
+      "/{cartId}",
+      s.string,
+      (_ep: MixedAclEndpoint, req) => `purged:${req.params.cartId} by ${req.principal!.subject}`,
+      { acl: Acl.authenticated },
+    ),
   }
 }
 // docs:end route-acl

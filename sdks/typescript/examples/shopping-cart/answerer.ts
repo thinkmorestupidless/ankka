@@ -49,7 +49,9 @@ export class CartAnswerer extends AutonomousAgent {
     ),
   }
   static readonly guardrails = {
-    maxInputLength: guardrail("max-input-length", (stage, text) => (stage === "input" && text.length > 2000 ? "too long" : null)),
+    maxInputLength: guardrail("max-input-length", (stage, text) =>
+      stage === "input" && text.length > 2000 ? "too long" : null,
+    ),
   }
   static readonly accepts = [taskAcceptance(ANSWER, { maxIterations: 5 })]
 

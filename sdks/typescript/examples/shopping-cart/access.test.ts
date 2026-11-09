@@ -83,6 +83,19 @@ describe("the fleet", () => {
     assert.deepEqual(kit.state, { steps: ["chassis"], dealer: "vienna", writtenAt: ["leipzig", "leipzig"] })
   })
 
+  // docs:start follower-kit
+  test("a follower answers from what it mirrored and refuses to write", async () => {
+    const follower = { kind: "follower", home: "leipzig", installation: "bratislava" } as const
+    const kit = EventSourcedTestKit.of(Vehicles, "v1", undefined, follower)
+    kit.replay([{ type: "StepAdded", step: "frame" }, { type: "StepAdded", step: "paint" }], "leipzig")
+    const mirrored = { steps: ["frame", "paint"], dealer: null, writtenAt: ["leipzig", "leipzig"] }
+    assert.deepEqual((await kit.call(Vehicles.handlers.get)).reply, mirrored)
+    const refused = await kit.call(Vehicles.handlers.addStep, "wheels")
+    assert.equal(refused.error?.code, "NOT_HOME")
+    assert.match(refused.error?.message ?? "", /leipzig/)
+  })
+  // docs:end follower-kit
+
   test("a build step is published from every installation, saying where it was written", async () => {
     const kit = ConsumerTestKit.of(BuildsConsumer)
     await kit.onMessage({ type: "StepAdded", step: "paint" }, "v1", { "ankka.installation": "leipzig" })

@@ -38,7 +38,9 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
   }
 
   addItem(item: LineItem) {
+    // docs:start refusal
     if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    // docs:end refusal
     if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was ${item.quantity}`)
     return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
   }

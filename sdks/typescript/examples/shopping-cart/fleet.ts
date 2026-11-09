@@ -68,7 +68,8 @@ export class BuildsConsumer extends Consumer<VehicleEvent, Build> {
     // The installation that wrote the change, and whether that is this one.
     const { installation, localOrigin } = this
     if (message.type !== "StepAdded") return this.effects.ignore()
-    return this.effects.produce({ vehicle: this.subject, step: message.step, installation: installation ?? "", local: localOrigin })
+    const build = { vehicle: this.subject, step: message.step, installation: installation ?? "", local: localOrigin }
+    return this.effects.produce(build)
   }
   // docs:end mirrored-change
 }

@@ -59,6 +59,9 @@ class ReleaseCheckSuite extends munit.FunSuite:
     sys.props("ankka.latest.url") = s"http://127.0.0.1:${server.getAddress.getPort}/latest.json"
 
   // Clean up while the override is still in place: `Credentials.path` follows it.
+  // A read still in flight is cut by stopping the server before the overrides go: one that answered
+  // after them would write to the developer's own ~/.ankka. A case must not leave a successful
+  // answer in flight at its end.
   override def afterEach(context: AfterEach): Unit =
     server.stop(0)
     dir.toFile.setWritable(true): Unit

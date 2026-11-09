@@ -19,10 +19,12 @@ export class CartAssistant extends Agent {
     noSecrets: guardrail("no-secrets", (stage, text) => (stage === "output" && text.includes("sk-") ? "a key leaked" : null)),
   }
 
+  // docs:start stream-handler
   static readonly handlers = {
     ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
     chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
   }
+  // docs:end stream-handler
 
   describe(question: string) {
     return this.effects

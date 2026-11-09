@@ -674,6 +674,7 @@ export class ProfileGraph extends GraphConsumer<Infer<typeof ProfileState>> {
 
 // ── reminder: a timed action ──
 
+// docs:start timed-action
 export class Reminder extends TimedAction {
   static readonly componentId = "reminder"
   static readonly actions = {
@@ -688,6 +689,7 @@ export class Reminder extends TimedAction {
     }),
   }
 }
+// docs:end timed-action
 
 // ── assistant: an agent whose tool acts through the client ──
 

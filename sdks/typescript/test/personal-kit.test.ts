@@ -51,6 +51,7 @@ test("the query names each form of each value, and the failure each place", () =
 })
 
 describe("the integration kit's keyring", { skip: slow }, () => {
+  // docs:start keyring
   test("a personal field is sealed, erased and refused in an outage through the sidecar", async () => {
     const kit = await AnkkaTestKit.start(Ankka.service().register(Member))
     try {
@@ -78,4 +79,5 @@ describe("the integration kit's keyring", { skip: slow }, () => {
       await kit.stop()
     }
   })
+  // docs:end keyring
 })

@@ -34,6 +34,16 @@ bite:
   sample or test, name it in `<!-- include: path#name -->` before the page's code block, and run
   `just docs-sync`. The copy lives in the page on purpose — the raw Markdown must be complete — and
   `docs check` fails when it drifts, so a renamed method breaks the docs build, not the reader.
+- **Every sample, in every language the page names** (2026-11-09). `docs check` holds each tab set to
+  the page's `languages`, in `mkdocs.yml`'s order (Scala, Java, Kotlin, Python, TypeScript, Rust, Go), and
+  refuses a block in one of those languages outside a tab set on a page that names more than one. A
+  language a feature cannot have is left out with `<!-- languages: <shown>; <reason> -->` on the line
+  before, and the reason must be a limitation `docs/reference/limitations.md` states. A page's `languages`
+  are every language its subject exists in, so a feature that reaches the Java, Kotlin, Python,
+  TypeScript, Rust or Go SDK is not documented until each has its sample, from that SDK's tested examples
+  (`samples/shopping-cart-java`, `sdks/kotlin`, `sdks/<language>/examples`). The gap was invisible to a
+  writer reading one language at a time: 55 tab sets and about 150 lone Scala blocks had grown before the
+  check existed.
 - **`docs sync` copies the working tree, not the commit.** An uncommitted edit to any included file —
   a sample changed by hand to try something — lands in every page and skill copy that includes it, and
   a local `just docs` passes because page and file agree. CI checks out the commit and fails with "an

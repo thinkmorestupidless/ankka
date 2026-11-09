@@ -161,7 +161,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **Tests before code**: If you need to write tests for contracts, entities, and integration scenarios
    - **Core development**: Implement models, services, CLI commands, endpoints
    - **Integration work**: Database connections, middleware, logging, external services
-   - **Polish and validation**: Unit tests, performance optimization, documentation
+   - **Polish and validation**: Unit tests, performance optimization, documentation — every page the feature touches shows its samples in every language the page names, from tested examples, and `docs check` is green
 
 8. Progress tracking and error handling:
    - Report progress after each completed task
@@ -176,6 +176,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Check that implemented features match the original specification
    - Validate that tests pass and coverage meets requirements
    - Confirm the implementation follows the technical plan
+   - Confirm the documentation shows the feature in every language it reaches, and the limitations page says what it does not do
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit-tasks` first to regenerate the task list.
 

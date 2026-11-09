@@ -201,6 +201,17 @@ Every task MUST strictly follow this format:
    - Foundational/blocking tasks → Foundational phase (Phase 2)
    - Story-specific setup → within that story's phase
 
+5. **From the languages the feature reaches** (plan.md, "Languages reached"):
+   - A feature that changes what a service can do is documented in every language it reaches: for each
+     page it documents, one task per language's sample, written into that SDK's tested examples
+     (`samples/`, `samples/shopping-cart-java`, `sdks/kotlin`, `sdks/<language>/examples`), before the
+     task that writes the page
+   - A language the plan excludes is excluded on the page with `<!-- languages: <shown>; <reason> -->`
+     and the reason is a limitation `docs/reference/limitations.md` states; a task writes both
+   - `docs check` refuses a page with a language missing, so a feature with samples in one language of
+     several is not done; a task list that documents only the language the feature was built in is a
+     design gap to report, not to pass on
+
 ### Phase Structure
 
 - **Phase 1**: Setup (project initialization)
@@ -213,5 +224,6 @@ Every task MUST strictly follow this format:
 ## Done When
 
 - [ ] tasks.md generated with all phases, task IDs, and file paths
+- [ ] Every language the feature reaches has a sample task for every page the feature documents, or tasks.md says which cannot and why
 - [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
 - [ ] Completion reported to user with task count, story breakdown, and MVP scope

@@ -286,6 +286,7 @@ Format: **Rule.** Concrete signal in the diff. Why. [source]
 - **Formatting is the formatter's; the reviewer does not comment on it.** If the formatter did not run, say so once. Style points the guide does not cover are `Nit:` at most. [Google looking-for "Style"; thoughtbot "Style comments"; GitLab code_review "enforce code style through automation"]
 - **Consistency with the surrounding file wins over personal preference.** Two naming schemes or two error-handling idioms in one file after the change. [Google looking-for "Consistency"]
 - **If the reviewer could not understand a part, the code changes, not the review thread.** [Google comments "Accepting explanations"; GitLab code_review "if you don't understand, say so"]
+- **A sample is shown in every language the project ships.** A page or README that documents the change in one language where the project has several SDKs, client libraries or templates, with no tab or section for the others and no stated reason for their absence; a language's reason that the project's limitations page does not state. [ankka-brain principles #8; ankka `docs/contributing/documentation.md` "Every language, in one tab set"]
 - **The honest not-implemented list is kept honest.** New behaviour the docs promise but the code does not do, or a limitation lifted but still listed. [ankka-brain principles #8; Google looking-for "Documentation"]
 
 ### Commit and PR hygiene

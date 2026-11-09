@@ -12,7 +12,7 @@ import re
 from pathlib import PurePosixPath
 
 from . import generate, snippets
-from .pages import FENCE, FIXED_KEYS, KINDS, Tree, anchors, strip_code
+from .pages import FENCE, FIXED_KEYS, KINDS, Tree, anchors, fenced_lines, strip_code
 from .snippets import Problem
 
 # Phrases that only make sense to a reader who arrived from somewhere else on the site.
@@ -323,6 +323,149 @@ def _gap(rest: list[str]) -> int:
     return n + 1
 
 
+# A sample is shown in every language the page is for. A page's `languages` (the facet `extra.docs.samples`
+# names) says which languages its reader may be writing in; a tab set that shows three of them, or a
+# block in one language alone, tells the other readers the feature is not theirs — and the gap is
+# invisible to the writer, who reads one language at a time. So every tab set must hold a tab for each
+# of the page's languages, in the order mkdocs.yml lists them, and a block in one of those languages
+# outside a tab set is refused on a page with more than one. A language a feature cannot have is left
+# out on purpose, and the purpose is written down where the check can read it, on the line before:
+#
+#     <!-- languages: scala, java, kotlin; only a service in the runtime's own JVM registers a blueprint -->
+#
+# The comment names exactly the languages shown and says why the rest are missing; the reason is what
+# a reviewer checks against the limitations page.
+HTML_COMMENT = re.compile(r"^<!--.*-->\s*$")
+
+
+def samples(tree: Tree) -> list[Problem]:
+    settings = tree.project.settings
+    facet = settings.samples_facet
+    if facet is None:
+        return []
+    vocabulary = settings.facets[facet]
+    rank = {value: n for n, value in enumerate(vocabulary)}
+    by_label = {value.lower(): value for value in vocabulary}
+    by_info = {value: value for value in vocabulary}
+    for value, infos in settings.samples_fences.items():
+        by_info.update({info: value for info in infos})
+    exception = re.compile(rf"^<!--\s*{re.escape(facet)}:\s*(?P<shown>[^;]*?)\s*;\s*(?P<reason>.+?)\s*-->\s*$")
+
+    problems: list[Problem] = []
+    for page in tree.pages.values():
+        declared = page.meta.get(facet, [])
+        declared = [str(v) for v in declared] if isinstance(declared, list) else []
+        lines = page.body.split("\n")
+        in_code = fenced_lines(page.body)
+
+        def said(before: int) -> tuple[list[str], str] | None | str:
+            """The exception comment above line `before` (zero-based), skipping blanks and other comments:
+            its languages and reason, None when there is none, or the offending line when it is malformed."""
+            i = before - 1
+            while i >= 0 and (not lines[i].strip() or HTML_COMMENT.match(lines[i])):
+                if lines[i].lstrip().startswith(f"<!-- {facet}:") or lines[i].lstrip().startswith(f"<!--{facet}:"):
+                    match = exception.match(lines[i].strip())
+                    if not match:
+                        return lines[i]
+                    shown = [v.strip() for v in match.group("shown").split(",") if v.strip()]
+                    return shown, match.group("reason")
+                i -= 1
+            return None
+
+        def judge(number: int, shown: list[str], what: str, comment: tuple[list[str], str] | None | str) -> None:
+            """`shown` are the facet values a tab set or a lone block displays; `number` is its first line."""
+            if isinstance(comment, str):
+                problems.append(
+                    Problem(page.path, number, f"the `{facet}:` comment is malformed; write `<!-- {facet}: a, b; why the rest are left out -->`")
+                )
+                return
+            if comment is not None:
+                named, _reason = comment
+                for value in named:
+                    if value not in vocabulary:
+                        problems.append(Problem(page.path, number, f"the `{facet}:` comment names '{value}', which is not one of {', '.join(vocabulary)}"))
+                if sorted(named) != sorted(shown):
+                    problems.append(
+                        Problem(page.path, number, f"the `{facet}:` comment says {', '.join(named) or 'nothing'} but {what} shows {', '.join(shown)}")
+                    )
+                elif declared and sorted(named) == sorted(declared):
+                    problems.append(Problem(page.path, number, f"the `{facet}:` comment names every language the page does; remove it"))
+                return
+            missing = [v for v in declared if v not in shown]
+            if missing:
+                problems.append(
+                    Problem(
+                        page.path,
+                        number,
+                        f"{what} shows {', '.join(shown)}; the page's {facet} also name {', '.join(missing)}: "
+                        f"show it in each, or say why not in `<!-- {facet}: {', '.join(shown)}; <reason> -->` on the line before",
+                    )
+                )
+            elif not declared:
+                problems.append(
+                    Problem(
+                        page.path,
+                        number,
+                        f"{what} shows {', '.join(shown)} but the page names no {facet}; add `{facet}:` to the frontmatter, "
+                        f"or say why the sample is in {', '.join(shown)} alone in a `<!-- {facet}: ...; <reason> -->` comment",
+                    )
+                )
+
+        index = 0
+        while index < len(lines):
+            line = lines[index]
+            if index in in_code:
+                # `fenced_lines` counts the fences themselves, so an opening fence is the first line of a run.
+                fence = FENCE.match(line) if index == 0 or index - 1 not in in_code else None
+                if fence and fence.group(2).startswith("`"):
+                    info = fence.group(3).strip().split(" ")[0] if fence.group(3).strip() else ""
+                    value = by_info.get(info)
+                    if value is not None and (len(declared) != 1 or declared[0] != value):
+                        # Its own comment may sit above the `<!-- include -->` line; `said` skips comments.
+                        judge(index + 1, [value], f"a `{info}` block outside a tab set", said(index))
+                index += 1
+                continue
+            opened = TAB.match(line)
+            if opened:
+                # Read the whole tab set: tabs separated by blank lines only.
+                start = index
+                labels: list[tuple[str, int]] = []
+                while index < len(lines):
+                    opened = TAB.match(lines[index])
+                    if not opened:
+                        break
+                    labels.append((opened.group("label"), index + 1))
+                    index += 1
+                    while index < len(lines) and lines[index].strip() != "///":
+                        index += 1
+                    index += 1
+                    gap = index
+                    while gap < len(lines) and not lines[gap].strip():
+                        gap += 1
+                    if gap < len(lines) and TAB.match(lines[gap]):
+                        index = gap
+                        continue
+                    break
+                shown: list[str] = []
+                for label, where in labels:
+                    value = by_label.get(label.lower())
+                    if value is None:
+                        problems.append(Problem(page.path, where, f"tab '{label}' is not one of the {facet}: {', '.join(vocabulary)}"))
+                        continue
+                    if declared and value not in declared:
+                        problems.append(Problem(page.path, where, f"a '{label}' tab on a page whose {facet} do not name {value}; add it to the frontmatter"))
+                    shown.append(value)
+                ordered = sorted(shown, key=lambda v: rank[v])
+                if shown != ordered:
+                    problems.append(
+                        Problem(page.path, start + 1, f"the tabs are in the order {', '.join(shown)}; put them in the order mkdocs.yml lists the {facet}: {', '.join(ordered)}")
+                    )
+                judge(start + 1, ordered, "the tab set", said(start))
+                continue
+            index += 1
+    return problems
+
+
 def run(tree: Tree) -> list[Problem]:
     return [
         *frontmatter(tree),
@@ -334,6 +477,7 @@ def run(tree: Tree) -> list[Problem]:
         *navigation(tree),
         *examples(tree),
         *tabs(tree),
+        *samples(tree),
         *addresses(tree),
         *snippets.check(tree),
         *generate.check(tree),

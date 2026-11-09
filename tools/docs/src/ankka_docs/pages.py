@@ -72,6 +72,9 @@ class Settings:
         site-links:                   # files outside docs/ that link to the site
           files: [README.md]
           retired-hosts: [thinkmorestupidless.github.io]
+        samples:                      # every code sample is shown in every value of this facet the page names
+          facet: languages
+          fences: {typescript: [ts]}  # fence info strings that mean a value, beyond the value itself
     ```
     """
 
@@ -81,6 +84,8 @@ class Settings:
     generators: dict[str, Generator] = field(default_factory=dict)
     site_link_files: list[str] = field(default_factory=list)
     retired_hosts: list[str] = field(default_factory=list)
+    samples_facet: str | None = None
+    samples_fences: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def escapes_dollars(self) -> bool:
@@ -139,7 +144,7 @@ def project(root: Path | None = None) -> Project:
 def settings(raw: Any, root: Path) -> Settings:
     if not isinstance(raw, dict):
         raise ConfigError("extra.docs must be a mapping")
-    known = {"facets", "skills", "generated", "site-links"}
+    known = {"facets", "skills", "generated", "site-links", "samples"}
     for key in raw:
         if key not in known:
             raise ConfigError(f"extra.docs has an unknown key '{key}'; one of {sorted(known)}")
@@ -175,6 +180,20 @@ def settings(raw: Any, root: Path) -> Settings:
     if not isinstance(site_links, dict):
         raise ConfigError("extra.docs.site-links must be a mapping")
 
+    samples = raw.get("samples") or {}
+    if not isinstance(samples, dict):
+        raise ConfigError("extra.docs.samples must be a mapping")
+    samples_facet = samples.get("facet")
+    if samples and samples_facet not in facets:
+        raise ConfigError(f"extra.docs.samples.facet must name one of the facets: {sorted(facets)}")
+    samples_fences: dict[str, tuple[str, ...]] = {}
+    for value, infos in (samples.get("fences") or {}).items():
+        if samples_facet is None or value not in facets[str(samples_facet)]:
+            raise ConfigError(f"extra.docs.samples.fences names '{value}', which is not a value of {samples_facet}")
+        if not isinstance(infos, list) or not all(isinstance(i, str) for i in infos):
+            raise ConfigError(f"extra.docs.samples.fences.{value} must be a list of strings")
+        samples_fences[str(value)] = tuple(infos)
+
     return Settings(
         facets=facets,
         skills_source=source if source.is_dir() or targets else None,
@@ -182,6 +201,8 @@ def settings(raw: Any, root: Path) -> Settings:
         generators=generators,
         site_link_files=[str(f) for f in site_links.get("files") or []],
         retired_hosts=[str(h) for h in site_links.get("retired-hosts") or []],
+        samples_facet=str(samples_facet) if samples_facet else None,
+        samples_fences=samples_fences,
     )
 
 

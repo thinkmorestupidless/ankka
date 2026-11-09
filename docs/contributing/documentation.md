@@ -47,10 +47,12 @@ stale.
 Everything that names a path, a vocabulary or a target in this repository is `extra.docs` in `mkdocs.yml`,
 not the tool's code. The tool finds the repository by the nearest `mkdocs.yml` at or above the directory
 it runs in, and reads that block for: the frontmatter keys a page may carry beyond the required ones and
-the values each allows (`facets`); where the curated skills are and every directory the rendered skills
-are written to (`skills`); which generator owns each generated block (`generated`); and which files
-outside `docs/` link to the site, with the hosts the site no longer lives on (`site-links`). A new
-frontmatter vocabulary, a new skill target or a new configuration file is a line in that block.
+the values each allows (`facets`); which facet names a page's languages and which fence labels mean
+each of them (`samples`), so the check can hold every sample to every language; where the curated skills
+are and every directory the rendered skills are written to (`skills`); which generator owns each generated
+block (`generated`); and which files outside `docs/` link to the site, with the hosts the site no longer
+lives on (`site-links`). A new frontmatter vocabulary, a new skill target or a new configuration file is a
+line in that block.
 
 The same tool documents [satisfactory](https://github.com/thinkmorestupidless/satisfactory) and
 [ankka-flow](https://github.com/thinkmorestupidless/ankka-flow), and any repository whose pages follow
@@ -120,7 +122,7 @@ related: [concepts/consistency.md, build/topics.md]
 | `title` | yes | The page's name. The body's first line is `# ` and exactly this. |
 | `description` | yes | One sentence, under 240 characters, ending with a full stop. It is what `llms.txt` and the skill show beside the link, so it says what the reader will be able to do or will understand, not what the page "covers". |
 | `kind` | yes | `tutorial`, `concept`, `guide`, `reference` or `contributing`. |
-| `languages` | no | Any of `scala`, `python`, `typescript`, `rust`. Leave it out for a page that is not about writing code. |
+| `languages` | no | Any of `scala`, `java`, `kotlin`, `python`, `typescript`, `rust`, `go`: every language a reader of the page may be writing in, which is every language that can do what the page shows. Leave it out for a page that is not about writing code. |
 | `components` | no | The component kinds the page is about: `event-sourced-entity`, `key-value-entity`, `view`, `consumer`, `workflow`, `timed-action`, `agent`, `http-endpoint`. |
 | `related` | no | Paths under `docs/` of the pages a reader of this one most often needs next. |
 
@@ -148,16 +150,20 @@ refuses the common forms.
 **Show, then say.** A concept is followed by code, and a command by what it prints. Output goes in the same
 block as a comment, or in a `text` block after it.
 
-**Every code block names its language.** `scala`, `python`, `ts`, `bash`, `json`, `yaml`, `hocon`,
-`protobuf`, or `text` for output. A block with no language fails the check.
+**Every code block names its language.** `scala`, `java`, `kotlin`, `python`, `ts`, `rust`, `go`, `bash`,
+`json`, `yaml`, `hocon`, `protobuf`, or `text` for output. A block with no language fails the check.
 
 **Complete samples, or say it is an excerpt.** A sample a reader can copy should compile or run as shown,
 imports included. Where a sample is an excerpt of something larger, the sentence before it says so and
 links to the whole.
 
-**Every language, in one tab set.** When a page shows the same thing in more than one language, the
-blocks go in a tab set, Scala first, then Python, then TypeScript. Each tab opens with `/// tab | <name>`
-and closes with `///` on its own line:
+**Every language, in one tab set.** A page shows what it shows in every language it names. When a page's
+`languages` name more than one, each code sample is a tab set with one tab per language, in the order
+`mkdocs.yml` lists them: Scala, Java, Kotlin, Python, TypeScript, Rust, Go. A sample in one language alone
+tells every other reader that the feature is not theirs, and the gap is invisible to a writer who reads
+one language at a time, so the check refuses it: a tab set with one of the page's languages missing, and a
+block in one of those languages outside a tab set, both fail. Each tab opens with `/// tab | <name>` and
+closes with `///` on its own line (shortened to three languages here):
 
 ````markdown
 /// tab | Scala
@@ -199,6 +205,19 @@ A tab set that shows the same *idea* in each language must show the same *exampl
 one set of names. Three languages solving three different problems under one set of tabs reads as a
 translation and is not one.
 
+**A language is left out only when the feature is not available in it**, and
+[Limitations](../reference/limitations.md) says so. Say so where the check can read it, in a comment on
+the line before the tab set or the block, naming exactly the languages shown and the reason:
+
+```markdown
+<!-- languages: scala, java, kotlin; only a service in the runtime's own JVM registers a blueprint -->
+```
+
+The prose beside it says the same thing in words a reader sees. A page's `languages` are every language
+the page's subject exists in, so a page whose every sample needs the comment has its `languages` wrong,
+and a comment naming every language the page does is refused as noise. A page about one language,
+such as a first-service tutorial or an SDK reference, names that language alone and needs no tabs.
+
 **A diagram is an SVG whose alt text says everything it shows.** Diagrams live in `docs/assets/diagrams/`
 as hand-written SVG, each with its own background and a `prefers-color-scheme` rule for dark mode, so one
 file reads correctly on the site, on GitHub and in either theme. Only the site shows the picture: a model
@@ -219,6 +238,7 @@ plainly, and on [Limitations](../reference/limitations.md).
 A sample that the build compiles and tests is included from its source rather than typed into the page.
 Mark the region in the source file with comment lines:
 
+<!-- languages: scala; the markers are comment lines and read the same in every language -->
 ```scala
 // docs:start add-item
 def addItem(item: LineItem): Effect[Done] =
@@ -239,7 +259,14 @@ Name the region in a comment on the line before the page's code block:
 its source, so a renamed method breaks the documentation build rather than silently leaving a page that no
 longer compiles. The copy lives in the page on purpose: a page must be complete as raw Markdown, and an
 include resolved only at render time would leave a model reading the source with an empty block. Leave out
-the region name to include a whole file. Python sources use `# docs:start name` and `# docs:end name`.
+the region name to include a whole file. The markers are comment lines: `//` in Scala, Java, Kotlin,
+TypeScript, Rust and Go, `#` in Python.
+
+Every language has a tested example tree to mark regions in, so a tab set's seven tabs come from seven
+tested sources: `samples/` and the modules' tests for Scala, `samples/shopping-cart-java` and the Java
+SDK's tests for Java, `sdks/kotlin` for Kotlin, and `sdks/python`, `sdks/typescript`, `sdks/rust` and
+`sdks/go`, each with an `examples/` shopping cart and a conformance service, for the rest. A sample that
+has no home there yet gets one before it gets a tab.
 
 Samples that are not from a tested source are written by hand. Keep them short, and prefer to add a region
 to a sample or test that exists.

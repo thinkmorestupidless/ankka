@@ -14,11 +14,11 @@ object ReleasePatterns {
 
   def read(file: java.io.File): Seq[Pattern] =
     sbt.IO.readLines(file).flatMap { line =>
-      if line.trim.isEmpty || line.trim.startsWith("#") || !line.startsWith("release ") then None
+      if (line.trim.isEmpty || line.trim.startsWith("#") || !line.startsWith("release ")) None
       else {
         val literal = line.stripPrefix("release ")
         val parts   = literal.split(Pattern.quote("{version}"), -1)
-        if parts.length != 2 then sys.error(s"$file: a release line holds {version} once: $line")
+        if (parts.length != 2) sys.error(s"$file: a release line holds {version} once: $line")
         Some(Pattern.compile(Pattern.quote(parts(0)) + Numbers + Pattern.quote(parts(1))))
       }
     }
@@ -27,7 +27,7 @@ object ReleasePatterns {
     patterns.foldLeft(text) { (current, pattern) =>
       val matcher = pattern.matcher(current)
       val out     = new StringBuffer
-      while matcher.find() do {
+      while (matcher.find()) {
         val whole = matcher.group(0)
         val from  = matcher.start(1) - matcher.start(0)
         val to    = matcher.end(1) - matcher.start(0)
@@ -42,6 +42,6 @@ object ReleasePatterns {
 
   /** The CLI's documentation release: its version on a release, else the last release before it. */
   def release(version: String, snapshot: Boolean, previous: Option[String]): String =
-    if !snapshot && version.matches("""\d+\.\d+\.\d+""") then version
+    if (!snapshot && version.matches("""\d+\.\d+\.\d+""")) version
     else previous.getOrElse("0.0.0")
 }

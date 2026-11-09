@@ -68,6 +68,7 @@ class CartSteps {
     @Given("an empty cart")
     fun anEmptyCart() = Unit
 
+    // docs:start steps
     @Given("a cart holding {int} of {string}")
     fun aCartHolding(quantity: Int, product: String) = setUp(add(quantity, product))
 
@@ -105,6 +106,7 @@ class CartSteps {
 
     @Then("the cart holds {int} of {string}")
     fun holds(quantity: Int, product: String) = assertEquals(quantity, quantityOf(product))
+    // docs:end steps
 
     @Then("the cart holds {int} item(s) in total")
     fun holdsInTotal(total: Int) {
@@ -161,6 +163,7 @@ class CartSteps {
 
     // ── The cart's tools, as an assistant calls them ─────────────────────────
 
+    // docs:start mcp-request
     /** One JSON-RPC request to the cart's MCP endpoint, as any MCP client sends it. */
     private fun mcp(method: String, params: String): String {
         val (status, body) =
@@ -172,6 +175,7 @@ class CartSteps {
     private fun callTool(name: String, arguments: String) {
         last = 0 to mcp("tools/call", """{"name":"$name","arguments":$arguments}""")
     }
+    // docs:end mcp-request
 
     @When("the customer's assistant asks for the cart's tools")
     fun asksForTools() {

@@ -12,14 +12,17 @@ import com.thinkmorestupidless.ankka.kotlin.dsl.effects
 import java.util.Optional
 import java.util.OptionalInt
 
+// docs:start topic-sources
 /** The latest message about each subject. Declares no start, so it reads from the earliest. */
 @ComponentId("topic-rows")
 class TopicRows : View<Fanned, Fanned>() {
 
     override fun source(): ChangeSource<Fanned> = ChangeSource.ofTopic(TOPIC, Fanned::class.java)
 
+    // docs:start version
     // Raised from 1 once: every reference declares 2, which names the group it reads under.
     override fun version(): OptionalInt = OptionalInt.of(2)
+    // docs:end version
 
     override fun onChange(message: Fanned): ViewEffect<Fanned> = effects { updateRow(message) }
 
@@ -39,7 +42,9 @@ class TopicRelay : Consumer<Fanned, Fanned>() {
 
     override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(message) }
 }
+// docs:end topic-sources
 
+// docs:start contract
 /**
  * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
  * publishes one more.
@@ -72,7 +77,9 @@ class ContractRelay : Consumer<Fanned, Fanned>() {
         const val BROKER = "legacy"
     }
 }
+// docs:end contract
 
+// docs:start cross-project
 /** Reads project `partner`'s `conformance-shared` and republishes to its other. */
 @ComponentId("partner-relay")
 class PartnerRelay : Consumer<Fanned, Fanned>() {
@@ -88,3 +95,4 @@ class PartnerRelay : Consumer<Fanned, Fanned>() {
         const val PARTNER = "partner"
     }
 }
+// docs:end cross-project

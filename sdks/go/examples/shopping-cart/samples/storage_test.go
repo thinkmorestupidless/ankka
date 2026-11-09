@@ -56,7 +56,9 @@ func TestThePhotosAreKeptReadListedAndRecorded(t *testing.T) {
 	if r := kit.Get(ctx, "/storage/objects/a.txt"); r.Status != 404 {
 		t.Fatalf("a deleted object answered %d", r.Status)
 	}
-	if r := kit.Get(context.Background(), "/storage/objects"); r.Status != 503 && r.Status != 500 {
-		t.Fatalf("no storage answered %d %s", r.Status, r.Text())
+	// A service with no bucket: its store refuses every call, naming provisionObjectStorage.
+	none := ankka.WithStorage(context.Background(), ankka.NoStorage)
+	if r := kit.Get(none, "/storage/objects"); r.Status != 503 {
+		t.Fatalf("no bucket answered %d %s", r.Status, r.Text())
 	}
 }

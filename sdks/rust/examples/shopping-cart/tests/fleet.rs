@@ -1,7 +1,8 @@
-//! The mirrored-change consumer with nothing running.
+//! The replicated vehicle and the mirrored-change consumer with nothing running.
 
-use ankka::testkit::ConsumerTestKit;
-use shopping_cart::conformance::StepAdded;
+use ankka::prelude::*;
+use ankka::testkit::{ConsumerTestKit, EventSourcedTestKit, ReplicationMode};
+use shopping_cart::conformance::{ReplicatedVehicle, StepAdded, VehicleRecord};
 use shopping_cart::fleet::{Build, BuildsConsumer};
 
 #[test]
@@ -42,3 +43,34 @@ fn the_consumer_declares_that_it_takes_mirrored_changes() {
     };
     assert!(detail.mirrored_changes);
 }
+
+// docs:start follower-kit
+#[test]
+fn a_follower_answers_queries_from_its_mirrored_history_and_refuses_to_write() {
+    let mut kit =
+        EventSourcedTestKit::<ReplicatedVehicle>::new("v1").in_mode(ReplicationMode::Follower {
+            home: "leipzig".into(),
+            installation: "bratislava".into(),
+        });
+    // History the copy mirrored from its home, written there.
+    kit.replay(
+        vec![
+            StepAdded {
+                step: "frame".into(),
+            },
+            StepAdded {
+                step: "paint".into(),
+            },
+        ],
+        Some("leipzig"),
+    );
+    let vehicle = kit.command("get", ()).reply::<VehicleRecord>().unwrap();
+    assert_eq!(vehicle.steps, vec!["frame", "paint"]);
+    assert_eq!(vehicle.written_at, vec!["leipzig", "leipzig"]);
+    assert_eq!(vehicle.local, vec![false, false]);
+    // A command that may persist is refused: the home is the only copy that writes.
+    let refused = kit.command("add-step", "wheels".to_string());
+    assert_eq!(refused.error().map(|e| e.code), Some(ErrorCode::NotHome));
+    assert!(refused.error().unwrap().message.contains("leipzig"));
+}
+// docs:end follower-kit

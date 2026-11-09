@@ -226,3 +226,62 @@ private[cli] object ReleaseCheck:
         ): Unit
       finally Files.deleteIfExists(temporary): Unit
     catch case NonFatal(_) => ()
+
+  // ── Around one command ────────────────────────────────────────────────────
+
+  /**
+   * One built-in command's check: a read started before the command, when one is due, and the
+   * notice given after it from whatever is known by then. The command never waits for the read: one
+   * that ends first leaves it unfinished and unremembered, and the next command reads again. `ankka
+   * version` alone reads every time and waits for the read, under the same timeout.
+   */
+  final class Around private[ReleaseCheck] (
+      version: Boolean,
+      current: Release,
+      remembered: Option[RememberedCheck],
+      pending: Option[Pending]
+  ):
+
+    def end(code: Int, err: java.io.PrintStream, now: Instant = Instant.now()): Unit =
+      // A usage error printed help, not a command's output.
+      if code != 2 then
+        val read: Option[LatestRelease] =
+          pending.flatMap { p =>
+            if version then p.await(Timeout.plusMillis(250)): Unit
+            p.finished.flatten
+          }
+        val known = read match
+          case Some(latest) =>
+            Some(RememberedCheck(now, Some(latest), remembered.flatMap(_.noticeAt)))
+          case None => remembered
+        val latest = known.flatMap(_.latest)
+        val give   =
+          if version then newer(latest, current).isDefined
+          else shouldNotify(latest, current, known.flatMap(_.noticeAt), now)
+        newer(latest, current).filter(_ => give).foreach { newest =>
+          err.println(notice(newest, current))
+          err.flush()
+        }
+        val updated = if give then known.map(_.copy(noticeAt = Some(now))) else known
+        if updated != remembered then updated.foreach(remember)
+
+  /**
+   * Starts the check around a built-in command, or none when it does not apply: see `enabled`.
+   * `now` and `terminal` are the test's to fix.
+   */
+  def begin(
+      args: Seq[String],
+      env: Map[String, String],
+      current: String,
+      terminal: Boolean = ReleaseCheck.terminal(),
+      now: Instant = Instant.now()
+  ): Option[Around] =
+    if !enabled(args, env, current, terminal) then None
+    else
+      Release.parse(current).map { release =>
+        val version    = args.headOption.contains("version")
+        val remembered = ReleaseCheck.remembered()
+        val pending    =
+          Option.when(version || shouldRead(remembered, now))(start(url(env)))
+        Around(version, release, remembered, pending)
+      }

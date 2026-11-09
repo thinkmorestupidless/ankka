@@ -1936,19 +1936,30 @@ object Main:
    * underneath them — and so the exit codes are themselves testable, which for a CLI used in
    * scripts is part of the contract.
    *
-   * `env` is the environment the command sees, so a test can set `CI` without touching the JVM's.
+   * `env` is the environment the command sees, so a test can set `CI` without touching the JVM's;
+   * `release` is the command line's own version, which a test fixes because a build from a checkout
+   * is a development build.
+   *
+   * A built-in command is wrapped in the release check: a read of the latest release started before
+   * it and, after it, one line on the error output when a newer release exists (`ReleaseCheck`). A
+   * plugin is its own program and may own the terminal, so it is not.
    */
   def run(
       args: Seq[String],
       out: PrintStream,
       err: PrintStream,
-      env: Map[String, String] = sys.env
+      env: Map[String, String] = sys.env,
+      release: String = com.thinkmorestupidless.ankka.core.BuildInfo.version
   ): Int =
     args.headOption match
       // Before decline: everything after a plugin's word is the plugin's, `--help` included.
       case Some(word) if !word.startsWith("-") && !builtIn(word) =>
         Plugins.dispatch(word, args.tail, builtIn, err)
-      case _ => parse(args, out, err, env)
+      case _ =>
+        val check = ReleaseCheck.begin(args, env, release)
+        val code  = parse(args, out, err, env)
+        check.foreach(_.end(code, err))
+        code
 
   private def parse(
       args: Seq[String],

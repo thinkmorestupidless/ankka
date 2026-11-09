@@ -44,6 +44,15 @@ class Generator:
 
 
 @dataclass
+class ReleaseSettings:
+    """Where pages name a release of this repository (`extra.docs.release`): the patterns file, and the git
+    tags that are releases. Absent, nothing names a release and nothing is rewritten or refused."""
+
+    patterns: Path  # absolute
+    tags: str = "v*"
+
+
+@dataclass
 class Settings:
     """Everything in `extra.docs`. Every path is relative to the repository root.
 
@@ -72,6 +81,9 @@ class Settings:
         site-links:                   # files outside docs/ that link to the site
           files: [README.md]
           retired-hosts: [thinkmorestupidless.github.io]
+        release:                      # where pages name a release of this repository
+          patterns: docs/release-patterns.txt
+          tags: "v*"
     ```
     """
 
@@ -81,6 +93,7 @@ class Settings:
     generators: dict[str, Generator] = field(default_factory=dict)
     site_link_files: list[str] = field(default_factory=list)
     retired_hosts: list[str] = field(default_factory=list)
+    release: ReleaseSettings | None = None
 
     @property
     def escapes_dollars(self) -> bool:
@@ -139,7 +152,7 @@ def project(root: Path | None = None) -> Project:
 def settings(raw: Any, root: Path) -> Settings:
     if not isinstance(raw, dict):
         raise ConfigError("extra.docs must be a mapping")
-    known = {"facets", "skills", "generated", "site-links"}
+    known = {"facets", "skills", "generated", "site-links", "release"}
     for key in raw:
         if key not in known:
             raise ConfigError(f"extra.docs has an unknown key '{key}'; one of {sorted(known)}")
@@ -175,6 +188,13 @@ def settings(raw: Any, root: Path) -> Settings:
     if not isinstance(site_links, dict):
         raise ConfigError("extra.docs.site-links must be a mapping")
 
+    release = raw.get("release")
+    release_settings: ReleaseSettings | None = None
+    if release is not None:
+        if not isinstance(release, dict) or not isinstance(release.get("patterns"), str):
+            raise ConfigError("extra.docs.release is a mapping with a `patterns` file")
+        release_settings = ReleaseSettings(root / release["patterns"], str(release.get("tags", "v*")))
+
     return Settings(
         facets=facets,
         skills_source=source if source.is_dir() or targets else None,
@@ -182,6 +202,7 @@ def settings(raw: Any, root: Path) -> Settings:
         generators=generators,
         site_link_files=[str(f) for f in site_links.get("files") or []],
         retired_hosts=[str(h) for h in site_links.get("retired-hosts") or []],
+        release=release_settings,
     )
 
 

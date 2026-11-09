@@ -22,7 +22,7 @@ loopback fake.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `docs/release-patterns.txt` in the shape of data-model.md "The patterns file", with `release` lines for every form a page uses today (`ankka-go@v{version}` and any others `grep -rnE '\b0\.[0-9]+\.[0-9]+\b' docs/` shows naming ankka) and `other spec-kit.git@v`; add `extra.docs.release: {patterns: docs/release-patterns.txt, tags: "v*"}` to `mkdocs.yml` under the existing `extra.docs` block with a comment saying what it is for
+- [X] T001 Create `docs/release-patterns.txt` in the shape of data-model.md "The patterns file", with `release` lines for every form a page uses today (`ankka-go@v{version}` and any others `grep -rnE '\b0\.[0-9]+\.[0-9]+\b' docs/` shows naming ankka) and `other spec-kit.git@v`; add `extra.docs.release: {patterns: docs/release-patterns.txt, tags: "v*"}` to `mkdocs.yml` under the existing `extra.docs` block with a comment saying what it is for
 
 ## Phase 2: Foundational
 

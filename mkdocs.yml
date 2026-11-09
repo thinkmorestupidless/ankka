@@ -147,6 +147,11 @@ extra:
         - marketplace/plugins/ankka/.claude-plugin/plugin.json
         - marketplace/.claude-plugin/marketplace.json
         - marketplace/README.md
+    # Where a page names a release of ankka, so a build names the release it builds and the check
+    # refuses one written by hand. `tags` are the git tags that are releases of this repository.
+    release:
+      patterns: docs/release-patterns.txt
+      tags: "v*"
 
 nav:
   - Home: index.md

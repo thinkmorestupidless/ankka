@@ -1,0 +1,45 @@
+# Where a page names a release of ankka. Read by tools/docs (docs check, sync, build) and by build.sbt,
+# which bundles the pages into the command line; both rewrite every `release` form to the release they
+# build, so a page keeps a real version in its text and still names the current one wherever it is read.
+#
+# release <literal>   a place a page names a release of ankka: `{version}` is the release, without its v
+# other <prefix>      a place a page names a version equal to a release of ankka that is not the release
+#                     being built: another project's release, the reader's own project, or the release
+#                     a rule starts from. The version follows the prefix; the check leaves it alone.
+#
+# `docs check` refuses any other occurrence of a version equal to one of ankka's release tags.
+
+# The SDKs and the runtime, as a project depends on them.
+release ankkaVersion = "{version}"
+release "ankka-controlplane-api" % "{version}"
+release "runtime": "{version}"
+release ankka=={version}
+release ankka[testkit]=={version}
+release ankka@{version}
+release ankka = "{version}"
+release ankka = { version = "{version}"
+release ankka-go@v{version}
+release ankka-sidecar:{version}
+
+# The command line and the platform's images, as a person installs them.
+release version={version}
+release newTag: "{version}"
+
+# What a release answers with.
+release {"version":"{version}"}
+release platform   {version}
+
+# Other projects' releases.
+other spec-kit.git@v
+other speckit-bdd/releases/download/v
+other speckit-bdd-extension-
+other ankka-graph-sink-neo4j:
+other ankka-gcp
+
+# The reader's own project.
+other orders:
+other cart-module:
+
+# The release a rule starts from.
+other from version
+other before version

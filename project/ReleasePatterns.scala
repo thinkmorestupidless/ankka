@@ -1,5 +1,7 @@
 import java.util.regex.{Matcher, Pattern}
 
+import sbt._
+
 /**
  * `docs/release-patterns.txt`, as the CLI's build reads it: every `release` form a page names a
  * release of ankka in, rewritten to the release the CLI is built for, so the pages `ankka mcp`
@@ -39,6 +41,29 @@ object ReleasePatterns {
       matcher.appendTail(out)
       out.toString
     }
+
+  /**
+   * Every page under `docs` into `out`, its release forms naming `release`, with `index.txt`
+   * listing them and `release.txt` naming the release. One function for the pages the CLI carries
+   * and for the fixture `DocsBundleSuite` reads, so the suite proves the rewrite the bundle is made
+   * with.
+   */
+  def bundle(docs: File, out: File, release: String, patterns: Seq[Pattern]): Seq[File] = {
+    val pages = (docs ** "*.md").get
+      .flatMap(file => IO.relativize(docs, file).map(_ -> file))
+      .sortBy(_._1)
+    IO.delete(out)
+    val copied = pages.map { case (relative, file) =>
+      val target = out / relative
+      IO.write(target, rewrite(IO.read(file), release, patterns))
+      target
+    }
+    val index = out / "index.txt"
+    IO.write(index, pages.map(_._1).mkString("", "\n", "\n"))
+    val named = out / "release.txt"
+    IO.write(named, release + "\n")
+    index +: named +: copied
+  }
 
   /** The CLI's documentation release: its version on a release, else the last release before it. */
   def release(version: String, snapshot: Boolean, previous: Option[String]): String =

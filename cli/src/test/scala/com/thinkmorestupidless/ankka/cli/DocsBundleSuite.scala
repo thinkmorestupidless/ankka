@@ -77,3 +77,16 @@ class DocsBundleSuite extends munit.FunSuite:
       s"get-started/install.md does not say ankka-go@v$release"
     )
   }
+
+  test("a release form naming an older release is bundled naming the CLI's release") {
+    // A fixture `docs sync` never moves, bundled by the same function as the pages: it names 0.1.0 in
+    // its source, so only the rewrite can make it name the bundle's release.
+    val fixture = getClass.getClassLoader.getResourceAsStream("ankka/release-fixture/install.md")
+    assert(fixture != null, "the fixture was not bundled")
+    val text =
+      try String(fixture.readAllBytes(), StandardCharsets.UTF_8)
+      finally fixture.close()
+    assert(text.contains(s"ankka-go@v$release"), text)
+    assert(text.contains(s"ankka==$release"), text)
+    assert(!text.contains("0.1.0"), text)
+  }

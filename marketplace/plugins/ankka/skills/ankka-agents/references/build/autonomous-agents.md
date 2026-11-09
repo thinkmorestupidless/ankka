@@ -1111,8 +1111,9 @@ many. While anyone watches an instance, it stays in memory.
 
 The scripted model drives an autonomous agent end to end. `expectCompleteTask(result)` scripts the model
 completing the task, `expectFailTask(reason)` giving up, and `expectToolCall` calling one of the agent's
-tools; `whenToolResult` and `whenUserAsks` answer by what a request holds rather than in order. A script
-that runs out fails the task, naming the script, rather than leaving it waiting.
+tools; `whenToolResult` and `whenUserAsks` answer by what a request holds rather than in order, once the
+script is used up. A request that neither answers fails the task, naming the script, rather than leaving it
+waiting.
 
 **Scala**
 

@@ -72,7 +72,8 @@ public final class TestModelProvider implements ModelProvider {
 
   /**
    * Answers {@code text} to every request whose last user message contains {@code substring},
-   * ahead of the script and without using it up: how a blueprint's steps are answered.
+   * once the script is used up, and as often as it matches: how a blueprint's steps are answered. A
+   * scripted answer still waiting is given first.
    */
   public TestModelProvider whenUserAsks(String substring, String text) {
     script.whenUserAsks(substring, text);

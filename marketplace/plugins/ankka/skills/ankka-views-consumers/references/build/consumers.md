@@ -328,6 +328,13 @@ message's record key on Kafka unless the message names a key of its own. Every m
 therefore lands on one partition, in order. To set other CloudEvents attributes, pass metadata:
 `effects.produce(message, metadata)`. See [Broker topics](topics.md).
 
+The subject is sent whether or not the handler sets it. A message whose body leaves out an internal id
+still carries the source entity's id in `ce-subject`, so a consumer publishing to a topic that another
+project or a machine reads should set `ce-subject` in the metadata to what that reader may see. Otherwise
+a consumer whose source is a per-person entity sends that person's id to every reader. A consumer whose
+source is a topic publishes under the incoming message's subject, or an empty subject when the message
+had none.
+
 A service with a publishing consumer needs somewhere to publish to. In Scala that is
 `ProjectionRuntime.withKafka(bootstrapServers)`, or `ProjectionRuntime.withPublisher(publisher)` with a
 publisher of your own. A Python, TypeScript or Rust service needs `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in its

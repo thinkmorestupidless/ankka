@@ -133,3 +133,32 @@ Shape in `data-model.md`.
 ## Design finished
 
 2026-11-09: analyze reported nothing above LOW (left at LOW: T012's timing assertion may be noisy on a loaded runner; the check cannot see a hand-written version no tag yet has).
+
+## Found during implementation
+
+- **A page that states history, or the reader's own project, is not a release form.** FR-015 read
+  alone would rewrite "a platform from version 0.8.0 on runs no runtime from before version 0.8.0" and
+  `docker tag orders:0.1.0` to the release being built, which would make them false. User Story 4 scopes
+  it to "an install line, a dependency to add", so those are `release` forms and everything else equal to
+  a tag is either an `other` prefix (another project's release; the reader's `orders:` and `cart-module:`
+  images; `from version` and `before version` for the release a rule starts from) or reworded: the
+  compatibility table in `upgrading.md` uses `1.4.x`, which no tag names, the Go SDK page's
+  `ankka.Version()` example uses `1.2.3`, and the Rust tutorial's crate drops its `version = "0.1.0"`
+  line (optional since Cargo 1.75). The patterns file's comments say so.
+- **The newest tag is the highest version `git tag --merged HEAD` lists**, not `git describe`'s: among
+  several tags on one commit `describe` does not pick the highest, which the fixture repository showed.
+- **An `other` prefix is compared with trailing space stripped**, so an editor that trims
+  `other from version ` changes nothing.
+- **The MCP server looks every hour and reads when its last successful read is a day old**, rather than
+  reading on a fixed 24-hour period: the same "at least daily" (FR-009), and a read that failed is tried
+  again within the hour instead of a day later.
+- **Terminal detection asks `Console.isTerminal()` by reflection where the JDK has it** (R3 named the
+  move past 21): the CLI's zip runs on whatever JDK is on the path, and from 22 `System.console()` is
+  non-null when redirected.
+- **A fast command rarely remembers its own read.** R2's design, kept: a command that ends before the
+  read leaves it unremembered, so a person who only runs local commands that finish in milliseconds
+  learns of a release through `ankka version` or the first command that talks to a control plane. Noted
+  for the pull request rather than changed, since waiting would break FR-006.
+- **The native image's read path is proved only on a release build.** `native-smoke.sh` gives it an
+  unreachable address on every build, and on a tag (where it is given the expected version) serves a
+  newer `latest.json` on loopback and requires the notice and the remembered file.

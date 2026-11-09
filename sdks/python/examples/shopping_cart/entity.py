@@ -5,6 +5,7 @@ from ankka import DONE, Done, ErrorCode, EventSourcedEffect, EventSourcedEntity,
 from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
 
 
+# docs:start declaration
 class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     component_id = "shopping-cart"
     state_codec = json_codec(ShoppingCart, "shopping-cart")
@@ -26,11 +27,14 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
                 # The cart is deleted straight after; the event is there for what reads the journal.
                 return state
         raise AssertionError(event)
+    # docs:end declaration
 
     @command("add-item")
     def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+        # docs:start refusal
         if self.state.checkedOut:
             return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+        # docs:end refusal
         if item.quantity <= 0:
             return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
         return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
@@ -53,6 +57,7 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
         # later change to it is refused.
         return self.effects.persist(CheckedOut()).then_reply_state()
 
+    # docs:start discard
     @command("discard")
     def discard(self) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
         if self.state.checkedOut:
@@ -60,6 +65,7 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
         # The event is persisted, then the cart is deleted, so a consumer downstream still sees the
         # discard rather than a cart that vanished; the same id then starts again empty.
         return self.effects.persist(Discarded()).delete_entity().then_reply(lambda _: DONE)
+    # docs:end discard
 
     @query("get-cart")
     def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]:

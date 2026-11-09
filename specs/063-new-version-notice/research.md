@@ -155,10 +155,12 @@ Shape in `data-model.md`.
 - **Terminal detection asks `Console.isTerminal()` by reflection where the JDK has it** (R3 named the
   move past 21): the CLI's zip runs on whatever JDK is on the path, and from 22 `System.console()` is
   non-null when redirected.
-- **A fast command rarely remembers its own read.** R2's design, kept: a command that ends before the
-  read leaves it unremembered, so a person who only runs local commands that finish in milliseconds
-  learns of a release through `ankka version` or the first command that talks to a control plane. Noted
-  for the pull request rather than changed, since waiting would break FR-006.
+- **A fast command remembers its attempt, waits 100 ms, and the read remembers itself** (decided at
+  review, superseding R2's "never waits"). The first build recorded only successful reads, so a command
+  that ended before its read left nothing and every fast command read again. Now the attempt is written
+  before the read starts and holds the next off for an hour unless it succeeded; a command waits up to
+  100 ms for a read in flight (SC-002's budget); and the read's own thread remembers what it found.
+  FR-005 and FR-006 are reworded to say so.
 - **The native image's read path is proved only on a release build.** `native-smoke.sh` gives it an
   unreachable address on every build, and on a tag (where it is given the expected version) serves a
   newer `latest.json` on loopback and requires the notice and the remembered file.

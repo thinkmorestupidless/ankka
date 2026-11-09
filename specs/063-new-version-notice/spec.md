@@ -62,6 +62,11 @@ version X)". The pages that name a release take it from the release that builds 
   model's `initialize`? → A: Yes, up to the read's 2 s timeout, and only when nothing is remembered
   or the remembered read is a day old; the instructions then carry the notice from the first
   connection (SC-004).
+- Q (at review): A command that ends before its read records nothing, so every fast command reads
+  again and is never told. Which fix? → A: Remember each attempt before it starts; a successful read
+  lasts a day, an attempt that did not succeed holds the next off for an hour; a command waits up to
+  100 ms (SC-002's budget) for a read in flight; the read thread remembers what it found itself
+  (FR-005, FR-006).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -193,17 +198,19 @@ hand-written release to a page and run the check.
 
 **The command line**
 
-- **FR-005**: The command line MUST read the latest release at most once in 24 hours, and MUST
-  remember what it read and when in a file beside its settings, whose place follows the settings'
-  own override.
-- **FR-006**: Reading the latest release MUST NOT delay a command beyond its own work, MUST NOT
-  change its output or its exit code, and MUST give up after a short timeout.
+- **FR-005**: The command line MUST read the latest release successfully at most once in 24 hours,
+  and MUST NOT attempt a read within an hour of an attempt that did not succeed (it failed, or the
+  command ended first). It MUST remember what it read, when, and when it last attempted, in a file
+  beside its settings, whose place follows the settings' own override.
+- **FR-006**: Reading the latest release MUST NOT delay a command by more than 100 ms beyond its own
+  work, MUST NOT change its output or its exit code, and MUST give up after a short timeout.
 - **FR-007**: The notice MUST be one line on the error output, after the command's own output, and
   MUST be given at most once in 24 hours, by the first command that knows of the newer release.
 - **FR-007a**: `ankka version` MUST read the latest release at once, under the same timeout, past the
   once-a-day limit, remember what it read, and give the notice whenever a newer release exists.
 - **FR-008**: The command line MUST neither read the latest release nor give the notice when output
-  is JSON, when its error output is not a terminal, when the environment says it runs under CI, when
+  is JSON, when it is not at a terminal (on JDK 21, standard input and output both the terminal; from
+  JDK 22, the console is a terminal), when the environment says it runs under CI, when
   `ANKKA_NO_UPDATE_CHECK=1`, or when it is a development build (a version that is not a release).
   A plugin's command and `ankka mcp` give no notice on the error output: a plugin may own the
   terminal, and the MCP server has its own (FR-009).
@@ -220,7 +227,9 @@ hand-written release to a page and run the check.
   than the command line's.
 - **FR-013**: When a newer release exists, the answers of `search_docs` and `read_doc` MUST carry a
   short note that the documentation is the command line's release's, with the notice.
-- **FR-014**: When the latest release cannot be read, every tool MUST answer as it does today.
+- **FR-014**: When the latest release cannot be read, every tool MUST answer as it does with the
+  check turned off: `whoami` and `installation_status` carry only the command line's release (and
+  the installation's) under `release`.
 
 **The documentation**
 

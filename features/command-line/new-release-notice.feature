@@ -56,7 +56,7 @@ Feature: A notice when a newer release exists
   Scenario: a command ends when its own work ends, not when the read of the latest release does
     Given the latest release takes longer to read than the command takes
     When a person runs a command
-    Then the command ends when its own work ends
+    Then the command ends no more than 100 milliseconds after its own work ends
     And no notice is given
 
   Scenario Outline: the latest release is not read and no notice is given where a notice would be in the way

@@ -113,10 +113,11 @@ ankka version Y is available (you're currently using version X)
 ```
 
 The command line reads the latest release from `https://docs.ankka.cloud/latest.json`, which each
-release publishes once its libraries can be fetched. It reads at most once a day, on a thread of its own
-that never holds a command up and gives up after two seconds: a command that ends before the read does
-gives no notice, and the next command reads again. The notice is given at most once a day, by the first
-command that knows of the newer release. The command's own output and exit code are never changed, and a
+release publishes once its libraries can be fetched. It reads on a thread of its own that gives up after
+two seconds, and a command waits for it no more than 100 ms after its own work: a read that has not
+finished by then goes on while the command line runs and remembers what it found, and an attempt that
+did not succeed is not tried again for an hour. A successful read lasts a day. The notice is given at
+most once a day, by the first command that knows of the newer release. The command's own output and exit code are never changed, and a
 read that fails or times out changes nothing.
 
 `ankka version` reads every time, waiting for the read up to its two seconds, and gives the notice
@@ -132,7 +133,8 @@ The latest release is not read and no notice is given:
 - by a plugin's command, which is its own program and may own the terminal, and by `ankka mcp`, which
   says it where the model reads instead (its instructions and tool answers).
 
-What was read, when, and when the notice was last given are kept in `release-check.json`, beside the
+What was read, when, when a read was last attempted, and when the notice was last given are kept in
+`release-check.json`, beside the
 settings file, so `ANKKA_CONFIG` and `-Dankka.config` move it too. `ANKKA_LATEST_URL` names another
 address to read the latest release from.
 

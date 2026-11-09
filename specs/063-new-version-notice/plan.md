@@ -31,8 +31,8 @@ docs tool, `tools/docs`).
 
 **Project Type**: CLI plus a documentation tool and a release workflow step.
 
-**Performance Goals**: a command with the latest release unreachable costs ≤ 100 ms more (SC-002); the
-read never extends a command.
+**Performance Goals**: a command with the latest release unreachable costs ≤ 100 ms more (SC-002); a
+command waits for the read no more than 100 ms beyond its own work (FR-006).
 
 **Constraints**: the native image (no reflection-only code paths; a daemon thread is fine); no change
 to any command's output or exit code; the docs tool stays repository-neutral (other repos take it from

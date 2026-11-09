@@ -22,11 +22,14 @@ Read from `latest.json` (`contracts/latest-release.md`). A body that does not pa
 
 | Field | Type | Rule |
 |---|---|---|
-| `checkedAt` | instant | when the latest release was last read successfully |
+| `checkedAt` | instant, optional | when the latest release was last read successfully |
 | `latest` | LatestRelease, optional | what was read then |
 | `noticeAt` | instant, optional | when the command line last gave the notice |
+| `attemptedAt` | instant, optional | when a command last started a read, written before it starts |
 
-- Read again when `checkedAt` is absent or 24 h or more before now (FR-005).
+- Read again when `checkedAt` is absent or 24 h or more before now, and `attemptedAt` is absent or
+  an hour or more before now (FR-005). The read's own thread writes `checkedAt` and `latest` when it
+  succeeds; a command waits up to 100 ms for it after its own work (FR-006).
 - Notice given when `latest` is newer than the command line's release and `noticeAt` is absent or
   24 h or more before now (FR-007); giving it writes `noticeAt`.
 - `ankka version` reads regardless of `checkedAt` and gives the notice regardless of `noticeAt`

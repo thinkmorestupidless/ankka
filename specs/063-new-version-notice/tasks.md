@@ -91,7 +91,7 @@ through `ReleaseCheck.remember`
 
 - [X] T024 [P] Document the notice in `docs/reference/cli.md` (hand-written part, not the generated reference: when it is given, when not, `ANKKA_NO_UPDATE_CHECK`, `ANKKA_LATEST_URL`, the remembered file) and in the MCP page that describes `ankka mcp`; the scenario "the documentation of the command line says when the notice is given and how to turn the check off" is a test in `tools/docs/tests/test_release.py` reading the built page; `just docs-reference` if the CLI's help changed
 - [X] T025 [P] Add the traps to `.claude/rules/build-and-release.md` (the patterns file is read by both the docs tool and `build.sbt`; `docs build --release` in the release job) and `.claude/rules/docs.md` (a version of ankka in a page goes in a form `docs/release-patterns.txt` lists), and R3's JDK 22 `System.console()` change to `.claude/rules/control-plane.md`'s CLI traps
-- [ ] T026 Run `just features`, `just docs`, `sbt cli/test`, `uv run --project tools/docs pytest -q tools/docs/tests` and quickstart.md sections 2 and 4 by hand; record any difference from the contracts in the PR
+- [X] T026 Run `just features`, `just docs`, `sbt cli/test`, `uv run --project tools/docs pytest -q tools/docs/tests` and quickstart.md sections 2 and 4 by hand; record any difference from the contracts in the PR
 
 ## Dependencies & Execution Order
 

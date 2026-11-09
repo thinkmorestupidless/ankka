@@ -279,10 +279,14 @@ def tabs(tree: Tree) -> list[Problem]:
     problems: list[Problem] = []
     for page in tree.pages.values():
         lines = page.body.split("\n")
+        in_code = fenced_lines(page.body)
         seen: dict[str, tuple[str, int]] = {}
         label: str | None = None
         number = 0
         for index, line in enumerate(lines, start=1):
+            if index - 1 in in_code and not (label is not None and line.startswith("```")):
+                # A Rust doc comment is a bare `///` inside a fence; only a `///` in prose closes a tab.
+                continue
             opened = TAB.match(line)
             if opened:
                 label, number = opened.group("label"), index
@@ -436,7 +440,8 @@ def samples(tree: Tree) -> list[Problem]:
                         break
                     labels.append((opened.group("label"), index + 1))
                     index += 1
-                    while index < len(lines) and lines[index].strip() != "///":
+                    # A bare `///` inside a fence is a Rust doc comment, not the tab's closer.
+                    while index < len(lines) and (index in in_code or lines[index].strip() != "///"):
                         index += 1
                     index += 1
                     gap = index

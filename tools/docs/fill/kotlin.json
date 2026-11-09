@@ -283,47 +283,58 @@
   },
   {
     "slot": "build/grpc-endpoints.md:62",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:71",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:98",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:164",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:187",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:207",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:283",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:301",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:325",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:334",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/grpc-endpoints.md:360",
-    "unresolved": "not yet worked"
+    "exclude": "gRPC endpoints are for Scala and Java services. A Kotlin service declares one through the Java SDK's `GrpcEndpoint`, with grpc-java's generated stubs.",
+    "limitations_missing": false
   },
   {
     "slot": "build/http-endpoints.md:26",
@@ -404,83 +415,88 @@
   },
   {
     "slot": "build/judgments.md:31",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#questions"
   },
   {
     "slot": "build/judgments.md:77",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#triage"
   },
   {
     "slot": "build/judgments.md:89",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#read-answers",
+    "note": "Compiled, not run: no judgment can be scripted in Kotlin, so no test holds a Judgment to read."
   },
   {
     "slot": "build/judgments.md:103",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#routing"
   },
   {
     "slot": "build/judgments.md:138",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#configure",
+    "note": "JudgmentProviders.jev() reads TYPESAFE_API_KEY when the module is built; the test proves the refusal names it."
   },
   {
     "slot": "build/judgments.md:185",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#guardrail"
   },
   {
     "slot": "build/judgments.md:206",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TriageAgent.kt#guarded"
   },
   {
     "slot": "build/judgments.md:271",
-    "unresolved": "not yet worked"
+    "exclude": "The Kotlin SDK has no agent test kit of its own: a Kotlin agent is tested with the Java SDK's `AgentTestKit` and `TestModelProvider`, so a judgment cannot be scripted in Kotlin either.",
+    "limitations_missing": false
   },
   {
     "slot": "build/judgments.md:286",
-    "unresolved": "not yet worked"
+    "exclude": "The Kotlin SDK has no agent test kit of its own: a Kotlin agent is tested with the Java SDK's `AgentTestKit` and `TestModelProvider`, so a judgment cannot be scripted in Kotlin either.",
+    "limitations_missing": false
   },
   {
     "slot": "build/key-value-entities.md:45",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLog.kt#key-value"
   },
   {
     "slot": "build/key-value-entities.md:217",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLogTest.kt#register-and-call"
   },
   {
     "slot": "build/key-value-entities.md:262",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLogTest.kt#key-value-test"
   },
   {
     "slot": "build/mcp-endpoints.md:334",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#reference"
   },
   {
     "slot": "build/mcp-endpoints.md:350",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#handler"
   },
   {
     "slot": "build/mcp-endpoints.md:379",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#acl"
   },
   {
     "slot": "build/mcp-endpoints.md:404",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/CartEndpoint.kt#keys"
   },
   {
     "slot": "build/mcp-endpoints.md:738",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/CartFeaturesTest.kt#mcp-request"
   },
   {
     "slot": "build/mcp-servers.md:24",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TicketAgent.kt#mcp-servers"
   },
   {
     "slot": "build/mcp-servers.md:156",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/TicketAgent.kt#credential"
   },
   {
     "slot": "build/mcp-servers.md:223",
-    "unresolved": "not yet worked"
+    "exclude": "The Java SDK's test kits hold no MCP server of their own, so a test of an agent's MCP tools runs a server on loopback; the Kotlin SDK tests with the Java kits.",
+    "limitations_missing": false
   },
   {
     "slot": "build/multi-agent-orchestration.md:52",
@@ -540,346 +556,389 @@
   },
   {
     "slot": "build/object-storage.md:88",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#entity"
   },
   {
     "slot": "build/object-storage.md:125",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#endpoint",
+    "note": "A Java or Kotlin route answers a body whole, so the download reads the object before sending it."
   },
   {
     "slot": "build/object-storage.md:222",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/object-storage.md:282",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/object-storage.md:347",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/object-storage.md:436",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/object-storage.md:549",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Photos.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/object-storage.md:636",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/PhotosTest.kt#kit-storage",
+    "note": "The Java and Kotlin kit has no declareBucket: a test uses the unnamed bucket, and a named one comes from the service.json beside the test."
   },
   {
     "slot": "build/personal-data.md:277",
-    "unresolved": "not yet worked"
+    "exclude": "Lookup fields are declared in the Scala SDK only.",
+    "limitations_missing": false
   },
   {
     "slot": "build/personal-data.md:328",
-    "unresolved": "not yet worked"
+    "exclude": "Java and Kotlin services start no session or autonomous agent's instance with a data subject.",
+    "limitations_missing": false
   },
   {
     "slot": "build/personal-data.md:666",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/PersonalTest.kt#erase"
   },
   {
     "slot": "build/secrets.md:56",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Credentials.kt#endpoint"
   },
   {
     "slot": "build/secrets.md:86",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Credentials.kt#workflow"
   },
   {
     "slot": "build/secrets.md:120",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Credentials.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/secrets.md:146",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Credentials.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/secrets.md:167",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Credentials.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/secrets.md:198",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Credentials.kt#endpoint",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/secrets.md:270",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/SecretsTest.kt#kit-secrets"
   },
   {
     "slot": "build/secrets.md:286",
-    "unresolved": "not yet worked"
+    "exclude": "The Java and Kotlin unit test kits (ConsumerTestKit, WorkflowTestKit) hold no secret store of their own; a component that keeps or reads a secret is tested in AnkkaTestKit, whose `secrets()` is the service's store.",
+    "limitations_missing": true
   },
   {
     "slot": "build/serialization.md:26",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#line-item",
+    "note": "A Kotlin type needs no serializer value: @Manifest names its stored form, and the codec reads the data class by reflection."
   },
   {
     "slot": "build/streaming.md:24",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#chat"
   },
   {
     "slot": "build/streaming.md:62",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#chat",
+    "note": "The @Stream annotation is the registration: there is no companion to register the handler on."
   },
   {
     "slot": "build/streaming.md:76",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/StreamingTest.kt#consume"
   },
   {
     "slot": "build/streaming.md:121",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ChatEndpoint.kt#sse"
   },
   {
     "slot": "build/testing.md:190",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/CheckoutLogTest.kt#key-value-test",
+    "note": "The Java kit's result has no `changed`; the state read from the kit shows the update."
   },
   {
     "slot": "build/testing.md:202",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/JoinedRowsTest.kt#keyed-view-test"
   },
   {
     "slot": "build/testing.md:243",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/TransfersTest.kt#workflow-kit"
   },
   {
     "slot": "build/testing.md:261",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgentTest.kt#scripted-model",
+    "note": "The Java and Kotlin agent kit runs the tools in-process against the scripted arguments, as the Python one does."
   },
   {
     "slot": "build/testing.md:344",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ConsumerSamplesTest.kt#consumer-test"
   },
   {
     "slot": "build/testing.md:749",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#start",
+    "note": "The Java and Kotlin kit binds every port to a free loopback one itself; there is no HttpServer to place."
   },
   {
     "slot": "build/testing.md:797",
-    "unresolved": "not yet worked"
+    "exclude": "LogCapturing is a munit trait of the Scala test kit; a Kotlin suite runs on JUnit under Gradle, which shows a test's output only when it fails.",
+    "limitations_missing": false
   },
   {
     "slot": "build/testing.md:827",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/FleetTest.kt#installations"
   },
   {
     "slot": "build/testing.md:878",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/FleetTest.kt#follower-kit"
   },
   {
     "slot": "build/testing.md:963",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/CartFeaturesTest.kt#steps",
+    "note": "Cucumber-jvm step definitions: the Kotlin sample's features run under cucumber, not GherkinSuite."
   },
   {
     "slot": "build/testing.md:1002",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgentTest.kt#scripted-model"
   },
   {
     "slot": "build/testing.md:1021",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/StreamingTest.kt#start-with-model"
   },
   {
     "slot": "build/testing.md:1079",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgentTest.kt#scripted-model",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/testing.md:1098",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/StreamingTest.kt#start-with-model",
+    "note": "A Kotlin service runs in the JVM with no sidecar: the model is scripted in the test, not through ANKKA_MODEL_SCRIPT."
   },
   {
     "slot": "build/testing.md:1139",
-    "unresolved": "not yet worked"
+    "exclude": "A model provider's wire is the Scala agent module's: ModelStandIn, ModelResponse and the providers are Scala API, and a Java or Kotlin service names a provider rather than writing one.",
+    "limitations_missing": true
   },
   {
     "slot": "build/timers.md:190",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Timers.kt#action",
+    "note": "@Action on the method is the registration; there is no companion."
   },
   {
     "slot": "build/timers.md:471",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/TimersTest.kt#timer-start",
+    "note": "The Java and Kotlin kit runs the timer runtime itself, polling every 200ms, and reports every run to `timerRuns()`: nothing to construct."
   },
   {
     "slot": "build/timers.md:477",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/TimersTest.kt#timer-start"
   },
   {
     "slot": "build/timers.md:488",
-    "unresolved": "not yet worked"
+    "exclude": "The Java and Kotlin integration test kit has no movable clock: a timer fires when its due time arrives on the wall clock.",
+    "limitations_missing": true
   },
   {
     "slot": "build/timers.md:503",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/TimersTest.kt#due-times"
   },
   {
     "slot": "build/topics.md:21",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/CartView.kt#topic-view"
   },
   {
     "slot": "build/topics.md:141",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#topic-sources"
   },
   {
     "slot": "build/topics.md:448",
-    "unresolved": "not yet worked"
+    "exclude": "A Java or Kotlin service names no broker in code: it reads ANKKA_KAFKA_BOOTSTRAP_SERVERS from its environment, and the test kit holds a broker in memory.",
+    "limitations_missing": true
   },
   {
     "slot": "build/topics.md:462",
-    "unresolved": "not yet worked"
+    "exclude": "A Java or Kotlin service names no broker in code: it reads ANKKA_KAFKA_BOOTSTRAP_SERVERS from its environment, and the test kit holds a broker in memory.",
+    "limitations_missing": true
   },
   {
     "slot": "build/topics.md:688",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract"
   },
   {
     "slot": "build/topics.md:717",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/topics.md:845",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract",
+    "note": "The broker is named with `onBroker` on the source and on the publication."
   },
   {
     "slot": "build/topics.md:928",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#cross-project"
   },
   {
     "slot": "build/topics.md:1034",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract",
+    "note": "Partitions are read in parallel with `parallel()` on the source."
   },
   {
     "slot": "build/topics.md:1166",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#in-memory-broker",
+    "note": "The Java and Kotlin kit's broker in memory is the service's; a test reads what was published with `published(topic)` but cannot publish raw bytes into a topic itself."
   },
   {
     "slot": "build/views.md:868",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#views"
   },
   {
     "slot": "build/views.md:889",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#count"
   },
   {
     "slot": "build/views.md:895",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#count"
   },
   {
     "slot": "build/views.md:915",
-    "unresolved": "not yet worked"
+    "exclude": "Conditions built at the call with sql\"…\" are a Scala service's alone; a Kotlin service reads a view by key, whole, or through its declared queries.",
+    "limitations_missing": false,
+    "note": "The page says so itself below the Python section."
   },
   {
     "slot": "build/views.md:938",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#count",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/views.md:1504",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Joined.kt#keyed-view"
   },
   {
     "slot": "build/views.md:1547",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Joined.kt#keyed-view",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "build/views.md:1609",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#version"
   },
   {
     "slot": "build/views.md:1656",
-    "unresolved": "not yet worked"
+    "exclude": "Lookup fields are declared in the Scala SDK only.",
+    "limitations_missing": false
   },
   {
     "slot": "build/views.md:1690",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#view-kit"
   },
   {
     "slot": "build/views.md:1704",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/JoinedRowsTest.kt#keyed-view-test"
   },
   {
     "slot": "build/views.md:1727",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#start"
   },
   {
     "slot": "build/workflows.md:41",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#steps",
+    "note": "There is no companion: @Step, @Command and @Query on the methods are the registration, so the steps block stands for it."
   },
   {
     "slot": "build/workflows.md:70",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#start"
   },
   {
     "slot": "build/workflows.md:90",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#steps"
   },
   {
     "slot": "build/workflows.md:121",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/TransfersTest.kt#register"
   },
   {
     "slot": "build/workflows.md:133",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Checkout.kt#workflow"
   },
   {
     "slot": "build/workflows.md:480",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#settings"
   },
   {
     "slot": "build/workflows.md:585",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#lifecycle"
   },
   {
     "slot": "build/workflows.md:723",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#await-later"
   },
   {
     "slot": "build/workflows.md:793",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Onboarding.kt#step-awaits"
   },
   {
     "slot": "build/workflows.md:815",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/transfers/Transfers.kt#sse-await"
   },
   {
     "slot": "concepts/components.md:153",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#service"
   },
   {
     "slot": "concepts/effects.md:16",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#add-item"
   },
   {
     "slot": "concepts/effects.md:109",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#add-item",
+    "note": "The refusal with a code is `error(Problem.conflict(...))`; a plain `error(message)` is a BadRequest."
   },
   {
     "slot": "concepts/replicated-entities.md:87",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Fleet.kt#replicate-to"
   },
   {
     "slot": "concepts/replicated-entities.md:103",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Fleet.kt#replicated-effects"
   },
   {
     "slot": "concepts/wire-names.md:20",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#entity",
+    "note": "The wire name is the annotation's value, beside the method."
   },
   {
     "slot": "concepts/wire-names.md:73",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#addressing"
   },
   {
     "slot": "concepts/wire-names.md:81",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#addressing",
+    "note": "The same Kotlin block serves every language's copy of this example on the page."
   },
   {
     "slot": "deploy/images.md:35",
-    "unresolved": "not yet worked"
+    "exclude": "An sbt setting with no Kotlin counterpart: a Kotlin service is packaged by Gradle's application plugin and the template's Dockerfile, which the page's own Kotlin section shows.",
+    "limitations_missing": false
   },
   {
     "slot": "reference/error-codes.md:61",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#add-item"
   }
 ]

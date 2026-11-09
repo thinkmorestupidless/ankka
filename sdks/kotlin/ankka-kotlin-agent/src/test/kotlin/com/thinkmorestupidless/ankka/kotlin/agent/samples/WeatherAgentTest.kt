@@ -16,11 +16,13 @@ class WeatherAgentTest {
 
     @Test
     fun `the tools are offered with their descriptions, and run with the model's arguments`() {
+        // docs:start scripted-model
         val model =
             TestModelProvider()
                 .expectToolCall("current_date", "{}")
                 .expectToolCall("get_weather", """{"location":"Lisbon","date":"2026-09-06"}""")
                 .expectText("Lisbon: sunny today.")
+        // docs:end scripted-model
         val kit = AgentTestKit.of(WeatherAgent::class.java, model)
 
         val result = kit.call(agentRef(WeatherAgent::ask), "Weather in Lisbon today?")

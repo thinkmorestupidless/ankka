@@ -12,9 +12,11 @@ import com.thinkmorestupidless.ankka.javasdk.http.Problem
 import com.thinkmorestupidless.ankka.kotlin.dsl.effects
 
 // docs:start model
+// docs:start line-item
 /** A quantity of one product in a cart. */
 @Manifest("line-item")
 data class LineItem(val productId: String, val name: String, val quantity: Int)
+// docs:end line-item
 
 /** A cart: its lines, ordered by product, and whether it has been checked out. */
 @Manifest("shopping-cart")
@@ -58,6 +60,7 @@ sealed interface CartEvent {
 class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
     override fun emptyState() = Cart.empty(context().entityId())
 
+    // docs:start add-item
     // A suspend fun, as any handler may be: it waits without holding a thread.
     @Command("add-item")
     suspend fun addItem(item: LineItem): Effect<Done> = effects {
@@ -67,6 +70,7 @@ class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
             else -> persist(CartEvent.ItemAdded(item)).thenDone()
         }
     }
+    // docs:end add-item
 
     @Command("remove-item")
     fun removeItem(productId: String): Effect<Done> = effects {

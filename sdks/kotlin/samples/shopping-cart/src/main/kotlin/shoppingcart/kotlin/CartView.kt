@@ -80,6 +80,7 @@ class CheckoutNotifier : Consumer<CartEvent, CheckoutNotifier.CheckoutNotice>() 
  * The checkouts read back from the topic they are published to, and how many notices of each were
  * read: one, unless a reader started over from the beginning.
  */
+// docs:start topic-view
 @ComponentId("checkouts-seen")
 class CheckoutsSeen : View<CheckoutNotifier.CheckoutNotice, CheckoutsSeen.CheckoutSeen>() {
     @Manifest("checkout-seen")
@@ -92,3 +93,4 @@ class CheckoutsSeen : View<CheckoutNotifier.CheckoutNotice, CheckoutsSeen.Checko
         updateRow(CheckoutSeen(event.cartId, event.at, (rowState().orNull()?.notices ?: 0) + 1))
     }
 }
+// docs:end topic-view

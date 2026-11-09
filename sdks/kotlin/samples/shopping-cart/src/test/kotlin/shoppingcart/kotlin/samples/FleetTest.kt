@@ -50,6 +50,7 @@ class FleetTest {
     @Test
     fun `a copy answers how it stands, and a consumer is told where each change was written`() {
         BuildsConsumer.GIVEN.clear()
+        // docs:start installations
         val fleet = Ankka.service("fleet").register(VehicleEntity::class.java).register(BuildsConsumer::class.java)
         AnkkaTestKit.installations("leipzig", "vienna").use { group ->
             val leipzig = group.start("leipzig", fleet)
@@ -78,5 +79,6 @@ class FleetTest {
             assertEquals(listOf(Handed("v1", "StepAdded(step=frame)", "leipzig", true)), handed.distinct())
             assertEquals(listOf("v1"), leipzig.published("vehicle-builds").map { it.key().orNull() })
         }
+        // docs:end installations
     }
 }

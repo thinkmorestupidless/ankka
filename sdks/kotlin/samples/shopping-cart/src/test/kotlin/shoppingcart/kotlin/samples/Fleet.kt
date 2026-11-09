@@ -105,12 +105,14 @@ class VehicleEntity : EventSourcedEntity<Vehicle, VehicleEvent>() {
     }
     // docs:end replicated-apply
 
+    // docs:start replicate-to
     @Command("create")
     fun create(input: CreateVehicle): Effect<Receipt> = effects {
         var persisting = persist(VehicleEvent.Created(context().entityId()))
         for (installation in input.replicateTo) persisting = persisting.replicateTo(installation)
         persisting thenReply receipt("create")
     }
+    // docs:end replicate-to
 
     @Command("add-step")
     fun addStep(step: String): Effect<Receipt> = effects {

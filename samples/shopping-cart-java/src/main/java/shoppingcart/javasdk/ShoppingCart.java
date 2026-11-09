@@ -19,6 +19,7 @@ public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
     return Cart.empty(context().entityId());
   }
 
+  // docs:start handlers
   @Command("add-item")
   public Effect<Done> addItem(LineItem item) {
     if (currentState().checkedOut()) return effects().error(checkedOut());
@@ -34,6 +35,7 @@ public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
       return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
     return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
   }
+  // docs:end handlers
 
   @Command("checkout")
   public Effect<Cart> checkout() {
@@ -42,11 +44,18 @@ public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
     return effects().persist(new CartEvent.CheckedOut()).thenReplyState();
   }
 
+  // docs:start discard
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty. The event is
+   * persisted before the deletion takes effect, so a consumer or view downstream still observes
+   * that this cart was discarded rather than merely vanishing.
+   */
   @Command("discard")
   public Effect<Done> discard() {
     if (currentState().checkedOut()) return effects().error(checkedOut());
     return effects().persist(new CartEvent.Discarded()).thenDelete().thenDone();
   }
+  // docs:end discard
 
   @Query("get-cart")
   public ReadOnlyEffect<Cart> getCart() {

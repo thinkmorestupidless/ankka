@@ -12,6 +12,8 @@ public final class DocsRefs {
   private DocsRefs() {}
 
   public static final CommandRef<ShoppingCart, LineItem, Done> addItem = ShoppingCart::addItem;
+  public static final CommandRef<PayoutWorkflow, PayoutWorkflow.Payout, Done> startPayout =
+      PayoutWorkflow::start;
   public static final CommandRef<Preferences, String, Done> setPreferences = Preferences::set;
   public static final AgentCommandRef<ActivityAgent, ActivityAgent.Request, String> consult =
       ActivityAgent::consult;

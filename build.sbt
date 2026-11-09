@@ -973,22 +973,29 @@ lazy val cli = project
     Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a
-    // jar cannot be listed.
+    // jar cannot be listed. Every form docs/release-patterns.txt lists names the CLI's release (its
+    // version on a tag, the last release before it otherwise), written to release.txt beside the
+    // pages, so a page tells the model to install the release it is talking to.
     Compile / resourceGenerators += Def.task {
-      val docs  = (ThisBuild / baseDirectory).value / "docs"
-      val out   = (Compile / resourceManaged).value / "ankka" / "docs"
+      val docs     = (ThisBuild / baseDirectory).value / "docs"
+      val out      = (Compile / resourceManaged).value / "ankka" / "docs"
+      val patterns = ReleasePatterns.read(docs / "release-patterns.txt")
+      val release  =
+        ReleasePatterns.release(version.value, isSnapshot.value, previousStableVersion.value)
       val pages = (docs ** "*.md").get
         .flatMap(file => IO.relativize(docs, file).map(_ -> file))
         .sortBy(_._1)
       IO.delete(out)
       val copied = pages.map { case (relative, file) =>
         val target = out / relative
-        IO.copyFile(file, target)
+        IO.write(target, ReleasePatterns.rewrite(IO.read(file), release, patterns))
         target
       }
       val index = out / "index.txt"
       IO.write(index, pages.map(_._1).mkString("", "\n", "\n"))
-      index +: copied
+      val named = out / "release.txt"
+      IO.write(named, release + "\n")
+      index +: named +: copied
     }.taskValue,
     // The Python, TypeScript and Rust templates `ankka init --language` renders (Scaffold): each language's
     // own files from cli/src/main/templates/<language>, the files every language shares from

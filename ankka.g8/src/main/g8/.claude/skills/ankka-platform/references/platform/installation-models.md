@@ -70,10 +70,28 @@ The platform supplies the address and admits the service by the certificate it a
 descriptor gives neither: an address or a key beside the preset is refused, and a descriptor that
 sets the address variable itself is refused when it is applied.
 
-A Scala service builds the same provider in code, naming the model:
+A service in the runtime's own JVM builds the same provider in code, naming the model:
+
+**Scala**
 
 ```scala
 val local = ModelProviders.installation("qwen3:0.6b")
+```
+
+**Java**
+
+```java
+/** The installation's own model server, by the model's tag; its address and credential are the platform's. */
+public static ModelProvider installation() {
+  return ModelProviders.installation("qwen3:0.6b");
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** The installation's own model server, by the model's tag; its address and credential are the platform's. */
+fun installation(): ModelProvider = ModelProviders.installation("qwen3:0.6b")
 ```
 
 Outside an installation there is no model server, and both forms are refused when the service

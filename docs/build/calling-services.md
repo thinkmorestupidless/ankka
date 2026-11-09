@@ -44,8 +44,10 @@ entity keeps the state it had. See the [Rust SDK](../reference/rust-sdk.md#calli
 
 ## Calling from an endpoint
 
-An endpoint that calls another service and answers what it answered, in Scala; the tabs below show the
-same in each other language, through `services().of(name)` in Java and Kotlin:
+An endpoint that calls another service and answers what it answered, through `services().of(name)` in
+Java and Kotlin:
+
+/// tab | Scala
 
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/CallersEndpoint.scala#call-another-service -->
 ```scala
@@ -57,6 +59,8 @@ get("/call/{service}") { (service: String) =>
   catch case e: ServiceUnresolvable => throw HttpProblem(503, e.getMessage)
 }
 ```
+
+///
 
 /// tab | Java
 
@@ -189,6 +193,45 @@ export class CallingEndpoint extends Endpoint {
 
 ///
 
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/service_calls.rs#call-another-service -->
+```rust
+/// Calls another service in this project, as this service: `/callers/whoami` unless `path` says
+/// otherwise. The answer is what that service answered, and it saw this one as the caller.
+pub struct NeighbourEndpoint;
+
+impl NeighbourEndpoint {
+    fn call(request: &Request) -> Result<String, HttpProblem> {
+        let path = request.query("path").unwrap_or("/callers/whoami");
+        let services = request
+            .context()
+            .services()
+            .ok_or_else(|| HttpProblem::new(500, "a route may call another service"))?;
+        match services.service(request.path("service")).get_text(path) {
+            Ok(answer) => Ok(answer),
+            Err(e @ ServiceError::Unresolvable { .. }) => Err(HttpProblem::new(503, e.to_string())),
+            Err(e) => Err(HttpProblem::new(502, e.to_string())),
+        }
+    }
+}
+
+impl Endpoint for NeighbourEndpoint {
+    const ENDPOINT_ID: &'static str = "NeighbourEndpoint";
+    const PREFIX: &'static str = "/neighbour";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<NeighbourEndpoint> {
+        Routes::new().get("/call/{service}", NeighbourEndpoint::call)
+    }
+}
+```
+
+///
+
 /// tab | Go
 
 The Go reference's route makes the call a request names, and records what came back:
@@ -250,6 +293,8 @@ func serviceCall(ctx context.Context, req *ankka.Request, body string) (ServiceC
 A step asks another service to do something and goes on with the answer. The context's `services` is
 the same client an endpoint has:
 
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ServiceCallComponents.scala#step-calls-service -->
 ```scala
 /**
@@ -270,6 +315,81 @@ final class PayoutWorkflow(context: WorkflowContext) extends Workflow[PayoutStat
     val answer = context.services("psp-gateway").getText(s"/payouts?amount=$amount")
     stepEffects.updateState(currentState.copy(answer = answer)).thenEnd
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/PayoutWorkflow.java#step-calls-service -->
+```java
+/**
+ * Asks the PSP gateway service to start a payout, from a step: a step may call another service, as
+ * this service, and goes on with the answer.
+ */
+@ComponentId("payout")
+public class PayoutWorkflow extends Workflow<PayoutWorkflow.State> {
+
+  public record Payout(int amount) {}
+
+  public record State(String status, String answer) {}
+
+  @Override
+  protected State emptyState() {
+    return new State("", "");
+  }
+
+  @Command("start")
+  public Effect<Done> start(Payout payout) {
+    return effects()
+        .updateState(emptyState())
+        .transitionTo(PayoutWorkflow::initiatePayout, payout)
+        .thenDone();
+  }
+
+  @Step("initiate-payout")
+  public StepEffect initiatePayout(Payout payout) {
+    var answer = services().of("psp-gateway").getText("/payouts?amount=" + payout.amount());
+    return stepEffects().updateState(new State("initiated", answer)).thenEnd();
+  }
+
+  @Query("get")
+  public ReadOnlyEffect<State> get() {
+    return effects().reply(currentState());
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#step-calls-service -->
+```kotlin
+/**
+ * Asks the PSP gateway service to start a payout, from a step: a step may call another service, as
+ * this service, and goes on with the answer.
+ */
+@ComponentId("payout")
+class PayoutWorkflow : Workflow<PayoutState>() {
+    override fun emptyState() = PayoutState("")
+
+    @Command("start")
+    fun start(amount: Int): Effect<Done> = effects {
+        updateState(emptyState()).transitionTo(stepRef(PayoutWorkflow::initiatePayout), amount).thenDone()
+    }
+
+    @Step("initiate-payout")
+    fun initiatePayout(amount: Int): StepEffect {
+        val answer = services().of("psp-gateway").getText("/payouts?amount=$amount")
+        return stepEffects { updateState(currentState().copy(answer = answer)).thenEnd() }
+    }
+
+    @Query("get")
+    fun get(): ReadOnlyEffect<PayoutState> = effects { reply(currentState()) }
+}
+```
+
+///
 
 /// tab | Python
 
@@ -328,6 +448,29 @@ test("a workflow's step calls another service and goes on with the answer", asyn
   assert.equal(await workflow.initiatePayout(25), "started /payouts?amount=25")
   assert.deepEqual(scripted.requests.map((r) => r.path), ["/payouts?amount=25"])
 })
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/service_calls.rs#step-calls-service -->
+```rust
+/// Asks the other service, from a step: a step may call another service, as this service,
+/// and goes on with the answer.
+fn call(stepped: &Stepped, _: (), ctx: &Context) -> StepEffect<Stepped> {
+    let at = ctx.now().epoch_millis();
+    let services = ctx.services().expect("a step may call another service");
+    let answer = call(services, &stepped.service, &stepped.path);
+    step_effects::update_state(Stepped {
+        status: answer.status,
+        body: answer.body,
+        at,
+        done: true,
+        ..stepped.clone()
+    })
+    .then_end()
+}
 ```
 
 ///

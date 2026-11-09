@@ -227,7 +227,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript or Rust.
+- `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript, Rust or Go.
 - `references/build/key-value-entities.md` — Store only the latest value of a piece of state, replace it with updateState, delete or expire it, and decide when that is a better fit than event sourcing.
 - `references/build/personal-data.md` — Mark the fields about a person as personal fields of a data subject, read them as erased once the subject is erased, erase a subject's objects, and ask for an erasure from code.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.

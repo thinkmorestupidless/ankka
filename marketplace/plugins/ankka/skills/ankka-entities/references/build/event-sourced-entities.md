@@ -1,6 +1,6 @@
 # Event sourced entities
 
-> Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript or Rust.
+> Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript, Rust or Go.
 
 Source: https://docs.ankka.cloud/build/event-sourced-entities/
 An event sourced entity is a piece of state, addressed by an id, whose current value is derived by
@@ -41,6 +41,65 @@ enum ShoppingCartEvent:
   case Discarded
 ```
 
+**Java**
+
+```java
+/** What happened to a cart: the journal holds these, as the Scala cart's journal does. */
+@Manifest("shopping-cart-event")
+public sealed interface CartEvent {
+  record ItemAdded(LineItem item) implements CartEvent {}
+
+  record ItemRemoved(String productId) implements CartEvent {}
+
+  record CheckedOut() implements CartEvent {}
+
+  record Discarded() implements CartEvent {}
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** A quantity of one product in a cart. */
+@Manifest("line-item")
+data class LineItem(val productId: String, val name: String, val quantity: Int)
+
+/** A cart: its lines, ordered by product, and whether it has been checked out. */
+@Manifest("shopping-cart")
+data class Cart(val cartId: String, val items: List<LineItem>, val checkedOut: Boolean) {
+    /** Adds [item], merging it into the line for the same product. */
+    fun addItem(item: LineItem): Cart {
+        val merged = items.find { it.productId == item.productId }?.let { item.copy(quantity = it.quantity + item.quantity) } ?: item
+        return copy(items = (without(item.productId) + merged).sortedBy { it.productId })
+    }
+
+    fun removeItem(productId: String) = copy(items = without(productId))
+
+    fun contains(productId: String) = items.any { it.productId == productId }
+
+    val totalQuantity: Int
+        get() = items.sumOf { it.quantity }
+
+    private fun without(productId: String) = items.filterNot { it.productId == productId }
+
+    companion object {
+        fun empty(cartId: String) = Cart(cartId, emptyList(), false)
+    }
+}
+
+/** What happened to a cart: the journal holds these, as the Scala and Java carts' journals do. */
+@Manifest("shopping-cart-event")
+sealed interface CartEvent {
+    data class ItemAdded(val item: LineItem) : CartEvent
+
+    data class ItemRemoved(val productId: String) : CartEvent
+
+    data object CheckedOut : CartEvent
+
+    data object Discarded : CartEvent
+}
+```
+
 **Python**
 
 ```python
@@ -77,6 +136,26 @@ export const ShoppingCartEvent = s.sumType("ShoppingCartEvent", {
   Discarded: {},
 })
 export type ShoppingCartEvent = Infer<typeof ShoppingCartEvent>
+```
+
+**Rust**
+
+```rust
+/// Everything that can happen to a cart, stored as `{"type":"ItemAdded",…}` as every language
+/// stores it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum ShoppingCartEvent {
+    ItemAdded {
+        item: LineItem,
+    },
+    ItemRemoved {
+        #[serde(rename = "productId")]
+        product_id: String,
+    },
+    CheckedOut,
+    Discarded,
+}
 ```
 
 **Go**
@@ -182,6 +261,138 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
   def getCart: ReadOnlyEffect[ShoppingCart] = effects.reply(currentState)
 
   def totalQuantity: ReadOnlyEffect[Int] = effects.reply(currentState.totalQuantity)
+```
+
+**Java**
+
+```java
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
+
+  @Override
+  protected Cart emptyState() {
+    return Cart.empty(context().entityId());
+  }
+
+  @Command("add-item")
+  public Effect<Done> addItem(LineItem item) {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (item.quantity() <= 0)
+      return effects().error("quantity must be greater than zero, was " + item.quantity());
+    return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+  }
+
+  @Command("remove-item")
+  public Effect<Done> removeItem(String productId) {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (!currentState().contains(productId))
+      return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+    return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+  }
+
+  @Command("checkout")
+  public Effect<Cart> checkout() {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    if (currentState().isEmpty()) return effects().error("cannot check out an empty cart");
+    return effects().persist(new CartEvent.CheckedOut()).thenReplyState();
+  }
+
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty. The event is
+   * persisted before the deletion takes effect, so a consumer or view downstream still observes
+   * that this cart was discarded rather than merely vanishing.
+   */
+  @Command("discard")
+  public Effect<Done> discard() {
+    if (currentState().checkedOut()) return effects().error(checkedOut());
+    return effects().persist(new CartEvent.Discarded()).thenDelete().thenDone();
+  }
+
+  @Query("get-cart")
+  public ReadOnlyEffect<Cart> getCart() {
+    return effects().reply(currentState());
+  }
+
+  @Query("total-quantity")
+  public ReadOnlyEffect<Integer> totalQuantity() {
+    return effects().reply(currentState().totalQuantity());
+  }
+
+  @Override
+  protected Cart applyEvent(Cart state, CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded added -> state.addItem(added.item());
+      case CartEvent.ItemRemoved removed -> state.removeItem(removed.productId());
+      case CartEvent.CheckedOut ignored -> state.onCheckedOut();
+      case CartEvent.Discarded ignored -> state;
+    };
+  }
+
+  private static Problem checkedOut() {
+    return Problem.conflict("cart is already checked out");
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
+    override fun emptyState() = Cart.empty(context().entityId())
+
+    // A suspend fun, as any handler may be: it waits without holding a thread.
+    @Command("add-item")
+    suspend fun addItem(item: LineItem): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
+            else -> persist(CartEvent.ItemAdded(item)).thenDone()
+        }
+    }
+
+    @Command("remove-item")
+    fun removeItem(productId: String): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            !currentState().contains(productId) -> error(Problem.notFound("cart does not contain '$productId'"))
+            else -> persist(CartEvent.ItemRemoved(productId)).thenDone()
+        }
+    }
+
+    @Command("checkout")
+    fun checkout(): Effect<Cart> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            currentState().items.isEmpty() -> error("cannot check out an empty cart")
+            else -> persist(CartEvent.CheckedOut).thenReplyState()
+        }
+    }
+
+    @Command("discard")
+    fun discard(): Effect<Done> = effects {
+        if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
+    }
+
+    @Query("get-cart")
+    fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }
+
+    @Query("total-quantity")
+    fun totalQuantity(): ReadOnlyEffect<Int> = effects { reply(currentState().totalQuantity) }
+
+    override fun applyEvent(state: Cart, event: CartEvent): Cart =
+        when (event) {
+            is CartEvent.ItemAdded -> state.addItem(event.item)
+            is CartEvent.ItemRemoved -> state.removeItem(event.productId)
+            CartEvent.CheckedOut -> state.copy(checkedOut = true)
+            CartEvent.Discarded -> state
+        }
+
+    private val checkedOut: Problem
+        get() = Problem.conflict("cart is already checked out")
+}
 ```
 
 **Python**
@@ -315,19 +526,131 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
     return this.effects.persist({ type: "CheckedOut" }).thenReplyState()
   }
 
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty.
+   *
+   * The event is persisted before the deletion takes effect, so a consumer or view downstream still
+   * observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+   * record of an order and is not discarded.
+   */
   discard() {
     if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
-    // The event is persisted, then the cart is deleted, so a consumer downstream still sees the discard
-    // rather than a cart that vanished; the same id then starts again empty.
     return this.effects.persist({ type: "Discarded" }).deleteEntity().thenReply(() => done)
   }
+}
+```
+
+**Rust**
+
+```rust
+pub struct ShoppingCart;
+
+impl ShoppingCart {
+    fn add_item(cart: &Cart, item: LineItem, _: &Context) -> Effect<ShoppingCartEvent, Done> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
+        if item.quantity <= 0 {
+            let message = format!("quantity must be greater than zero, was {}", item.quantity);
+            return effects::error(ErrorCode::BadRequest, message).into();
+        }
+        effects::persist(ShoppingCartEvent::ItemAdded { item }).then_reply_value(Done)
+    }
+
+    fn remove_item(
+        cart: &Cart,
+        product_id: String,
+        _: &Context,
+    ) -> Effect<ShoppingCartEvent, Done> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
+        if !cart.contains(&product_id) {
+            let message = format!("cart does not contain '{product_id}'");
+            return effects::error(ErrorCode::NotFound, message).into();
+        }
+        effects::persist(ShoppingCartEvent::ItemRemoved { product_id }).then_reply_value(Done)
+    }
+
+    fn checkout(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Cart> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
+        if cart.is_empty() {
+            return effects::error(ErrorCode::BadRequest, "cannot check out an empty cart").into();
+        }
+        // As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every
+        // later change to it is refused.
+        effects::persist(ShoppingCartEvent::CheckedOut).then_reply(|cart: &Cart| cart.clone())
+    }
+
+    /// Records the discard and then deletes the cart, so the same id starts again empty. A
+    /// checked-out cart is a record of an order and is not discarded.
+    fn discard(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Done> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
+        // The event is persisted, then the cart deleted, so a consumer downstream still sees the
+        // discard rather than a cart that vanished; the same id then starts again empty.
+        effects::persist(ShoppingCartEvent::Discarded)
+            .delete_entity()
+            .then_reply_value(Done)
+    }
+
+    fn get_cart(cart: &Cart, _: (), _: &Context) -> ReadOnlyEffect<Cart> {
+        effects::reply(cart.clone())
+    }
+
+    fn total_quantity(cart: &Cart, _: (), _: &Context) -> ReadOnlyEffect<i32> {
+        effects::reply(cart.total_quantity())
+    }
+}
+
+impl EventSourcedEntity for ShoppingCart {
+    type State = Cart;
+    type Event = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "shopping-cart";
+    // The manifests the Scala cart stores under: what makes the journal shared.
+    const STATE_MANIFEST: Option<&'static str> = Some("shopping-cart");
+    const EVENT_MANIFEST: Option<&'static str> = Some("shopping-cart-event");
+
+    fn empty_state(cart_id: &str) -> Cart {
+        Cart::empty(cart_id)
+    }
+
+    fn apply(cart: Cart, event: &ShoppingCartEvent) -> Cart {
+        match event {
+            ShoppingCartEvent::ItemAdded { item } => cart.add_item(item.clone()),
+            ShoppingCartEvent::ItemRemoved { product_id } => cart.remove_item(product_id),
+            ShoppingCartEvent::CheckedOut => cart.on_checked_out(),
+            // The cart is deleted straight after; the event is there for what reads the journal.
+            ShoppingCartEvent::Discarded => cart,
+        }
+    }
+
+    /// Every handler under its wire name: the name a caller and a stored timer use, which does
+    /// not change when the Rust function is renamed.
+    fn handlers() -> Handlers<ShoppingCart> {
+        Handlers::new()
+            .command("add-item", ShoppingCart::add_item)
+            .command("remove-item", ShoppingCart::remove_item)
+            .command("checkout", ShoppingCart::checkout)
+            .command("discard", ShoppingCart::discard)
+            .query("get-cart", ShoppingCart::get_cart)
+            .query("total-quantity", ShoppingCart::total_quantity)
+    }
+
+    fn snapshot_every() -> u32 {
+        100
+    }
 }
 ```
 
 **Go**
 
 ```go
-// Entity is the shopping cart: the same wire names and manifests as the Scala sample's.
+// Entity is the shopping cart: the same wire names and manifests as the Scala sample's. The
+// string each handler is registered under is its wire name, separate from the Go function's.
 var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
 	ankka.Command("add-item", addItem),
 	ankka.Command("remove-item", removeItem),
@@ -339,15 +662,20 @@ var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
 	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
 		return ankka.Reply(TotalQuantity(c)), nil
 	}),
+	// A JSON codec derived from the type, under the manifest the journal records it by.
 	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
 	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
 	ankka.SnapshotEvery(3),
 )
 
+
 var checkedOut = ankka.Refuse(ankka.Conflict, "cart is already checked out")
 
 func done(Cart) ankka.Done { return ankka.Done{} }
 
+
+// addItem describes what should happen: a refusal is a returned error and nothing is persisted; an
+// accepted item is an event the runtime persists before it replies.
 func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
 	if c.CheckedOut {
 		return effect[ankka.Done]{}, checkedOut
@@ -357,6 +685,7 @@ func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], erro
 	}
 	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
 }
+
 
 func removeItem(_ context.Context, c Cart, productID string) (effect[ankka.Done], error) {
 	if c.CheckedOut {
@@ -379,8 +708,11 @@ func checkout(_ context.Context, c Cart, _ ankka.Unit) (effect[Cart], error) {
 	return ankka.Persist[Cart, Event, Cart](CheckedOut{}).ThenReplyState(), nil
 }
 
-// discard persists the event, then deletes the cart, so a consumer downstream sees the discard
-// rather than a cart that vanished; the same id then starts again empty.
+
+// discard records the discard and then deletes the cart, so the same id starts again empty. The
+// event is persisted before the deletion takes effect, so a consumer or view downstream still
+// observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+// record of an order and is not discarded.
 func discard(_ context.Context, c Cart, _ ankka.Unit) (effect[ankka.Done], error) {
 	if c.CheckedOut {
 		return effect[ankka.Done]{}, checkedOut
@@ -408,6 +740,8 @@ In Scala, handlers are declared on the entity's companion object. The companion 
 supplies the state and event serializers, constructs the entity, and registers every handler under a
 wire name:
 
+**Scala**
+
 ```scala
 object ShoppingCartEntity
     extends EventSourcedEntity.Companion[ShoppingCartEntity, ShoppingCart, ShoppingCartEvent](
@@ -430,6 +764,170 @@ object ShoppingCartEntity
   val discard       = command("discard")(_.discard)
   val getCart       = query("get-cart")(_.getCart)
   val totalQuantity = query("total-quantity")(_.totalQuantity)
+```
+
+**Java**
+
+```java
+@Command("add-item")
+public Effect<Done> addItem(LineItem item) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (item.quantity() <= 0)
+    return effects().error("quantity must be greater than zero, was " + item.quantity());
+  return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+}
+
+@Command("remove-item")
+public Effect<Done> removeItem(String productId) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (!currentState().contains(productId))
+    return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+  return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** A customer's cart, one per cart id. Its handlers' wire names are the Scala cart's. */
+@ComponentId("shopping-cart")
+class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
+    override fun emptyState() = Cart.empty(context().entityId())
+
+    // A suspend fun, as any handler may be: it waits without holding a thread.
+    @Command("add-item")
+    suspend fun addItem(item: LineItem): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
+            else -> persist(CartEvent.ItemAdded(item)).thenDone()
+        }
+    }
+
+    @Command("remove-item")
+    fun removeItem(productId: String): Effect<Done> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            !currentState().contains(productId) -> error(Problem.notFound("cart does not contain '$productId'"))
+            else -> persist(CartEvent.ItemRemoved(productId)).thenDone()
+        }
+    }
+
+    @Command("checkout")
+    fun checkout(): Effect<Cart> = effects {
+        when {
+            currentState().checkedOut -> error(checkedOut)
+            currentState().items.isEmpty() -> error("cannot check out an empty cart")
+            else -> persist(CartEvent.CheckedOut).thenReplyState()
+        }
+    }
+
+    @Command("discard")
+    fun discard(): Effect<Done> = effects {
+        if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
+    }
+
+    @Query("get-cart")
+    fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }
+
+    @Query("total-quantity")
+    fun totalQuantity(): ReadOnlyEffect<Int> = effects { reply(currentState().totalQuantity) }
+
+    override fun applyEvent(state: Cart, event: CartEvent): Cart =
+        when (event) {
+            is CartEvent.ItemAdded -> state.addItem(event.item)
+            is CartEvent.ItemRemoved -> state.removeItem(event.productId)
+            CartEvent.CheckedOut -> state.copy(checkedOut = true)
+            CartEvent.Discarded -> state
+        }
+
+    private val checkedOut: Problem
+        get() = Problem.conflict("cart is already checked out")
+}
+```
+
+**Python**
+
+```python
+class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
+    component_id = "shopping-cart"
+    state_codec = json_codec(ShoppingCart, "shopping-cart")
+    event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
+    snapshot_every = 100
+
+    def empty_state(self) -> ShoppingCart:
+        return ShoppingCart.empty(self.entity_id)
+
+    def apply_event(self, state: ShoppingCart, event: ShoppingCartEvent) -> ShoppingCart:
+        match event:
+            case ItemAdded(item):
+                return state.add_item(item)
+            case ItemRemoved(product_id):
+                return state.remove_item(product_id)
+            case CheckedOut():
+                return state.on_checked_out()
+            case Discarded():
+                # The cart is deleted straight after; the event is there for what reads the journal.
+                return state
+        raise AssertionError(event)
+```
+
+**TypeScript**
+
+```ts
+export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
+  static readonly componentId = "shopping-cart"
+  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+  static readonly snapshotEvery = 100
+
+  static readonly handlers = {
+    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+    removeItem: command("remove-item", s.string, Done, (cart: ShoppingCartEntity, productId) => cart.removeItem(productId)),
+    checkout: command("checkout", ShoppingCart, (cart: ShoppingCartEntity) => cart.checkout()),
+    discard: command("discard", Done, (cart: ShoppingCartEntity) => cart.discard()),
+    getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+    totalQuantity: query("total-quantity", s.int, (cart: ShoppingCartEntity) => cart.effects.reply(totalQuantity(cart.state))),
+  }
+```
+
+**Rust**
+
+```rust
+/// Every handler under its wire name: the name a caller and a stored timer use, which does
+/// not change when the Rust function is renamed.
+fn handlers() -> Handlers<ShoppingCart> {
+    Handlers::new()
+        .command("add-item", ShoppingCart::add_item)
+        .command("remove-item", ShoppingCart::remove_item)
+        .command("checkout", ShoppingCart::checkout)
+        .command("discard", ShoppingCart::discard)
+        .query("get-cart", ShoppingCart::get_cart)
+        .query("total-quantity", ShoppingCart::total_quantity)
+}
+```
+
+**Go**
+
+```go
+// Entity is the shopping cart: the same wire names and manifests as the Scala sample's. The
+// string each handler is registered under is its wire name, separate from the Go function's.
+var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
+	ankka.Command("add-item", addItem),
+	ankka.Command("remove-item", removeItem),
+	ankka.Command("checkout", checkout),
+	ankka.Command("discard", discard),
+	ankka.Query("get-cart", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[Cart], error) {
+		return ankka.Reply(c), nil
+	}),
+	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
+		return ankka.Reply(TotalQuantity(c)), nil
+	}),
+	// A JSON codec derived from the type, under the manifest the journal records it by.
+	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
+	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
+	ankka.SnapshotEvery(3),
+)
 ```
 
 In Python the same declaration is made with class attributes and decorators: `component_id`,
@@ -479,6 +977,8 @@ the same code. The endpoint in between needs no error handling of its own. See
 Deleting an entity marks it deleted in the journal. The shopping cart deletes itself when a customer
 discards it, after persisting a final event:
 
+**Scala**
+
 ```scala
 /**
  * Records the discard and then deletes the cart, so the same id starts again empty.
@@ -490,6 +990,90 @@ discards it, after persisting a final event:
 def discard: Effect[Done] =
   if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
   else effects.persist(Discarded).deleteEntity().thenReply(_ => Done)
+```
+
+**Java**
+
+```java
+/**
+ * Records the discard and then deletes the cart, so the same id starts again empty. The event is
+ * persisted before the deletion takes effect, so a consumer or view downstream still observes
+ * that this cart was discarded rather than merely vanishing.
+ */
+@Command("discard")
+public Effect<Done> discard() {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  return effects().persist(new CartEvent.Discarded()).thenDelete().thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+@Command("discard")
+fun discard(): Effect<Done> = effects {
+    if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
+}
+```
+
+**Python**
+
+```python
+@command("discard")
+def discard(self) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+    if self.state.checkedOut:
+        return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+    # The event is persisted, then the cart is deleted, so a consumer downstream still sees the
+    # discard rather than a cart that vanished; the same id then starts again empty.
+    return self.effects.persist(Discarded()).delete_entity().then_reply(lambda _: DONE)
+```
+
+**TypeScript**
+
+```ts
+/**
+ * Records the discard and then deletes the cart, so the same id starts again empty.
+ *
+ * The event is persisted before the deletion takes effect, so a consumer or view downstream still
+ * observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+ * record of an order and is not discarded.
+ */
+discard() {
+  if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+  return this.effects.persist({ type: "Discarded" }).deleteEntity().thenReply(() => done)
+}
+```
+
+**Rust**
+
+```rust
+/// Records the discard and then deletes the cart, so the same id starts again empty. A
+/// checked-out cart is a record of an order and is not discarded.
+fn discard(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Done> {
+    if cart.checked_out {
+        return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+    }
+    // The event is persisted, then the cart deleted, so a consumer downstream still sees the
+    // discard rather than a cart that vanished; the same id then starts again empty.
+    effects::persist(ShoppingCartEvent::Discarded)
+        .delete_entity()
+        .then_reply_value(Done)
+}
+```
+
+**Go**
+
+```go
+// discard records the discard and then deletes the cart, so the same id starts again empty. The
+// event is persisted before the deletion takes effect, so a consumer or view downstream still
+// observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+// record of an order and is not discarded.
+func discard(_ context.Context, c Cart, _ ankka.Unit) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](Discarded{}).DeleteEntity().ThenReply(done), nil
+}
 ```
 
 Persisting the event before deleting matters to everything downstream. A view or consumer reading the
@@ -540,6 +1124,42 @@ val service = Ankka.service
   .start()
 ```
 
+**Java**
+
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("shopping-cart")
+      .register(ShoppingCart.class)
+      .register(CartRows.class)
+      .register(CheckoutNotifier.class)
+      .register(CheckoutsSeen.class)
+      .withEndpoint(CartEndpoint.class)
+      .withEndpoint(CheckoutsSeenEndpoint.class)
+      .withEndpoint(CartKeysEndpoint.class)
+      .withMcpEndpoint(CartMcpEndpoint.class);
+}
+```
+
+**Kotlin**
+
+```kotlin
+fun service(): ServiceBuilder =
+    Ankka.service("shopping-cart")
+        .register(ShoppingCart::class.java)
+        .register(CartRows::class.java)
+        .register(CheckoutNotifier::class.java)
+        .register(CheckoutsSeen::class.java)
+        .register(CheckoutWorkflow::class.java)
+        .withEndpoint(CartEndpoint::class.java)
+        .withEndpoint(CheckoutsSeenEndpoint::class.java)
+        .withEndpoint(CartKeysEndpoint::class.java)
+        .withMcpEndpoint(CartMcpEndpoint::class.java)
+
+fun main() {
+    service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
 **Python**
 
 ```python
@@ -554,6 +1174,33 @@ service = Ankka.service().register(ShoppingCartEntity)
 import { Ankka } from "ankka"
 
 const service = Ankka.service().register(ShoppingCartEntity)
+```
+
+**Rust**
+
+```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
+pub fn build() -> Service {
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
+}
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
 ```
 
 **Go**
@@ -577,6 +1224,25 @@ val done  = componentClient.forEventSourcedEntity(EntityId("c1")).call(ShoppingC
 val cart  = componentClient.forEventSourcedEntity(EntityId("c1")).call(ShoppingCartEntity.getCart).invoke()
 ```
 
+**Java**
+
+```java
+public static CartState addAndRead(ComponentClient client) {
+  var cart = client.forEventSourcedEntity("cart-1");
+
+  cart.call(ShoppingCart::addItem).invoke(new LineItem("p1", "Widget", 2)); // Done
+  return cart.call(ShoppingCart::getCart).invoke(); // CartState
+}
+```
+
+**Kotlin**
+
+```kotlin
+val cart = componentClient.forEventSourcedEntity("cart-1")
+cart.call(ShoppingCart::addItem).invokeSuspending(LineItem("p1", "Widget", 2))
+val held: Cart = cart.call(ShoppingCart::getCart).invokeSuspending()
+```
+
 **Python**
 
 ```python
@@ -589,6 +1255,62 @@ cart = await client.for_event_sourced_entity("shopping-cart", "c1").call("get-ca
 ```ts
 const done = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.addItem).invoke(item)
 const cart = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.getCart).invoke()
+```
+
+**Rust**
+
+```rust
+/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, and `DELETE
+/// /carts/{cartId}`, open to anyone.
+pub struct CartApi;
+
+impl CartApi {
+    fn get_cart(request: &Request) -> Result<Cart, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "get-cart", ())?)
+    }
+
+    fn total(request: &Request) -> Result<i32, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "total-quantity", ())?)
+    }
+
+    fn add_item(request: &Request, item: LineItem) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "add-item", item)?)
+    }
+
+    fn remove_item(request: &Request) -> Result<Done, HttpProblem> {
+        let (cart_id, product_id) = (request.path("cartId"), request.path("productId"));
+        let removed = request.client().invoke(
+            ShoppingCart,
+            cart_id,
+            "remove-item",
+            product_id.to_string(),
+        )?;
+        Ok(removed)
+    }
+
+    fn checkout(request: &Request, (): ()) -> Result<Cart, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "checkout", ())?)
+    }
+
+    fn discard(request: &Request) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "discard", ())?)
+    }
+}
 ```
 
 **Go**
@@ -649,6 +1371,111 @@ final class VehicleKind(id: String, replicatedHere: Boolean = true)
   val stopReplicatingTo = command("stop-replicating-to")(_.stopReplicatingTo)
   val get               = query("get")(_.get)
   val placement         = query("placement")(_.placement)
+```
+
+**Java**
+
+```java
+/**
+ * A replicated ledger: each entry records where its event was written, read from the event's
+ * context, and whether it was written here. The installations that hold a ledger are the
+ * service's configuration's.
+ */
+@ComponentId("ledger")
+@Replicated
+@SnapshotEvery(0)
+public class Ledger extends EventSourcedEntity<Ledger.State, Ledger.Entered> {
+
+  public record State(List<String> entries) {}
+
+  public record Entered(String text) {}
+```
+
+**Kotlin**
+
+```kotlin
+/** A replicated entity: `@Replicated` says it is held at several installations. */
+@ComponentId("vehicle")
+@Replicated
+class VehicleEntity : EventSourcedEntity<Vehicle, VehicleEvent>() {
+    override fun emptyState() = Vehicle()
+
+    override fun applyEvent(state: Vehicle, event: VehicleEvent): Vehicle {
+        val vehicle =
+            when (event) {
+                is VehicleEvent.Created -> state.copy(id = event.id)
+                is VehicleEvent.StepAdded -> state.copy(steps = state.steps + event.step)
+                is VehicleEvent.InspectionRecorded ->
+                    state.copy(inspections = state.inspections + event.note)
+                VehicleEvent.Sold -> state.copy(sold = true)
+            }
+        // Where this event was written, on replay as well as when it is persisted here.
+        val facts = eventContext()
+        return vehicle.copy(
+            writtenAt = vehicle.writtenAt + (facts.installationOrNull ?: "nowhere"),
+            local = vehicle.local + facts.isLocal,
+            // Who acted on the command that wrote it, as its record says.
+            actedBy = vehicle.actedBy + (facts.attributionOrNull ?: "nobody"),
+        )
+    }
+
+    /** Taken while the handler runs: the reply is computed after the context is gone. */
+    private fun receipt(command: String): (Vehicle) -> Receipt {
+        val here = context().installationOrNull
+        val atHome = context().isHome
+        val actor = context().attributionOrNull
+        val forwarder = context().forwardedFromOrNull
+        return { v -> Receipt(command, here, atHome, v.writtenAt.size, actor, forwarder) }
+    }
+
+    @Command("create")
+    fun create(input: CreateVehicle): Effect<Receipt> = effects {
+        var persisting = persist(VehicleEvent.Created(context().entityId()))
+        for (installation in input.replicateTo) persisting = persisting.replicateTo(installation)
+        persisting thenReply receipt("create")
+    }
+
+    @Command("add-step")
+    fun addStep(step: String): Effect<Receipt> = effects {
+        persist(VehicleEvent.StepAdded(step)) thenReply receipt("add-step")
+    }
+
+    @Command("record-inspection")
+    fun recordInspection(note: String): Effect<Receipt> = effects {
+        persist(VehicleEvent.InspectionRecorded(note)) thenReply receipt("record-inspection")
+    }
+
+    @Command("record-sale")
+    fun recordSale(): Effect<Receipt> = effects {
+        persist(VehicleEvent.Sold) thenReply receipt("record-sale")
+    }
+
+    /** Ships the vehicle: its home is the dealership's installation from now on. */
+    @Command("hand-over")
+    fun handOver(installation: String): Effect<Receipt> = effects {
+        handOverTo(installation) thenReply receipt("hand-over")
+    }
+
+    /** Allots the vehicle to a dealership, whose installation holds it from now on. */
+    @Command("replicate-to")
+    fun replicateTo(installation: String): Effect<Receipt> = effects {
+        replicateTo(installation) thenReply receipt("replicate-to")
+    }
+
+    /** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
+    @Command("stop-replicating-to")
+    fun stopReplicatingTo(installation: String): Effect<Receipt> = effects {
+        stopReplicatingTo(installation) thenReply receipt("stop-replicating-to")
+    }
+
+    @Query("get")
+    fun get(): ReadOnlyEffect<Vehicle> = effects { reply(currentState()) }
+
+    @Query("placement")
+    fun placement(): ReadOnlyEffect<Placement> = effects {
+        reply(Placement(context().installationOrNull, context().isHome))
+    }
+}
 ```
 
 **Python**
@@ -722,6 +1549,56 @@ def replicateTo(installation: String): Effect[Receipt] =
 /** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
 def stopReplicatingTo(installation: String): Effect[Receipt] =
   effects.stopReplicatingTo(installation).thenReply(receipt("stop-replicating-to"))
+```
+
+**Java**
+
+```java
+/** Allots the ledger to an installation, which holds it from now on. */
+@Command("share")
+public Effect<Done> share(String installation) {
+  return effects().replicateTo(installation).thenDone();
+}
+
+/** The installation keeps what it holds and mirrors no more. */
+@Command("unshare")
+public Effect<Done> unshare(String installation) {
+  return effects().stopReplicatingTo(installation).thenDone();
+}
+
+/** Persists one more event, and then the home is the installation named from now on. */
+@Command("enter-and-hand-over")
+public Effect<Done> enterAndHandOver(String installation) {
+  return effects().persist(new Entered("handing over")).handOverTo(installation).thenDone();
+}
+
+/** Its home is the installation named from now on. */
+@Command("hand-over")
+public Effect<Done> handOver(String installation) {
+  return effects().handOverTo(installation).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** Ships the vehicle: its home is the dealership's installation from now on. */
+@Command("hand-over")
+fun handOver(installation: String): Effect<Receipt> = effects {
+    handOverTo(installation) thenReply receipt("hand-over")
+}
+
+/** Allots the vehicle to a dealership, whose installation holds it from now on. */
+@Command("replicate-to")
+fun replicateTo(installation: String): Effect<Receipt> = effects {
+    replicateTo(installation) thenReply receipt("replicate-to")
+}
+
+/** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
+@Command("stop-replicating-to")
+fun stopReplicatingTo(installation: String): Effect<Receipt> = effects {
+    stopReplicatingTo(installation) thenReply receipt("stop-replicating-to")
+}
 ```
 
 **Python**
@@ -826,6 +1703,51 @@ def applyEvent(event: VehicleEvent): Vehicle =
   )
 ```
 
+**Java**
+
+```java
+@Override
+protected State applyEvent(State state, Entered event) {
+  // Where this event was written, on replay as well as when it is persisted here.
+  var where = eventContext().installation().orElse("nowhere");
+  var entries = new ArrayList<>(state.entries());
+  entries.add(event.text() + "@" + where + (eventContext().isLocal() ? "" : " (mirrored)"));
+  return new State(entries);
+}
+```
+
+**Kotlin**
+
+```kotlin
+override fun applyEvent(state: Vehicle, event: VehicleEvent): Vehicle {
+    val vehicle =
+        when (event) {
+            is VehicleEvent.Created -> state.copy(id = event.id)
+            is VehicleEvent.StepAdded -> state.copy(steps = state.steps + event.step)
+            is VehicleEvent.InspectionRecorded ->
+                state.copy(inspections = state.inspections + event.note)
+            VehicleEvent.Sold -> state.copy(sold = true)
+        }
+    // Where this event was written, on replay as well as when it is persisted here.
+    val facts = eventContext()
+    return vehicle.copy(
+        writtenAt = vehicle.writtenAt + (facts.installationOrNull ?: "nowhere"),
+        local = vehicle.local + facts.isLocal,
+        // Who acted on the command that wrote it, as its record says.
+        actedBy = vehicle.actedBy + (facts.attributionOrNull ?: "nobody"),
+    )
+}
+
+/** Taken while the handler runs: the reply is computed after the context is gone. */
+private fun receipt(command: String): (Vehicle) -> Receipt {
+    val here = context().installationOrNull
+    val atHome = context().isHome
+    val actor = context().attributionOrNull
+    val forwarder = context().forwardedFromOrNull
+    return { v -> Receipt(command, here, atHome, v.writtenAt.size, actor, forwarder) }
+}
+```
+
 **Python**
 
 ```python
@@ -883,11 +1805,34 @@ ankka.ApplyWithContext(func(ctx context.Context, s VehicleRecord, e StepAdded) V
 Any installation's copy answers its status from its own journal: the home, the replication set, a
 handover waiting, a conflict, and the position its history reaches.
 
+**Scala**
+
 ```scala
 val status = componentClient.forEventSourcedEntity(EntityId("v1")).replication(Vehicles)
 status.home            // Some("leipzig")
 status.replicationSet  // Set("leipzig", "vienna")
 status.position        // how many records this copy holds
+```
+
+**Java**
+
+```java
+public static ReplicationStatus status(ComponentClient client) {
+  var status = client.forEventSourcedEntity("shared").replication(Ledger.class);
+  status.home(); // Optional.of("leipzig")
+  status.replicationSet(); // Set.of("leipzig", "vienna")
+  status.position(); // how many records this copy holds
+  return status;
+}
+```
+
+**Kotlin**
+
+```kotlin
+val status = vienna.componentClient().forEventSourcedEntity("v1").replication(VehicleEntity::class.java)
+assertEquals("leipzig", status.home().orNull())
+assertEquals(setOf("leipzig", "vienna"), status.replicationSet())
+assertTrue(status.position() > 0) // how many records this copy holds
 ```
 
 ### Testing a replicated entity
@@ -907,6 +1852,23 @@ val kit = EventSourcedTestKit.of(
 )
 given EventSourcedTestKit.WrittenAt = EventSourcedTestKit.WrittenAt(Some("leipzig"))
 kit.replay(VehicleEvent.Created("v1"), VehicleEvent.StepAdded("frame"))
+```
+
+**Java**
+
+```java
+public static Ledger.State followerState() {
+  var kit = EventSourcedTestKit.follower(Ledger.class, "l1", "leipzig", "bratislava");
+  kit.replay("leipzig", List.of(new Ledger.Entered("created"), new Ledger.Entered("frame")));
+  return kit.call(Ledger::get).reply();
+}
+```
+
+**Kotlin**
+
+```kotlin
+val kit = EventSourcedTestKit.follower(VehicleEntity::class.java, "v1", "leipzig", "bratislava")
+kit.replay("leipzig", listOf(VehicleEvent.Created("v1"), VehicleEvent.StepAdded("frame")))
 ```
 
 **Python**
@@ -956,6 +1918,33 @@ assertEquals(result.replyValue, Done)
 assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
 ```
 
+**Java**
+
+```java
+public static Result<Done> addItem() {
+  var kit = EventSourcedTestKit.of(ShoppingCart.class, "cart-1");
+  var result = kit.call(ShoppingCart::addItem, new LineItem("p1", "Widget", 2));
+
+  // result.reply() is Done, and result.events() is [ItemAdded(LineItem("p1", "Widget", 2))]
+  return result;
+}
+```
+
+**Kotlin**
+
+```kotlin
+val kit = eventSourcedTestKit(ShoppingCart::class, "cart-1")
+val result = kit.call(commandRef(ShoppingCart::addItem), LineItem("p1", "Widget", 2))
+assertEquals(Done.done(), result.reply())
+assertEquals(listOf(CartEvent.ItemAdded(LineItem("p1", "Widget", 2))), result.events())
+assertEquals(2, kit.state().totalQuantity)
+
+val refused = kit.call(commandRef(ShoppingCart::addItem), LineItem("p1", "Widget", 0))
+assertTrue(refused.isError())
+assertEquals(400, refused.problem().status())
+assertEquals(1, kit.events().size)
+```
+
 **Python**
 
 ```python
@@ -973,6 +1962,35 @@ test("adds an item and replies done", async () => {
   assert.equal(result.reply, done)
   assert.equal(kit.state.items.length, 1)
 })
+```
+
+**Rust**
+
+```rust
+#[test]
+fn adding_an_item_persists_it_and_the_cart_holds_it() {
+    let mut kit = EventSourcedTestKit::<ShoppingCart>::new("cart-1");
+    let outcome = kit.command("add-item", pen(2));
+    assert_eq!(
+        outcome.events,
+        vec![ShoppingCartEvent::ItemAdded { item: pen(2) }]
+    );
+    assert_eq!(outcome.reply::<Done>(), Ok(Done));
+    assert_eq!(kit.state().items, vec![pen(2)]);
+
+    // The same product again folds into one line.
+    kit.command("add-item", pen(1));
+    assert_eq!(kit.state().items, vec![pen(3)]);
+}
+
+#[test]
+fn a_refused_command_persists_nothing() {
+    let mut kit = EventSourcedTestKit::<ShoppingCart>::new("cart-1");
+    let refused = kit.command("add-item", pen(0));
+    assert!(refused.events.is_empty());
+    assert_eq!(refused.error().map(|e| e.code), Some(ErrorCode::BadRequest));
+    assert!(kit.state().items.is_empty());
+}
 ```
 
 **Go**

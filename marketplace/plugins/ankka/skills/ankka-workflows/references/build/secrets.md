@@ -44,7 +44,9 @@ Each blocks the handler until the database has answered. The components that hav
 virtual threads (Scala, Java, Kotlin) or call through the runtime beside them (Python, TypeScript, Rust, Go), so the wait
 holds nothing else up.
 
-An endpoint through which an operator enters a provider's credential, in Scala:
+An endpoint through which an operator enters a provider's credential:
+
+**Scala**
 
 ```scala
 /**
@@ -73,7 +75,213 @@ final class ProviderCredentialsEndpoint(secrets: SecretStore) extends HttpEndpoi
   }
 ```
 
+**Java**
+
+```java
+/**
+ * Where a person gives the service a credential it must keep. The value goes to the secret store
+ * and nowhere else: not to an entity, so it reaches no journal, snapshot or view.
+ */
+public class CredentialsRoutes extends HttpEndpoint {
+
+  public record KeepSecret(String name, String value) {}
+
+  @Override
+  protected Acl acl() {
+    return Acl.allowAll();
+  }
+
+  @Post("/credentials")
+  public Done keep(@Body KeepSecret request) {
+    secrets().put(request.name(), request.value());
+    return Done.done();
+  }
+
+  // The name is a query parameter because it may hold a slash.
+  @Get("/credentials")
+  public String read() {
+    var name = request().requiredQuery("name");
+    return secrets()
+        .get(name)
+        .orElseThrow(() -> new ProblemException(Problem.notFound("no secret '" + name + "'")));
+  }
+
+  @Delete("/credentials")
+  public Done remove() {
+    secrets().delete(request().requiredQuery("name"));
+    return Done.done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Where a person gives the service a credential it must keep. The value goes to the secret store
+ * and nowhere else: not to an entity, so it reaches no journal, snapshot or view.
+ */
+class ProviderCredentialsEndpoint : HttpEndpoint(), RouteRegistrar {
+    override fun acl(): Acl = Acl.allowAll()
+
+    override fun routes() = routes {
+        post<KeepSecret>("/credentials") { request ->
+            secrets().put(request.name, request.value)
+            Done.done()
+        }
+
+        get("/credentials") {
+            val name = request.requiredQuery("name")
+            secrets().getOrNull(name) ?: throw ProblemException(Problem.notFound("no secret '$name'"))
+        }
+
+        delete("/credentials") {
+            secrets().delete(request.requiredQuery("name"))
+            Done.done()
+        }
+    }
+}
+```
+
+**Python**
+
+```python
+def _secret_name(self) -> str:
+    return next((v for k, v in self.request.query if k == "name"), "")
+
+@post("/secrets")
+async def keep_secret(self, value: str) -> Done:
+    await self.secrets.put(self._secret_name(), value)
+    return DONE
+
+@get("/secrets")
+async def read_secret(self) -> str:
+    name = self._secret_name()
+    value = await self.secrets.get(name)
+    if value is None:
+        raise HttpProblem(404, f"no secret '{name}'")
+    return value
+
+@delete("/secrets")
+async def remove_secret(self) -> Done:
+    await self.secrets.delete(self._secret_name())
+    return DONE
+```
+
+**TypeScript**
+
+```ts
+const KeepSecret = s.record("KeepSecret", { name: s.string, value: s.string })
+
+/**
+ * Where a person gives the service a credential it must keep. The value goes to the secret store
+ * and nowhere else: not to an entity, so it reaches no journal, snapshot or view.
+ */
+export class ProviderCredentialsEndpoint extends Endpoint {
+  static readonly prefix = "/credentials"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    keep: post("/", KeepSecret, Done, async (ep: ProviderCredentialsEndpoint, _req, request) => {
+      await ep.secrets.put(request.name, request.value)
+      return done
+    }),
+    read: get("/", s.string, async (ep: ProviderCredentialsEndpoint, req) => {
+      const name = req.query.get("name") ?? ""
+      const value = await ep.secrets.get(name)
+      if (value === undefined) throw new HttpProblem(404, `no secret '${name}'`)
+      return value
+    }),
+    remove: del("/", Done, async (ep: ProviderCredentialsEndpoint, req) => {
+      await ep.secrets.delete(req.query.get("name") ?? "")
+      return done
+    }),
+  }
+}
+```
+
+**Rust**
+
+```rust
+/// Where a person gives the service a credential it must keep. The value goes to the secret store
+/// and nowhere else: not to an entity, so it reaches no journal, snapshot or view.
+pub struct ProviderCredentialsEndpoint;
+
+impl ProviderCredentialsEndpoint {
+    fn secrets(request: &Request) -> Result<ankka::Secrets, HttpProblem> {
+        request
+            .context()
+            .secrets()
+            .ok_or_else(|| HttpProblem::new(500, "an endpoint has a secret store"))
+    }
+
+    fn keep(request: &Request, keep: KeepSecret) -> Result<Done, HttpProblem> {
+        Self::secrets(request)?.put(&keep.name, &keep.value)?;
+        Ok(Done)
+    }
+
+    fn read(request: &Request) -> Result<String, HttpProblem> {
+        let name = request
+            .query("name")
+            .ok_or_else(|| HttpProblem::new(400, "the query needs 'name'"))?;
+        Self::secrets(request)?
+            .get(name)?
+            .ok_or_else(|| HttpProblem::new(404, format!("no secret '{name}'")))
+    }
+
+    fn remove(request: &Request) -> Result<Done, HttpProblem> {
+        let name = request
+            .query("name")
+            .ok_or_else(|| HttpProblem::new(400, "the query needs 'name'"))?;
+        Self::secrets(request)?.delete(name)?;
+        Ok(Done)
+    }
+}
+
+impl Endpoint for ProviderCredentialsEndpoint {
+    const ENDPOINT_ID: &'static str = "ProviderCredentialsEndpoint";
+    const PREFIX: &'static str = "/credentials";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<ProviderCredentialsEndpoint> {
+        Routes::new()
+            .post("/", ProviderCredentialsEndpoint::keep)
+            .get("/", ProviderCredentialsEndpoint::read)
+            .delete("/", ProviderCredentialsEndpoint::remove)
+    }
+}
+```
+
+**Go**
+
+```go
+// CredentialsEndpoint is where a person gives the service a credential it must keep. The value
+// goes to the secret store and nowhere else: not to an entity, so it reaches no journal, snapshot
+// or view. The name is a query parameter because it may hold a slash.
+var CredentialsEndpoint = ankka.NewEndpoint("/credentials", ankka.AllowAll(),
+	ankka.Post("/", func(ctx context.Context, _ *ankka.Request, keep KeepSecret) (ankka.Done, error) {
+		return ankka.Done{}, ankka.Secrets(ctx).Put(keep.Name, keep.Value)
+	}),
+	ankka.Get("/", func(ctx context.Context, req *ankka.Request) (string, error) {
+		name := req.Query.Get("name")
+		value, found, err := ankka.Secrets(ctx).Get(name)
+		if err == nil && !found {
+			err = &ankka.HttpProblem{Status: 404, Message: fmt.Sprintf("no secret '%s'", name)}
+		}
+		return value, err
+	}),
+	ankka.Delete("/", func(ctx context.Context, req *ankka.Request) (ankka.Done, error) {
+		return ankka.Done{}, ankka.Secrets(ctx).Delete(req.Query.Get("name"))
+	}),
+)
+```
+
 A workflow step that reads it when it needs it, and records only that it charged:
+
+**Scala**
 
 ```scala
 /**
@@ -101,105 +309,263 @@ final class ChargeWorkflow(context: WorkflowContext) extends Workflow[ChargeStat
       .thenEnd
 ```
 
+**Java**
+
+```java
+/**
+ * Charges a customer through a payment provider. The step reads the provider's credential from
+ * the secret store when it needs it, and records only that it charged.
+ */
+@ComponentId("charge")
+public class ChargeWorkflow extends Workflow<ChargeWorkflow.ChargeState> {
+
+  public record Charge(String provider, int amount) {}
+
+  public record ChargeState(String provider, int credentialLength, String status) {}
+
+  @Override
+  protected ChargeState emptyState() {
+    return new ChargeState("", 0, "not-started");
+  }
+
+  @Command("start")
+  public Effect<Done> start(Charge charge) {
+    return effects()
+        .updateState(new ChargeState(charge.provider(), 0, "started"))
+        .transitionTo(ChargeWorkflow::charge, charge)
+        .thenDone();
+  }
+
+  @Step("charge")
+  public StepEffect charge(Charge charge) {
+    var credential =
+        secrets()
+            .get("provider/" + charge.provider())
+            .orElseThrow(
+                () -> new IllegalStateException("no credential for " + charge.provider()));
+    // Calling the provider with the credential goes here. The state records that it charged,
+    // and never the credential.
+    return stepEffects()
+        .updateState(new ChargeState(charge.provider(), credential.length(), "charged"))
+        .thenEnd();
+  }
+
+  @Query("get")
+  public ReadOnlyEffect<ChargeState> get() {
+    return effects().reply(currentState());
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Charges a customer through a payment provider. The step reads the provider's credential from the
+ * secret store when it needs it, and records only that it charged.
+ */
+@ComponentId("charge")
+class ChargeWorkflow : Workflow<ChargeState>() {
+    override fun emptyState() = ChargeState("", 0, "not-started")
+
+    @Command("start")
+    fun start(charge: Charge): Effect<Done> = effects {
+        updateState(ChargeState(charge.provider, 0, "started")).transitionTo(stepRef(ChargeWorkflow::chargeStep), charge).thenDone()
+    }
+
+    @Step("charge")
+    fun chargeStep(charge: Charge): StepEffect {
+        val credential =
+            secrets().getOrNull("provider/${charge.provider}")
+                ?: throw IllegalStateException("no credential for ${charge.provider}")
+        // Calling the provider with `credential` goes here. The state records that it was charged, and
+        // never the credential.
+        return stepEffects { updateState(currentState().copy(credentialLength = credential.length, status = "charged")).thenEnd() }
+    }
+
+    @Query("get")
+    fun get(): ReadOnlyEffect<ChargeState> = effects { reply(currentState()) }
+}
+```
+
+**Python**
+
+```python
+class ChargeWorkflow(Workflow[ChargeState]):
+    """Charges a customer through a payment provider. The step reads the provider's credential from
+    the secret store when it needs it, and records only that it charged."""
+
+    component_id = "charge"
+    state_codec = json_codec(ChargeState, "charge-state")
+
+    def empty_state(self) -> ChargeState:
+        return ChargeState("", 0, "not-started")
+
+    @command("start")
+    def start(self, charge: Charge) -> WorkflowEffect[ChargeState, Done]:
+        return self.effects.update_state(ChargeState(charge.provider, 0, "started")).then_transition_to("charge", charge).then_reply(lambda _: DONE)
+
+    @step("charge")
+    async def charge(self, charge: Charge) -> WorkflowStepEffect[ChargeState]:
+        credential = await self.secrets.get(f"provider/{charge.provider}")
+        if credential is None:
+            raise RuntimeError(f"no credential for {charge.provider}")
+        # Calling the provider with `credential` goes here. The state records that it was charged,
+        # and never the credential.
+        return self.step_effects.update_state(replace(self.state, credentialLength=len(credential), status="charged")).then_end()
+```
+
+**TypeScript**
+
+```ts
+export const Charge = s.record("Charge", { provider: s.string, amount: s.int })
+export type Charge = Infer<typeof Charge>
+export const ChargeState = s.record("ChargeState", { provider: s.string, credentialLength: s.int, status: s.string })
+export type ChargeState = Infer<typeof ChargeState>
+
+/**
+ * Charges a customer through a payment provider. The step reads the provider's credential from the
+ * secret store when it needs it, and records only that it charged.
+ */
+export class ChargeWorkflow extends Workflow<ChargeState> {
+  static readonly componentId = "charge"
+  static readonly state = jsonCodec(ChargeState, "charge-state")
+
+  static readonly handlers = {
+    start: command("start", Charge, Done, (w: ChargeWorkflow, charge) =>
+      w.effects
+        .updateState({ provider: charge.provider, credentialLength: 0, status: "started" })
+        .thenTransitionTo("charge", charge)
+        .thenReply(() => done),
+    ),
+    status: query("status", ChargeState, (w: ChargeWorkflow) => w.effects.reply(w.state)),
+  }
+
+  static readonly steps = {
+    charge: step("charge", Charge, (w: ChargeWorkflow, charge) => w.charge(charge)),
+  }
+
+  emptyState(): ChargeState {
+    return { provider: "", credentialLength: 0, status: "not-started" }
+  }
+
+  async charge(charge: Charge) {
+    const credential = await this.secrets.get(`provider/${charge.provider}`)
+    if (credential === undefined) throw new Error(`no credential for ${charge.provider}`)
+    // Calling the provider with `credential` goes here. The state records that it was charged, and
+    // never the credential.
+    return this.stepEffects.updateState({ ...this.state, credentialLength: credential.length, status: "charged" }).thenEnd()
+  }
+}
+```
+
+**Rust**
+
+```rust
+/// Charges a customer through a payment provider. The step reads the provider's credential from
+/// the secret store when it needs it, and records only that it charged.
+pub struct ChargeWorkflow;
+
+impl ChargeWorkflow {
+    fn start(_: &ChargeState, charge: Charge, _: &Context) -> WorkflowEffect<ChargeState, Done> {
+        workflow::update_state(ChargeState {
+            provider: charge.provider.clone(),
+            credential_length: 0,
+            status: "started".to_string(),
+        })
+        .transition_to_with("charge", charge)
+        .then_reply_value(Done)
+    }
+
+    fn charge(state: &ChargeState, charge: Charge, ctx: &Context) -> StepEffect<ChargeState> {
+        // A step has the store; the command handler above does not.
+        let secrets = ctx.secrets().expect("a workflow step has a secret store");
+        let credential = match secrets.get(&format!("provider/{}", charge.provider)) {
+            Ok(Some(credential)) => credential,
+            Ok(None) => {
+                let why = format!("no credential for {}", charge.provider);
+                return step_effects::fail(CommandError::new(ErrorCode::Internal, why));
+            }
+            Err(e) => return step_effects::fail(e),
+        };
+        // Calling the provider with `credential` goes here. The state records that it was
+        // charged, and never the credential.
+        step_effects::update_state(ChargeState {
+            credential_length: credential.len(),
+            status: "charged".to_string(),
+            ..state.clone()
+        })
+        .then_end()
+    }
+
+    fn status(state: &ChargeState, _: (), _: &Context) -> ReadOnlyEffect<ChargeState> {
+        effects::reply(state.clone())
+    }
+}
+
+impl Workflow for ChargeWorkflow {
+    type State = ChargeState;
+    const COMPONENT_ID: &'static str = "charge";
+    const STATE_MANIFEST: Option<&'static str> = Some("charge-state");
+
+    fn empty_state(_: &str) -> ChargeState {
+        ChargeState {
+            provider: String::new(),
+            credential_length: 0,
+            status: "not-started".to_string(),
+        }
+    }
+
+    fn handlers() -> WorkflowHandlers<ChargeWorkflow> {
+        WorkflowHandlers::new()
+            .command("start", ChargeWorkflow::start)
+            .query("status", ChargeWorkflow::status)
+    }
+
+    fn steps() -> Steps<ChargeWorkflow> {
+        Steps::new().step("charge", ChargeWorkflow::charge)
+    }
+}
+```
+
+**Go**
+
+```go
+// ChargeWorkflow charges a customer through a payment provider. The step reads the provider's
+// credential from the secret store when it needs it, and records only that it charged.
+var ChargeWorkflow = ankka.Workflow[ChargeState]("charge",
+	func(string) ChargeState { return ChargeState{Status: "not-started"} },
+	ankka.WorkflowCommand("start", func(_ context.Context, _ ChargeState, c Charge) (chargeStart, error) {
+		return ankka.WorkflowUpdate[ChargeState, ankka.Done](ChargeState{Provider: c.Provider, Status: "started"}).
+			ThenTransitionTo("charge", c).ThenReplyValue(ankka.Done{}), nil
+	}),
+	ankka.Step("charge", func(ctx context.Context, s ChargeState, c Charge) (chargeStep, error) {
+		credential, found, err := ankka.Secrets(ctx).Get("provider/" + c.Provider)
+		if err != nil {
+			return chargeStep{}, err
+		}
+		if !found {
+			return chargeStep{}, fmt.Errorf("no credential for %s", c.Provider)
+		}
+		// Calling the provider with the credential goes here. The state records that it was
+		// charged, and never the credential.
+		s.CredentialLength, s.Status = len(credential), "charged"
+		return ankka.StepUpdate(s).ThenEnd(), nil
+	}),
+	ankka.StateCodec(ankka.CodecFor[ChargeState](ankka.Manifest("charge-state"))),
+)
+```
+
 In Java and Kotlin the store is `secrets()`, on an HTTP, gRPC or MCP endpoint, a consumer, a workflow
 and a timed action's context (`context().secrets()`); an entity and a view have no such method, and a
 workflow's command handler that calls it is refused, as in Scala.
 
-The same three operations in Python, where an endpoint, a consumer, a timed action, an agent and a
-workflow step reach the store as `self.secrets` and every call is awaited:
-
-```python
-def _secret_name(self) -> str:
-    return next((v for k, v in self.request.query if k == "name"), "")
-
-@post("/secrets")
-async def keep_secret(self, value: str) -> Done:
-    await self.secrets.put(self._secret_name(), value)
-    return DONE
-
-@get("/secrets")
-async def read_secret(self) -> str:
-    name = self._secret_name()
-    value = await self.secrets.get(name)
-    if value is None:
-        raise HttpProblem(404, f"no secret '{name}'")
-    return value
-
-@delete("/secrets")
-async def remove_secret(self) -> Done:
-    await self.secrets.delete(self._secret_name())
-    return DONE
-```
-
-In TypeScript, as `ep.secrets` (or `this.secrets` in a class handler):
-
-```typescript
-keepSecret: post("/secrets", s.string, Done, async (ep: ConformanceEndpoint, req, value) => {
-  await ep.secrets.put(req.query.get("name") ?? "", value)
-  return done
-}),
-readSecret: get("/secrets", s.string, async (ep: ConformanceEndpoint, req) => {
-  const name = req.query.get("name") ?? ""
-  const value = await ep.secrets.get(name)
-  if (value === undefined) throw new HttpProblem(404, `no secret '${name}'`)
-  return value
-}),
-removeSecret: del("/secrets", Done, async (ep: ConformanceEndpoint, req) => {
-  await ep.secrets.delete(req.query.get("name") ?? "")
-  return done
-}),
-```
-
-In Rust, `ctx.secrets()` answers the store, or `None` in an entity, a view and a workflow's command
-handler:
-
-```rust
-fn secrets(request: &Request) -> Result<ankka::Secrets, HttpProblem> {
-    request
-        .context()
-        .secrets()
-        .ok_or_else(|| HttpProblem::new(500, "an endpoint has a secret store"))
-}
-
-fn keep_secret(request: &Request, value: String) -> Result<Done, HttpProblem> {
-    Self::secrets(request)?.put(request.query("name").unwrap_or_default(), &value)?;
-    Ok(Done)
-}
-
-fn read_secret(request: &Request) -> Result<String, HttpProblem> {
-    let name = request.query("name").unwrap_or_default();
-    Self::secrets(request)?
-        .get(name)?
-        .ok_or_else(|| HttpProblem::new(404, format!("no secret '{name}'")))
-}
-
-fn remove_secret(request: &Request) -> Result<Done, HttpProblem> {
-    Self::secrets(request)?.delete(request.query("name").unwrap_or_default())?;
-    Ok(Done)
-}
-```
-
-In Go, `ankka.Secrets(ctx)` is the store of the handler whose context it is given. An entity, a view or
-a workflow's command handler has a context too, so the call compiles there; the store refuses every call
-from one, naming which:
-
-```go
-// The secret store. The name is a query parameter because it may hold a slash.
-ankka.Post("/secrets", func(ctx context.Context, req *ankka.Request, value string) (ankka.Done, error) {
-	return ankka.Done{}, ankka.Secrets(ctx).Put(req.Query.Get("name"), value)
-}),
-ankka.Get("/secrets", func(ctx context.Context, req *ankka.Request) (string, error) {
-	name := req.Query.Get("name")
-	value, found, err := ankka.Secrets(ctx).Get(name)
-	if err == nil && !found {
-		err = notFound("no secret '%s'", name)
-	}
-	return value, err
-}),
-ankka.Delete("/secrets", func(ctx context.Context, req *ankka.Request) (ankka.Done, error) {
-	return ankka.Done{}, ankka.Secrets(ctx).Delete(req.Query.Get("name"))
-}),
-```
+In Python an endpoint, a consumer, a timed action, an agent and a workflow step reach the store as
+`self.secrets` and every call is awaited; in TypeScript it is `ep.secrets` (or `this.secrets` in a class
+handler). In Rust, `ctx.secrets()` answers the store, or `None` in an entity, a view and a workflow's
+command handler. In Go, `ankka.Secrets(ctx)` is the store of the handler whose context it is given; an
+entity, a view or a workflow's command handler has a context too, so the call compiles there, and the
+store refuses every call from one, naming which.
 
 ## Every read is recorded
 
@@ -254,11 +620,26 @@ A test that must show its service on the Secret Manager backend starts the kit o
 `FakeSecretManager`: Secret Manager played on loopback, with Google's answers, which refuses what Google
 Cloud's access would refuse. Two kits on one fake are two services, each refused the other's secrets.
 
+**Scala**
+
 ```scala
 val kit = AnkkaTestKit.start(
   Seq.empty,
   secretBackend = SecretBackendChoice.secretManager(theFake, "spinvibe", service)
 )
+```
+
+**Kotlin**
+
+```kotlin
+// The kit's `secrets()` is the service's store: what one keeps, the other reads.
+assertEquals(204, send("POST", "/credentials", """{"name":"provider/stripe","value":"sk-test-1"}""").status)
+assertEquals("sk-test-1", secrets().getOrNull("provider/stripe"))
+
+componentClient().forWorkflow("ch-1").call(ChargeWorkflow::start).invoke(Charge("stripe", 1200))
+eventually(Duration.ofSeconds(10)) {
+    assertEquals(ChargeState("stripe", 9, "charged"), componentClient().forWorkflow("ch-1").call(ChargeWorkflow::get).invoke())
+}
 ```
 
 `fake.latestValue(id)` and `fake.versionsOf(id)` show what it holds, `fake.unreachable(true)` and
@@ -269,10 +650,61 @@ and that no value was. Nothing reaches a network or needs a credential.
 For a unit test, `InMemorySecretStore` is a store in memory that applies the runtime's rules, so a name or
 a value a running service would refuse is refused there too. `ConsumerTestKit` gives the consumer one:
 
+**Scala**
+
 ```scala
 val kit = ConsumerTestKit.of(WarehouseCredentialKeeper)
 kit.onMessage(StockEvent("sku-1", 1, "w9"), "sku-1"): Unit
 assertEquals(kit.secrets.get("warehouse/w9"), Some("token-w9"))
+```
+
+**Python**
+
+```python
+keeper = WarehouseCredentialKeeper()
+keeper.secrets = InMemorySecrets()
+asyncio.run(keeper.on_message(StockEvent("sku-1", 1, "w9")))
+assert asyncio.run(keeper.secrets.get("warehouse/w9")) == "token-w9"
+```
+
+**TypeScript**
+
+```ts
+test("the step reads the credential and records only that it charged", async () => {
+  await store.put("provider/acme", "sk-live-1234")
+  class Charging extends ChargeWorkflow {
+    override get secrets(): Secrets {
+      return store
+    }
+  }
+  const kit = WorkflowTestKit.of(Charging, "ch-1")
+  await kit.call(ChargeWorkflow.handlers.start, { provider: "acme", amount: 10 })
+  const progress = await kit.runUntilEnd()
+  assert.equal(progress.ended, true)
+  assert.deepEqual(kit.state, { provider: "acme", credentialLength: 12, status: "charged" })
+  assert.equal(JSON.stringify(kit.state).includes("sk-live"), false)
+})
+```
+
+**Rust**
+
+```rust
+#[test]
+fn the_keeper_keeps_a_warehouses_credential_the_first_time_it_sees_it() {
+    let kit = ConsumerTestKit::<WarehouseCredentialKeeper>::new();
+    kit.on_message(
+        "sku-1",
+        StockEvent {
+            sku: "sku-1".into(),
+            delta: 1,
+            warehouse: "w9".into(),
+        },
+    );
+    assert_eq!(
+        store().get("warehouse/w9"),
+        Ok(Some("token-w9".to_string()))
+    );
+}
 ```
 
 The Python, TypeScript and Rust SDKs have the same double (`InMemorySecrets`, and in Rust the native host

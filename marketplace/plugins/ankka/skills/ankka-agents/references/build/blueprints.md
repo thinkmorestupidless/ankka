@@ -26,6 +26,8 @@ Every step is an **action**, how many times it is done (**over**), and optionall
 **until**. The named patterns are the common combinations; each is a builder on `Step`. This blueprint
 has one of each of the five that run once:
 
+**Scala**
+
 ```scala
 val text: Shape = Shape.obj("text" -> Shape.string)
 
@@ -68,6 +70,75 @@ val brief: Blueprint = Blueprint("brief")
   .runBudget(20)
 ```
 
+**Java**
+
+```java
+public static final Shape TEXT = Shape.obj(Map.of("text", Shape.string()));
+
+public static final Blueprint BRIEF =
+    Blueprint.named("brief")
+        .input(Shape.obj(Map.of("topic", Shape.string())))
+        // Workers are data: instructions, tools by name, a model by name, and a budget of calls.
+        .worker(Worker.named("writer").instructions("You write briefly.").tools("note").budget(4))
+        .worker(
+            Worker.named("researcher")
+                .instructions("You research until you have a draft.")
+                .tools("note")
+                .budget(6))
+        .worker(
+            Worker.named("critic")
+                .instructions("You pass a draft only when it is on topic.")
+                .budget(2))
+        // An ask step: one turn of a worker, its answer checked against the step's shape.
+        .step(
+            Step.named("outline")
+                .ask("writer")
+                .reads("input")
+                .result(Shape.obj(Map.of("points", Shape.arr(Shape.string())))))
+        // A work step: an autonomous task the worker iterates until it completes it.
+        .step(Step.named("draft").work("researcher").reads("outline").result(TEXT))
+        // A judge step: a judgment's answers to questions about what the step reads.
+        .step(Step.named("check").judge("on-topic").reads("draft").result(Shape.any()))
+        // A critique step: the writer drafts until the critic's verdict passes, in two rounds.
+        .step(
+            Step.named("polish")
+                .critique("writer", Verdict.critic("critic"), 2)
+                .reads("draft", "check")
+                .result(TEXT))
+        // A call step: a handler the service registered, with what the step reads.
+        .step(
+            Step.named("file")
+                .call("archive")
+                .reads("polish")
+                .result(Shape.obj(Map.of("filed", Shape.bool(), "run", Shape.string()))))
+        .runBudget(20);
+```
+
+**Kotlin**
+
+```kotlin
+val text: Shape = Shape.obj(mapOf("text" to Shape.string()))
+
+val brief: Blueprint =
+    Blueprint.named("brief")
+        .input(Shape.obj(mapOf("topic" to Shape.string())))
+        // Workers are data: instructions, tools by name, a model by name, and a budget of model calls.
+        .worker(Worker.named("writer").instructions("You write briefly.").tools("note").budget(4))
+        .worker(Worker.named("researcher").instructions("You research until you have a draft.").tools("note").budget(6))
+        .worker(Worker.named("critic").instructions("You pass a draft only when it is on topic.").budget(2))
+        // An ask step: one turn of a worker, its answer checked against the step's shape.
+        .step(Step.named("outline").ask("writer").reads("input").result(Shape.obj(mapOf("points" to Shape.arr(Shape.string())))))
+        // A work step: an autonomous task the worker iterates until it completes it, within its budget.
+        .step(Step.named("draft").work("researcher").reads("outline").result(text))
+        // A judge step: a judgment's answers to questions about what the step reads.
+        .step(Step.named("check").judge("on-topic").reads("draft").result(Shape.any()))
+        // A critique step: the writer drafts until the critic's verdict passes, within two rounds.
+        .step(Step.named("polish").critique("writer", Verdict.critic("critic"), 2).reads("draft", "check").result(text))
+        // A call step: a handler the service registered, with what the step reads.
+        .step(Step.named("file").call("archive").reads("polish").result(Shape.obj(mapOf("filed" to Shape.bool(), "run" to Shape.string()))))
+        .runBudget(20)
+```
+
 - An **ask step** is one turn of a worker: its instructions as the system message, what the step reads
   as the user message, its tools; the answer is checked against the step's result shape and, when it
   does not fit, sent back with the problems for the worker to correct, within the worker's budget of
@@ -106,9 +177,33 @@ The two patterns that repeat take their list or their workers from the step:
 Any action may repeat and any turn may draft until a verdict, so a for-each of work steps, or a critique
 whose drafter is a worker with tools, is a combination, not a new pattern:
 
+**Scala**
+
 ```scala
 Step("dig").work("researcher").each("papers.papers", limit = 4).result(Shape.arr(text))
 Step("views").ask("reviewer").times(3).reads("draft").result(Shape.arr(Shape.obj("n" -> Shape.integer, "result" -> text)))
+```
+
+**Java**
+
+```java
+public static final Step DIG =
+    Step.named("dig").work("researcher").each("papers.papers", 4, false).result(Shape.arr(TEXT));
+
+public static final Step VIEWS =
+    Step.named("views")
+        .ask("reviewer")
+        .times(3)
+        .reads("draft")
+        .result(Shape.arr(Shape.obj(Map.of("n", Shape.integer(), "result", TEXT))));
+```
+
+**Kotlin**
+
+```kotlin
+val dig: Step = Step.named("dig").work("researcher").each("papers.papers", 4, false).result(Shape.arr(text))
+val views: Step =
+    Step.named("views").ask("reviewer").times(3).reads("draft").result(Shape.arr(Shape.obj(mapOf("n" to Shape.integer(), "result" to text))))
 ```
 
 The check refuses the combinations that mean nothing — a judgment or a call repeated over workers, a
@@ -140,6 +235,8 @@ A blueprint names tools, MCP servers, models, guardrails, judgment questions and
 says which exist, when it starts, from a `BlueprintContext` that gives the registry's builder the
 component client and the view client, so a tool can call an entity or read a view:
 
+**Scala**
+
 ```scala
 /** A tool a worker may name; it calls an entity in a real service. */
 val note: FunctionTool = FunctionTool
@@ -160,6 +257,74 @@ val archive: BlueprintHandler = BlueprintHandler("archive") { (run, input) =>
 val onTopic: YesNoQuestion = Question.yesNo("on-topic", "Is the draft about the topic asked for?")
 ```
 
+**Java**
+
+```java
+/** What the note tool takes: a record's components are the tool's parameters. */
+public record Note(@Describe("What to note.") String text) {}
+
+/** A tool a worker may name; it calls an entity in a real service. */
+public static final FunctionTool NOTE =
+    FunctionTool.of(
+        "note",
+        "Keeps a note for the reader.",
+        Note.class,
+        note -> {
+          NOTED.add(note.text());
+          return "noted";
+        });
+
+/** A handler a call step runs: code with the run's durability, given what the step reads. */
+public static final BlueprintHandler ARCHIVE =
+    BlueprintHandler.of(
+        "archive",
+        (run, input) ->
+            "{\"filed\":" + input.contains("\"polish\"") + ",\"run\":\"" + run.runId() + "\"}");
+
+/** A judgment question a judge step asks, and a verdict a critique step may draft until. */
+public static final YesNoQuestion ON_TOPIC =
+    Question.yesNo("on-topic", "Is the draft about the topic asked for?");
+
+/** A tool built from the service's context, so it can read an entity. */
+public static final class CartTools {
+  private final ComponentClient client;
+
+  CartTools(ComponentClient client) {
+    this.client = client;
+  }
+
+  @Tool(value = "cart_total", description = "Counts the items in a cart.")
+  public String total(@Describe("The id of the cart.") String cartId) {
+    var items = client.forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke().items();
+    return "cart " + cartId + " holds " + items.stream().mapToInt(LineItem::quantity).sum();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+data class Note(@Describe("What to note.") val text: String)
+
+/** A tool a worker may name; it calls an entity in a real service. */
+val note: FunctionTool =
+    FunctionTool.of("note", "Keeps a note for the reader.", Note::class.java) {
+        noted.add(it.text)
+        "noted"
+    }
+
+/** A handler a call step runs: code with the run's durability, given what the step reads, as JSON. */
+val archive: BlueprintHandler =
+    BlueprintHandler.of("archive") { run, input -> """{"filed":${"\"polish\"" in input},"run":"${run.runId()}"}""" }
+
+/** A judgment question a judge step asks, and a verdict a critique step may draft until. */
+val onTopic: YesNoQuestion = Question.yesNo("on-topic", "Is the draft about the topic asked for?")
+```
+
+The registry is what the service's blueprints may name; one it carries is registered when the service starts:
+
+**Scala**
+
 ```scala
 /**
  * What the service's blueprints may name. A tool that needs the service is built from its
@@ -173,11 +338,64 @@ val registry: BlueprintRegistry =
     .carrying(brief) // registered when the service starts; a changed blueprint is a new version
 ```
 
+**Java**
+
+```java
+/**
+ * What the service's blueprints may name. A tool that needs the service is built from its
+ * context.
+ */
+public static BlueprintRegistry registry(BlueprintContext context) {
+  return BlueprintRegistry.empty()
+      .tools(NOTE, new CartTools(context.componentClient()))
+      .handlers(ARCHIVE)
+      .questions(ON_TOPIC)
+      // registered when the service starts; a changed blueprint is a new version
+      .carrying(BRIEF);
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** What the service's blueprints may name. */
+val registry: BlueprintRegistry =
+    BlueprintRegistry.empty()
+        .tools(note)
+        .handlers(archive)
+        .questions(onTopic)
+        .carrying(brief) // registered when the service starts; a changed blueprint is a new version
+```
+
+The runtime takes the registry beside its default model and its judgment provider:
+
+**Scala**
+
 ```scala
 private val agents = AgentRuntime
   .withDefaultModel(model)
   .withJudgments(judge)
   .withBlueprints(_ => GuideSamples.registry)
+```
+
+**Java**
+
+```java
+public static ServiceBuilder service(ModelProvider model, JudgmentProvider judge) {
+  return Ankka.service("guide")
+      .withModule(
+          Agents.module()
+              .withModelProvider(model)
+              .withJudgments(judge)
+              .withBlueprints(GuideBlueprints::registry))
+      .register(ShoppingCart.class);
+}
+```
+
+**Kotlin**
+
+```kotlin
+private val agents = Agents.module().withModelProvider(model).withBlueprints { GuideSamples.registry }
 ```
 
 Register `AgentRuntime.descriptors` with the service, as for agents: the platform's blueprint, run and
@@ -190,11 +408,40 @@ A blueprint carried in the registry (`carrying`) is registered when the service 
 received later is registered through the runtime's calls, which are available once the service has
 started — inject `agents.blueprints` into an endpoint or a workflow, as a `TimerRuntime`'s scheduler is:
 
+**Scala**
+
 ```scala
 val registered = agents.blueprints.register(brief)      // Registered(name, version, isNew, notes)
 agents.blueprints.register(jsonText)                    // the same, from a blueprint written as JSON
 agents.blueprints.versions("brief")                     // every version, oldest first
 agents.blueprints.version("brief", 2)                   // one, as it was registered
+```
+
+**Java**
+
+```java
+public static BlueprintsRef.Registered register(ComponentClient client, String jsonText) {
+  var blueprints = AgentClients.blueprints(client);
+  // Registered(name, version, isNew, notes)
+  var registered = blueprints.register(GuideBlueprints.BRIEF);
+  // the same, from a blueprint written as JSON
+  blueprints.register(jsonText);
+  // every version, oldest first
+  List<BlueprintsRef.Version> versions = blueprints.versions("brief");
+  // the version a run started now would use
+  Optional<Blueprint> current = blueprints.current("brief");
+  return registered;
+}
+```
+
+**Kotlin**
+
+```kotlin
+val blueprints = AgentClients.blueprints(kit.componentClient())
+val registered = blueprints.register(GuideSamples.brief) // Registered(name, version, isNew, notes)
+blueprints.register(GuideSamples.brief.json()) // the same, from a blueprint written as JSON
+val versions = blueprints.versions("brief") // every version, oldest first
+val current = blueprints.current("brief") // the current one, as it was registered
 ```
 
 Registering checks the blueprint whole first: every name resolves, every read names the input or an
@@ -353,6 +600,8 @@ says every statement names a paper, on a schedule.
 }
 ```
 
+**Scala**
+
 ```scala
 /**
  * What the service's blueprints may name: the tools over its records, the question, and the two.
@@ -366,11 +615,48 @@ def registry(
   BlueprintRegistry.empty.tools(tools.all(sources)*).questions(namesPaper).carrying(watch, digest)
 ```
 
+**Java**
+
+```java
+/**
+ * What the service's blueprints may name. A tool that needs the service is built from its
+ * context.
+ */
+public static BlueprintRegistry registry(BlueprintContext context) {
+  return BlueprintRegistry.empty()
+      .tools(NOTE, new CartTools(context.componentClient()))
+      .handlers(ARCHIVE)
+      .questions(ON_TOPIC)
+      // registered when the service starts; a changed blueprint is a new version
+      .carrying(BRIEF);
+}
+```
+
+**Kotlin**
+
+```kotlin
+data class Traveller(@Describe("The traveller.") val userId: String)
+
+/**
+ * What the service's blueprints may name, when a tool needs the service: the registry is built
+ * from its context, which gives the component client.
+ */
+fun registry(context: BlueprintContext): BlueprintRegistry {
+    val preferences =
+        FunctionTool.of("get_preferences", "The traveller's stored preferences.", Traveller::class.java) {
+            context.componentClient().forKeyValueEntity(it.userId).call(PreferencesEntity::get).invoke().summary
+        }
+    return BlueprintRegistry.empty().tools(note, preferences).handlers(archive).questions(onTopic).carrying(brief)
+}
+```
+
 ## Runs
 
 A run is one carrying out of one blueprint version under a run id the caller chooses. It is not a task
 and not a workflow instance: it is a record, with the version it ran, its input, each step's result, the
 sessions each step used, its usage and its status.
+
+**Scala**
 
 ```scala
 val started =
@@ -381,6 +667,20 @@ assertEquals(
   run.stepNamed("polish").flatMap(_.result),
   Some(Json.obj("text" -> Json.str("ducks, polished")))
 )
+```
+
+**Java**
+
+```java
+public static RunsRef.RunSnapshot brief(ComponentClient client, String topic) {
+  var runs = AgentClients.runs(client);
+  var started = runs.start("brief", "{\"topic\":\"" + topic + "\"}", "brief-7");
+  var run = runs.await("brief-7", Duration.ofSeconds(60));
+  if (!run.status().equals("completed")) {
+    throw new IllegalStateException("the brief " + started.runId() + " " + run.status());
+  }
+  return run;
+}
 ```
 
 `start` checks the input against the blueprint's input shape and refuses one that does not fit. It is
@@ -417,6 +717,8 @@ agent's do. A handler may run again, as a tool may.
 The multi-agent planner's three steps as a blueprint, beside [the workflow](multi-agent-orchestration.md)
 that does the same by hand: select is an ask whose result shape lists the specialists it may name, consult
 is a gather *chosen by* what select named, summarise reads the contributions.
+
+**Scala**
 
 ```scala
 val blueprint: Blueprint =
@@ -493,10 +795,45 @@ gap and no overlap; the first starts one cadence before the first due time. Due 
 zone, so a weekly digest at 20:00 stays at 20:00 when the clocks change, and that week's period is an hour
 longer or shorter.
 
+**Scala**
+
 ```scala
 Blueprint("digest")
   .input(Period.shape)
   .schedule(Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London")).perMissedPeriod)
+```
+
+**Java**
+
+```java
+/** The input a scheduled run is given: the period it covers and the due times it stands for. */
+public static final Shape PERIOD =
+    Shape.obj(
+        Map.of(
+            "from", Shape.string(),
+            "to", Shape.string(),
+            "dueTimes", Shape.arr(Shape.string())));
+
+public static final Blueprint DIGEST =
+    Blueprint.named("digest")
+        .input(PERIOD)
+        .worker(Worker.named("editor").instructions("You write the week's digest.").budget(2))
+        .step(Step.named("write").ask("editor").reads("input").result(GuideBlueprints.TEXT))
+        .schedule(
+            Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London"))
+                .perMissedPeriod());
+```
+
+**Kotlin**
+
+```kotlin
+/** A scheduled run's input: the period from the previous due time to this one. */
+val period: Shape = Shape.obj(mapOf("from" to Shape.string(), "to" to Shape.string(), "dueTimes" to Shape.arr(Shape.string())))
+
+val digest: Blueprint =
+    Blueprint.named("digest")
+        .input(period)
+        .schedule(Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London")).perMissedPeriod())
 ```
 
 Due times missed while the service was down are those of the schedule of the version current when it is
@@ -513,6 +850,8 @@ a schedule is refused in a service without timers.
 ## Following runs
 
 A tool called during a run can read which run it serves, so what it writes can say so:
+
+**Scala**
 
 ```scala
 /** A tool that records which run it was told it serves: `None` outside any run. */
@@ -532,6 +871,8 @@ changes — `ChangeSource.eventsOf(RunEntity)` and `ChangeSource.eventsOf(Bluepr
 `Started`, each step's `StepEnded` with its result, and `Ended`, in order; a blueprint's
 `VersionRegistered` carries the version's canonical text. This is how another component, or another
 system, keeps its own record of every run.
+
+**Scala**
 
 ```scala
 /** A service's consumer of the platform's runs: every event of every run, by run id. */

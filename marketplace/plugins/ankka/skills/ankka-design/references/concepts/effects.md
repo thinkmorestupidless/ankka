@@ -16,6 +16,40 @@ def addItem(item: LineItem): Effect[Done] =
   else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
 
+**Java**
+
+```java
+@Command("add-item")
+public Effect<Done> addItem(LineItem item) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (item.quantity() <= 0)
+    return effects().error("quantity must be greater than zero, was " + item.quantity());
+  return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+}
+
+@Command("remove-item")
+public Effect<Done> removeItem(String productId) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (!currentState().contains(productId))
+    return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+  return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+// A suspend fun, as any handler may be: it waits without holding a thread.
+@Command("add-item")
+suspend fun addItem(item: LineItem): Effect<Done> = effects {
+    when {
+        currentState().checkedOut -> error(checkedOut)
+        item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
+        else -> persist(CartEvent.ItemAdded(item)).thenDone()
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -32,6 +66,37 @@ def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingC
 addItem(item: LineItem) {
   if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
   return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+}
+```
+
+**Rust**
+
+```rust
+fn add_item(cart: &Cart, item: LineItem, _: &Context) -> Effect<ShoppingCartEvent, Done> {
+    if cart.checked_out {
+        return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+    }
+    if item.quantity <= 0 {
+        let message = format!("quantity must be greater than zero, was {}", item.quantity);
+        return effects::error(ErrorCode::BadRequest, message).into();
+    }
+    effects::persist(ShoppingCartEvent::ItemAdded { item }).then_reply_value(Done)
+}
+```
+
+**Go**
+
+```go
+// addItem describes what should happen: a refusal is a returned error and nothing is persisted; an
+// accepted item is an event the runtime persists before it replies.
+func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	if item.Quantity <= 0 {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.BadRequest, "quantity must be greater than zero, was %d", item.Quantity)
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
 }
 ```
 
@@ -95,8 +160,88 @@ A command that breaks a business rule is refused with `effects.error(message, co
 like any other: nothing is persisted, and the caller receives a typed failure carrying the message and an
 **error code**.
 
+**Scala**
+
 ```scala
 if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
+```
+
+**Java**
+
+```java
+@Command("add-item")
+public Effect<Done> addItem(LineItem item) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (item.quantity() <= 0)
+    return effects().error("quantity must be greater than zero, was " + item.quantity());
+  return effects().persist(new CartEvent.ItemAdded(item)).thenDone();
+}
+
+@Command("remove-item")
+public Effect<Done> removeItem(String productId) {
+  if (currentState().checkedOut()) return effects().error(checkedOut());
+  if (!currentState().contains(productId))
+    return effects().error(Problem.notFound("cart does not contain '" + productId + "'"));
+  return effects().persist(new CartEvent.ItemRemoved(productId)).thenDone();
+}
+```
+
+**Kotlin**
+
+```kotlin
+// A suspend fun, as any handler may be: it waits without holding a thread.
+@Command("add-item")
+suspend fun addItem(item: LineItem): Effect<Done> = effects {
+    when {
+        currentState().checkedOut -> error(checkedOut)
+        item.quantity <= 0 -> error("quantity must be greater than zero, was ${item.quantity}")
+        else -> persist(CartEvent.ItemAdded(item)).thenDone()
+    }
+}
+```
+
+**Python**
+
+```python
+if self.state.checkedOut:
+    return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+```
+
+**TypeScript**
+
+```ts
+if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+```
+
+**Rust**
+
+```rust
+fn add_item(cart: &Cart, item: LineItem, _: &Context) -> Effect<ShoppingCartEvent, Done> {
+    if cart.checked_out {
+        return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+    }
+    if item.quantity <= 0 {
+        let message = format!("quantity must be greater than zero, was {}", item.quantity);
+        return effects::error(ErrorCode::BadRequest, message).into();
+    }
+    effects::persist(ShoppingCartEvent::ItemAdded { item }).then_reply_value(Done)
+}
+```
+
+**Go**
+
+```go
+// addItem describes what should happen: a refusal is a returned error and nothing is persisted; an
+// accepted item is an event the runtime persists before it replies.
+func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
+	if c.CheckedOut {
+		return effect[ankka.Done]{}, checkedOut
+	}
+	if item.Quantity <= 0 {
+		return effect[ankka.Done]{}, ankka.Refusef(ankka.BadRequest, "quantity must be greater than zero, was %d", item.Quantity)
+	}
+	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
+}
 ```
 
 The code travels with the refusal. A caller using the component client receives a `CommandError` with the

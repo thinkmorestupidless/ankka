@@ -77,7 +77,8 @@ installation that wants it lists it in place of a collector of its own.
 
 A service run with `sbt run` or `docker compose up` exports when `ANKKA_OTLP_ENDPOINT` is set in its
 environment, and not otherwise. A Scala service needs the exporter on its classpath, which a project
-made by `ankka init` already has; the Java and Kotlin SDKs carry it themselves:
+made by `ankka init` already has; the Java and Kotlin SDKs carry it themselves, and a process or a
+module exports through the runtime beside it, which carries it too:
 
 ```scala
 libraryDependencies += "com.thinkmorestupidless" %% "ankka-telemetry-otlp" % ankkaVersion

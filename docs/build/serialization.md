@@ -33,6 +33,32 @@ given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
 
 ///
 
+/// tab | Java
+
+<!-- include: samples/shopping-cart-java/src/main/java/shoppingcart/javasdk/LineItem.java -->
+```java
+package shoppingcart.javasdk;
+
+import com.thinkmorestupidless.ankka.javasdk.codec.Manifest;
+
+/** A quantity of one product in a cart. */
+@Manifest("line-item")
+public record LineItem(String productId, String name, int quantity) {}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#line-item -->
+```kotlin
+/** A quantity of one product in a cart. */
+@Manifest("line-item")
+data class LineItem(val productId: String, val name: String, val quantity: Int)
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -54,6 +80,95 @@ export type LineItem = Infer<typeof LineItem>
 
 static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
 static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/domain.rs#domain -->
+```rust
+/// One product in a cart.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct LineItem {
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    pub name: String,
+    pub quantity: i32,
+}
+
+/// A cart: what its events fold to.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ShoppingCart {
+    #[serde(rename = "cartId")]
+    pub cart_id: String,
+    pub items: Vec<LineItem>,
+    #[serde(rename = "checkedOut")]
+    pub checked_out: bool,
+}
+
+impl ShoppingCart {
+    /// A cart with nothing in it.
+    pub fn empty(cart_id: &str) -> ShoppingCart {
+        ShoppingCart {
+            cart_id: cart_id.to_string(),
+            items: Vec::new(),
+            checked_out: false,
+        }
+    }
+
+    /// Adds a line, folding the quantity into an existing line for the same product.
+    pub fn add_item(mut self, item: LineItem) -> ShoppingCart {
+        let merged = match self.items.iter().find(|i| i.product_id == item.product_id) {
+            Some(existing) => LineItem {
+                quantity: existing.quantity + item.quantity,
+                ..item
+            },
+            None => item,
+        };
+        self.items.retain(|i| i.product_id != merged.product_id);
+        self.items.push(merged);
+        // Sorted, as the other carts sort: two carts holding the same products are equal
+        // whatever the order they were added in.
+        self.items.sort_by(|a, b| a.product_id.cmp(&b.product_id));
+        self
+    }
+
+    pub fn remove_item(mut self, product_id: &str) -> ShoppingCart {
+        self.items.retain(|i| i.product_id != product_id);
+        self
+    }
+
+    pub fn on_checked_out(self) -> ShoppingCart {
+        ShoppingCart {
+            checked_out: true,
+            ..self
+        }
+    }
+
+    pub fn contains(&self, product_id: &str) -> bool {
+        self.items.iter().any(|i| i.product_id == product_id)
+    }
+
+    pub fn total_quantity(&self) -> i32 {
+        self.items.iter().map(|i| i.quantity).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/cart/entity.go#codecs -->
+```go
+// A JSON codec derived from the type, under the manifest the journal records it by.
+ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
+ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
 ```
 
 ///

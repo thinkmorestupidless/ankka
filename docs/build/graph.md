@@ -487,6 +487,105 @@ object CartContentsGraph
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartContentsGraph.java#graph-from-state -->
+```java
+/**
+ * Publishes what each cart holds, as a node of its own beside the cart's.
+ *
+ * <p>An event says what changed, one item added, and an element is its whole state: how many
+ * lines the cart has now. So this consumer does not build the element from the event. It reads
+ * the cart through the component client and publishes what it finds, at the version of the event
+ * it is handling.
+ *
+ * <p>The cart it reads may already be ahead of that event. The delta then carries a later state
+ * at an earlier version, and the events still to come publish it again at their own: the graph is
+ * never behind for longer than the consumer is, and ends where the cart is.
+ */
+@ComponentId("cart-contents-graph")
+public class CartContentsGraph extends GraphConsumer<CartEvent> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCart.class);
+  }
+
+  @Override
+  protected String topic() {
+    return "cart-contents";
+  }
+
+  @Override
+  protected GraphEffect onChange(CartEvent event) {
+    if (event instanceof CartEvent.Discarded) return effects().ignore();
+    var cartId = messageContext().subject();
+    var cart =
+        componentClient().forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke();
+    int quantity = cart.items().stream().mapToInt(LineItem::quantity).sum();
+    return effects()
+        .publish(
+            graph()
+                .node(
+                    "cart-contents:" + cartId,
+                    List.of("CartContents"),
+                    Map.of("cartId", cartId, "lines", cart.items().size(), "quantity", quantity)));
+  }
+
+  @Override
+  protected GraphEffect onDelete() {
+    return effects().publish(graph().tombstoneNode("cart-contents:" + messageContext().subject()));
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Graphs.kt#graph-from-state -->
+```kotlin
+/**
+ * Publishes what each cart holds, as a node of its own beside the cart's.
+ *
+ * An event says what changed: one item added. An element is its whole state: how many lines the
+ * cart has now. So this consumer does not build the element from the event. It reads the cart
+ * through the component client and publishes what it finds, at the version of the event it is
+ * handling.
+ *
+ * The cart it reads may already be ahead of that event. The delta then carries a later state at an
+ * earlier version, and the events still to come publish it again at their own: the graph is never
+ * behind for longer than the consumer is, and ends where the cart is.
+ */
+@ComponentId("cart-contents-graph")
+class CartContentsGraph : GraphConsumer<CartEvent>() {
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
+
+    override fun topic(): String = "cart-graph"
+
+    override fun onChange(event: CartEvent): GraphEffect {
+        if (event == CartEvent.Discarded) return effects { ignore() }
+        val cartId = messageContext().subject()
+        val cart = componentClient().forEventSourcedEntity(cartId).call(ShoppingCart::getCart).invoke()
+        return effects {
+            publish(
+                graph().node(
+                    "cart-contents:$cartId",
+                    listOf("CartContents"),
+                    mapOf("cartId" to cartId, "lines" to cart.items.size, "quantity" to cart.totalQuantity),
+                )
+            )
+        }
+    }
+
+    override fun onDelete(): GraphEffect = effects {
+        publish(graph().tombstoneNode("cart-contents:${messageContext().subject()}"))
+    }
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/cart_contents_graph.py#graph-from-state -->
@@ -615,6 +714,44 @@ impl GraphConsumer for CartContentsGraph {
 
 ///
 
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/graph.go#graph-from-state -->
+```go
+// CartContentsGraph publishes what each cart holds, as a node of its own beside the cart's.
+//
+// An event says what changed (one item added) and an element is its whole state: how many lines
+// the cart has now. So this consumer does not build the element from the event. It reads the cart
+// through the client and publishes what it finds, at the version of the event it is handling.
+//
+// The cart it reads may already be ahead of that event. The delta then carries a later state at an
+// earlier version, and the events still to come publish it again at their own: the graph is never
+// behind for longer than the consumer is, and ends where the cart is.
+var CartContentsGraph = ankka.GraphConsumer[cart.Event]("cart-contents-graph", ankka.Changes(cart.Entity),
+	"cart-graph",
+	func(ctx context.Context, e cart.Event) (ankka.GraphEffect, error) {
+		if _, ok := e.(cart.Discarded); ok {
+			return ankka.GraphIgnore(), nil
+		}
+		change, _ := ankka.ChangeFrom(ctx)
+		c, err := ankka.Invoke[cart.Cart](ctx, cart.ComponentID, change.Subject, "get-cart", ankka.Unit{})
+		if err != nil {
+			return ankka.GraphEffect{}, err
+		}
+		return ankka.Publish(ankka.Node("cart-contents:"+change.Subject, ankka.Labels("CartContents"),
+			ankka.WithProperties(ankka.Properties{
+				"cartId": change.Subject, "lines": len(c.Items), "quantity": cart.TotalQuantity(c),
+			}))), nil
+	},
+	ankka.WhenDeleted(func(ctx context.Context) (ankka.GraphEffect, error) {
+		change, _ := ankka.ChangeFrom(ctx)
+		return ankka.Publish(ankka.NodeTombstone("cart-contents:" + change.Subject)), nil
+	}),
+)
+```
+
+///
+
 The state read may be later than the change being handled, because the entity does not wait for its
 consumers. The delta then carries a later state at an earlier version, and the changes still to come
 publish that state again at their own versions. The graph is never behind for longer than the consumer is,
@@ -735,6 +872,62 @@ test("a discarded cart's deletion publishes its tombstone") {
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/KitSamples.java#graph-test -->
+```java
+public static List<GraphDelta> checkoutDeltas() {
+  var kit = ConsumerTestKit.graph(CartGraph.class);
+  var deltas = kit.onMessage(new CartEvent.CheckedOut(), "c1", 4);
+
+  // The keys are node:cart:c1, node:checkout:c1 and edge:checked-out:c1, every one at version
+  // 4; the cart's checkedOut property is true; the edge is CHECKED_OUT from cart:c1 to
+  // checkout:c1.
+  return deltas;
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ConsumerSamplesTest.kt#graph-test -->
+```kotlin
+private val kit = ConsumerTestKit.graph(CartGraph::class.java)
+
+@Test
+fun `an item added publishes the cart's node, at the event's sequence number`() {
+    val deltas = kit.onMessage(CartEvent.ItemAdded(LineItem("p1", "Pen", 1)), "c1", 1)
+
+    assertEquals(listOf("node:cart:c1"), deltas.map { it.key() })
+    val cart = deltas.first()
+    assertEquals(1L, cart.version())
+    assertEquals(listOf("Cart"), cart.labels())
+    assertEquals(mapOf("cartId" to "c1", "checkedOut" to false), cart.properties())
+}
+
+@Test
+fun `a checkout publishes the cart as checked out, the checkout, and the edge between them`() {
+    val deltas = kit.onMessage(CartEvent.CheckedOut, "c1", 4)
+
+    assertEquals(listOf("node:cart:c1", "node:checkout:c1", "edge:checked-out:c1"), deltas.map { it.key() })
+    assertEquals(listOf(4L), deltas.map { it.version() }.distinct())
+    assertEquals(true, deltas[0].properties()["checkedOut"])
+    val edge = deltas[2]
+    assertEquals(Triple("CHECKED_OUT", "cart:c1", "checkout:c1"), Triple(edge.edgeType().orNull(), edge.from().orNull(), edge.to().orNull()))
+}
+
+@Test
+fun `a discarded cart's deletion publishes its tombstone`() {
+    assertEquals(emptyList(), kit.onMessage(CartEvent.Discarded, "c1", 2))
+
+    val deltas = kit.onDelete("c1")
+    assertEquals(listOf("node:cart:c1" to true), deltas.map { it.key() to it.isTombstone })
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/test_cart.py#graph-test -->
@@ -827,6 +1020,56 @@ fn the_carts_graph_follows_the_carts_events() {
     assert_eq!(gone[0].kind(), ElementKind::NodeTombstone);
     assert_eq!(gone[0].key(), "node:cart:cart-2");
     assert_eq!(gone[0].version(), Some(3));
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/graph_test.go#graph-test -->
+```go
+func TestTheCartGraphFollowsTheCart(t *testing.T) {
+	ctx := context.Background()
+	kit := testkit.GraphConsumer(conformance.CartGraph)
+	defer kit.Close()
+
+	// An item added publishes the cart's node, at the event's sequence number.
+	deltas, err := kit.OnMessage(ctx, "c1", cart.ItemAdded{Item: pen}, testkit.Sequence(1))
+	if err != nil || len(deltas) != 1 || deltas[0].Key() != "node:cart:c1" {
+		t.Fatalf("an item added published %v, %v", deltas, err)
+	}
+	node := deltas[0]
+	if node.Version != 1 || !reflect.DeepEqual(node.Labels, []string{"Cart"}) ||
+		!reflect.DeepEqual(node.Properties, map[string]any{"cartId": "c1", "checkedOut": false}) {
+		t.Fatalf("the cart's node is %+v", node)
+	}
+
+	// A checkout publishes the cart as checked out, the checkout, and the edge between them.
+	deltas, _ = kit.OnMessage(ctx, "c1", cart.CheckedOut{}, testkit.Sequence(4))
+	keys := []string{}
+	for _, d := range deltas {
+		keys = append(keys, d.Key())
+		if d.Version != 4 {
+			t.Fatalf("%s is at version %d", d.Key(), d.Version)
+		}
+	}
+	if !reflect.DeepEqual(keys, []string{"node:cart:c1", "node:checkout:c1", "edge:checked-out:c1"}) {
+		t.Fatalf("a checkout published %v", keys)
+	}
+	if edge := deltas[2]; edge.Type != "CHECKED_OUT" || edge.From != "cart:c1" || edge.To != "checkout:c1" {
+		t.Fatalf("the edge is %+v", edge)
+	}
+
+	// A discarded cart's deletion publishes its tombstone.
+	if deltas, _ := kit.OnMessage(ctx, "c1", cart.Discarded{}, testkit.Sequence(2)); len(deltas) != 0 {
+		t.Fatalf("a discard published %v", deltas)
+	}
+	deltas, _ = kit.OnDelete(ctx, "c1", testkit.Sequence(3))
+	if len(deltas) != 1 || deltas[0].Kind != "tombstone" || deltas[0].Element != "node" ||
+		deltas[0].Key() != "node:cart:c1" || deltas[0].Version != 3 {
+		t.Fatalf("the deletion published %+v", deltas)
+	}
 }
 ```
 

@@ -32,6 +32,9 @@ That builds two tags of one image into the local Docker daemon, both named after
 The image is based on `eclipse-temurin:21-jre`, exposes port 9000 and starts the service's main class.
 The relevant settings in the template's `build.sbt` are:
 
+<!-- languages: scala; an sbt-native-packager setting; a Java or Kotlin service is packaged by its template's Dockerfile and Gradle, and a process or a module by its own image, as the page's sections for them show -->
+/// tab | Scala
+
 ```scala
 Docker / packageName  := serviceName,
 dockerBuildxPlatforms := sys.env.get("ANKKA_IMAGE_PLATFORMS").toSeq.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty),
@@ -40,6 +43,8 @@ dockerUpdateLatest    := true,
 dockerExposedPorts    := Seq(9000),
 Docker / version      := version.value.replace('+', '-')
 ```
+
+///
 
 **A Docker tag may not contain `+`.** A version derived from git, such as `0.1.0+3-abc1234-SNAPSHOT`,
 does. The last setting replaces `+` with `-` so any version the build produces is a valid tag. Keep it if

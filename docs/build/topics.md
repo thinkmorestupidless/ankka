@@ -43,6 +43,65 @@ object StockLevels
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/TopicRows.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.View;
+import com.thinkmorestupidless.ankka.javasdk.effect.ViewEffect;
+import java.util.OptionalInt;
+
+/** The latest message about each subject. Declares no start, so it reads from the earliest. */
+@ComponentId("topic-rows")
+public class TopicRows extends View<Fanned, Fanned> {
+
+  /** The topic the conformance target fills before the service starts. */
+  public static final String TOPIC = "conformance-topic";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic(TOPIC, Fanned.class);
+  }
+
+  // Raised from 1 once: every reference declares 2, which names the group it reads under.
+  @Override
+  protected OptionalInt version() {
+    return OptionalInt.of(2);
+  }
+
+  @Override
+  protected ViewEffect<Fanned> onChange(Fanned message) {
+    return effects().updateRow(message);
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/CartView.kt#topic-view -->
+```kotlin
+@ComponentId("checkouts-seen")
+class CheckoutsSeen : View<CheckoutNotifier.CheckoutNotice, CheckoutsSeen.CheckoutSeen>() {
+    @Manifest("checkout-seen")
+    data class CheckoutSeen(val cartId: String, val at: Long, val notices: Int)
+
+    override fun source(): ChangeSource<CheckoutNotifier.CheckoutNotice> =
+        ChangeSource.ofTopic(CheckoutNotifier.TOPIC, CheckoutNotifier.CheckoutNotice::class.java)
+
+    override fun onChange(event: CheckoutNotifier.CheckoutNotice): ViewEffect<CheckoutSeen> = effects {
+        updateRow(CheckoutSeen(event.cartId, event.at, (rowState().orNull()?.notices ?: 0) + 1))
+    }
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -98,6 +157,93 @@ export class StockLevels extends View<StockEvent, StockRow> {
     return this.effects.updateRow({ ...current, level: current.level + event.delta })
   }
 }
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/stock.rs#topic-view -->
+```rust
+/// What the topic carries, as its JSON: a product's stock moved by `delta`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct StockEvent {
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    pub delta: i32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct StockRow {
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    pub level: i32,
+}
+
+pub struct StockLevels;
+
+impl View for StockLevels {
+    type Row = StockRow;
+    type Event = StockEvent;
+    const COMPONENT_ID: &'static str = "stock-levels";
+    const ROW_MANIFEST: Option<&'static str> = Some("stock-row");
+
+    fn source() -> Source {
+        Source::topic("stock-events")
+    }
+
+    /// Raising the version rebuilds the view, as far back as the broker retains.
+    fn version() -> Option<u32> {
+        Some(2)
+    }
+
+    fn on_event(row: Option<StockRow>, event: StockEvent, ctx: &Context) -> ViewEffect<StockRow> {
+        let current = row.unwrap_or_else(|| StockRow {
+            product_id: ctx.metadata().subject().unwrap_or_default().to_string(),
+            level: 0,
+        });
+        view::update_row(StockRow {
+            level: current.level + event.delta,
+            ..current
+        })
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/topics.go#topic-view -->
+```go
+// StockEvent is a message another system publishes to the stock-events topic.
+type StockEvent struct {
+	ProductID string `json:"productId"`
+	Delta     int    `json:"delta"`
+}
+
+// StockRow is a product's level, as the view keeps it.
+type StockRow struct {
+	ProductID string `json:"productId"`
+	Level     int    `json:"level"`
+}
+
+type stockEffect = ankka.ViewEffect[StockRow]
+
+// StockLevels reads the topic as its source: each message is decoded as a StockEvent and keyed
+// by its subject, the product.
+var StockLevels = ankka.View[StockRow]("stock-levels",
+	ankka.OnChange(ankka.Topic("stock-events"), func(ctx context.Context, e StockEvent, row *StockRow) (stockEffect, error) {
+		c, _ := ankka.ChangeFrom(ctx)
+		current := StockRow{ProductID: c.Subject}
+		if row != nil {
+			current = *row
+		}
+		current.Level += e.Delta
+		return ankka.UpdateRow(current), nil
+	}),
+	ankka.RowCodec(ankka.CodecFor[StockRow](ankka.Manifest("stock-row"))),
+)
 ```
 
 ///
@@ -176,6 +322,80 @@ object TopicRelay
 
 The start position is the third argument of `ChangeSource.fromTopic`: `StartFrom.Earliest`,
 `StartFrom.Latest` or `StartFrom.At(instant)`.
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/TopicRows.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.View;
+import com.thinkmorestupidless.ankka.javasdk.effect.ViewEffect;
+import java.util.OptionalInt;
+
+/** The latest message about each subject. Declares no start, so it reads from the earliest. */
+@ComponentId("topic-rows")
+public class TopicRows extends View<Fanned, Fanned> {
+
+  /** The topic the conformance target fills before the service starts. */
+  public static final String TOPIC = "conformance-topic";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic(TOPIC, Fanned.class);
+  }
+
+  // Raised from 1 once: every reference declares 2, which names the group it reads under.
+  @Override
+  protected OptionalInt version() {
+    return OptionalInt.of(2);
+  }
+
+  @Override
+  protected ViewEffect<Fanned> onChange(Fanned message) {
+    return effects().updateRow(message);
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#topic-sources -->
+```kotlin
+/** The latest message about each subject. Declares no start, so it reads from the earliest. */
+@ComponentId("topic-rows")
+class TopicRows : View<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> = ChangeSource.ofTopic(TOPIC, Fanned::class.java)
+
+    // Raised from 1 once: every reference declares 2, which names the group it reads under.
+    override fun version(): OptionalInt = OptionalInt.of(2)
+
+    override fun onChange(message: Fanned): ViewEffect<Fanned> = effects { updateRow(message) }
+
+    companion object {
+        /** The topic the conformance target fills before the service starts. */
+        const val TOPIC = "conformance-topic"
+    }
+}
+
+/** Republishes what it reads, from the latest: none of what the topic held when it started. */
+@ComponentId("topic-relay")
+class TopicRelay : Consumer<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> = ChangeSource.ofTopic(TopicRows.TOPIC, Fanned::class.java).fromLatest()
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-topic-relayed"))
+
+    override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(message) }
+}
+```
 
 ///
 
@@ -445,12 +665,28 @@ port, which only the service's own instances can reach. A service run locally an
 
 A Scala service names the broker with the projection runtime:
 
+<!-- languages: scala, typescript; a Java, Kotlin, Python, Rust or Go service names no broker in code: the runtime beside it, or its own, reads `ANKKA_KAFKA_BOOTSTRAP_SERVERS` -->
+/// tab | Scala
+
 ```scala
 Ankka.service
   .register(StockLevels.descriptor)
   .withExtension(ProjectionRuntime.withKafka("localhost:9092"))
   .start()
 ```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/main.ts#broker-from-env -->
+```ts
+// The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+// components that need one are registered only where it is set.
+return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+```
+
+///
 
 A component that reads or publishes a topic in a service with no broker configured is refused at startup,
 rather than started and never delivering anything.
@@ -459,12 +695,58 @@ A deployed service is configured by its descriptor, not by its code, so a Scala 
 platform finds the broker in its environment instead. `ProjectionRuntime.fromEnv()` connects to the broker
 named by `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and runs entity sources only when the variable is absent:
 
+<!-- languages: scala, typescript, rust; a Java, Kotlin, Python or Go service names no broker in code: it reads `ANKKA_KAFKA_BOOTSTRAP_SERVERS` from its environment, and its test kit holds a broker in memory -->
+/// tab | Scala
+
 ```scala
 Ankka.service
   .register(StockLevels.descriptor)
   .withExtension(ProjectionRuntime.fromEnv())
   .start()
 ```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/main.ts#broker-from-env -->
+```ts
+// The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+// components that need one are registered only where it is set.
+return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/lib.rs#service -->
+```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
+pub fn build() -> Service {
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
+}
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
+```
+
+///
 
 On an installation `fromEnv()` is required, not only convenient. The installation's broker is TLS, and the
 environment carries the certificate to present beside the address; a service that passes that address to
@@ -684,6 +966,8 @@ In Scala a topic source states its contract with `TopicOptions` on `ChangeSource
 consumer's publication is a `Publication`, which replaces `produceTo` when it carries more than a topic
 name:
 
+/// tab | Scala
+
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TopicContractsSuite.scala#contract -->
 ```scala
 /** Reads "events" and publishes to "transactions", stating the contract the topic carries. */
@@ -708,11 +992,344 @@ object WalletRelay
   override def produces: Option[Publication] = Some(Publication("transactions", Some(transactions)))
 ```
 
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ContractRelay.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
+import com.thinkmorestupidless.ankka.javasdk.component.Contract;
+import com.thinkmorestupidless.ankka.javasdk.component.Publication;
+import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+
+/**
+ * Reads {@code conformance-contracts} as {@code order.v1} on broker {@code legacy}, partitions in
+ * parallel, and publishes one more.
+ */
+@ComponentId("contract-relay")
+public class ContractRelay extends Consumer<Fanned, Fanned> {
+
+  /** The contract every reference states, from the same schema document: the fixtures' one. */
+  static final String ORDER_SCHEMA =
+      "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\","
+          + "\"required\":[\"id\",\"total\"],\"properties\":{\"id\":{\"type\":\"string\"},"
+          + "\"total\":{\"type\":\"number\"}}}";
+
+  static final Contract ORDER =
+      Contract.fromSchema("order.v1", ORDER_SCHEMA.getBytes(StandardCharsets.UTF_8));
+
+  /** The declared broker the reference names; every conformance target declares it. */
+  static final String BROKER = "legacy";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic("conformance-contracts", Fanned.class)
+        .fromEarliest()
+        .withContract(ORDER)
+        .onBroker(BROKER)
+        .parallel();
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(
+        Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(Fanned message) {
+    return effects().publish(new Fanned(message.n() + 1));
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract -->
+```kotlin
+/**
+ * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+ * publishes one more.
+ */
+@ComponentId("contract-relay")
+class ContractRelay : Consumer<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> =
+        ChangeSource.ofTopic("conformance-contracts", Fanned::class.java)
+            .fromEarliest()
+            .withContract(ORDER)
+            .onBroker(BROKER)
+            .parallel()
+
+    override fun publishes(): Optional<Publication> =
+        Optional.of(Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER))
+
+    override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(Fanned(message.n + 1)) }
+
+    companion object {
+        /** The contract every reference states, from the same schema document: the fixtures' one. */
+        val ORDER_SCHEMA =
+            """
+            {"${'$'}schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+             "required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}
+            """.trimIndent()
+
+        val ORDER: Contract = Contract.fromSchema("order.v1", ORDER_SCHEMA.toByteArray())
+
+        /** The declared broker the reference names; every conformance target declares it. */
+        const val BROKER = "legacy"
+    }
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#contract-relay -->
+```python
+class ContractRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more."""
+
+    component_id = "contract-relay"
+    topic = "conformance-contracts"
+    start_from = StartFrom.EARLIEST
+    contract = ORDER_CONTRACT
+    broker = "legacy"
+    parallel = True
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-contracted", contract=ORDER_CONTRACT, broker="legacy")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(Fanned(n=message.n + 1))
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#contract-relay -->
+```ts
+/** Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more. */
+export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "contract-relay"
+  static readonly topic = "conformance-contracts"
+  static readonly startFrom = StartFrom.earliest
+  static readonly contract = orderContract
+  static readonly broker = "legacy"
+  static readonly parallel = true
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-contracted", contract: orderContract, broker: "legacy" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce({ n: message.n + 1 })
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/stock.rs#contract -->
+```rust
+/// Reads "events" and publishes to "transactions", stating the contract the topic carries.
+pub struct WalletRelay;
+
+impl WalletRelay {
+    fn transactions() -> Contract {
+        Contract::from_bytes(TRANSACTION_SCHEMA.as_bytes(), "transaction.v1")
+            .expect("the transaction schema is JSON")
+    }
+}
+
+impl Consumer for WalletRelay {
+    type Message = StockEvent;
+    const COMPONENT_ID: &'static str = "wallet";
+
+    fn source() -> Source {
+        Source::topic("events")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(Publication::to("transactions").contract(WalletRelay::transactions()))
+    }
+
+    fn on_message(event: StockEvent, _: &Context) -> ConsumerEffect {
+        consumer::produce(FanLine {
+            product_id: event.product_id,
+            delta: event.delta,
+        })
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/consumers.go#contract-relay -->
+```go
+// ContractRelay reads conformance-contracts as order.v1 on broker legacy, partitions in parallel,
+// and publishes one more.
+var ContractRelay = ankka.Consumer[Fanned]("contract-relay",
+	ankka.Topic("conformance-contracts", ankka.StartFrom(ankka.Earliest()), ankka.ExpectContract(orderContract), ankka.OnBroker("legacy"), ankka.Parallel()),
+	func(_ context.Context, m Fanned) (ankka.ConsumerEffect, error) {
+		return ankka.Produce(Fanned{N: m.N + 1}), nil
+	},
+	ankka.ProducesWith("conformance-contracted", fannedCodec, ankka.StatesContract(orderContract), ankka.ToBroker("legacy")),
+)
+```
+
+///
+
 A source that reads a topic with a contract states it the same way:
 `ChangeSource.fromTopic("orders", serializer, StartFrom.Earliest, TopicOptions(contract = Some(orders)))`.
 
 In the other languages the declaration is the same two values. Each example is an excerpt: the consumer's
 handler and its codecs are as on [Consumers](consumers.md).
+
+/// tab | Scala
+
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/TopicContractsSuite.scala#contract -->
+```scala
+/** Reads "events" and publishes to "transactions", stating the contract the topic carries. */
+object WalletRelay
+    extends Consumer.Companion[Relay, StockEvent, FanLine](
+      ComponentId("wallet"),
+      ChangeSource
+        .fromTopic("events", Codecs.serializer[StockEvent]("stock-event"), StartFrom.Earliest)
+    ):
+  // The schema document fetched from the project with `ankka projects topics schema get`.
+  private val transactions = Contract
+    .fromSchema(
+      "transaction.v1",
+      getClass.getResourceAsStream("/schemas/transaction.v1.json").readAllBytes()
+    )
+    .fold(why => throw IllegalArgumentException(why), identity)
+
+  def create(ctx: ConsumerContext)                           = new Relay
+  override val outputSerializer: Option[Serializer[FanLine]] = Some(
+    Codecs.serializer[FanLine]("fan-line")
+  )
+  override def produces: Option[Publication] = Some(Publication("transactions", Some(transactions)))
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ContractRelay.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
+import com.thinkmorestupidless.ankka.javasdk.component.Contract;
+import com.thinkmorestupidless.ankka.javasdk.component.Publication;
+import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+
+/**
+ * Reads {@code conformance-contracts} as {@code order.v1} on broker {@code legacy}, partitions in
+ * parallel, and publishes one more.
+ */
+@ComponentId("contract-relay")
+public class ContractRelay extends Consumer<Fanned, Fanned> {
+
+  /** The contract every reference states, from the same schema document: the fixtures' one. */
+  static final String ORDER_SCHEMA =
+      "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\","
+          + "\"required\":[\"id\",\"total\"],\"properties\":{\"id\":{\"type\":\"string\"},"
+          + "\"total\":{\"type\":\"number\"}}}";
+
+  static final Contract ORDER =
+      Contract.fromSchema("order.v1", ORDER_SCHEMA.getBytes(StandardCharsets.UTF_8));
+
+  /** The declared broker the reference names; every conformance target declares it. */
+  static final String BROKER = "legacy";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic("conformance-contracts", Fanned.class)
+        .fromEarliest()
+        .withContract(ORDER)
+        .onBroker(BROKER)
+        .parallel();
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(
+        Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(Fanned message) {
+    return effects().publish(new Fanned(message.n() + 1));
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract -->
+```kotlin
+/**
+ * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+ * publishes one more.
+ */
+@ComponentId("contract-relay")
+class ContractRelay : Consumer<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> =
+        ChangeSource.ofTopic("conformance-contracts", Fanned::class.java)
+            .fromEarliest()
+            .withContract(ORDER)
+            .onBroker(BROKER)
+            .parallel()
+
+    override fun publishes(): Optional<Publication> =
+        Optional.of(Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER))
+
+    override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(Fanned(message.n + 1)) }
+
+    companion object {
+        /** The contract every reference states, from the same schema document: the fixtures' one. */
+        val ORDER_SCHEMA =
+            """
+            {"${'$'}schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+             "required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}
+            """.trimIndent()
+
+        val ORDER: Contract = Contract.fromSchema("order.v1", ORDER_SCHEMA.toByteArray())
+
+        /** The declared broker the reference names; every conformance target declares it. */
+        const val BROKER = "legacy"
+    }
+}
+```
+
+///
 
 /// tab | Python
 
@@ -851,6 +1468,105 @@ override def produces = Some(Publication("archive", broker = Some("legacy")))
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ContractRelay.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
+import com.thinkmorestupidless.ankka.javasdk.component.Contract;
+import com.thinkmorestupidless.ankka.javasdk.component.Publication;
+import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+
+/**
+ * Reads {@code conformance-contracts} as {@code order.v1} on broker {@code legacy}, partitions in
+ * parallel, and publishes one more.
+ */
+@ComponentId("contract-relay")
+public class ContractRelay extends Consumer<Fanned, Fanned> {
+
+  /** The contract every reference states, from the same schema document: the fixtures' one. */
+  static final String ORDER_SCHEMA =
+      "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\","
+          + "\"required\":[\"id\",\"total\"],\"properties\":{\"id\":{\"type\":\"string\"},"
+          + "\"total\":{\"type\":\"number\"}}}";
+
+  static final Contract ORDER =
+      Contract.fromSchema("order.v1", ORDER_SCHEMA.getBytes(StandardCharsets.UTF_8));
+
+  /** The declared broker the reference names; every conformance target declares it. */
+  static final String BROKER = "legacy";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic("conformance-contracts", Fanned.class)
+        .fromEarliest()
+        .withContract(ORDER)
+        .onBroker(BROKER)
+        .parallel();
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(
+        Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(Fanned message) {
+    return effects().publish(new Fanned(message.n() + 1));
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract -->
+```kotlin
+/**
+ * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+ * publishes one more.
+ */
+@ComponentId("contract-relay")
+class ContractRelay : Consumer<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> =
+        ChangeSource.ofTopic("conformance-contracts", Fanned::class.java)
+            .fromEarliest()
+            .withContract(ORDER)
+            .onBroker(BROKER)
+            .parallel()
+
+    override fun publishes(): Optional<Publication> =
+        Optional.of(Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER))
+
+    override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(Fanned(message.n + 1)) }
+
+    companion object {
+        /** The contract every reference states, from the same schema document: the fixtures' one. */
+        val ORDER_SCHEMA =
+            """
+            {"${'$'}schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+             "required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}
+            """.trimIndent()
+
+        val ORDER: Contract = Contract.fromSchema("order.v1", ORDER_SCHEMA.toByteArray())
+
+        /** The declared broker the reference names; every conformance target declares it. */
+        const val BROKER = "legacy"
+    }
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -937,6 +1653,67 @@ ChangeSource
 
 ```scala
 override def produces = produceTo("spinvibe", "payments.deposits")
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/PartnerRelay.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
+import com.thinkmorestupidless.ankka.javasdk.component.Publication;
+import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
+import java.util.Optional;
+
+/** Reads project {@code partner}'s {@code conformance-shared} and republishes to its other. */
+@ComponentId("partner-relay")
+public class PartnerRelay extends Consumer<Fanned, Fanned> {
+
+  static final String PARTNER = "partner";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic(PARTNER, "conformance-shared", Fanned.class).fromEarliest();
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(Publication.to(PARTNER, "conformance-shared-relayed"));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(Fanned message) {
+    return effects().publish(message);
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#cross-project -->
+```kotlin
+/** Reads project `partner`'s `conformance-shared` and republishes to its other. */
+@ComponentId("partner-relay")
+class PartnerRelay : Consumer<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> =
+        ChangeSource.ofTopic(PARTNER, "conformance-shared", Fanned::class.java).fromEarliest()
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to(PARTNER, "conformance-shared-relayed"))
+
+    override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(message) }
+
+    companion object {
+        const val PARTNER = "partner"
+    }
+}
 ```
 
 ///
@@ -1035,6 +1812,105 @@ handler relies on.
 
 ```scala
 ChangeSource.fromTopic("events", serializer, StartFrom.Earliest, TopicOptions(parallel = true))
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ContractRelay.java -->
+```java
+package com.thinkmorestupidless.ankka.javasdk.reference;
+
+import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
+import com.thinkmorestupidless.ankka.javasdk.component.ChangeSource;
+import com.thinkmorestupidless.ankka.javasdk.component.Consumer;
+import com.thinkmorestupidless.ankka.javasdk.component.Contract;
+import com.thinkmorestupidless.ankka.javasdk.component.Publication;
+import com.thinkmorestupidless.ankka.javasdk.effect.ConsumerEffect;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+
+/**
+ * Reads {@code conformance-contracts} as {@code order.v1} on broker {@code legacy}, partitions in
+ * parallel, and publishes one more.
+ */
+@ComponentId("contract-relay")
+public class ContractRelay extends Consumer<Fanned, Fanned> {
+
+  /** The contract every reference states, from the same schema document: the fixtures' one. */
+  static final String ORDER_SCHEMA =
+      "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\","
+          + "\"required\":[\"id\",\"total\"],\"properties\":{\"id\":{\"type\":\"string\"},"
+          + "\"total\":{\"type\":\"number\"}}}";
+
+  static final Contract ORDER =
+      Contract.fromSchema("order.v1", ORDER_SCHEMA.getBytes(StandardCharsets.UTF_8));
+
+  /** The declared broker the reference names; every conformance target declares it. */
+  static final String BROKER = "legacy";
+
+  @Override
+  protected ChangeSource<Fanned> source() {
+    return ChangeSource.ofTopic("conformance-contracts", Fanned.class)
+        .fromEarliest()
+        .withContract(ORDER)
+        .onBroker(BROKER)
+        .parallel();
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(
+        Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(Fanned message) {
+    return effects().publish(new Fanned(message.n() + 1));
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/Topics.kt#contract -->
+```kotlin
+/**
+ * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+ * publishes one more.
+ */
+@ComponentId("contract-relay")
+class ContractRelay : Consumer<Fanned, Fanned>() {
+
+    override fun source(): ChangeSource<Fanned> =
+        ChangeSource.ofTopic("conformance-contracts", Fanned::class.java)
+            .fromEarliest()
+            .withContract(ORDER)
+            .onBroker(BROKER)
+            .parallel()
+
+    override fun publishes(): Optional<Publication> =
+        Optional.of(Publication.to("conformance-contracted").withContract(ORDER).onBroker(BROKER))
+
+    override fun onChange(message: Fanned): ConsumerEffect<Fanned> = effects { publish(Fanned(message.n + 1)) }
+
+    companion object {
+        /** The contract every reference states, from the same schema document: the fixtures' one. */
+        val ORDER_SCHEMA =
+            """
+            {"${'$'}schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+             "required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}
+            """.trimIndent()
+
+        val ORDER: Contract = Contract.fromSchema("order.v1", ORDER_SCHEMA.toByteArray())
+
+        /** The declared broker the reference names; every conformance target declares it. */
+        const val BROKER = "legacy"
+    }
+}
 ```
 
 ///
@@ -1163,6 +2039,9 @@ view that must be whole belongs over an entity's events.
 `InMemoryBroker` is a publisher and a subscriber wired to each other. It exercises the whole topic path —
 headers, subject keying, decoding, view writes and consumer dispatch — and substitutes only the network:
 
+<!-- languages: scala, java, kotlin, rust; `InMemoryBroker` is the Scala runtime's; a Python, TypeScript or Go consumer that publishes is tested with its `ConsumerTestKit`, and what reaches a broker through the integration kit against a real one -->
+/// tab | Scala
+
 ```scala
 import com.thinkmorestupidless.ankka.core.Metadata
 import com.thinkmorestupidless.ankka.runtime.{InMemoryBroker, ProjectionRuntime}
@@ -1172,6 +2051,65 @@ val testKit = AnkkaTestKit.start(Seq(StockLevels.descriptor), Seq(ProjectionRunt
 
 broker.publish("stock-events", """{"productId":"p1","delta":5}""".getBytes("UTF-8"), Metadata.empty.withSubject("p1"))
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: samples/shopping-cart-java/src/test/java/shoppingcart/javasdk/Checks.java#published -->
+```java
+/** The keys of the notices the notifier published, once one has: the cart's id. */
+public static List<Optional<String>> noticeKeys() {
+  try (var kit = AnkkaTestKit.start(Main.service())) {
+    var cart = kit.componentClient().forEventSourcedEntity("c-7");
+    cart.call(ShoppingCart::addItem).invoke(new LineItem("p1", "Pen", 1));
+    cart.call(ShoppingCart::checkout).invoke();
+    // Poll until the notice arrives: the consumer publishes after the entity has replied.
+    kit.eventually(
+        Duration.ofSeconds(20),
+        () -> {
+          if (kit.published(CheckoutNotifier.TOPIC).isEmpty()) throw new AssertionError("no notice");
+        });
+    return kit.published(CheckoutNotifier.TOPIC).stream().map(Published::key).toList();
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ViewSamplesTest.kt#in-memory-broker -->
+```kotlin
+// The kit holds a broker in memory: what the notifier publishes to its topic, the view
+// over that topic reads back, with nothing started.
+kit.componentClient().forEventSourcedEntity("view-q-1").call(ShoppingCart::checkout).invoke()
+kit.eventually(Duration.ofSeconds(10)) {
+    assertEquals(listOf("view-q-1"), kit.published(CheckoutNotifier.TOPIC).map { it.key().orNull() })
+    assertEquals(1, kit.viewClient().forView(CheckoutsSeen::class.java).getOrNull("view-q-1")?.notices)
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/tests/stock.rs#topic-view-test -->
+```rust
+#[test]
+fn a_products_level_is_the_sum_of_the_topics_messages_about_it() {
+    let mut kit = ViewTestKit::<StockLevels>::new();
+    // The key is the message's subject, which the broker's record key carries.
+    kit.on_event("p1", moved("p1", 5));
+    kit.on_event("p1", moved("p1", -2));
+    kit.on_event("p2", moved("p2", 1));
+    assert_eq!(kit.row("p1").map(|r| r.level), Some(3));
+    assert_eq!(kit.row("p2").map(|r| r.level), Some(1));
+    assert!(kit.row("p3").is_none());
+}
+```
+
+///
 
 The in-memory broker keeps everything published to a topic, as one partition that drops nothing, and a
 position for each group, so a group starts where it declares and resumes after a restart.

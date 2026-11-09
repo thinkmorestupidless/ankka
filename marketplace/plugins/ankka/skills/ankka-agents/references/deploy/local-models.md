@@ -26,10 +26,37 @@ ollama serve          # if it is not already running
 
 Build the provider from the preset and the model, and hand it to the runtime or name it on a handler:
 
+**Scala**
+
 ```scala
 val laptop = ModelProviders.named("local", preset = Some("ollama"), model = Some("qwen3:8b"))
 
 val onTheLaptop = AgentRuntime.withDefaultModel(laptop)
+```
+
+**Rust**
+
+```rust
+pub struct Triage;
+
+impl Triage {
+    fn route(question: String, _: &Context) -> AgentEffect {
+        agent::system_message("Say which team should answer.")
+            .user_message(question)
+            // A provider the runtime's configuration knows, by its name; the runtime's default
+            // when none is named.
+            .model("gpt")
+            .then_reply()
+    }
+}
+
+impl Agent for Triage {
+    const COMPONENT_ID: &'static str = "triage";
+
+    fn handlers() -> AgentHandlers<Triage> {
+        AgentHandlers::new().command("route", Triage::route)
+    }
+}
 ```
 
 `ModelProviders` is in `com.thinkmorestupidless.ankka.agent.providers`. The name is yours: logs, failures and the session's model usage say `local`. Nothing is detected: the

@@ -34,6 +34,31 @@ cart.call(ShoppingCartEntity.getCart).invoke()                              // S
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartCalls.java#addressing -->
+```java
+public static CartState addAndRead(ComponentClient client) {
+  var cart = client.forEventSourcedEntity("cart-1");
+
+  cart.call(ShoppingCart::addItem).invoke(new LineItem("p1", "Widget", 2)); // Done
+  return cart.call(ShoppingCart::getCart).invoke(); // CartState
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#addressing -->
+```kotlin
+val cart = componentClient.forEventSourcedEntity("cart-1")
+cart.call(ShoppingCart::addItem).invokeSuspending(LineItem("p1", "Widget", 2))
+val held: Cart = cart.call(ShoppingCart::getCart).invokeSuspending()
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -52,6 +77,82 @@ const cart = client.of(ShoppingCartEntity, "cart-1")
 
 await cart.call(ShoppingCartEntity.handlers.addItem).invoke({ productId: "p1", name: "Widget", quantity: 2 })
 await cart.call(ShoppingCartEntity.handlers.getCart).invoke()          // ShoppingCart
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#endpoint -->
+```rust
+/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, and `DELETE
+/// /carts/{cartId}`, open to anyone.
+pub struct CartApi;
+
+impl CartApi {
+    fn get_cart(request: &Request) -> Result<Cart, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "get-cart", ())?)
+    }
+
+    fn total(request: &Request) -> Result<i32, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "total-quantity", ())?)
+    }
+
+    fn add_item(request: &Request, item: LineItem) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "add-item", item)?)
+    }
+
+    fn remove_item(request: &Request) -> Result<Done, HttpProblem> {
+        let (cart_id, product_id) = (request.path("cartId"), request.path("productId"));
+        let removed = request.client().invoke(
+            ShoppingCart,
+            cart_id,
+            "remove-item",
+            product_id.to_string(),
+        )?;
+        Ok(removed)
+    }
+
+    fn checkout(request: &Request, (): ()) -> Result<Cart, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "checkout", ())?)
+    }
+
+    fn discard(request: &Request) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "discard", ())?)
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/client.go#addressing -->
+```go
+// A component is addressed by its id and instance, then by its handler's wire name; the reply is
+// decoded as the type the caller names.
+ankka.Post("/carts/{cartId}", func(ctx context.Context, req *ankka.Request, item cart.LineItem) (cart.Cart, error) {
+	cartID := req.Param("cartId")
+	if _, err := ankka.Invoke[ankka.Done](ctx, "shopping-cart", cartID, "add-item", item); err != nil {
+		return cart.Cart{}, err
+	}
+	return ankka.Invoke[cart.Cart](ctx, "shopping-cart", cartID, "get-cart", ankka.Unit{})
+}),
 ```
 
 ///
@@ -99,12 +200,98 @@ stays readable and costs nothing to wait.
 `invokeAsync` returns a `Future` instead, for fanning out several calls at once.
 `ComponentClient.await(future, timeout)` collects one, parking the virtual thread in the same way:
 
+<!-- languages: scala, java, kotlin, python, typescript, go; the Rust client has no asynchronous invoke: a module's call to another component blocks until it is answered, and several calls run one after another -->
+/// tab | Scala
+
 ```scala
 val pending = cartIds.map(id =>
   componentClient.forEventSourcedEntity(EntityId(id)).call(ShoppingCartEntity.totalQuantity).invokeAsync()
 )
 val totals = pending.map(ComponentClient.await(_, 10.seconds))
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartCalls.java#fan-out -->
+```java
+public static List<Integer> totals(ComponentClient client, List<String> cartIds) {
+  var pending =
+      cartIds.stream()
+          .map(id -> client.forEventSourcedEntity(id).call(ShoppingCart::getCart).invokeAsync())
+          .toList();
+  return pending.stream()
+      .map(answer -> answer.toCompletableFuture().orTimeout(10, TimeUnit.SECONDS).join())
+      .map(cart -> cart.items().stream().mapToInt(LineItem::quantity).sum())
+      .toList();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#fan-out -->
+```kotlin
+val totals: List<Int> = coroutineScope {
+    cartIds
+        .map { id -> async { componentClient.forEventSourcedEntity(id).call(ShoppingCart::totalQuantity).invokeSuspending() } }
+        .awaitAll()
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/test_client.py#fan-out -->
+```python
+async def totals_of(client: ComponentClient, cart_ids: list[str]) -> list[int]:
+    pending = [client.for_event_sourced_entity("shopping-cart", cart_id).call("total-quantity").invoke(reply=int) for cart_id in cart_ids]
+    return list(await asyncio.gather(*pending))
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#fan-out -->
+```ts
+/** The totals of several carts, asked for at once: the whole takes as long as the slowest. */
+totals: post("/totals", s.list(s.string), s.list(s.int), (ep: ShoppingCartEndpoint, _req, cartIds) =>
+  Promise.all(cartIds.map((id) => ep.cart(id).call(ShoppingCartEntity.handlers.totalQuantity).invoke())),
+),
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/client.go#fan-out -->
+```go
+// One goroutine per call; the whole takes as long as the slowest. Each goroutine's ctx is the
+// handler's, so every call joins the request's trace.
+ankka.Post("/totals", func(ctx context.Context, _ *ankka.Request, cartIDs []string) (CartTotals, error) {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	totals, errs := CartTotals{}, []error{}
+	for _, id := range cartIDs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			total, err := ankka.Invoke[int](ctx, "shopping-cart", id, "total-quantity", ankka.Unit{})
+			mu.Lock()
+			defer mu.Unlock()
+			totals[id], errs = total, append(errs, err)
+		}()
+	}
+	wg.Wait()
+	return totals, errors.Join(errs...)
+}),
+```
+
+///
 
 The calls run concurrently, and the whole takes as long as the slowest. The
 [multi-agent orchestration](multi-agent-orchestration.md) guide uses the same pattern to consult several
@@ -115,10 +302,124 @@ agents at once.
 A component that refuses a command returns an error effect with a code. The caller receives it as a
 `CommandError` carrying that code and message, whether the component ran on this node or another:
 
+/// tab | Scala
+
 ```scala
 try cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 0))
 catch case e: CommandError if e.code == ErrorCode.BadRequest => ...
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartCalls.java#refusal -->
+```java
+public static int addNothing(ComponentClient client) {
+  try {
+    client
+        .forEventSourcedEntity("cart-1")
+        .call(ShoppingCart::addItem)
+        .invoke(new LineItem("p1", "Widget", 0));
+    return 200;
+  } catch (CommandException e) {
+    // 400: the entity refused the command, and nothing was persisted.
+    return e.problem().status();
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#refusals -->
+```kotlin
+try {
+    cart.call(ShoppingCart::addItem).invokeSuspending(LineItem("p1", "Widget", 0))
+    fail("a quantity of zero was accepted")
+} catch (e: CommandException) {
+    assertEquals(400, e.problem().status())
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/test_client.py#refusal -->
+```python
+async def add_widget(cart: Calls) -> Done | str:
+    try:
+        return await cart.call("add-item").invoke(LineItem("p1", "Widget", 0), reply=Done)
+    except CommandError as refused:
+        if refused.error.code == ErrorCode.BAD_REQUEST:
+            return refused.error.message
+        raise
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#refusal -->
+```ts
+/** Adds an item, answering a refused quantity as text rather than as the 400 it would otherwise be. */
+tryAdd: post("/{cartId}/items/try", LineItem, s.string, async (ep: ShoppingCartEndpoint, req, item) => {
+  try {
+    await ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)
+    return "added"
+  } catch (e) {
+    if (e instanceof CommandError && e.code === ErrorCode.BadRequest) return `refused: ${e.message}`
+    throw e
+  }
+}),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#refusal -->
+```rust
+/// A refused command is an `Err` carrying the entity's code and message, whichever node the
+/// entity ran on; nothing was persisted. Here one code is handled and the rest passed on.
+fn add_item_or_explain(request: &Request, item: LineItem) -> Result<String, HttpProblem> {
+    let cart_id = request.path("cartId");
+    let added: Result<Done, CommandError> =
+        request
+            .client()
+            .invoke(ShoppingCart, cart_id, "add-item", item);
+    match added {
+        Ok(Done) => Ok("added".to_string()),
+        Err(e) if e.code == ErrorCode::BadRequest => Ok(format!("not added: {}", e.message)),
+        Err(e) => Err(e.into()),
+    }
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/client.go#refusal -->
+```go
+// A refused command is a *RefusalError carrying the entity's code; nothing was persisted. Left
+// to propagate, the sidecar answers the status for its code; handled, it is read like this.
+ankka.Post("/carts/{cartId}/try", func(ctx context.Context, req *ankka.Request, item cart.LineItem) (string, error) {
+	_, err := ankka.Invoke[ankka.Done](ctx, "shopping-cart", req.Param("cartId"), "add-item", item)
+	var refusal *ankka.RefusalError
+	if errors.As(err, &refusal) && refusal.Code == ankka.BadRequest {
+		return "refused: " + refusal.Message, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "added", nil
+}),
+```
+
+///
 
 Nothing is persisted by a refused command. In an endpoint, let a `CommandError` propagate: the server
 answers with the status for its code, so a `Conflict` in an entity is a `409` at the edge with no mapping
@@ -156,9 +457,85 @@ Views are queried through the view client, not the component client, because a v
 an instance id: the point of a view is to be queried by attributes rather than by key. An endpoint gets
 it as `clients.viewClient`:
 
+/// tab | Scala
+
 ```scala
 val rows = clients.viewClient.forView(CartRows)
 ```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartRoutes.java#view-client -->
+```java
+@Get("/checkouts")
+public List<CheckoutRows.Row> checkouts() {
+  var rows = viewClient().forView(CheckoutRows.class);
+  return rows.all();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#views -->
+```kotlin
+val rows = viewClient().forView(CartRows::class.java)
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/test_client.py#view-client -->
+```python
+async def every_cart(client: ComponentClient) -> list[CartRow]:
+    rows: list[CartRow] = await client.views.all("cart-rows", CartRow)
+    return rows
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#view-client -->
+```ts
+rows: get("/rows", s.list(CartRow), (ep: ShoppingCartEndpoint) => ep.client.views.all(CartRows.componentId, CartRow)),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#problem -->
+```rust
+fn row(request: &Request) -> Result<CartRow, HttpProblem> {
+    let cart_id = request.path("cartId");
+    let rows: Vec<CartRow> = request
+        .client()
+        .query(CartRows, "by-id", cart_id.to_string())?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| HttpProblem::new(404, format!("no row for cart '{cart_id}'")))
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/client.go#view-query -->
+```go
+// A view is queried by its id and a declared query, not by an instance: every row of the cart
+// rows view, decoded as the row type.
+ankka.Get("/rows", func(ctx context.Context, _ *ankka.Request) ([]cart.Row, error) {
+	return ankka.QueryView[cart.Row](ctx, "cart-rows", ankka.All())
+}),
+```
+
+///
 
 `forView` takes the view's companion, so the row type is carried into the queries. The queries
 themselves are described in [Views](views.md).
@@ -196,6 +573,35 @@ post("/{cartId}/checkouts") { (cartId: String, mode: String) =>
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/CartRoutes.java#start-workflow -->
+```java
+/** The body is how long the checkout waits for a confirmation, in milliseconds. */
+@Post("/{cartId}/checkouts")
+public Done startCheckout(String cartId, @Body String confirmWithin) {
+  // The request's context is already on this thread, so the call joins its trace.
+  return componentClient()
+      .forWorkflow(cartId)
+      .call(Checkout::start)
+      .invoke(new Checkout.Start(cartId, Long.parseLong(confirmWithin)));
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#pass-metadata -->
+```kotlin
+post("/carts/{cartId}/checkouts") {
+    // The request's context is already on this thread, so the call joins its trace.
+    componentClient().forWorkflow(path("cartId")).call(CheckoutWorkflow::start).invokeSuspending(path("cartId"))
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#start-workflow -->
@@ -216,6 +622,37 @@ async def start_checkout(self, cartId: str, mode: str) -> Done:
 startCheckout: post("/{cartId}/checkouts", s.string, Done, (ep: ShoppingCartEndpoint, req, mode) =>
   ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).invoke(mode || "ok"),
 ),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/endpoint.rs#start-workflow -->
+```rust
+/// `mode` is the body: `ok`, `fail` or `pause`.
+fn start_checkout(request: &Request, mode: String) -> Result<Done, HttpProblem> {
+    let cart_id = request.path("cartId");
+    Ok(request
+        .client()
+        .invoke(CheckoutWorkflow, cart_id, "start", mode)?)
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/client.go#start-checkout -->
+```go
+// The handler's ctx carries the request's trace, so the call is a child of the request in the
+// console rather than a trace of its own; mode is the body: ok, fail or pause.
+ankka.Post("/{cartId}/checkouts", func(ctx context.Context, req *ankka.Request, mode string) (string, error) {
+	if mode == "" {
+		mode = "ok"
+	}
+	return ankka.Invoke[string](ctx, "checkout", req.Param("cartId"), "start", mode)
+}),
 ```
 
 ///

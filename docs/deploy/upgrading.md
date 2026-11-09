@@ -30,10 +30,15 @@ proxy.
 
 In a service created from the template:
 
+<!-- languages: scala; a `build.sbt` setting; a Python, TypeScript, Rust or Go service pins `ankka` in its own package manifest and `runtime` in `service.json`, with nothing in code -->
+/// tab | Scala
+
 ```scala
 // build.sbt
 val ankkaVersion = "0.3.0"
 ```
+
+///
 
 ```json title="service.json"
 {

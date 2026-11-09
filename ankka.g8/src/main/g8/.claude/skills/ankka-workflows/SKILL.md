@@ -184,7 +184,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
+- `references/build/workflows.md` — Build a durable multi-step process in Scala, Java, Kotlin, Python, TypeScript, Rust or Go — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 - `references/build/timers.md` — Schedule a call for later with a timed action, cancel or replace it by name, and handle retries — timers are stored in the database and outlive the process that set them.
 - `references/build/secrets.md` — Keep a credential a person gives your service in its secret store — its own database, encrypted, or Google Secret Manager; never a journal or a view — read it back by name, and find every read afterwards.
 - `references/build/object-storage.md` — Keep photos, documents and exports in a service's buckets — put, get, list, stat and delete by name, sign a URL a browser uploads or downloads with, give a public address, and run the same code with no object store.

@@ -397,6 +397,30 @@ feature also says what that feature does not do.
   source with a consumer. A watched query is decided for each written row alone, so a match that depends
   on the time or on another row changes on the row's next write. An instance holds at most 1,000 watches
   open at once, every view together; one more is refused, naming the bound.
+- **A process's or a module's agent remembers the whole session or none.** The window, read-only,
+  write-only, filtered and rewriting memory providers are the Scala SDK's, and the Java and Kotlin SDKs'
+  `Memory` has no filter. A Python, TypeScript, Rust or Go agent's memory is on or off, and compaction of
+  its sessions is not yet configurable.
+- **Only a Scala, Java or Kotlin client reads a workflow's lifecycle or a copy's replication status.**
+  The Python, TypeScript, Rust and Go clients have no `lifecycle` or `replication` call. A workflow that
+  must show whether it is still going records it in its state, and a view or a consumer that reads the
+  workflow is handed the standing with each state.
+- **Conditions, orderings and counts written at the call are the Scala view client's.** The `sql"…"`
+  fragments are Scala's; a Java, Kotlin, Python, TypeScript, Rust or Go client reads a view by key, whole,
+  or through a query declared on the view.
+- **A Python or TypeScript route answers a value or a problem.** It cannot set a response's status or
+  headers itself, so pages, redirects and cookies are served by the Scala, Java, Kotlin, Rust and Go
+  SDKs; a Java or Kotlin route answers a body whole and cannot stream one. An ACL that inspects the
+  request (`AllowIf`) is the Scala, Java and Kotlin SDKs'; every other SDK's rule is one of the declared
+  kinds. A Java or Kotlin endpoint holds one ACL, with none per route.
+- **A Java or Kotlin agent streams text only.** `AgentRef.stream` has no streamed approval event, so a
+  turn that waits for a decision fails rather than ending with a part that says so. `ModelProviders`
+  runs each provider with its defaults: there is no setting for `maxTokens`, `thinking`, `effort` or
+  `temperature`.
+- **A Java or Kotlin service names no broker in code.** It reads `ANKKA_KAFKA_BOOTSTRAP_SERVERS` from its
+  environment, as a process's runtime does, and its test kit holds a broker in memory.
+- **The Rust client has no asynchronous invoke.** A module's calls to other components block and run one
+  after another.
 - **A module waits whole.** A WebAssembly module waits for a workflow's end with one call, and cannot
   serve the wait as a stream. The instance it runs on is held for as long as the wait, so a module waits
   from a step, a route or a tool rather than a command.
@@ -454,7 +478,9 @@ feature also says what that feature does not do.
   feature. A blueprint has no conditions,
   branches or loops of its own, and no branching search (several drafts scored and the weaker pruned):
   every repetition is inside a step and bounded by it, and a choice is a step's shape or a gather chosen
-  by an earlier step's result. No step waits for a person as a pattern of its own; a person is reached
+  by an earlier step's result. In Java and Kotlin a gather step cannot be chosen by an earlier step's
+  result, a tool cannot read which run called it (there is no `RunContext`), and no consumer or view
+  subscribes to the platform's runs or blueprint versions. No step waits for a person as a pattern of its own; a person is reached
   through a tool that requires approval, and the run waits. A blueprint does not start, wait on or read
   another's run; blueprints compose through a service's records. An ask turn cut off part way, by a
   restart, runs again from its start: a model call recorded before the restart is not made again, but
@@ -586,13 +612,24 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
 
 - **gRPC endpoints are for Scala and Java services.** A Kotlin service declares one through the Java SDK's
   `GrpcEndpoint`, with grpc-java's generated stubs. A Python, TypeScript, Rust or Go service cannot declare one,
-  and a descriptor that declares gRPC with process or wasm hosting is refused.
+  and a descriptor that declares gRPC with process or wasm hosting is refused. The Java SDK has no way to
+  opt a service into gRPC reflection.
 - **The local console does not call gRPC methods.** It lists them beside a service's routes; call them with
   `grpcurl` or a client generated from the service definition.
 - **No sidecar SDK's unit test kit scripts an autonomous agent's model.** The Python and Rust kits run
   its tools, guardrails and task type rules with no loop; the TypeScript and Go kits have no autonomous
   agent kit at all. Test the loop through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's
   integration test kit does. The Java SDK's `TestModelProvider` scripts one for Java and Kotlin.
+- **The Scala test kit has the most.** `MovableClock`, `TimerProbe`, `GherkinSuite`, `LogCapturing`,
+  `FakeSecretManager`, `InMemoryBroker` and `InMemoryPublisher` are its alone: in every other kit a timer
+  fires when its due time arrives on the wall clock, a scenario is a test of the language's own runner,
+  and what a consumer publishes is read from the unit kit or from a real broker. Every other integration
+  kit starts one installation, so replication between installations is tested in Scala. The Java and
+  Kotlin unit kits hold no secret store (`AnkkaTestKit.secrets()` reads one) and their integration kit
+  declares no bucket; the TypeScript and Go kits cannot name a caller, so an ACL that names callers is
+  proved where a cluster issues certificates; the Go integration kit captures no consumer publications
+  and reads no store, and the Go unit kits have no secret store. A module has no integration kit: its
+  end-to-end behaviour is the conformance suite's.
 - **The Java SDK cannot script a judgment.** Its test kits script a model (`TestModelProvider`) but not a
   judgment provider, and a `JudgmentProvider` is only one `JudgmentProviders` builds, so a Java test of a
   judgment or a judged guardrail needs Jev itself; nor do they hold an MCP server of their own, so a test of

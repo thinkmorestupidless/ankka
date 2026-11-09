@@ -65,7 +65,8 @@ has. What follows is for a client of your own. Any S3 client works, configured t
   checksum with every upload by default, which the store refuses as an invalid payload signature. Set the
   client to calculate request checksums, and validate response checksums, only when required.
 
-With the AWS SDK for Java:
+With the AWS SDK for Java, as the platform's own suite builds it; a service reaches its bucket through its
+SDK's storage client instead:
 
 ```scala
 private def s3(key: IssuedKey, region: String = "garage"): S3Client =

@@ -211,6 +211,11 @@ public class ShoppingCart extends EventSourcedEntity<Cart, CartEvent> {
     return effects().persist(new CartEvent.CheckedOut()).thenReplyState();
   }
 
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty. The event is
+   * persisted before the deletion takes effect, so a consumer or view downstream still observes
+   * that this cart was discarded rather than merely vanishing.
+   */
   @Command("discard")
   public Effect<Done> discard() {
     if (currentState().checkedOut()) return effects().error(checkedOut());

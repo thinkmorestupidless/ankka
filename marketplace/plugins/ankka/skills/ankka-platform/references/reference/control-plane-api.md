@@ -60,7 +60,8 @@ Every change is recorded with who made it and when, and a service's record is re
 The request and response types on this page, the `Role` and service lifecycle vocabularies, and the
 service descriptor with its validation are published as one library, `ankka-controlplane-api`, in the
 package `com.thinkmorestupidless.ankka.controlplane.api`. It depends on `ankka-core` alone, so a client
-of the control plane carries no actor system, database driver or Kubernetes client:
+of the control plane carries no actor system, database driver or Kubernetes client. It is published
+for the JVM, under the Scala 3 artifact name; this is its sbt coordinate:
 
 ```scala
 libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.5.0"

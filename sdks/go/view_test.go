@@ -125,14 +125,15 @@ func TestAViewsProblemsAreNamed(t *testing.T) {
 		decl Declaration
 		want string
 	}{
-		"no source":       {View[tCartRow]("v"), "one OnChange"},
-		"two sources":     {View[tCartRow]("v", OnChange(Topic("a"), noop), OnChange(Topic("b"), noop)), "a KeyedView reads several"},
-		"the wrong type":  {View[tCartRow]("v", OnChange(Changes(tCartEntity), noop)), "are not ankka.tCartRow values"},
-		"an option":       {View[tCartRow]("v", OnChange(Topic("a"), noop), SnapshotEvery(2)), "not an option a view takes"},
-		"no start given":  {View[tCartRow]("v", OnChange(Topic("a", StartFrom(StartPosition{})), noop)), "given no position"},
-		"project+broker":  {View[tCartRow]("v", OnChange(Topic("a", FromProject("p"), OnBroker("b")), noop)), "names a project and a broker"},
-		"unnamed query":   {View[tCartRow]("v", OnChange(Topic("a"), noop), Queries(Declared("", "SELECT 1"))), "has no name"},
-		"version below 1": {View[tCartRow]("v", OnChange(Topic("a"), noop), SourceVersion(-1)), "a version is a whole number of 1 or more"},
+		"no source":         {View[tCartRow]("v"), "one OnChange"},
+		"two sources":       {View[tCartRow]("v", OnChange(Topic("a"), noop), OnChange(Topic("b"), noop)), "a KeyedView reads several"},
+		"the wrong type":    {View[tCartRow]("v", OnChange(Changes(tCartEntity), noop)), "are not ankka.tCartRow values"},
+		"an option":         {View[tCartRow]("v", OnChange(Topic("a"), noop), SnapshotEvery(2)), "not an option a view takes"},
+		"no start given":    {View[tCartRow]("v", OnChange(Topic("a", StartFrom(StartPosition{})), noop)), "given no position"},
+		"project+broker":    {View[tCartRow]("v", OnChange(Topic("a", FromProject("p"), OnBroker("b")), noop)), "names a project and a broker"},
+		"unnamed query":     {View[tCartRow]("v", OnChange(Topic("a"), noop), Queries(Declared("", "SELECT 1"))), "has no name"},
+		"a camelCase value": {View[tCartRow]("v", OnChange(Topic("a"), noop), Queries(Declared("by-cart", "SELECT * FROM t WHERE cart_id = :cartId"))), "names the value ':cartId', which is not named with [a-z][a-z0-9_]*"},
+		"version below 1":   {View[tCartRow]("v", OnChange(Topic("a"), noop), SourceVersion(-1)), "a version is a whole number of 1 or more"},
 	} {
 		text := strings.Join(serviceProblems(NewService(c.decl)), "\n")
 		if !strings.Contains(text, c.want) {
@@ -249,5 +250,15 @@ func TestAKeyedViewsProblemsAreNamed(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(serviceProblems(NewService(KeyedView[tShipment]("k"))), "\n"), "at least one On") {
 		t.Error("a keyed view with no source is not a problem")
+	}
+}
+
+// A statement's values are what the runtime's scan reads: not a cast, a literal, a comment or a
+// dollar-quoted body.
+func TestAStatementsValuesAreReadAsTheRuntimeReadsThem(t *testing.T) {
+	got := statementValues(`SELECT payload::jsonb, ':nope', "a:b", $x$ :nor $x$, $$ :neither $$ -- :no
+		FROM t /* :none /* :nested */ */ WHERE a = :cart_id AND b = :cartId AND c = :cart_id AND d = E'\':x'`)
+	if strings.Join(got, ",") != "cart_id,cartId" {
+		t.Fatalf("read %v", got)
 	}
 }

@@ -105,6 +105,13 @@ func AgentCalling(components ...ankka.Declaration) AgentOption {
 	return func(o *agentOptions) { o.calling = append(o.calling, components...) }
 }
 
+// AgentAnswering has the agent kit answer its tools' calls to service with answer, as
+// AnswerService does for the other kits: how a tool that calls ankka.CallService is tested
+// without the service.
+func AgentAnswering(service string, answer ServiceAnswer) AgentOption {
+	return func(o *agentOptions) { AnswerService(service, answer)(&o.options) }
+}
+
 // ScriptedMcp scripts the agent's MCP servers.
 func ScriptedMcp(s McpScript) AgentOption { return func(o *agentOptions) { o.mcp = s } }
 

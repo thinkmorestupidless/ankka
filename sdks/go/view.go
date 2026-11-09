@@ -175,6 +175,11 @@ func declaredProblems(d *declarations, where string, queries []DeclaredQuery) []
 		if strings.TrimSpace(q.Statement) == "" {
 			d.problem(where, "the declared query %q has no statement", q.Name)
 		}
+		for _, name := range statementValues(q.Statement) {
+			if !valueName.MatchString(name) {
+				d.problem(where, "the declared query %q names the value ':%s', which is not named with [a-z][a-z0-9_]*", q.Name, name)
+			}
+		}
 		if q.Watched {
 			d.require(17, "%s declares the watched query %q", where, q.Name)
 		}
@@ -185,6 +190,92 @@ func declaredProblems(d *declarations, where string, queries []DeclaredQuery) []
 	}
 	return out
 }
+
+// valueName is how a declared query's value is named, as the runtime's check has it.
+var valueName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// statementValues is every :name a statement reads, in order and once each, skipping string and
+// quoted literals, comments, dollar-quoted bodies and :: casts, as the runtime's scan does: so a
+// kit refuses the value a sidecar would refuse at discovery.
+func statementValues(text string) []string {
+	identStart := func(c byte) bool { return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80 }
+	ident := func(c byte) bool { return identStart(c) || c >= '0' && c <= '9' }
+	var names []string
+	seen := map[string]bool{}
+	n := len(text)
+	for i := 0; i < n; {
+		c := text[i]
+		var next byte
+		if i+1 < n {
+			next = text[i+1]
+		}
+		switch {
+		case c == '\'' || c == '"':
+			escapes := c == '\'' && i > 0 && (text[i-1] == 'E' || text[i-1] == 'e') && (i < 2 || !ident(text[i-2]))
+			j := i + 1
+			for j < n {
+				if escapes && text[j] == '\\' {
+					j += 2
+				} else if text[j] == c {
+					if j+1 < n && text[j+1] == c {
+						j += 2
+					} else {
+						j++
+						break
+					}
+				} else {
+					j++
+				}
+			}
+			i = j
+		case c == '-' && next == '-':
+			if end := strings.IndexByte(text[i:], '\n'); end < 0 {
+				i = n
+			} else {
+				i += end
+			}
+		case c == '/' && next == '*':
+			depth, j := 1, i+2
+			for j < n && depth > 0 {
+				if text[j] == '/' && j+1 < n && text[j+1] == '*' {
+					depth, j = depth+1, j+2
+				} else if text[j] == '*' && j+1 < n && text[j+1] == '/' {
+					depth, j = depth-1, j+2
+				} else {
+					j++
+				}
+			}
+			i = j
+		case c == '$' && (i == 0 || !ident(text[i-1])):
+			if tag := dollarTag.FindString(text[i:]); tag != "" {
+				if end := strings.Index(text[i+len(tag):], tag); end < 0 {
+					i = n
+				} else {
+					i += len(tag) + end + len(tag)
+				}
+			} else {
+				i++
+			}
+		case c == ':' && next == ':':
+			i += 2
+		case c == ':' && identStart(next):
+			j := i + 1
+			for j < n && ident(text[j]) {
+				j++
+			}
+			if name := text[i+1 : j]; !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+			i = j
+		default:
+			i++
+		}
+	}
+	return names
+}
+
+var dollarTag = regexp.MustCompile(`^\$([A-Za-z_][A-Za-z0-9_]*)?\$`)
 
 func versionToPb(d *declarations, where string, n int) *uint32 {
 	if n == 0 {

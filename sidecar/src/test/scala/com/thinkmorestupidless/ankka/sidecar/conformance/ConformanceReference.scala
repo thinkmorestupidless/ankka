@@ -1256,10 +1256,13 @@ object ConformanceReference:
     }
     // docs:end storage
 
+    // docs:start storage-call
     /** The bucket the request names, and every refusal as a record rather than a status. */
     private def storageCall(f: Bucket => StorageRecord): StorageRecord =
       try f(query.optional[String]("bucket").fold(clients.storage.default)(clients.storage.bucket))
-      catch case e: CommandError => StorageRecord("refused", codeWord(e.code), e.message)
+      catch
+        case e: CommandError => StorageRecord("refused", codeWord(e.code), e.message)
+    // docs:end storage-call
 
     get("/echo") { () =>
       Echo(
@@ -1510,6 +1513,7 @@ object ConformanceReference:
    * Caller-naming ACLs (feature 014). The suite names callers through the local caller header,
    * since every target runs outside a cluster, where this service's own identity is `local/local`.
    */
+  // docs:start callers
   final class CallersEndpoint extends HttpEndpoint("/callers"):
     val acl: Acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
 
@@ -1525,6 +1529,7 @@ object ConformanceReference:
       get("/self")(() => "self")
       sse("/events")(() => Source.single("tick"))
     }
+    // docs:end callers
 
     // Feature 040: whoever the project granted this route to (`ConformanceTarget.grants`).
     withAcl(Acl.allowCallers(Callers.granted)) {

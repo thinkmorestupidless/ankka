@@ -332,8 +332,9 @@ the schema is additive — a running application must never lose a table or colu
 weekly) owns the sbt build under `.scala-steward.conf`: Pekko in one group because its families
 check versions at startup, fabric8 with jackson for the reason `V.jackson` gives, scalafmt alone
 (Steward reformats the tree with it, about 300 files), the remaining minor and patch updates
-together, and each other major update on its own; and pins that keep pekko-management on 1.x,
-ScalaPB on 0.11 and sbt on 1.x. It signs in as a GitHub App because a pull
+together, and each other major update on its own; and pins that keep the whole Pekko group on 1.x
+(core 2.0.0 is out, its satellites are not; a core-only bump fails resolution, #221), ScalaPB on
+0.11 and sbt on 1.x. It signs in as a GitHub App because a pull
 request opened with `GITHUB_TOKEN` triggers no workflow, so `ci` would never run on it. Dependabot
 (`.github/dependabot.yml`) owns uv, npm, cargo and the workflows' actions. Neither touches the
 templates' pins, which follow the CLI's version, nor the Docker base images, whose majors are

@@ -165,6 +165,15 @@ request to the service's own port, so the endpoint's ACL applies to it exactly a
 `query_local_entity` runs only the queries a component declared; a command is refused by the service.
 [The local console](../operate/local-console.md) describes the same data for a person.
 
+**The server says when a newer release exists.** The documentation tools serve the pages of the
+command line's own release. When a newer release has been published, the server's instructions end with
+the line the command line gives, `whoami` and `installation_status` carry a `release` field naming the
+command line's release, the latest and that line, and `search_docs` and `read_doc` begin with a note
+saying the pages are an older release's. `installation_status` also says when the installation runs a
+newer release than the command line. The server reads the latest release when it starts, waiting up to
+two seconds before its first answer, and again each day it runs; `CI` and `ANKKA_NO_UPDATE_CHECK=1`
+turn this off, as [they do for the command line](../reference/cli.md#when-a-newer-release-exists).
+
 ### The development loop, for an agent
 
 With the skill and the server, an agent can take a change from code to a running, observed service:

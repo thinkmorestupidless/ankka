@@ -99,6 +99,39 @@ A descriptor passed to `ankka services apply -f` is validated before it is sent,
 the control plane applies, and every problem is reported at once. `-f -` reads the descriptor from
 standard input.
 
+## When a newer release exists
+
+A command ends with one line on standard error when a release of ankka newer than the command line's
+has been published, Y being the newest release and X the command line's:
+
+```text
+ankka version Y is available (you're currently using version X)
+```
+
+The command line reads the latest release from `https://docs.ankka.cloud/latest.json`, which each
+release publishes once its libraries can be fetched. It reads at most once a day, on a thread of its own
+that never holds a command up and gives up after two seconds: a command that ends before the read does
+gives no notice, and the next command reads again. The notice is given at most once a day, by the first
+command that knows of the newer release. The command's own output and exit code are never changed, and a
+read that fails or times out changes nothing.
+
+`ankka version` reads every time, waiting for the read up to its two seconds, and gives the notice
+whenever a newer release exists, however recently it was last given.
+
+The latest release is not read and no notice is given:
+
+- with JSON output (`-o json`, `--output json`);
+- when the command line is not at a terminal: its output piped or redirected, or run by a script;
+- when `CI` is set to anything but `false`, as continuous integration services set it;
+- when `ANKKA_NO_UPDATE_CHECK=1`, which turns the check off;
+- by a development build, whose version is not a release;
+- by a plugin's command, which is its own program and may own the terminal, and by `ankka mcp`, which
+  says it where the model reads instead (its instructions and tool answers).
+
+What was read, when, and when the notice was last given are kept in `release-check.json`, beside the
+settings file, so `ANKKA_CONFIG` and `-Dankka.config` move it too. `ANKKA_LATEST_URL` names another
+address to read the latest release from.
+
 ## The context map
 
 `ankka context-map check` and `ankka context-map render` read a project's `context-map.json`, in

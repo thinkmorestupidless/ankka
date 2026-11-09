@@ -214,3 +214,20 @@ def test_an_other_prefix_survives_its_trailing_space_being_trimmed(repo: Path) -
     write(repo, "docs/release-patterns.txt", PATTERNS + "other from version\n")
     write(repo, "docs/index.md", INDEX + "\nA rule that holds from version 0.14.0 on.\n")
     assert problems(repo) == []
+
+
+ANKKA = Path(__file__).resolve().parents[3]
+
+
+@pytest.mark.skipif(not (ANKKA / "docs/reference/cli.md").is_file(), reason="the command line's page is ankka's")
+def test_the_documentation_of_the_command_line_says_when_the_notice_is_given_and_how_to_turn_the_check_off() -> None:
+    from ankka_docs.render import page_markdown
+
+    page = load(project(ANKKA)).pages["reference/cli.md"]
+    text = page_markdown(page, "https://docs.ankka.cloud/")
+    section = text.split("## When a newer release exists", 1)[1].split("\n## ", 1)[0]
+    # When it is given, and when it is not.
+    for said in ("ankka version Y is available (you're currently using version X)", "at most once a day", "`ankka version` reads every time", "-o json", "not at a terminal", "`CI`", "development build", "plugin"):
+        assert said in section, said
+    # How to turn it off.
+    assert "`ANKKA_NO_UPDATE_CHECK=1`, which turns the check off" in section

@@ -87,75 +87,88 @@
   },
   {
     "slot": "build/autonomous-agents.md:362",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/Operator.kt#autonomous-requires-approval"
   },
   {
     "slot": "build/autonomous-agents.md:396",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/OperatorTest.kt#decide"
   },
   {
     "slot": "build/autonomous-agents.md:402",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/OperatorTest.kt#decide",
+    "note": "The same block as 396: one Kotlin block serves the three fenced blocks of this paragraph."
   },
   {
     "slot": "build/autonomous-agents.md:406",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/OperatorTest.kt#decide",
+    "note": "The same block as 396: one Kotlin block serves the three fenced blocks of this paragraph."
   },
   {
     "slot": "build/autonomous-agents.md:508",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/GuideTasksTest.kt#assign-tasks",
+    "note": "The Kotlin guide's `ANSWER` task type and `Guide` agent stand where the page's `CartTasks.answer` and `CartAnswerer` do."
   },
   {
     "slot": "build/autonomous-agents.md:539",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/AgentEndpoints.kt#notifications",
+    "note": "Run by the sidecar conformance suite (`sbt 'sidecar/testOnly *ConformanceSuite'` against the Kotlin reference), not by Gradle."
   },
   {
     "slot": "build/blueprints.md:36",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#blueprint"
   },
   {
     "slot": "build/blueprints.md:116",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#combinations"
   },
   {
     "slot": "build/blueprints.md:151",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#tools"
   },
   {
     "slot": "build/blueprints.md:172",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#registry"
   },
   {
     "slot": "build/blueprints.md:186",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamplesTest.kt#runtime",
+    "note": "Without `withJudgments`: the Java SDK cannot script a judgment, so the Kotlin runtime carries no judgment provider."
   },
   {
     "slot": "build/blueprints.md:203",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamplesTest.kt#register",
+    "note": "`current(name)` stands where the page's `version(name, n)` does: `BlueprintsRef` has `versions` and `current`, no `version(name, n)`."
   },
   {
     "slot": "build/blueprints.md:368",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#context-registry",
+    "note": "The research digest has no Kotlin counterpart; the region shows the same thing, a registry built from the `BlueprintContext` whose tool reads an entity through the component client."
   },
   {
     "slot": "build/blueprints.md:388",
-    "unresolved": "not yet worked"
+    "exclude": "The Java SDK cannot script a judgment.",
+    "limitations_missing": false,
+    "note": "The brief's run passes a judge and a critique step, so a Kotlin test cannot drive it to its end; `GuideSamplesTest` proves the registration and the check instead."
   },
   {
     "slot": "build/blueprints.md:435",
-    "unresolved": "not yet worked"
+    "exclude": "A Java or Kotlin blueprint's gather step cannot be chosen by an earlier step's result: `Step.gather` takes the workers, or one worker so many times.",
+    "limitations_missing": true
   },
   {
     "slot": "build/blueprints.md:510",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/blueprint/GuideSamples.kt#schedule",
+    "note": "`period` stands where the page's `Period.shape` does; the Java SDK has no `Period`."
   },
   {
     "slot": "build/blueprints.md:532",
-    "unresolved": "not yet worked"
+    "exclude": "A Java or Kotlin tool cannot read which run called it: the Java SDK has no `RunContext`.",
+    "limitations_missing": true
   },
   {
     "slot": "build/blueprints.md:552",
-    "unresolved": "not yet worked"
+    "exclude": "A Java or Kotlin consumer or view cannot subscribe to the platform's runs or blueprint versions: `ChangeSource.of` takes the service's own components, and the Java SDK has no `RunEntity`, `RunEvent` or `BlueprintEntity`.",
+    "limitations_missing": true
   },
   {
     "slot": "build/calling-services.md:51",

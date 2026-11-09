@@ -86,7 +86,7 @@ object Dependencies {
      * will break this; `AnkkaServiceCodecSuite` fails immediately and loudly when it does, which is
      * the intended way to find out.
      */
-    val jackson = "2.22.4"
+    val jackson = "2.23.0"
 
     /**
      * The OpenTelemetry SDK's OTLP exporters, in `ankka-telemetry-otlp` only: `runtime` records

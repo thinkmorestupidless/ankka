@@ -1,0 +1,28 @@
+package com.thinkmorestupidless.ankka.javasdk.testkit.docs;
+
+import com.thinkmorestupidless.ankka.agent.javasdk.AgentCommandRef;
+import com.thinkmorestupidless.ankka.javasdk.Done;
+import com.thinkmorestupidless.ankka.javasdk.client.CommandRef;
+
+/** The method references the documentation suites call through: a Scala function is not one. */
+public final class DocsRefs {
+
+  private DocsRefs() {}
+
+  public static final CommandRef<Preferences, String, Done> setPreferences = Preferences::set;
+  public static final AgentCommandRef<ActivityAgent, ActivityAgent.Request, String> consult =
+      ActivityAgent::consult;
+  public static final AgentCommandRef<WeatherAgent, String, String> weatherAsk = WeatherAgent::ask;
+  public static final AgentCommandRef<WeatherAgent, String, WeatherAgent.Forecast>
+      weatherStructured = WeatherAgent::askStructured;
+  public static final AgentCommandRef<WeatherAgent, String, String> weatherGuarded =
+      WeatherAgent::guarded;
+  public static final AgentCommandRef<WeatherAgent, String, String> weatherSafely =
+      WeatherAgent::askSafely;
+  public static final AgentCommandRef<WeatherAgent, String, String> weatherShortMemory =
+      WeatherAgent::askWithShortMemory;
+  public static final AgentCommandRef<ApprovalAgent, String, String> approvalAsk =
+      ApprovalAgent::ask;
+  public static final AgentCommandRef<WalletAgent, String, String> walletAsk = WalletAgent::ask;
+  public static final AgentCommandRef<Triage, String, String> route = Triage::route;
+}

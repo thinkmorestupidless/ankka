@@ -1,0 +1,22 @@
+[
+  {"slot": "build/agents.md:406", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ActivityAgent.java#activity"},
+  {"slot": "build/agents.md:437", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#structured"},
+  {"slot": "build/agents.md:449", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#forecast", "note": "a Java reply type needs no codec declaration: records are read by reflection"},
+  {"slot": "build/agents.md:465", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#tools"},
+  {"slot": "build/agents.md:520", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ApprovalAgent.java#requires-approval"},
+  {"slot": "build/agents.md:538", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ApprovalAgent.java#requires-approval-within"},
+  {"slot": "build/agents.md:556", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ApprovalCalls.java#ask-and-decide"},
+  {"slot": "build/agents.md:591", "exclude": "The Java SDK's AgentRef.stream answers a stream's text only; it has no streamParts, so a stream whose turn waits for a decision fails with ApprovalAwaited rather than ending with an AwaitingApproval part.", "limitations_missing": true, "note": "The sentence limitations.md should carry: 'A Java or Kotlin service streams an agent's text only: AgentRef.stream has no streamParts, and a stream whose turn waits for a decision fails with ApprovalAwaited.'"},
+  {"slot": "build/agents.md:610", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WalletAgent.java#service-call-tool"},
+  {"slot": "build/agents.md:638", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#guarded"},
+  {"slot": "build/agents.md:652", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/NoKeys.java#custom-guardrail"},
+  {"slot": "build/agents.md:687", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/WeatherAgent.java#short-memory"},
+  {"slot": "build/agents.md:709", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/AgentService.java#registration", "note": "the module registers session memory itself; the page's AgentRuntime.descriptors and HttpServer lines have no Java counterpart"},
+  {"slot": "build/agents.md:742", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/Providers.java#provider-imports"},
+  {"slot": "build/agents.md:749", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/Providers.java#two-providers"},
+  {"slot": "build/agents.md:767", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/Triage.java#naming-a-provider"},
+  {"slot": "build/agents.md:786", "exclude": "The Java SDK's ModelProviders builds a provider from a model name alone: it has no way to change a provider's defaults (maxTokens, thinking, effort, temperature).", "limitations_missing": true, "note": "The sentence limitations.md should carry: 'A Java or Kotlin service cannot change a model provider's defaults: ModelProviders takes a model name, a preset or an address and a key, and the settings are the provider's.'"},
+  {"slot": "build/agents.md:822", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/AgentService.java#compaction", "note": "withCompaction(maxHistoryBytes, keepRecentMessages[, summariser]); no minMessagesToCompact and no ProjectionRuntime to register in Java"},
+  {"slot": "build/agents.md:926", "exclude": "Java and Kotlin services start no session or autonomous agent's instance with a data subject.", "limitations_missing": false},
+  {"slot": "build/agents.md:1005", "include": "modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ApprovalRoutes.java#approver-routes"}
+]

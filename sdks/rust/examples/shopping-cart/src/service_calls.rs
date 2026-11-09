@@ -233,6 +233,9 @@ impl ServiceSteps {
         effects::reply(stepped.clone())
     }
 
+    // docs:start step-calls-service
+    /// Asks the other service, from a step: a step may call another service, as this service,
+    /// and goes on with the answer.
     fn call(stepped: &Stepped, _: (), ctx: &Context) -> StepEffect<Stepped> {
         let at = ctx.now().epoch_millis();
         let services = ctx.services().expect("a step may call another service");
@@ -246,6 +249,7 @@ impl ServiceSteps {
         })
         .then_end()
     }
+    // docs:end step-calls-service
 }
 
 impl Workflow for ServiceSteps {
@@ -333,3 +337,39 @@ impl Endpoint for ServiceCallsEndpoint {
             .post("/asks/{id}/{command}", ServiceCallsEndpoint::command)
     }
 }
+
+// ── neighbour: a route that calls another service and answers what it answered ──
+
+// docs:start call-another-service
+/// Calls another service in this project, as this service: `/callers/whoami` unless `path` says
+/// otherwise. The answer is what that service answered, and it saw this one as the caller.
+pub struct NeighbourEndpoint;
+
+impl NeighbourEndpoint {
+    fn call(request: &Request) -> Result<String, HttpProblem> {
+        let path = request.query("path").unwrap_or("/callers/whoami");
+        let services = request
+            .context()
+            .services()
+            .ok_or_else(|| HttpProblem::new(500, "a route may call another service"))?;
+        match services.service(request.path("service")).get_text(path) {
+            Ok(answer) => Ok(answer),
+            Err(e @ ServiceError::Unresolvable { .. }) => Err(HttpProblem::new(503, e.to_string())),
+            Err(e) => Err(HttpProblem::new(502, e.to_string())),
+        }
+    }
+}
+
+impl Endpoint for NeighbourEndpoint {
+    const ENDPOINT_ID: &'static str = "NeighbourEndpoint";
+    const PREFIX: &'static str = "/neighbour";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<NeighbourEndpoint> {
+        Routes::new().get("/call/{service}", NeighbourEndpoint::call)
+    }
+}
+// docs:end call-another-service

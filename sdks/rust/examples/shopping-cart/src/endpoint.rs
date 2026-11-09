@@ -109,10 +109,29 @@ impl CartApi {
         )?)
     }
 
+    // docs:start call-key-value
     fn checkout_log(request: &Request) -> Result<CheckoutRecord, HttpProblem> {
         let cart_id = request.path("cartId");
         Ok(request.client().invoke(CheckoutLog, cart_id, "get", ())?)
     }
+    // docs:end call-key-value
+
+    // docs:start refusal
+    /// A refused command is an `Err` carrying the entity's code and message, whichever node the
+    /// entity ran on; nothing was persisted. Here one code is handled and the rest passed on.
+    fn add_item_or_explain(request: &Request, item: LineItem) -> Result<String, HttpProblem> {
+        let cart_id = request.path("cartId");
+        let added: Result<Done, CommandError> =
+            request
+                .client()
+                .invoke(ShoppingCart, cart_id, "add-item", item);
+        match added {
+            Ok(Done) => Ok("added".to_string()),
+            Err(e) if e.code == ErrorCode::BadRequest => Ok(format!("not added: {}", e.message)),
+            Err(e) => Err(e.into()),
+        }
+    }
+    // docs:end refusal
 }
 
 // docs:start routes
@@ -140,6 +159,7 @@ impl Endpoint for CartApi {
             .get("/{cartId}/checkouts", CartApi::checkout_status)
             .post("/ask/{session}", CartApi::ask)
             .get("/{cartId}/checkout-log", CartApi::checkout_log)
+            .post("/{cartId}/items/explained", CartApi::add_item_or_explain)
     }
 }
 // docs:end routes

@@ -52,12 +52,12 @@ no JVM to install: `linux-x64`, `linux-arm64`, `macos-arm64` and `macos-x64`, ea
 Linux builds need glibc 2.35 or later, so they do not run on Alpine.
 
 ```bash
-version=0.16.0                                        # a release from the releases page
+ankka_version=0.16.0                                  # a release from the releases page
 platform=linux-x64                                   # or linux-arm64, macos-arm64, macos-x64
-base="https://github.com/thinkmorestupidless/ankka/releases/download/v\$version"
-curl -LO "\$base/ankka-cli-\$version-\$platform.tar.gz" -LO "\$base/ankka-cli-\$version-\$platform.tar.gz.sha256"
-shasum -a 256 --check "ankka-cli-\$version-\$platform.tar.gz.sha256"
-tar -xzf "ankka-cli-\$version-\$platform.tar.gz"      # one file, ankka: put it on your PATH
+base="https://github.com/thinkmorestupidless/ankka/releases/download/v\$ankka_version"
+curl -LO "\$base/ankka-cli-\$ankka_version-\$platform.tar.gz" -LO "\$base/ankka-cli-\$ankka_version-\$platform.tar.gz.sha256"
+shasum -a 256 --check "ankka-cli-\$ankka_version-\$platform.tar.gz.sha256"
+tar -xzf "ankka-cli-\$ankka_version-\$platform.tar.gz"# one file, ankka: put it on your PATH
 ./ankka version
 ```
 
@@ -69,10 +69,10 @@ Every release also carries the CLI as a zip that runs on a JDK 21 on the `PATH` 
 platform with no native build: unpack it and put its `bin` directory on your `PATH`.
 
 ```bash
-version=0.16.0                                        # a release from the releases page
-curl -LO "https://github.com/thinkmorestupidless/ankka/releases/download/v\$version/ankka-cli-\$version.zip"
-unzip "ankka-cli-\$version.zip"
-export PATH="\$PWD/ankka-cli-\$version/bin:\$PATH"
+ankka_version=0.16.0                                  # a release from the releases page
+curl -LO "https://github.com/thinkmorestupidless/ankka/releases/download/v\$ankka_version/ankka-cli-\$ankka_version.zip"
+unzip "ankka-cli-\$ankka_version.zip"
+export PATH="\$PWD/ankka-cli-\$ankka_version/bin:\$PATH"
 ankka version
 ```
 

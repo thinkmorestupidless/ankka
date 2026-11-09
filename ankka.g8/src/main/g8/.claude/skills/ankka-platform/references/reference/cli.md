@@ -112,9 +112,9 @@ The command line reads the latest release from `https://docs.ankka.cloud/latest.
 release publishes once its libraries can be fetched. It reads on a thread of its own that gives up after
 two seconds, and a command waits for it no more than 100 ms after its own work: a read that has not
 finished by then goes on while the command line runs and remembers what it found, and an attempt that
-did not succeed is not tried again for an hour. A successful read lasts a day. The notice is given at
-most once a day, by the first command that knows of the newer release. The command's own output and exit code are never changed, and a
-read that fails or times out changes nothing.
+did not succeed is not tried again for an hour. A successful read lasts a day. The notice is given
+at most once a day, by the first command that knows of the newer release. The command's own output and
+exit code are never changed, and a read that fails or times out changes nothing.
 
 `ankka version` reads every time, waiting for the read up to its two seconds, and gives the notice
 whenever a newer release exists, however recently it was last given.

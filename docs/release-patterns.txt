@@ -8,6 +8,9 @@
 #                     a rule starts from. The version follows the prefix; the check leaves it alone.
 #
 # `docs check` refuses any other occurrence of a version equal to one of ankka's release tags.
+#
+# What a version looks like is said three times, kept equal: `_NUMBERS` in tools/docs/src/ankka_docs/release.py,
+# `Numbers` in project/ReleasePatterns.scala and the expression in cli/.../DocsBundleSuite.scala.
 
 # The SDKs and the runtime, as a project depends on them.
 release ankkaVersion = "{version}"
@@ -22,7 +25,7 @@ release ankka-go@v{version}
 release ankka-sidecar:{version}
 
 # The command line and the platform's images, as a person installs them.
-release version={version}
+release ankka_version={version}
 release newTag: "{version}"
 
 # What a release answers with.

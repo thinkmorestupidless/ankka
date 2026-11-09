@@ -392,6 +392,15 @@ final class McpServerSuite extends FunSuite:
   }
 
   test(
+    "a command's attempt to read just before the server starts does not stop the server reading"
+  ) {
+    // The command line tried a minute ago and was cut short; the server reads regardless.
+    ReleaseCheck.remember(RememberedCheck(attemptedAt = Some(now.minusSeconds(60))))
+    val said = instructions(serverWith(Some(status())))
+    assert(said.contains(Notice16), said)
+  }
+
+  test(
     "every page of documentation the model reads says it is the command line's release's and a newer one exists"
   ) {
     val release = status()

@@ -48,10 +48,20 @@ private[cli] final class ReleaseStatus(
       mine   <- current
     yield ReleaseCheck.notice(newest, mine)
 
-  /** Starts the first read when one is due, without waiting for it. */
+  /**
+   * Whether a read is due. The command line's attempts are its own: the server reads at start
+   * whenever no read succeeded in the last day, however recently a command tried, so a session
+   * started on a machine whose last command's read was cut short still carries the notice.
+   */
+  private def due: Boolean =
+    enabled && ReleaseCheck.shouldRead(state.get().map(_.copy(attemptedAt = None)), clock())
+
+  /**
+   * Starts the first read when one is due, without waiting for it. A read that ends after
+   * `awaitStart` stops waiting still remembers what it found.
+   */
   def start(): ReleaseStatus =
-    if enabled && ReleaseCheck.shouldRead(state.get(), clock()) then
-      starting = Some(ReleaseCheck.start(url, timeout))
+    if due then starting = Some(ReleaseCheck.start(url, timeout, keep = true))
     this
 
   /**
@@ -67,8 +77,7 @@ private[cli] final class ReleaseStatus(
 
   /** Reads again when the last successful read is a day old: what the hourly look runs. */
   def tick(): Unit =
-    if enabled && ReleaseCheck.shouldRead(state.get(), clock()) then
-      ReleaseCheck.read(url, timeout).foreach(found)
+    if due then ReleaseCheck.read(url, timeout).foreach(found)
 
   private def found(latest: LatestRelease): Unit =
     state.set(Some(ReleaseCheck.succeeded(latest, clock())))

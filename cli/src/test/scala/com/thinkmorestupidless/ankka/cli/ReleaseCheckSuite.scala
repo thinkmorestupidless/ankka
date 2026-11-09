@@ -197,7 +197,9 @@ class ReleaseCheckSuite extends munit.FunSuite:
     delay = 5000
     val ran = run(command)
     assertEquals(ran.code, 0)
-    assert(ran.millis < 1000, s"the command took ${ran.millis} ms")
+    // The grace is 100 ms; the rest is room for a loaded machine, and short of what a longer grace
+    // would take.
+    assert(ran.millis < 600, s"the command took ${ran.millis} ms")
     assertNoNotice(ran)
     // The read was started, and is still under way when the command has ended.
     settle()

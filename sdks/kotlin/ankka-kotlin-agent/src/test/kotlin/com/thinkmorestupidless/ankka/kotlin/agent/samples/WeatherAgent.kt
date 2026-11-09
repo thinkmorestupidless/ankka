@@ -4,10 +4,12 @@ import com.thinkmorestupidless.ankka.agent.javasdk.Agent
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentEffect
 import com.thinkmorestupidless.ankka.agent.javasdk.Guardrail
 import com.thinkmorestupidless.ankka.agent.javasdk.Memory
+import com.thinkmorestupidless.ankka.agent.javasdk.StreamEffect
 import com.thinkmorestupidless.ankka.agent.javasdk.Tool
 import com.thinkmorestupidless.ankka.javasdk.annotations.Command
 import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId
 import com.thinkmorestupidless.ankka.javasdk.annotations.Describe
+import com.thinkmorestupidless.ankka.javasdk.annotations.Stream
 import com.thinkmorestupidless.ankka.kotlin.agent.effects
 import com.thinkmorestupidless.ankka.kotlin.agent.thenReply
 import com.thinkmorestupidless.ankka.kotlin.agent.tools
@@ -70,6 +72,14 @@ class WeatherAgent : Agent() {
         } else {
             effects { systemMessage(SYSTEM_MESSAGE).userMessage(question).tools<WeatherTools>().thenReply() }
         }
+
+    // docs:start chat
+    /** Streams the reply token by token, tools and all. */
+    @Stream("chat")
+    fun chat(question: String): StreamEffect = effects {
+        systemMessage(SYSTEM_MESSAGE).userMessage(question).tools<WeatherTools>().thenStream()
+    }
+    // docs:end chat
 
     // docs:start structured
     /** Same interaction, but the reply is parsed into a [Forecast]. */

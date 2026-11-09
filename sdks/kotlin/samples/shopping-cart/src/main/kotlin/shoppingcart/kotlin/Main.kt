@@ -22,18 +22,24 @@ class CartMcpEndpoint : McpEndpoint() {
     )
 
     init {
+        // docs:start reference
         tool("get_cart").describedAs("Reads one cart: its lines, and whether it is checked out").query(ShoppingCart::getCart, "cartId")
+        // docs:end reference
+        // docs:start handler
         tool("add_item").describedAs("Adds a quantity of a product to a cart").handling<AddItemArgs> { args ->
             componentClient()
                 .forEventSourcedEntity(args.cartId)
                 .call(ShoppingCart::addItem)
                 .invokeSuspending(LineItem(args.productId, args.productId, args.quantity))
         }
+        // docs:end handler
         tool("checkout").describedAs("Checks a cart out, answering what it held").command(ShoppingCart::checkout, "cartId")
     }
 
+    // docs:start acl
     // A request carrying one of the cart's client keys, as the key's subject (CartKeysEndpoint).
     override fun acl(): Acl = Acl.clientKeys()
+    // docs:end acl
 }
 // docs:end tools
 

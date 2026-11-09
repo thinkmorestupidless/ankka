@@ -3,8 +3,18 @@ package com.thinkmorestupidless.ankka.javasdk.testkit.docs
 import com.thinkmorestupidless.ankka.javasdk.cart.{CartEvent, CartState, LineItem, ShoppingCart}
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceResponse
 import com.thinkmorestupidless.ankka.javasdk.reference.Fanned
-import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.{Checkout, CheckoutRows, KindRefs, Ledger}
-import com.thinkmorestupidless.ankka.javasdk.testkit.{AnkkaTestKit, ConsumerTestKit, Settings, TestClient}
+import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.{
+  Checkout,
+  CheckoutRows,
+  KindRefs,
+  Ledger
+}
+import com.thinkmorestupidless.ankka.javasdk.testkit.{
+  AnkkaTestKit,
+  ConsumerTestKit,
+  Settings,
+  TestClient
+}
 import com.thinkmorestupidless.ankka.javasdk.{Ankka, Done}
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 
@@ -15,8 +25,8 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 /**
- * The Java samples of the component client, calling services, consumers and event sourced
- * entities pages, run against one service in the Java kit.
+ * The Java samples of the component client, calling services, consumers and event sourced entities
+ * pages, run against one service in the Java kit.
  */
 class DocsComponentsSuite extends munit.FunSuite with LogCapturing:
 
@@ -81,7 +91,11 @@ class DocsComponentsSuite extends munit.FunSuite with LogCapturing:
     client.forEventSourcedEntity("f-1").call(DocsRefs.addItem).invoke(LineItem("a", "A", 3)): Unit
     client.forEventSourcedEntity("f-2").call(DocsRefs.addItem).invoke(LineItem("b", "B", 4)): Unit
     assertEquals(
-      CartCalls.totals(client, java.util.List.of("f-1", "f-2", "f-3")).asScala.toList.map(_.intValue),
+      CartCalls
+        .totals(client, java.util.List.of("f-1", "f-2", "f-3"))
+        .asScala
+        .toList
+        .map(_.intValue),
       List(3, 4, 0)
     )
   }
@@ -112,10 +126,16 @@ class DocsComponentsSuite extends munit.FunSuite with LogCapturing:
       .of(classOf[ShoppingCart])
       .stub(
         KindRefs.getCart,
-        () => CartState("c1", java.util.List.of(LineItem("p1", "Pen", 2), LineItem("p2", "Ink", 3)), false)
+        () =>
+          CartState(
+            "c1",
+            java.util.List.of(LineItem("p1", "Pen", 2), LineItem("p2", "Ink", 3)),
+            false
+          )
       )
     val kit    = ConsumerTestKit.graph(classOf[CartContentsGraph], carts)
-    val deltas = kit.onMessage(CartEvent.ItemAdded(LineItem("p2", "Ink", 3)), "c1", 2).asScala.toList
+    val deltas =
+      kit.onMessage(CartEvent.ItemAdded(LineItem("p2", "Ink", 3)), "c1", 2).asScala.toList
     assertEquals(deltas.map(_.key), List("node:cart-contents:c1"))
     assertEquals(deltas.head.version, 2L)
     assertEquals(deltas.head.properties.get("lines"): Any, 2L)
@@ -155,7 +175,10 @@ class DocsComponentsSuite extends munit.FunSuite with LogCapturing:
 
   test("a consumer given a replicated entity's changes reads where each was written") {
     val result = ConsumerTestKit.of(classOf[LedgerFeed]).onMessage(Ledger.Entered("x"), "l1", 1)
-    assertEquals(result.payloads.asScala.toList, List(LedgerFeed.Entry("l1", "x", "unreplicated", true)))
+    assertEquals(
+      result.payloads.asScala.toList,
+      List(LedgerFeed.Entry("l1", "x", "unreplicated", true))
+    )
   }
 
   test("the entity kit runs one handler with no runtime") {

@@ -15,7 +15,7 @@ class DocsAgentsSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private val model = TestModelProvider()
+  private val model             = TestModelProvider()
   private var kit: AnkkaTestKit = null
   private def client            = kit.componentClient
 
@@ -24,7 +24,7 @@ class DocsAgentsSuite extends munit.FunSuite with LogCapturing:
       AgentService.service(model),
       Settings.defaults.withScriptedService("wallet")
     )
-  override def afterAll(): Unit = if kit != null then kit.close()
+  override def afterAll(): Unit                      = if kit != null then kit.close()
   override def beforeEach(context: BeforeEach): Unit =
     model.reset()
     WeatherAgent.TOOL_CALLS.clear()
@@ -102,7 +102,10 @@ class DocsAgentsSuite extends munit.FunSuite with LogCapturing:
       .call(DocsRefs.consult)
       .invoke(ActivityAgent.Request("ada", "Lisbon"))
     assertEquals(answer, "Visit the Gulbenkian and take a tram tour.")
-    assert(model.lastRequest.contains("Traveller preferences: museums, no hiking"), model.lastRequest)
+    assert(
+      model.lastRequest.contains("Traveller preferences: museums, no hiking"),
+      model.lastRequest
+    )
     assert(model.lastRequest.contains("What should I do in Lisbon?"), model.lastRequest)
   }
 
@@ -148,7 +151,10 @@ class DocsAgentsSuite extends munit.FunSuite with LogCapturing:
     model.expectToolCall("read_balance", """{"customer":"ada"}""").expectText("Ada has 42.")
     val answer = AgentClients.forAgent(client, "b-1").call(DocsRefs.walletAsk).invoke("ada?")
     assertEquals(answer, "Ada has 42.")
-    assertEquals(kit.service("wallet").requests.asScala.map(_.path).toList, List("/wallet/balances/ada"))
+    assertEquals(
+      kit.service("wallet").requests.asScala.map(_.path).toList,
+      List("/wallet/balances/ada")
+    )
     assert(model.lastRequest.contains("42"), model.lastRequest)
   }
 

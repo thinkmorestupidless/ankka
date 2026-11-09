@@ -18,7 +18,7 @@ class DocsAutonomousSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private val model = TestModelProvider()
+  private val model             = TestModelProvider()
   private var kit: AnkkaTestKit = null
   private def client            = kit.componentClient
 
@@ -32,7 +32,7 @@ class DocsAutonomousSuite extends munit.FunSuite with LogCapturing:
         .register(classOf[Operator])
         .withEndpoint(classOf[AnswererRoutes])
     )
-  override def afterAll(): Unit = if kit != null then kit.close()
+  override def afterAll(): Unit                      = if kit != null then kit.close()
   override def beforeEach(context: BeforeEach): Unit =
     model.reset()
     Operator.RUNS.clear()
@@ -41,7 +41,7 @@ class DocsAutonomousSuite extends munit.FunSuite with LogCapturing:
     model
       .expectToolCall("restart_service", """{"service":"billing"}""")
       .expectCompleteTaskText("billing restarted")
-    val id = AgentClients.tasks(client).create(Operator.OPERATE, "Restart billing.").create()
+    val id       = AgentClients.tasks(client).create(Operator.OPERATE, "Restart billing.").create()
     val assigned = AgentClients.forAutonomousAgent(client, classOf[Operator], "ops-1").assign(id)
     assertEquals(assigned.accepted.asScala.toList, List(id))
 
@@ -75,8 +75,10 @@ class DocsAutonomousSuite extends munit.FunSuite with LogCapturing:
     assertEquals(result.accepted.size, 2, result.toString)
     assert(result.refused.isEmpty, result.toString)
     val Seq(first, second) = result.accepted.asScala.toSeq
-    val firstDone  = AgentClients.forTask(client, first).await(CartTasks.ANSWER, Duration.ofSeconds(30))
-    val secondDone = AgentClients.forTask(client, second).await(CartTasks.ANSWER, Duration.ofSeconds(30))
+    val firstDone          =
+      AgentClients.forTask(client, first).await(CartTasks.ANSWER, Duration.ofSeconds(30))
+    val secondDone =
+      AgentClients.forTask(client, second).await(CartTasks.ANSWER, Duration.ofSeconds(30))
     assertEquals(firstDone.result.get.answer, "2 x Pen")
     assertEquals(secondDone.result.get.answer, "nothing")
   }

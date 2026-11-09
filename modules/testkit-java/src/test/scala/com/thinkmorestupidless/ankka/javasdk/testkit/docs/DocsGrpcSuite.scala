@@ -42,11 +42,11 @@ class DocsGrpcSuite extends munit.FunSuite with LogCapturing:
     )
 
   private final class Collect[A] extends StreamObserver[A]:
-    val values                   = LinkedBlockingQueue[A]()
-    val done                     = CompletableFuture[Unit]()
-    def onNext(value: A): Unit   = values.add(value): Unit
+    val values                      = LinkedBlockingQueue[A]()
+    val done                        = CompletableFuture[Unit]()
+    def onNext(value: A): Unit      = values.add(value): Unit
     def onError(t: Throwable): Unit = done.completeExceptionally(t): Unit
-    def onCompleted(): Unit      = done.complete(()): Unit
+    def onCompleted(): Unit         = done.complete(()): Unit
 
   test("the test starts the service, picks the port and reads back what it added") {
     val cart = GrpcChecks.addThenRead()

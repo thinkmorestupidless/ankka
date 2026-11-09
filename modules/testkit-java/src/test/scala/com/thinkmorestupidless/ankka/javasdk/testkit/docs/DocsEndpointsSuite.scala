@@ -15,8 +15,8 @@ class DocsEndpointsSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private var kit: AnkkaTestKit   = null
-  private var issuer: TestIssuer  = null
+  private var kit: AnkkaTestKit  = null
+  private var issuer: TestIssuer = null
 
   override def beforeAll(): Unit =
     issuer = TestIssuer.serving("customers", "shop")
@@ -118,7 +118,10 @@ class DocsEndpointsSuite extends munit.FunSuite with LogCapturing:
 
   test("the caller is read by the handler") {
     val asCaller = kit.asCaller(Caller.Gateway())
-    assertEquals(send("GET", "/callers/whoami", "", asCaller.getKey -> asCaller.getValue).body, "the internet")
+    assertEquals(
+      send("GET", "/callers/whoami", "", asCaller.getKey -> asCaller.getValue).body,
+      "the internet"
+    )
     assertEquals(send("GET", "/callers/whoami").body, "this machine")
   }
 

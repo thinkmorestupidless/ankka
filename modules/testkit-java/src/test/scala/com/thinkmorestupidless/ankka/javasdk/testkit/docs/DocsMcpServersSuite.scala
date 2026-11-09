@@ -13,9 +13,9 @@ class DocsMcpServersSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private val model             = TestModelProvider()
+  private val model                  = TestModelProvider()
   private var tickets: TestMcpServer = null
-  private var kit: AnkkaTestKit = null
+  private var kit: AnkkaTestKit      = null
 
   override def beforeAll(): Unit =
     tickets = TestMcpServer().tool("search", "Finds tickets")(_ => "2 tickets found")
@@ -35,7 +35,8 @@ class DocsMcpServersSuite extends munit.FunSuite with LogCapturing:
     model
       .expectToolCall("mcp__tickets__search", """{"q":"open"}""")
       .expectText("There are 2 open tickets.")
-    val answer = AgentClients.forAgent(kit.componentClient, "t-1")
+    val answer = AgentClients
+      .forAgent(kit.componentClient, "t-1")
       .call(DocsRefs.ticketsAsk)
       .invoke("How many open tickets?")
     assertEquals(answer, "There are 2 open tickets.")

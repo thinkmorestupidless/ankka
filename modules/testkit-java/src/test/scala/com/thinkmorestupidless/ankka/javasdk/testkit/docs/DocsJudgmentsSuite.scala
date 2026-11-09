@@ -1,7 +1,12 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.docs
 
 import com.thinkmorestupidless.ankka.agent.javasdk.bridge.AgentBridge
-import com.thinkmorestupidless.ankka.agent.javasdk.{AgentClients, ChoiceQuestion, ScoreQuestion, YesNoQuestion}
+import com.thinkmorestupidless.ankka.agent.javasdk.{
+  AgentClients,
+  ChoiceQuestion,
+  ScoreQuestion,
+  YesNoQuestion
+}
 import com.thinkmorestupidless.ankka.agent.judgment
 import com.thinkmorestupidless.ankka.agent.judgment.{Answers, TestJudgmentProvider}
 import com.thinkmorestupidless.ankka.javasdk.testkit.{AnkkaTestKit, TestModelProvider}
@@ -23,7 +28,7 @@ class DocsJudgmentsSuite extends munit.FunSuite with LogCapturing:
 
   override def beforeAll(): Unit =
     kit = AnkkaTestKit.start(TriageCalls.service(model, AgentBridge.judgmentProvider(judge)))
-  override def afterAll(): Unit = if kit != null then kit.close()
+  override def afterAll(): Unit                      = if kit != null then kit.close()
   override def beforeEach(context: BeforeEach): Unit =
     model.reset()
     judge.reset()

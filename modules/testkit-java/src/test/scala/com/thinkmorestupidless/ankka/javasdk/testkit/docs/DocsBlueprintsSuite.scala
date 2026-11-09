@@ -13,8 +13,8 @@ class DocsBlueprintsSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
-  private val model = TestModelProvider()
-  private val judge = TestJudgmentProvider()
+  private val model             = TestModelProvider()
+  private val judge             = TestJudgmentProvider()
   private var kit: AnkkaTestKit = null
   private def client            = kit.componentClient
 

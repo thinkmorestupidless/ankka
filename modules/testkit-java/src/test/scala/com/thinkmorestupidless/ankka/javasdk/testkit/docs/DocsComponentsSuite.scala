@@ -1,10 +1,10 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit.docs
 
-import com.thinkmorestupidless.ankka.javasdk.cart.{CartEvent, LineItem, ShoppingCart}
+import com.thinkmorestupidless.ankka.javasdk.cart.{CartEvent, CartState, LineItem, ShoppingCart}
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceResponse
 import com.thinkmorestupidless.ankka.javasdk.reference.Fanned
 import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.{Checkout, CheckoutRows, KindRefs, Ledger}
-import com.thinkmorestupidless.ankka.javasdk.testkit.{AnkkaTestKit, ConsumerTestKit, Settings}
+import com.thinkmorestupidless.ankka.javasdk.testkit.{AnkkaTestKit, ConsumerTestKit, Settings, TestClient}
 import com.thinkmorestupidless.ankka.javasdk.{Ankka, Done}
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 
@@ -48,6 +48,19 @@ class DocsComponentsSuite extends munit.FunSuite with LogCapturing:
       HttpResponse.BodyHandlers.ofString()
     )
 
+  test("a socket answers refresh with the cart, and anything else with an error") {
+    val socket = kit.socket("/s-1/watch")
+    try
+      socket.send("refresh")
+      val cart = socket.receive().toScala.getOrElse(fail("no frame"))
+      assert(cart.contains("\"cartId\":\"s-1\""), cart)
+      assert(cart.contains("\"checkedOut\":false"), cart)
+      socket.send("purge")
+      val error = socket.receive().toScala.getOrElse(fail("no frame"))
+      assert(error.contains("unknown request 'purge'"), error)
+    finally socket.close()
+  }
+
   test("a step calls another service as this service, and goes on with its answer") {
     kit
       .service("psp-gateway")
@@ -86,6 +99,57 @@ class DocsComponentsSuite extends munit.FunSuite with LogCapturing:
         val listed = send("GET", "/checkouts", "")
         assertEquals(listed.statusCode, 200, listed.body)
         assert(listed.body.contains("\"cartId\":\"c-9\""), listed.body)
+    )
+    val row = send("GET", "/c-9/checkout-row", "")
+    assertEquals(row.statusCode, 200, row.body)
+    val missing = send("GET", "/nope/checkout-row", "")
+    assertEquals(missing.statusCode, 404, missing.body)
+    assert(missing.body.contains("no row for cart 'nope'"), missing.body)
+  }
+
+  test("a graph consumer reads the cart's state when the event does not carry it") {
+    val carts = TestClient
+      .of(classOf[ShoppingCart])
+      .stub(
+        KindRefs.getCart,
+        () => CartState("c1", java.util.List.of(LineItem("p1", "Pen", 2), LineItem("p2", "Ink", 3)), false)
+      )
+    val kit    = ConsumerTestKit.graph(classOf[CartContentsGraph], carts)
+    val deltas = kit.onMessage(CartEvent.ItemAdded(LineItem("p2", "Ink", 3)), "c1", 2).asScala.toList
+    assertEquals(deltas.map(_.key), List("node:cart-contents:c1"))
+    assertEquals(deltas.head.version, 2L)
+    assertEquals(deltas.head.properties.get("lines"): Any, 2L)
+    assertEquals(deltas.head.properties.get("quantity"): Any, 5L)
+    assertEquals(kit.onDelete("c1").get(0).key, "node:cart-contents:c1")
+    assert(kit.onDelete("c1").get(0).isTombstone)
+  }
+
+  test("a key value entity replaces its value and is read back through the client") {
+    val result = KitSamples.recordCheckout()
+    assertEquals(result.reply, Done.done())
+    assertEquals(result.state, CheckoutLog.CheckoutRecord("c1", 1_700_000_000_000L, true))
+    val logs = AnkkaTestKit.start(CartCalls.checkoutLogService())
+    try
+      logs.componentClient.forKeyValueEntity("c1").call(DocsRefs.recordCheckout).invoke(5L): Unit
+      assertEquals(
+        CartCalls.checkoutRecord(logs.componentClient, "c1"),
+        CheckoutLog.CheckoutRecord("c1", 5L, true)
+      )
+      assertEquals(
+        CartCalls.checkoutRecord(logs.componentClient, "c2"),
+        CheckoutLog.CheckoutRecord("c2", 0L, false)
+      )
+    finally logs.close()
+  }
+
+  test("the graph kit shows every element a change publishes, under the key the sink reads") {
+    val deltas = KitSamples.checkoutDeltas().asScala.toList
+    assertEquals(deltas.map(_.key), List("node:cart:c1", "node:checkout:c1", "edge:checked-out:c1"))
+    assertEquals(deltas.map(_.version).distinct, List(4L))
+    assertEquals(deltas(0).properties.get("checkedOut"): Any, true)
+    assertEquals(
+      (deltas(2).edgeType.toScala, deltas(2).from.toScala, deltas(2).to.toScala),
+      (Some("CHECKED_OUT"), Some("cart:c1"), Some("checkout:c1"))
     )
   }
 

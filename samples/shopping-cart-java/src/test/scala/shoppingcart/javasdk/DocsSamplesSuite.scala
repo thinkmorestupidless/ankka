@@ -14,3 +14,10 @@ class DocsSamplesSuite extends munit.FunSuite with LogCapturing:
   test("a checkout notice is published under the cart's id") {
     assertEquals(Checks.noticeKeys().asScala.toList.map(_.toScala), List(Some("c-7")))
   }
+
+  test("an assistant adds to a cart through the MCP endpoint's tools, with a client key") {
+    val answer = Checks.cartThroughTools()
+    assert(answer.contains("\"structuredContent\""), answer)
+    assert(answer.contains("\"productId\":\"p1\""), answer)
+    assert(answer.contains("\"quantity\":2"), answer)
+  }

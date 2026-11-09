@@ -5,12 +5,15 @@ import com.thinkmorestupidless.ankka.javasdk.cart.LineItem;
 import com.thinkmorestupidless.ankka.javasdk.cart.ShoppingCart;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import com.thinkmorestupidless.ankka.javasdk.client.ReplicationStatus;
+import com.thinkmorestupidless.ankka.javasdk.component.GraphDelta;
 import com.thinkmorestupidless.ankka.javasdk.reference.CartEvent;
+import com.thinkmorestupidless.ankka.javasdk.reference.CartGraph;
 import com.thinkmorestupidless.ankka.javasdk.reference.CheckoutFanout;
 import com.thinkmorestupidless.ankka.javasdk.reference.Fanned;
 import com.thinkmorestupidless.ankka.javasdk.testkit.ConsumerResult;
 import com.thinkmorestupidless.ankka.javasdk.testkit.ConsumerTestKit;
 import com.thinkmorestupidless.ankka.javasdk.testkit.EventSourcedTestKit;
+import com.thinkmorestupidless.ankka.javasdk.testkit.KeyValueEntityTestKit;
 import com.thinkmorestupidless.ankka.javasdk.testkit.Result;
 import com.thinkmorestupidless.ankka.javasdk.testkit.kinds.Ledger;
 import java.util.List;
@@ -59,4 +62,26 @@ public final class KitSamples {
     return result;
   }
   // docs:end consumer-test
+
+  // docs:start graph-test
+  public static List<GraphDelta> checkoutDeltas() {
+    var kit = ConsumerTestKit.graph(CartGraph.class);
+    var deltas = kit.onMessage(new CartEvent.CheckedOut(), "c1", 4);
+
+    // The keys are node:cart:c1, node:checkout:c1 and edge:checked-out:c1, every one at version
+    // 4; the cart's checkedOut property is true; the edge is CHECKED_OUT from cart:c1 to
+    // checkout:c1.
+    return deltas;
+  }
+  // docs:end graph-test
+
+  // docs:start key-value-test
+  public static Result<Done> recordCheckout() {
+    var kit = KeyValueEntityTestKit.of(CheckoutLog.class, "c1");
+    var result = kit.call(CheckoutLog::record, 1_700_000_000_000L);
+
+    // result.reply() is Done, and result.state() is CheckoutRecord("c1", 1700000000000, true)
+    return result;
+  }
+  // docs:end key-value-test
 }

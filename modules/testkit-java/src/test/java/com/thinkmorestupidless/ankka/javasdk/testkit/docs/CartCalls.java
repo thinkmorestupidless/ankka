@@ -4,6 +4,8 @@ import com.thinkmorestupidless.ankka.javasdk.cart.CartState;
 import com.thinkmorestupidless.ankka.javasdk.cart.LineItem;
 import com.thinkmorestupidless.ankka.javasdk.cart.ShoppingCart;
 import com.thinkmorestupidless.ankka.javasdk.client.CommandException;
+import com.thinkmorestupidless.ankka.javasdk.Ankka;
+import com.thinkmorestupidless.ankka.javasdk.ServiceBuilder;
 import com.thinkmorestupidless.ankka.javasdk.client.ComponentClient;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -49,4 +51,15 @@ public final class CartCalls {
     }
   }
   // docs:end refusal
+
+  // docs:start key-value-call
+  /** Registered like any other component, and called through the component client. */
+  public static ServiceBuilder checkoutLogService() {
+    return Ankka.service("carts").register(CheckoutLog.class);
+  }
+
+  public static CheckoutLog.CheckoutRecord checkoutRecord(ComponentClient client, String cartId) {
+    return client.forKeyValueEntity(cartId).call(CheckoutLog::get).invoke();
+  }
+  // docs:end key-value-call
 }

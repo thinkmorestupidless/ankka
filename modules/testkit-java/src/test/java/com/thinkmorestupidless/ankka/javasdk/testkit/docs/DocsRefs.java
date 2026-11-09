@@ -14,6 +14,7 @@ public final class DocsRefs {
   public static final CommandRef<ShoppingCart, LineItem, Done> addItem = ShoppingCart::addItem;
   public static final CommandRef<PayoutWorkflow, PayoutWorkflow.Payout, Done> startPayout =
       PayoutWorkflow::start;
+  public static final CommandRef<CheckoutLog, Long, Done> recordCheckout = CheckoutLog::record;
   public static final CommandRef<Preferences, String, Done> setPreferences = Preferences::set;
   public static final AgentCommandRef<ActivityAgent, ActivityAgent.Request, String> consult =
       ActivityAgent::consult;
@@ -30,4 +31,8 @@ public final class DocsRefs {
       ApprovalAgent::ask;
   public static final AgentCommandRef<WalletAgent, String, String> walletAsk = WalletAgent::ask;
   public static final AgentCommandRef<Triage, String, String> route = Triage::route;
+  public static final AgentCommandRef<TriageAgent, TriageAgent.Ticket, TriageAgent.Routing> routing =
+      TriageAgent::routing;
+  public static final AgentCommandRef<TriageAgent, String, String> guarded = TriageAgent::guarded;
+  public static final AgentCommandRef<TicketAgent, String, String> ticketsAsk = TicketAgent::ask;
 }

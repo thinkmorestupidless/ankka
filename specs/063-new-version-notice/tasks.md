@@ -39,9 +39,9 @@ loopback fake.
 
 **Independent Test**: `docs build --release 0.17.0` writes `target/docs-site/latest.json`; the release workflow passes the tag and the `docs` job needs `publish`.
 
-- [ ] T006 [P] [US3] Write `tools/docs/tests/test_release.py` cases "a published release is the latest release beside its documentation" (build with `--release 0.17.0` on a fixture project writes `latest.json` with that version and today's UTC date, and no `latest.json` without `--release`) and "a release whose libraries were not published leaves the latest release where it was" (parse `.github/workflows/release.yml` and assert the job that runs `docs build --release` has `needs: publish` and only runs on `refs/tags/v`)
-- [ ] T007 [US3] Create `tools/docs/src/ankka_docs/release.py` with `write_latest(site, version)` and wire `--release <version>` into `run_build` in `tools/docs/src/ankka_docs/cli.py` (argument parsing in `main`, the usage text in the module docstring), writing `latest.json` after `render.write` per contracts/latest-release.md
-- [ ] T008 [US3] In `.github/workflows/release.yml`'s `docs` job change `uv run --project tools/docs docs build` to pass `--release "${GITHUB_REF_NAME#v}"`, keeping `needs: publish` and the comment, extended to say the job also publishes `latest.json`, which the command line reads
+- [X] T006 [P] [US3] Write `tools/docs/tests/test_release.py` cases "a published release is the latest release beside its documentation" (build with `--release 0.17.0` on a fixture project writes `latest.json` with that version and today's UTC date, and no `latest.json` without `--release`) and "a release whose libraries were not published leaves the latest release where it was" (parse `.github/workflows/release.yml` and assert the job that runs `docs build --release` has `needs: publish` and only runs on `refs/tags/v`)
+- [X] T007 [US3] Create `tools/docs/src/ankka_docs/release.py` with `write_latest(site, version)` and wire `--release <version>` into `run_build` in `tools/docs/src/ankka_docs/cli.py` (argument parsing in `main`, the usage text in the module docstring), writing `latest.json` after `render.write` per contracts/latest-release.md
+- [X] T008 [US3] In `.github/workflows/release.yml`'s `docs` job change `uv run --project tools/docs docs build` to pass `--release "${GITHUB_REF_NAME#v}"`, keeping `needs: publish` and the comment, extended to say the job also publishes `latest.json`, which the command line reads
 
 ## Phase 4: User Story 1 - A person at the command line is told a newer release exists (Priority: P1)
 

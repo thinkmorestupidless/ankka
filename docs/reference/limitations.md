@@ -68,7 +68,7 @@ feature also says what that feature does not do.
 - **The declared runtime version is trusted.** A descriptor's `runtime` is checked against the platform's
   version before deployment. The platform does not compare it with the version the running image reports at
   `/ankka/version`. There is one compatibility rule — the same major, and a minor equal to the platform's or
-  one below — and no finer matrix; the rule does not reach back across 0.8.0, before which a runtime
+  one below — and no finer matrix; the rule does not reach back before version 0.8.0, below which a runtime
   could not speak the mutual TLS every workload uses.
 - **One database per service, on one Postgres cluster per project.** Provisioned databases run on one
   Postgres cluster in the project's namespace, a primary and as many as four replicas the project asks for.

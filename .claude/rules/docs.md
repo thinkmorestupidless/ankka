@@ -79,3 +79,11 @@ bite:
   another change is uncommitted, it puts that change's included samples into pages and skills as
   well; stage page by page and read each hunk. Staging the synced files in one batch once staged
   nothing at all.
+- **A release of ankka in a page goes in a form `docs/release-patterns.txt` lists** (2026-11-09,
+  feature 063). `docs check` refuses any version equal to a `v*` tag that no `release` form (rewritten
+  to the release being built) or `other` prefix (another project's release, the reader's own project,
+  the release a rule starts from: `from version`, `before version`) covers, naming the page and line.
+  Example versions that are not tags (`1.2.3`, `1.4.x`) need nothing. `docs sync` moves every `release`
+  form in the sources to the newest tag; a build rewrites the site only and never writes a source.
+  `git describe` among several tags on one commit is not the highest, so the newest tag is the highest
+  version `git tag --merged HEAD` lists.

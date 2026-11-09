@@ -149,7 +149,12 @@ def index(tree: Tree, base: str) -> list[dict[str, Any]]:
     return records
 
 
-def write(tree: Tree, site: Path) -> None:
+def write(tree: Tree, site: Path, version: str | None = None) -> None:
+    """Every machine rendering into `site`; with `version`, every page's release forms name it."""
+    if version is not None:
+        from . import release
+
+        tree = release.rewritten(tree, version)
     base = tree.project.site_url
     for page in tree.pages.values():
         target = site / page.markdown_path

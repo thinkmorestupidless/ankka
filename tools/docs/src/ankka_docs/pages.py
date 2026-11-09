@@ -44,6 +44,15 @@ class Generator:
 
 
 @dataclass
+class ReleaseSettings:
+    """Where pages name a release of this repository (`extra.docs.release`): the patterns file, and the git
+    tags that are releases. Absent, nothing names a release and nothing is rewritten or refused."""
+
+    patterns: Path  # absolute
+    tags: str = "v*"
+
+
+@dataclass
 class Settings:
     """Everything in `extra.docs`. Every path is relative to the repository root.
 
@@ -75,6 +84,9 @@ class Settings:
         samples:                      # every code sample is shown in every value of this facet the page names
           facet: languages
           fences: {typescript: [ts]}  # fence info strings that mean a value, beyond the value itself
+        release:                      # where pages name a release of this repository
+          patterns: docs/release-patterns.txt
+          tags: "v*"
     ```
     """
 
@@ -86,6 +98,7 @@ class Settings:
     retired_hosts: list[str] = field(default_factory=list)
     samples_facet: str | None = None
     samples_fences: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    release: ReleaseSettings | None = None
 
     @property
     def escapes_dollars(self) -> bool:
@@ -144,7 +157,7 @@ def project(root: Path | None = None) -> Project:
 def settings(raw: Any, root: Path) -> Settings:
     if not isinstance(raw, dict):
         raise ConfigError("extra.docs must be a mapping")
-    known = {"facets", "skills", "generated", "site-links", "samples"}
+    known = {"facets", "skills", "generated", "site-links", "samples", "release"}
     for key in raw:
         if key not in known:
             raise ConfigError(f"extra.docs has an unknown key '{key}'; one of {sorted(known)}")
@@ -193,6 +206,12 @@ def settings(raw: Any, root: Path) -> Settings:
         if not isinstance(infos, list) or not all(isinstance(i, str) for i in infos):
             raise ConfigError(f"extra.docs.samples.fences.{value} must be a list of strings")
         samples_fences[str(value)] = tuple(infos)
+    release = raw.get("release")
+    release_settings: ReleaseSettings | None = None
+    if release is not None:
+        if not isinstance(release, dict) or not isinstance(release.get("patterns"), str):
+            raise ConfigError("extra.docs.release is a mapping with a `patterns` file")
+        release_settings = ReleaseSettings(root / release["patterns"], str(release.get("tags", "v*")))
 
     return Settings(
         facets=facets,
@@ -203,6 +222,7 @@ def settings(raw: Any, root: Path) -> Settings:
         retired_hosts=[str(h) for h in site_links.get("retired-hosts") or []],
         samples_facet=str(samples_facet) if samples_facet else None,
         samples_fences=samples_fences,
+        release=release_settings,
     )
 
 

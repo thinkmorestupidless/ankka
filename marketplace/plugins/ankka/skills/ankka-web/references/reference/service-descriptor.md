@@ -27,7 +27,7 @@ it. It is private until `ankka services expose cart`.
   "name": "cart",
   "service": {
     "image": "registry.example.com/acme/cart:1.4.2",
-    "runtime": "0.2.0",
+    "runtime": "0.16.0",
     "env": [
       { "name": "LOG_LEVEL", "value": "info" },
       { "name": "ANTHROPIC_API_KEY", "secretKeyRef": { "name": "cart-secrets", "key": "anthropic-api-key" } }

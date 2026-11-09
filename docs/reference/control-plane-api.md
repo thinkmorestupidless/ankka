@@ -69,7 +69,7 @@ for the JVM, under the Scala 3 artifact name; this is its sbt coordinate:
 
 <!-- languages: scala; the library is a JVM artifact and the line is its sbt coordinate -->
 ```scala
-libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.5.0"
+libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.16.0"
 ```
 
 The CLI is built on the same library, so a client using it reads every answer the CLI can read and

@@ -177,6 +177,18 @@ id at most twelve times a minute per instance (`TokenBucket`). The public keys a
   checks the image in the cluster, not readiness. The first nightly after #186 failed it on both
   architectures with `the descriptor names a field the platform does not know: "http"`. A cluster suite's
   descriptor is not read by any offline test, so a fixture edit there is proved only by the cluster workflow.
+- **Whether standard error is a terminal is not something JDK 21 can say** (2026-11-09, feature 063).
+  The release check (`ReleaseCheck.terminal`) takes `System.console() != null`, true when input and
+  output are both the terminal; from JDK 22 that is non-null even when redirected, and the zip runs on
+  whatever JDK is on the path, so `Console.isTerminal()` is called by reflection where it exists. Tests
+  fix it with `-Dankka.terminal=true|false`, and `Main.run` takes `env` and `release` so a suite sets
+  `CI` and a release version without touching the JVM's: a build from a checkout is a development
+  build and never reads. The check's read runs on a daemon thread that remembers its own result; a
+  command waits for it at most 100 ms, and the attempt is written before the read starts, so a
+  command faster than the read holds the next attempt off for an hour rather than letting every fast
+  command read (the first version recorded only successes, and read on every command). A test that
+  counts reads against a slow loopback `HttpServer` must give it an executor: the default handles one
+  exchange at a time and hides the second request behind the first's sleep.
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from . import generate, snippets
+from . import generate, release, snippets
 from .pages import FENCE, FIXED_KEYS, KINDS, Tree, anchors, fenced_lines, strip_code
 from .snippets import Problem
 
@@ -486,6 +486,7 @@ def run(tree: Tree) -> list[Problem]:
         *addresses(tree),
         *snippets.check(tree),
         *generate.check(tree),
+        *release.check(tree),
     ]
 
 

@@ -438,3 +438,17 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
   secret simply arrives empty. There is no syntax check that can see this, which is why `TemplateSuite`
   expands the template and asserts on the expanded files — no surviving `\$`, balanced `${{`/`}}`, and
   the expressions that must be there by name.
+- **`docs/release-patterns.txt` has two readers, which must agree** (2026-11-09, feature 063). The docs
+  tool (`tools/docs/src/ankka_docs/release.py`) rewrites the site's release forms to the release it
+  builds, and `build.sbt`'s `ankka/docs/` generator (`project/ReleasePatterns.scala`, Scala 2.12) rewrites
+  the pages the CLI carries to the CLI's release (`version` on a tag, `previousStableVersion` otherwise,
+  written to `ankka/docs/release.txt`). Same file, same regex, two languages: a change to the rule is a
+  change to both, and `DocsBundleSuite` matches the bundle against the file independently of either.
+  The release workflow's `docs` job runs `docs build --release <tag>`, which also writes `latest.json`
+  (what the CLI's notice reads); it and CI's `docs` job check out with `fetch-depth: 0`, because the
+  check refuses a version equal to a release *tag*, and without tags it fails rather than check nothing.
+- **`scalafmtSbt` formats `project/*.scala`, and the build's dialect is Scala 2.12** (2026-11-09).
+  `.scalafmt.conf` sets `runner.dialect = scala3` with `convertToNewSyntax`, which turned a new
+  `project/ReleasePatterns.scala` into `if … then` and `while … do`; sbt 1 compiles `project/` with
+  2.12, so the build stopped loading, and a suite run before the format had passed. A `fileOverride`
+  gives `**/project/*.scala` the 2.12 dialect and no rewrites, as the templates' `project/` has.

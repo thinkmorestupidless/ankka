@@ -1,12 +1,14 @@
 package com.thinkmorestupidless.ankka.cli
 
 import com.sun.net.httpserver.HttpServer
-import com.thinkmorestupidless.ankka.cli.mcp.{AnkkaTools, Json, McpServer}
+import com.thinkmorestupidless.ankka.cli.mcp.{AnkkaTools, Json, McpServer, ReleaseStatus}
 import munit.FunSuite
 
 import java.io.{BufferedReader, ByteArrayOutputStream, PrintStream, StringReader}
 import java.net.{InetAddress, InetSocketAddress}
 import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path}
+import java.time.{Duration, Instant}
 import scala.collection.mutable
 
 /**
@@ -19,6 +21,13 @@ final class McpServerSuite extends FunSuite:
 
   private var controlPlane: HttpServer = null
   private val requests                 = mutable.Buffer.empty[String]
+
+  // The latest release, served beside the stub control plane, and the remembered check's directory.
+  @volatile private var latest: String    = """{"version":"0.16.0","released":"2026-11-06"}"""
+  @volatile private var latestStatus: Int = 200
+  @volatile private var latestDelay: Long = 0
+  @volatile private var installed: String = "0.16.0"
+  private var dir: Path                   = null
 
   private val cart =
     """{"name":"cart","projectId":"checkout","lifecycle":"Ready","generation":3,""" +
@@ -35,6 +44,11 @@ final class McpServerSuite extends FunSuite:
           requests += s"${exchange.getRequestMethod} ${exchange.getRequestURI.getPath}"
         )
         val (status, body) = exchange.getRequestURI.getPath match
+          case "/latest.json" =>
+            if latestDelay > 0 then Thread.sleep(latestDelay)
+            latestStatus -> latest
+          case "/auth/whoami"            => 200 -> """{"subject":"ada","name":"Ada"}"""
+          case "/installation"           => 200 -> s"""{"platformVersion":"$installed"}"""
           case "/services/checkout/cart" => 200 -> cart
           case "/services/checkout"      => 200 -> s"[$cart]"
           case "/projects/checkout/erasures" if exchange.getRequestMethod == "POST" =>
@@ -55,7 +69,22 @@ final class McpServerSuite extends FunSuite:
 
   override def afterAll(): Unit = if controlPlane != null then controlPlane.stop(0)
 
-  override def beforeEach(context: BeforeEach): Unit = requests.synchronized(requests.clear())
+  override def beforeEach(context: BeforeEach): Unit =
+    requests.synchronized(requests.clear())
+    latest = """{"version":"0.16.0","released":"2026-11-06"}"""
+    latestStatus = 200
+    latestDelay = 0
+    installed = "0.16.0"
+    dir = Files.createTempDirectory("ankka-mcp-release").toRealPath()
+    sys.props("ankka.config") = dir.resolve("config.json").toString
+
+  // Clean up while the override is still in place: `Credentials.path` follows it.
+  override def afterEach(context: AfterEach): Unit =
+    Files
+      .walk(dir)
+      .sorted(java.util.Comparator.reverseOrder())
+      .forEach(p => Files.deleteIfExists(p): Unit)
+    sys.props.remove("ankka.config"): Unit
 
   private def settings = Settings(
     url = s"http://127.0.0.1:${controlPlane.getAddress.getPort}",
@@ -63,12 +92,17 @@ final class McpServerSuite extends FunSuite:
     project = Some("checkout")
   )
 
-  private def server: McpServer =
-    val tools = AnkkaTools(() => settings)
-    McpServer("ankka", "test", AnkkaTools.Instructions, tools.all, () => tools.resources())
+  private def server: McpServer = serverWith(None)
+
+  private def serverWith(release: Option[ReleaseStatus]): McpServer =
+    val tools =
+      release.fold(AnkkaTools(() => settings))(r => AnkkaTools(() => settings, release = r))
+    McpServer("ankka", "test", AnkkaTools.Instructions, tools.all, () => tools.resources(), release)
 
   /** Sends each message as a line and returns every line the server wrote. */
-  private def exchange(messages: String*): Vector[Json] =
+  private def exchange(messages: String*): Vector[Json] = exchangeWith(server, messages*)
+
+  private def exchangeWith(server: McpServer, messages: String*): Vector[Json] =
     val bytes = ByteArrayOutputStream()
     val out   = PrintStream(bytes, true, StandardCharsets.UTF_8)
     server.serve(
@@ -316,4 +350,141 @@ final class McpServerSuite extends FunSuite:
     Seq("GET", "/carts/{cartId}", "/mcp get_cart", "/mcp add_item").foreach(fact =>
       assert(told.contains(fact), s"the coding agent was not told $fact: $told")
     )
+  }
+
+  // ── features/command-line/new-release-notice.feature, User Story 2 ────────
+  //
+  // The command line is fixed at release 0.13.0, the latest release is the stub's `/latest.json`, and
+  // the clock is the test's, so "a day has passed" is a step rather than a wait.
+
+  private val Notice16 = "ankka version 0.16.0 is available (you're currently using version 0.13.0)"
+
+  @volatile private var now: Instant = Instant.now()
+
+  private def latestUrl = s"http://127.0.0.1:${controlPlane.getAddress.getPort}/latest.json"
+
+  private def status(enabled: Boolean = true): ReleaseStatus =
+    ReleaseStatus("0.13.0", enabled, latestUrl, () => now).start()
+
+  private def callWith(server: McpServer, tool: String, arguments: String = "{}"): Json =
+    val reply = exchangeWith(
+      server,
+      s"""{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"$tool","arguments":$arguments}}"""
+    )
+    reply.head("result").getOrElse(fail(s"no result: ${reply.head.render}"))
+
+  private def answer(server: McpServer, tool: String, arguments: String = "{}"): Json =
+    Json.parse(text(callWith(server, tool, arguments))).fold(problem => fail(problem), identity)
+
+  private def instructions(server: McpServer): String =
+    exchangeWith(
+      server,
+      """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"""
+    ).head("result").flatMap(_.string("instructions")).getOrElse(fail("no instructions"))
+
+  test("the command line's MCP server gives the notice in its instructions") {
+    // Nothing remembered and a read that takes 300 ms: the instructions carry the notice only when
+    // `initialize` waits for the first read.
+    latestDelay = 300
+    val said = instructions(serverWith(Some(status())))
+    assert(said.startsWith(AnkkaTools.Instructions), said)
+    assert(said.contains(Notice16), said)
+  }
+
+  test(
+    "a command's attempt to read just before the server starts does not stop the server reading"
+  ) {
+    // The command line tried a minute ago and was cut short; the server reads regardless.
+    ReleaseCheck.remember(RememberedCheck(attemptedAt = Some(now.minusSeconds(60))))
+    val said = instructions(serverWith(Some(status())))
+    assert(said.contains(Notice16), said)
+  }
+
+  test(
+    "every page of documentation the model reads says it is the command line's release's and a newer one exists"
+  ) {
+    val release = status()
+    release.awaitStart()
+    val page = text(callWith(serverWith(Some(release)), "read_doc", """{"path":"index.md"}"""))
+    val note = page.linesIterator.next()
+    assert(note.contains("the documentation of ankka 0.13.0"), note)
+    assert(note.endsWith(Notice16), note)
+    assert(page.contains("\n\n"), page)
+  }
+
+  test(
+    "the pages the model finds by keywords say they are the command line's release's and a newer one exists"
+  ) {
+    val release = status()
+    release.awaitStart()
+    val found = text(callWith(serverWith(Some(release)), "search_docs", """{"query":"view"}"""))
+    val note  = found.linesIterator.next()
+    assert(note.contains("the documentation of ankka 0.13.0"), note)
+    assert(note.endsWith(Notice16), note)
+  }
+
+  test("the model asking who it is is told the command line's release and the latest release") {
+    val release = status()
+    release.awaitStart()
+    val told = answer(serverWith(Some(release)), "whoami")
+    assertEquals(told.string("subject"), Some("ada"))
+    val said = told("release").getOrElse(fail(s"no release: ${told.render}"))
+    assertEquals(said.string("cli"), Some("0.13.0"))
+    assertEquals(said.string("latest"), Some("0.16.0"))
+    assertEquals(said.bool("available"), Some(true))
+    assertEquals(said.string("notice"), Some(Notice16))
+  }
+
+  test(
+    "the model asking for the installation is told when the installation is at a newer release than the command line"
+  ) {
+    // The check turned off: what the installation runs is said whether or not a read happened.
+    val said =
+      answer(serverWith(Some(status(enabled = false))), "installation_status")("release").get
+    assertEquals(said.string("installation"), Some("0.16.0"))
+    assertEquals(said.string("cli"), Some("0.13.0"))
+    assertEquals(said.bool("installationNewer"), Some(true))
+  }
+
+  test("an MCP server that runs for more than a day reads the latest release again") {
+    latest = """{"version":"0.13.0","released":"2026-10-20"}"""
+    val release = status()
+    release.awaitStart()
+    val server = serverWith(Some(release))
+    assertEquals(answer(server, "whoami")("release").flatMap(_.string("latest")), Some("0.13.0"))
+    latest = """{"version":"0.16.0","released":"2026-11-06"}"""
+    release.tick() // less than a day: nothing read
+    assertEquals(answer(server, "whoami")("release").flatMap(_.string("latest")), Some("0.13.0"))
+    now = now.plus(Duration.ofHours(25))
+    release.tick()
+    assertEquals(answer(server, "whoami")("release").flatMap(_.string("latest")), Some("0.16.0"))
+  }
+
+  test("a latest release that cannot be read changes nothing the MCP server answers") {
+    latestStatus = 503
+    latest = "unavailable"
+    val release = status()
+    release.awaitStart()
+    val unreadable = text(callWith(serverWith(Some(release)), "whoami"))
+    val off        = text(callWith(serverWith(Some(status(enabled = false))), "whoami"))
+    assertEquals(unreadable, off)
+    assertEquals(instructions(serverWith(Some(release))), AnkkaTools.Instructions)
+    assert(
+      !text(callWith(serverWith(Some(release)), "read_doc", """{"path":"index.md"}"""))
+        .startsWith("Note:")
+    )
+  }
+
+  test("the release the server read is remembered as the command line's is") {
+    status().awaitStart()
+    val file = dir.resolve("release-check.json")
+    assert(Files.readString(file).contains("0.16.0"))
+  }
+
+  test("an installation at the command line's release is not said to be newer") {
+    installed = "0.13.0"
+    val said =
+      answer(serverWith(Some(status(enabled = false))), "installation_status")("release").get
+    assertEquals(said.bool("installationNewer"), None)
+    assertEquals(said("latest"), None)
   }

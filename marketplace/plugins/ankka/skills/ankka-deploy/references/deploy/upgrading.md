@@ -27,7 +27,7 @@ In a service created from the template:
 
 ```scala
 // build.sbt
-val ankkaVersion = "0.3.0"
+val ankkaVersion = "0.16.0"
 ```
 
 ```json title="service.json"
@@ -35,7 +35,7 @@ val ankkaVersion = "0.3.0"
   "name": "orders",
   "service": {
     "image": "orders:latest",
-    "runtime": "0.3.0"
+    "runtime": "0.16.0"
   }
 }
 ```
@@ -140,11 +140,11 @@ version and a minor version equal to the platform's or one below it:
 
 | Platform | Runs services declaring |
 |---|---|
-| `0.3.1` | `0.2.x`, `0.3.x` |
-| `0.3.0` | `0.2.x`, `0.3.x` |
+| `1.4.1` | `1.3.x`, `1.4.x` |
+| `1.4.0` | `1.3.x`, `1.4.x` |
 | `1.0.0` | `1.0.x` |
 
-From platform version 0.8.0 a runtime must also be 0.8.0 or later, because an older one cannot speak the
+A platform from version 0.8.0 on runs no runtime from before version 0.8.0, because an older one cannot speak the
 mutual TLS every workload now uses: the "one minor below" rule does not reach across that line.
 
 A declaration outside the range is reported on `ankka services get` as `Unavailable`, with a detail that

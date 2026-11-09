@@ -1843,13 +1843,19 @@ object Main:
         }
       }
       val serve = (urlOpt, tokenOpt, projectOpt).mapN { (url, token, project) => () =>
-        val tools  = mcp.AnkkaTools(() => Settings.resolve(url, token, project))
+        val version = com.thinkmorestupidless.ankka.core.BuildInfo.version
+        val release = mcp.ReleaseStatus.forServer(version, sys.env)
+        val tools   = mcp.AnkkaTools(
+          () => Settings.resolve(url, token, project),
+          release = release
+        )
         val server = mcp.McpServer(
           "ankka",
-          com.thinkmorestupidless.ankka.core.BuildInfo.version,
+          version,
           mcp.AnkkaTools.Instructions,
           tools.all,
-          () => tools.resources()
+          () => tools.resources(),
+          Some(release)
         )
         server.serve(
           java.io.BufferedReader(Console.in),
@@ -1935,16 +1941,39 @@ object Main:
    * Separate from `main` so tests can drive the real command tree without the process exiting
    * underneath them — and so the exit codes are themselves testable, which for a CLI used in
    * scripts is part of the contract.
+   *
+   * `env` is the environment the command sees, so a test can set `CI` without touching the JVM's;
+   * `release` is the command line's own version, which a test fixes because a build from a checkout
+   * is a development build.
+   *
+   * A built-in command is wrapped in the release check: a read of the latest release started before
+   * it and, after it, one line on the error output when a newer release exists (`ReleaseCheck`). A
+   * plugin is its own program and may own the terminal, so it is not.
    */
-  def run(args: Seq[String], out: PrintStream, err: PrintStream): Int =
+  def run(
+      args: Seq[String],
+      out: PrintStream,
+      err: PrintStream,
+      env: Map[String, String] = sys.env,
+      release: String = com.thinkmorestupidless.ankka.core.BuildInfo.version
+  ): Int =
     args.headOption match
       // Before decline: everything after a plugin's word is the plugin's, `--help` included.
       case Some(word) if !word.startsWith("-") && !builtIn(word) =>
         Plugins.dispatch(word, args.tail, builtIn, err)
-      case _ => parse(args, out, err)
+      case _ =>
+        val check = ReleaseCheck.begin(args, env, release)
+        val code  = parse(args, out, err, env)
+        check.foreach(_.end(code, err))
+        code
 
-  private def parse(args: Seq[String], out: PrintStream, err: PrintStream): Int =
-    command.parse(args, sys.env) match
+  private def parse(
+      args: Seq[String],
+      out: PrintStream,
+      err: PrintStream,
+      env: Map[String, String]
+  ): Int =
+    command.parse(args, env) match
       case Left(help) =>
         // Decline prints usage on a parse failure. That is a usage error, not a failure of
         // the operation, so it gets its own exit code.

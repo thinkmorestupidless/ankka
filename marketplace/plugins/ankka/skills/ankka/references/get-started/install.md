@@ -46,18 +46,18 @@ because it runs `sbt new` to expand the Scala template; a service in any other l
 command, works without it. A Java project carries the Maven wrapper and a Kotlin project the Gradle
 wrapper, so neither needs a build tool installed.
 
-Anywhere else, releases after 0.6.4 carry the CLI as a single native executable for each platform, with
+Anywhere else, releases from version 0.7.0 carry the CLI as a single native executable for each platform, with
 no JVM to install: `linux-x64`, `linux-arm64`, `macos-arm64` and `macos-x64`, each on the
 [GitHub release](https://github.com/thinkmorestupidless/ankka/releases) beside a `.sha256` checksum. The
 Linux builds need glibc 2.35 or later, so they do not run on Alpine.
 
 ```bash
-version=0.7.0                                        # a release from the releases page
+ankka_version=0.16.0                                  # a release from the releases page
 platform=linux-x64                                   # or linux-arm64, macos-arm64, macos-x64
-base="https://github.com/thinkmorestupidless/ankka/releases/download/v$version"
-curl -LO "$base/ankka-cli-$version-$platform.tar.gz" -LO "$base/ankka-cli-$version-$platform.tar.gz.sha256"
-shasum -a 256 --check "ankka-cli-$version-$platform.tar.gz.sha256"
-tar -xzf "ankka-cli-$version-$platform.tar.gz"      # one file, ankka: put it on your PATH
+base="https://github.com/thinkmorestupidless/ankka/releases/download/v$ankka_version"
+curl -LO "$base/ankka-cli-$ankka_version-$platform.tar.gz" -LO "$base/ankka-cli-$ankka_version-$platform.tar.gz.sha256"
+shasum -a 256 --check "ankka-cli-$ankka_version-$platform.tar.gz.sha256"
+tar -xzf "ankka-cli-$ankka_version-$platform.tar.gz" # one file, ankka: put it on your PATH
 ./ankka version
 ```
 
@@ -69,10 +69,10 @@ Every release also carries the CLI as a zip that runs on a JDK 21 on the `PATH` 
 platform with no native build: unpack it and put its `bin` directory on your `PATH`.
 
 ```bash
-version=0.3.1                                        # a release from the releases page
-curl -LO "https://github.com/thinkmorestupidless/ankka/releases/download/v$version/ankka-cli-$version.zip"
-unzip "ankka-cli-$version.zip"
-export PATH="$PWD/ankka-cli-$version/bin:$PATH"
+ankka_version=0.16.0                                  # a release from the releases page
+curl -LO "https://github.com/thinkmorestupidless/ankka/releases/download/v$ankka_version/ankka-cli-$ankka_version.zip"
+unzip "ankka-cli-$ankka_version.zip"
+export PATH="$PWD/ankka-cli-$ankka_version/bin:$PATH"
 ankka version
 ```
 
@@ -138,10 +138,10 @@ release with the platform's version. Add it to your own project, pinned to the v
 you deploy to:
 
 ```bash
-uv add "ankka==0.5.0"
+uv add "ankka==0.16.0"
 ```
 
-The `testkit` extra (`uv add "ankka[testkit]==0.5.0"`) brings the dependencies of the integration
+The `testkit` extra (`uv add "ankka[testkit]==0.16.0"`) brings the dependencies of the integration
 testkit, which starts Postgres and the sidecar in containers. To use an SDK that is not released yet,
 install it from a checkout of the repository instead: generate its protocol stubs with `uv run python
 scripts/proto.py` in `sdks/python`, then `uv add --editable /path/to/ankka/sdks/python`.
@@ -150,10 +150,10 @@ A Python service also needs the ankka sidecar image, which runs beside your proc
 everything stateful. It is public on GitHub Container Registry, tagged with the platform's version:
 
 ```bash
-docker pull ghcr.io/thinkmorestupidless/ankka-sidecar:0.6.4
+docker pull ghcr.io/thinkmorestupidless/ankka-sidecar:0.16.0
 ```
 
-SDKs released after 0.6.4 start that image in the integration testkit by default, at their own version, and
+SDKs from version 0.7.0 start that image in the integration testkit by default, at their own version, and
 pull it on first use; a project made by `ankka init` does the same in its `docker-compose.yml`. Earlier SDKs
 start `ankka-sidecar:latest` unless `ANKKA_SIDECAR_IMAGE` names the published one. An SDK installed from a
 checkout of the repository is version `0.0.0` and starts `ankka-sidecar:latest`, built from the same checkout
@@ -166,7 +166,7 @@ release with the platform's version. Add it to your own project, pinned to the v
 deploy to:
 
 ```bash
-npm install ankka@0.6.0
+npm install ankka@0.16.0
 npm install -D testcontainers @testcontainers/postgresql      # only for the integration testkit
 ```
 
@@ -182,7 +182,7 @@ published at every release with the platform's version and fetched through the G
 your own module, pinned to the version of the platform you deploy to:
 
 ```bash
-go get github.com/thinkmorestupidless/ankka-go@v0.14.0
+go get github.com/thinkmorestupidless/ankka-go@v0.16.0
 ```
 
 The test kits are the package `github.com/thinkmorestupidless/ankka-go/testkit` in the same module, so
@@ -203,8 +203,8 @@ the crate to your own project, pinned to the version of the platform you deploy 
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo add ankka@0.8.0 serde --features serde/derive
-cargo add --dev ankka@0.8.0 --features testkit                 # the integration testkit, which needs Docker
+cargo add ankka@0.16.0 serde --features serde/derive
+cargo add --dev ankka@0.16.0 --features testkit                 # the integration testkit, which needs Docker
 ```
 
 The runtime that loads a module is the same `ankka-sidecar` image a Python, TypeScript or Go service runs

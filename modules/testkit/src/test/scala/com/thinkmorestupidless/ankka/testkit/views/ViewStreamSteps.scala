@@ -1040,9 +1040,12 @@ final class WatchRulesFeatures
 
   When("the row {string} comes to match {string} by the passing of time alone")(
     (key: String, _: String) =>
-      cart(key).call(CartEntity.open).invoke(System.currentTimeMillis() + 3000): Unit
+      // The row matches 10 s after it is written. The watch must evaluate that write before then, or
+      // it sees a row that already matches: at 3 s a loaded CI runner's projection lag got there
+      // first, twice in a row on one pull request.
+      cart(key).call(CartEntity.open).invoke(System.currentTimeMillis() + 10000): Unit
       projected(key)(_.isDefined)
-      Thread.sleep(4000)
+      Thread.sleep(11000)
       assert(
         carts.ask(Carts.dueCarts).exists(_.cartId == scoped(key)),
         "the row does not match by now"

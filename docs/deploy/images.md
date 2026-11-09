@@ -78,7 +78,7 @@ wrote. The image only copies files, so one build serves both architectures.
 
 A Python service's image contains your code and the ankka SDK, and nothing else. It needs no JVM and no
 runtime: those are the sidecar's, and the platform injects the sidecar at deploy time at the version the
-platform runs. For a project that depends on the SDK from PyPI (`ankka==0.5.0` in its `pyproject.toml`),
+platform runs. For a project that depends on the SDK from PyPI (`ankka==0.16.0` in its `pyproject.toml`),
 the image is `python:3.12-slim`, `pip install .` of the project, and a `CMD` that starts its process.
 The sample in the ankka repository installs the SDK from its own source tree instead, so its Dockerfile
 is the same recipe with the SDK's sources copied in:
@@ -109,7 +109,7 @@ The descriptor then says the image is a process, and which protocol version its 
 
 A TypeScript service's image is the same idea on Node: your code and the SDK, no JVM, no runtime. Node runs
 the service from source, so there is no build step in the image either. For a project that depends on the
-SDK from npm (`ankka@0.6.0` in its `package.json`):
+SDK from npm (`ankka@0.16.0` in its `package.json`):
 
 ```text
 FROM node:24-slim

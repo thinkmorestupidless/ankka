@@ -41,10 +41,11 @@ object MachineSettings:
   def from(config: Config): MachineSettings =
     def setting(path: String) =
       if config.hasPath(path) then config.getString(path).trim else ""
-    val base = setting("ankka.controlplane.deploy.base-domain")
+    // Where reference.conf keeps them, beside everything else deploying reads (#198).
+    val base = setting("ankka.controlplane.kubernetes.base-domain")
     val port =
-      if config.hasPath("ankka.controlplane.deploy.https-port") then
-        config.getInt("ankka.controlplane.deploy.https-port")
+      if config.hasPath("ankka.controlplane.kubernetes.https-port") then
+        config.getInt("ankka.controlplane.kubernetes.https-port")
       else 443
     val stated = setting("ankka.controlplane.machines.issuer")
     val issuer =

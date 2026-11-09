@@ -172,107 +172,114 @@
   },
   {
     "slot": "build/calling-services.md:51",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#call-another-service"
   },
   {
     "slot": "build/calling-services.md:254",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#step-calls-service"
   },
   {
     "slot": "build/calling-services.md:274",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#step-calls-service"
   },
   {
     "slot": "build/component-client.md:26",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#addressing"
   },
   {
     "slot": "build/component-client.md:102",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#fan-out",
+    "note": "Kotlin fans out with coroutines (`async` in a `coroutineScope`, `awaitAll`) rather than `invokeAsync` and `ComponentClient.await`."
   },
   {
     "slot": "build/component-client.md:118",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#refusals",
+    "note": "The Java SDK's refusal is a `CommandException` carrying a `Problem` with a status, not a `CommandError` with an `ErrorCode`."
   },
   {
     "slot": "build/component-client.md:159",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#views",
+    "note": "`forView` takes the view's class, not a companion."
   },
   {
     "slot": "build/component-client.md:188",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#pass-metadata"
   },
   {
     "slot": "build/consumers.md:82",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/CartView.kt#notifier"
   },
   {
     "slot": "build/consumers.md:881",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Fleet.kt#mirrored-change"
   },
   {
     "slot": "build/consumers.md:1056",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ConsumerSamplesTest.kt#consumer-test",
+    "note": "The Java kit's result has `payloads`, `recordKeys` and `messages` (with `metadata`); it has no `keys` list of the keys the messages named."
   },
   {
     "slot": "build/consumers.md:1079",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ConsumerSamplesTest.kt#published",
+    "note": "The Java and Kotlin integration kit captures what a consumer published as `published(topic)`; there is no `InMemoryPublisher` to hand in."
   },
   {
     "slot": "build/event-sourced-entities.md:39",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#model"
   },
   {
     "slot": "build/event-sourced-entities.md:142",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#entity"
   },
   {
     "slot": "build/event-sourced-entities.md:442",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#entity",
+    "note": "Kotlin declares wire names as `@Command(\"add-item\")` and `@Query(\"get-cart\")` on the handlers; there is no companion object."
   },
   {
     "slot": "build/event-sourced-entities.md:514",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/ShoppingCart.kt#discard"
   },
   {
     "slot": "build/event-sourced-entities.md:565",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#service"
   },
   {
     "slot": "build/event-sourced-entities.md:612",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#addressing"
   },
   {
     "slot": "build/event-sourced-entities.md:680",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Fleet.kt#replicated-entity",
+    "note": "`@Replicated` on the class is the declaration; the region is the whole entity, since Kotlin has no companion to show apart."
   },
   {
     "slot": "build/event-sourced-entities.md:773",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Fleet.kt#replicated-effects"
   },
   {
     "slot": "build/event-sourced-entities.md:884",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Fleet.kt#replicated-apply"
   },
   {
     "slot": "build/event-sourced-entities.md:972",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/FleetTest.kt#replication-status"
   },
   {
     "slot": "build/event-sourced-entities.md:985",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/FleetTest.kt#follower-kit"
   },
   {
     "slot": "build/event-sourced-entities.md:1044",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ClientSamplesTest.kt#unit-test"
   },
   {
     "slot": "build/graph.md:442",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Graphs.kt#graph-from-state"
   },
   {
     "slot": "build/graph.md:692",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ConsumerSamplesTest.kt#graph-test"
   },
   {
     "slot": "build/grpc-endpoints.md:62",
@@ -320,75 +327,80 @@
   },
   {
     "slot": "build/http-endpoints.md:26",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/CartEndpoint.kt#endpoint"
   },
   {
     "slot": "build/http-endpoints.md:251",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#socket"
   },
   {
     "slot": "build/http-endpoints.md:438",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#pages"
   },
   {
     "slot": "build/http-endpoints.md:481",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#query"
   },
   {
     "slot": "build/http-endpoints.md:494",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#header"
   },
   {
     "slot": "build/http-endpoints.md:522",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#sse-query"
   },
   {
     "slot": "build/http-endpoints.md:546",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#gated"
   },
   {
     "slot": "build/http-endpoints.md:574",
-    "unresolved": "not yet worked"
+    "exclude": "A Scala build setting: the Kotlin SDK's `ankka-java` dependency already carries the token verifier, so `Acl.oidc()` needs nothing added to the build.",
+    "limitations_missing": false
   },
   {
     "slot": "build/http-endpoints.md:583",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#oidc-endpoint",
+    "note": "`Acl.oidc()` reads the issuers from the environment and refuses to start without them; the Kotlin test proves that refusal names `ANKKA_AUTH_ISSUERS`, since the Java kit has no test issuer to sign a token with."
   },
   {
     "slot": "build/http-endpoints.md:618",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#allow-callers"
   },
   {
     "slot": "build/http-endpoints.md:633",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#who-is-calling"
   },
   {
     "slot": "build/http-endpoints.md:654",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#granted-callers"
   },
   {
     "slot": "build/http-endpoints.md:690",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/ServiceCallsTest.kt#test-as-caller"
   },
   {
     "slot": "build/http-endpoints.md:707",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#route-acl",
+    "note": "A Java or Kotlin route has no ACL of its own: the same outcome, one path with two audiences, is two endpoint classes, each with its ACL. The page's paragraph on `withAcl` should say so for Java and Kotlin."
   },
   {
     "slot": "build/http-endpoints.md:750",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/main/kotlin/shoppingcart/kotlin/Main.kt#service"
   },
   {
     "slot": "build/http-endpoints.md:825",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Queries.kt#problem"
   },
   {
     "slot": "build/http-endpoints.md:894",
-    "unresolved": "not yet worked"
+    "exclude": "Java and Kotlin endpoints hold one ACL each: a route has none of its own, so routes under one path that admit different callers are separate endpoint classes.",
+    "limitations_missing": true,
+    "note": "The block shows Python's `acl=` on a route decorator; the Kotlin counterpart of the whole section is Queries.kt#route-acl (slot 707)."
   },
   {
     "slot": "build/http-endpoints.md:909",
-    "unresolved": "not yet worked"
+    "include": "sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Callers.kt#allow-callers"
   },
   {
     "slot": "build/judgments.md:31",

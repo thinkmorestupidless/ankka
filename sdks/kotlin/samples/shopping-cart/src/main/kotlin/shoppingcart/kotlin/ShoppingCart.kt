@@ -86,10 +86,12 @@ class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
         }
     }
 
+    // docs:start discard
     @Command("discard")
     fun discard(): Effect<Done> = effects {
         if (currentState().checkedOut) error(checkedOut) else persist(CartEvent.Discarded).thenDelete().thenDone()
     }
+    // docs:end discard
 
     @Query("get-cart")
     fun getCart(): ReadOnlyEffect<Cart> = effects { reply(currentState()) }

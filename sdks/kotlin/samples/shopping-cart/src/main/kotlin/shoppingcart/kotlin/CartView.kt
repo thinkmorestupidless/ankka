@@ -49,6 +49,7 @@ class CartRows : View<CartEvent, CartRows.CartRow>() {
 }
 // docs:end view
 
+// docs:start notifier
 /**
  * Turns the cart's checkout into a notice on the `cart-checkouts` topic. The cart's own events stay
  * an implementation detail; the notice is what the outside world is told.
@@ -73,6 +74,7 @@ class CheckoutNotifier : Consumer<CartEvent, CheckoutNotifier.CheckoutNotice>() 
         const val TOPIC = "cart-checkouts"
     }
 }
+// docs:end notifier
 
 /**
  * The checkouts read back from the topic they are published to, and how many notices of each were

@@ -6,6 +6,12 @@ object Dependencies {
   object V {
     val scala = "3.9.0"
 
+    /**
+     * The Pekko line is the family's: bump here first, then mirror downstream. Pekko core 2.0.0 is
+     * released, but the build cannot take it until HTTP, Persistence R2DBC, Projection, Connectors
+     * Kafka, Management and gRPC each have a final 2.0 too; the 1.x satellites ask for Pekko 1.x
+     * and sbt refuses the major eviction. `.scala-steward.conf` pins the group to 1.x until then.
+     */
     val pekko          = "1.7.1"
     val pekkoHttp      = "1.4.2"
     val pekkoR2dbc     = "1.2.0"

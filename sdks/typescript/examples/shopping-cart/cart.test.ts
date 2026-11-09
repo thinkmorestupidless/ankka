@@ -4,7 +4,7 @@ import { test, describe } from "node:test"
 import { createServer as createHttpServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import assert from "node:assert/strict"
-import { Ankka, done, ScriptedServices, type ComponentClient, type Services } from "ankka"
+import { Ankka, CommandError, ErrorCode, done, ScriptedServices, type ComponentClient, type Services } from "ankka"
 import { AnkkaTestKit, ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, KeyValueTestKit } from "ankka/testkit"
 import { CallingEndpoint } from "./calling.ts"
 import { CartGraph } from "./cartGraph.ts"
@@ -12,6 +12,7 @@ import { CartContentsGraph } from "./cartContentsGraph.ts"
 import type { ShoppingCart } from "./domain.ts"
 import { ShoppingCartEntity } from "./entity.ts"
 import { CheckoutLog } from "./checkoutLog.ts"
+import { ShoppingCartEndpoint } from "./endpoint.ts"
 import { service } from "./main.ts"
 import { CheckoutFanout } from "./conformance.ts"
 
@@ -301,6 +302,28 @@ describe("the cart through the real sidecar", { skip: slow }, () => {
     } finally {
       await kit.stop()
     }
+  })
+})
+
+describe("the component client from a route, against a client double", () => {
+  /** Every typed call answers `answer()`, or rejects with what it throws. */
+  const clientOf = (answer: (handler: string) => unknown): ComponentClient => {
+    const client = { withMetadata: () => client, of: () => ({ call: (h: { name: string }) => ({ invoke: async () => answer(h.name) }) }) }
+    return client as unknown as ComponentClient
+  }
+
+  test("several calls at once answer together", async () => {
+    const kit = EndpointTestKit.of(ShoppingCartEndpoint, clientOf(() => 3))
+    assert.deepEqual((await kit.post("/carts/totals", ["c1", "c2"])).json(), [3, 3])
+  })
+
+  test("a refusal is a CommandError carrying the component's code", async () => {
+    const refusing = clientOf((handler) => {
+      if (handler === "add-item") throw new CommandError({ message: "quantity must be greater than zero, was 0", code: ErrorCode.BadRequest })
+      return done
+    })
+    const kit = EndpointTestKit.of(ShoppingCartEndpoint, refusing)
+    assert.equal((await kit.post("/carts/c1/items/try", { productId: "p1", name: "Pen", quantity: 0 })).text(), "refused: quantity must be greater than zero, was 0")
   })
 })
 

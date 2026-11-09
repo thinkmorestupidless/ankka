@@ -1,4 +1,4 @@
-import { Acl, Done, Endpoint, HttpProblem, awaitPartJson, defaultCodecFor, del, get, post, s, socket, sse } from "ankka"
+import { Acl, CommandError, Done, Endpoint, ErrorCode, HttpProblem, awaitPartJson, defaultCodecFor, del, get, post, s, socket, sse } from "ankka"
 import { LineItem, ShoppingCart } from "./domain.ts"
 import { ShoppingCartEntity } from "./entity.ts"
 import { CartRow, CartRows } from "./cartRows.ts"
@@ -41,6 +41,26 @@ export class ShoppingCartEndpoint extends Endpoint {
     // A literal beside a parameter: the router must prefer it over /{cartId}.
     awkward: get("/awkward", s.string, () => "literal"),
 
+    // ── The component client ──
+    // docs:start fan-out
+    /** The totals of several carts, asked for at once: the whole takes as long as the slowest. */
+    totals: post("/totals", s.list(s.string), s.list(s.int), (ep: ShoppingCartEndpoint, _req, cartIds) =>
+      Promise.all(cartIds.map((id) => ep.cart(id).call(ShoppingCartEntity.handlers.totalQuantity).invoke())),
+    ),
+    // docs:end fan-out
+    // docs:start refusal
+    /** Adds an item, answering a refused quantity as text rather than as the 400 it would otherwise be. */
+    tryAdd: post("/{cartId}/items/try", LineItem, s.string, async (ep: ShoppingCartEndpoint, req, item) => {
+      try {
+        await ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)
+        return "added"
+      } catch (e) {
+        if (e instanceof CommandError && e.code === ErrorCode.BadRequest) return `refused: ${e.message}`
+        throw e
+      }
+    }),
+    // docs:end refusal
+
     // ── The view, the workflow and the notifier's log ──
     // docs:start problem
     row: get("/{cartId}/rows", CartRow, async (ep: ShoppingCartEndpoint, req) => {
@@ -49,7 +69,9 @@ export class ShoppingCartEndpoint extends Endpoint {
       return found
     }),
     // docs:end problem
+    // docs:start view-client
     rows: get("/rows", s.list(CartRow), (ep: ShoppingCartEndpoint) => ep.client.views.all(CartRows.componentId, CartRow)),
+    // docs:end view-client
     // docs:start start-workflow
     /** The body is the mode: `ok`, `fail` or `pause`. */
     startCheckout: post("/{cartId}/checkouts", s.string, Done, (ep: ShoppingCartEndpoint, req, mode) =>

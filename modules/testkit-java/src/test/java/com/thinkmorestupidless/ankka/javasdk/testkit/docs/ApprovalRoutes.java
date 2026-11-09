@@ -37,7 +37,9 @@ public class ApprovalRoutes extends HttpEndpoint {
       case AgentOutcome.AwaitingApproval<String> w ->
           new Outcome(
               Optional.empty(),
-              w.requests().stream().map(r -> new Pending(r.id(), r.tool(), r.arguments())).toList());
+              w.requests().stream()
+                  .map(r -> new Pending(r.id(), r.tool(), r.arguments()))
+                  .toList());
     };
   }
 

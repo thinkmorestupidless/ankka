@@ -31,7 +31,10 @@ public final class GrpcChecks {
       try {
         var item = new LineItem("p1", "Widget", 2);
         ClientCalls.blockingUnaryCall(
-            channel, CartApi.ADD_ITEM, CallOptions.DEFAULT, new CartApi.AddItemRequest("g-1", item));
+            channel,
+            CartApi.ADD_ITEM,
+            CallOptions.DEFAULT,
+            new CartApi.AddItemRequest("g-1", item));
         return ClientCalls.blockingUnaryCall(
             channel, CartApi.GET_CART, CallOptions.DEFAULT, new CartApi.GetCartRequest("g-1"));
       } finally {

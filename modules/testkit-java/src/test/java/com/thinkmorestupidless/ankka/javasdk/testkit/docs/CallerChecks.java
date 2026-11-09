@@ -11,7 +11,7 @@ public final class CallerChecks {
   private CallerChecks() {}
 
   // docs:start test-as-caller
-  /** The status of a GET made as {@code caller}: the kit's header names the caller to the service. */
+  /** The status of a GET made as {@code caller}: the kit's header names the caller. */
   public static int statusAs(AnkkaTestKit kit, String path, Caller caller) throws Exception {
     var asCaller = kit.asCaller(caller);
     var request =

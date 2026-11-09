@@ -63,7 +63,8 @@ public class TriageAgent extends Agent {
     public static final YesNoQuestion GIVES_MEDICAL_ADVICE =
         Question.yesNo("gives-medical-advice", "The text gives medical advice");
     public static final ScoreQuestion HOSTILITY =
-        Question.score("hostility", "How hostile the text is", "none", "curt", "hostile", "abusive");
+        Question.score(
+            "hostility", "How hostile the text is", "none", "curt", "hostile", "abusive");
     public static final ChoiceQuestion<String> TOPIC =
         Question.choice(
             "topic",

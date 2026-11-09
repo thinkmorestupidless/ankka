@@ -46,13 +46,15 @@ private[cli] object LatestRelease:
   given JsonValueCodec[LatestRelease] = Codecs.make[LatestRelease]
 
 /**
- * What the command line last read of the latest release, when, and when it last gave the notice. It
- * decides whether to read again and whether to give the notice; it holds nothing about the person.
+ * What the command line last read of the latest release and when, when it last tried to, and when
+ * it last gave the notice. It decides whether to read again and whether to give the notice; it
+ * holds nothing about the person.
  */
 private[cli] final case class RememberedCheck(
-    checkedAt: Instant,
+    checkedAt: Option[Instant] = None,
     latest: Option[LatestRelease] = None,
-    noticeAt: Option[Instant] = None
+    noticeAt: Option[Instant] = None,
+    attemptedAt: Option[Instant] = None
 )
 
 private[cli] object RememberedCheck:
@@ -75,6 +77,15 @@ private[cli] object ReleaseCheck:
 
   /** How long a read, and a notice, last before the next. */
   val Interval: Duration = Duration.ofHours(24)
+
+  /**
+   * How long an attempt that did not succeed (it failed, or the command ended before it did) holds
+   * off the next.
+   */
+  val Retry: Duration = Duration.ofHours(1)
+
+  /** How long a command waits, after its own work, for a read still under way (SC-002's budget). */
+  val Grace: Duration = Duration.ofMillis(100)
 
   /** The notice, in exactly these words. */
   def notice(latest: Release, current: Release): String =
@@ -114,9 +125,15 @@ private[cli] object ReleaseCheck:
   ): Boolean =
     terminal && !silenced(env, current) && !jsonOutput(args) && !args.headOption.contains("mcp")
 
-  /** A read is due when none succeeded, or the last one is a day old. */
+  /**
+   * A read is due when none succeeded in the last day and none was attempted in the last hour: one
+   * successful read a day, and an attempt cut short or refused tried again no sooner than an hour.
+   */
   def shouldRead(remembered: Option[RememberedCheck], now: Instant): Boolean =
-    remembered.forall(check => !check.checkedAt.plus(Interval).isAfter(now))
+    def within(at: Option[Instant], span: Duration) = at.exists(_.plus(span).isAfter(now))
+    remembered.forall(check =>
+      !within(check.checkedAt, Interval) && !within(check.attemptedAt, Retry)
+    )
 
   /** The latest release, when it is newer than the command line's. */
   def newer(latest: Option[LatestRelease], current: Release): Option[Release] =
@@ -161,27 +178,40 @@ private[cli] object ReleaseCheck:
   /** The latest release, or none when it cannot be read in time or does not parse. */
   def read(url: String, timeout: Duration = Timeout): Option[LatestRelease] =
     try
-      val client = HttpClient
-        .newBuilder()
-        .connectTimeout(timeout)
-        .followRedirects(HttpClient.Redirect.NORMAL)
-        .build()
-      val request =
-        HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET().build()
-      val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-      if response.statusCode() != 200 then None
-      else Some(readFromString[LatestRelease](response.body())).filter(_.release.isDefined)
+      // Closed after each read: the MCP server reads again for as long as it runs, and each client
+      // holds a selector thread until closed.
+      scala.util.Using.resource(
+        HttpClient
+          .newBuilder()
+          .connectTimeout(timeout)
+          .followRedirects(HttpClient.Redirect.NORMAL)
+          .build()
+      ) { client =>
+        val request =
+          HttpRequest.newBuilder(URI.create(url)).timeout(timeout).GET().build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        if response.statusCode() != 200 then None
+        else Some(readFromString[LatestRelease](response.body())).filter(_.release.isDefined)
+      }
     catch case NonFatal(_) => None
 
-  /** A read on a daemon thread, which the process never waits for. */
-  final class Pending private[ReleaseCheck] (url: String, timeout: Duration):
+  /**
+   * A read on a daemon thread, which the process never waits for beyond `Grace`. A read that
+   * succeeds is remembered by the thread itself as soon as it ends, so a command that outlives it
+   * keeps it whatever the command does after.
+   */
+  final class Pending private[ReleaseCheck] (url: String, timeout: Duration, keep: Boolean):
     private val result = AtomicReference[Option[Option[LatestRelease]]](None)
 
     private val thread = Thread
       .ofPlatform()
       .daemon(true)
       .name("ankka-release-check")
-      .start(() => result.set(Some(read(url, timeout))))
+      .start { () =>
+        val found = read(url, timeout)
+        if keep then found.foreach(latest => succeeded(latest, Instant.now()))
+        result.set(Some(found))
+      }
 
     /** What the read found, if it has finished: `Some(None)` is a read that failed. */
     def finished: Option[Option[LatestRelease]] = result.get()
@@ -191,7 +221,9 @@ private[cli] object ReleaseCheck:
       thread.join(limit)
       result.get().isDefined
 
-  def start(url: String, timeout: Duration = Timeout): Pending = Pending(url, timeout)
+  /** Starts a read; with `keep`, a successful one is remembered when it ends. */
+  def start(url: String, timeout: Duration = Timeout, keep: Boolean = false): Pending =
+    Pending(url, timeout, keep)
 
   /** `release-check.json`, in the directory of the settings file, so their override moves both. */
   def file: Path =
@@ -227,43 +259,59 @@ private[cli] object ReleaseCheck:
       finally Files.deleteIfExists(temporary): Unit
     catch case NonFatal(_) => ()
 
+  private val writing = Object()
+
+  /**
+   * The remembered check, changed by `change` from what the file holds now: the read thread and the
+   * command each change their own fields, and neither writes over the other's. Two processes at
+   * once may still each write a whole file, the later one winning.
+   */
+  def update(change: Option[RememberedCheck] => RememberedCheck): RememberedCheck =
+    writing.synchronized {
+      val changed = change(remembered())
+      remember(changed)
+      changed
+    }
+
+  /** A successful read, remembered: its time and what it found. */
+  def succeeded(latest: LatestRelease, now: Instant): RememberedCheck =
+    update(previous =>
+      previous
+        .getOrElse(RememberedCheck())
+        .copy(checkedAt = Some(now), latest = Some(latest))
+    )
+
   // ── Around one command ────────────────────────────────────────────────────
 
   /**
    * One built-in command's check: a read started before the command, when one is due, and the
-   * notice given after it from whatever is known by then. The command never waits for the read: one
-   * that ends first leaves it unfinished and unremembered, and the next command reads again. `ankka
+   * notice given after it from whatever is known by then. The attempt is remembered before the read
+   * starts, so a command that ends first holds off the next attempt for an hour rather than letting
+   * every command read; the command waits for a read still under way no longer than `Grace`. `ankka
    * version` alone reads every time and waits for the read, under the same timeout.
    */
   final class Around private[ReleaseCheck] (
       version: Boolean,
       current: Release,
-      remembered: Option[RememberedCheck],
       pending: Option[Pending]
   ):
 
     def end(code: Int, err: java.io.PrintStream, now: Instant = Instant.now()): Unit =
       // A usage error printed help, not a command's output.
       if code != 2 then
-        val read: Option[LatestRelease] =
-          pending.flatMap { p =>
-            if version then p.await(Timeout.plusMillis(250)): Unit
-            p.finished.flatten
-          }
-        val known = read match
-          case Some(latest) =>
-            Some(RememberedCheck(now, Some(latest), remembered.flatMap(_.noticeAt)))
-          case None => remembered
-        val latest = known.flatMap(_.latest)
+        pending.foreach(_.await(if version then Timeout.plusMillis(250) else Grace): Unit)
+        // What this command's read found, else what the file holds: the read thread has remembered
+        // its result there, unless the file cannot be written.
+        val known  = ReleaseCheck.remembered()
+        val latest = pending.flatMap(_.finished.flatten).orElse(known.flatMap(_.latest))
         val give   =
           if version then newer(latest, current).isDefined
           else shouldNotify(latest, current, known.flatMap(_.noticeAt), now)
         newer(latest, current).filter(_ => give).foreach { newest =>
           err.println(notice(newest, current))
           err.flush()
+          update(previous => previous.getOrElse(RememberedCheck()).copy(noticeAt = Some(now))): Unit
         }
-        val updated = if give then known.map(_.copy(noticeAt = Some(now))) else known
-        if updated != remembered then updated.foreach(remember)
 
   /**
    * Starts the check around a built-in command, or none when it does not apply: see `enabled`.
@@ -279,9 +327,13 @@ private[cli] object ReleaseCheck:
     if !enabled(args, env, current, terminal) then None
     else
       Release.parse(current).map { release =>
-        val version    = args.headOption.contains("version")
-        val remembered = ReleaseCheck.remembered()
-        val pending    =
-          Option.when(version || shouldRead(remembered, now))(start(url(env)))
-        Around(version, release, remembered, pending)
+        val version = args.headOption.contains("version")
+        val pending =
+          Option.when(version || shouldRead(ReleaseCheck.remembered(), now)) {
+            update(previous =>
+              previous.getOrElse(RememberedCheck()).copy(attemptedAt = Some(now))
+            ): Unit
+            start(url(env), keep = true)
+          }
+        Around(version, release, pending)
       }

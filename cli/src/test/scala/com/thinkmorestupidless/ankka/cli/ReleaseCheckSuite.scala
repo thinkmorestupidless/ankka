@@ -52,6 +52,9 @@ class ReleaseCheckSuite extends munit.FunSuite:
         exchange.getResponseBody.write(bytes)
         exchange.close()
     )
+    // One thread per exchange: the default runs them one at a time, so a slow read would hide the
+    // next and every count of reads would be too low.
+    server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool())
     server.start()
     sys.props("ankka.latest.url") = s"http://127.0.0.1:${server.getAddress.getPort}/latest.json"
 
@@ -105,7 +108,7 @@ class ReleaseCheckSuite extends munit.FunSuite:
     val now = Instant.now()
     ReleaseCheck.remember(
       RememberedCheck(
-        now.minus(checked),
+        Some(now.minus(checked)),
         Some(LatestRelease(version, "2026-11-06")),
         noticed.map(now.minus)
       )
@@ -185,7 +188,9 @@ class ReleaseCheckSuite extends munit.FunSuite:
     assertNoNotice(ran)
     assertEquals(ran.err, "")
     assertUnchanged(ran, Seq("version"))
-    assertEquals(rememberedFile, None)
+    // Only the attempt is remembered, which holds the next one off for an hour.
+    assertEquals(rememberedFile.flatMap(_.latest), None)
+    assertEquals(rememberedFile.flatMap(_.checkedAt), None)
   }
 
   test("a command ends when its own work ends, not when the read of the latest release does") {
@@ -228,6 +233,43 @@ class ReleaseCheckSuite extends munit.FunSuite:
 
   // ── Not a scenario: the cases the scenarios rest on ───────────────────────
 
+  test("a read a fast command did not wait for is not attempted again within the hour") {
+    delay = 2000
+    run(command): Unit
+    run(command): Unit
+    settle()
+    assertEquals(reads.get, 1)
+    assert(rememberedFile.flatMap(_.attemptedAt).isDefined)
+    assertEquals(rememberedFile.flatMap(_.checkedAt), None)
+  }
+
+  test("an attempt an hour old that did not succeed is tried again") {
+    val now = Instant.now()
+    ReleaseCheck.remember(RememberedCheck(attemptedAt = Some(now.minus(Duration.ofMinutes(61)))))
+    run(command): Unit
+    settle()
+    assertEquals(reads.get, 1)
+  }
+
+  test("a read that ends after its command is remembered by its own thread") {
+    delay = 300
+    val ran = run(command)
+    assertNoNotice(ran)
+    Thread.sleep(800)
+    assertEquals(rememberedFile.flatMap(_.latest).map(_.version), Some("0.16.0"))
+    // So the next command knows it without reading.
+    assertEquals(run(command).errLines.lastOption, Some(Notice16))
+    assertEquals(reads.get, 1)
+  }
+
+  test("a read that ends within the grace gives the notice on the command that started it") {
+    run(Seq("version")): Unit // warm the HTTP client's classes, as a native image has them
+    Files.delete(dir.resolve("release-check.json"))
+    reads.set(0)
+    assertEquals(run(command).errLines.lastOption, Some(Notice16))
+    assertEquals(reads.get, 1)
+  }
+
   test("a day-old read is read again, and a newer release it finds is remembered") {
     known("0.15.0", checked = Duration.ofHours(25))
     run(Seq("version")): Unit
@@ -261,7 +303,7 @@ class ReleaseCheckSuite extends munit.FunSuite:
     val ran = run(Seq("version"))
     assertEquals(ran.code, 0)
     assertNoNotice(ran)
-    assertEquals(rememberedFile, None)
+    assertEquals(rememberedFile.flatMap(_.latest), None)
   }
 
   test("edge: a latest release older than the command line gives no notice") {

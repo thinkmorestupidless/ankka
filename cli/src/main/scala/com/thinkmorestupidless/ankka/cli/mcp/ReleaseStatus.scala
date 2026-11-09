@@ -71,11 +71,7 @@ private[cli] final class ReleaseStatus(
       ReleaseCheck.read(url, timeout).foreach(found)
 
   private def found(latest: LatestRelease): Unit =
-    val now     = clock()
-    val updated = state.updateAndGet(previous =>
-      Some(RememberedCheck(now, Some(latest), previous.flatMap(_.noticeAt)))
-    )
-    updated.foreach(ReleaseCheck.remember)
+    state.set(Some(ReleaseCheck.succeeded(latest, clock())))
 
   /**
    * The `release` field of `whoami` and `installation_status`: the command line's release always;

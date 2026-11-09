@@ -4,13 +4,16 @@
 
 use ankka::graph::{ElementKind, Value};
 use ankka::prelude::*;
+use ankka::serde_json::json;
 use ankka::testkit::{
-    EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, StepNext, ViewTestKit,
-    WorkflowTestKit,
+    AgentTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit,
+    KeyValueEntityTestKit, ScriptedModel, StepNext, ViewTestKit, WorkflowTestKit,
 };
+use shopping_cart::assistant::CartAssistant;
 use shopping_cart::cart_contents_graph::CartContentsGraph;
 use shopping_cart::cart_graph::CartGraph;
 use shopping_cart::cart_rows::CartRows;
+use shopping_cart::checkout_log::CheckoutLog;
 use shopping_cart::checkout_workflow::CheckoutWorkflow;
 use shopping_cart::domain::{LineItem, ShoppingCart as Cart, ShoppingCartEvent};
 use shopping_cart::endpoint::CartApi;
@@ -262,6 +265,36 @@ fn the_api_answers_from_the_cart_behind_it() {
     assert_eq!(kit.post("/carts/c1/items", &pen(0)).status, 400);
 }
 // docs:end endpoint-test
+
+// docs:start key-value-test
+#[test]
+fn recording_a_checkout_replaces_the_value_and_acknowledges() {
+    let mut kit = KeyValueEntityTestKit::<CheckoutLog>::new("c1");
+    let result = kit.command("record", 1_700_000_000_000_i64);
+    assert_eq!(result.answer.reply::<Done>(), Ok(Done));
+    assert!(result.written, "recording should write a new value");
+    assert_eq!(result.state.at, 1_700_000_000_000);
+    assert!(result.state.notified);
+    assert_eq!(kit.state().cart_id, "c1");
+}
+// docs:end key-value-test
+
+// docs:start agent-test
+#[test]
+fn the_assistant_plans_and_the_tool_reads_the_cart() {
+    let model = ScriptedModel::new()
+        .expect_tool_call("lookup", json!({"cartId": "c9"}))
+        .expect_text("Your cart is empty.");
+    let mut kit =
+        AgentTestKit::<CartAssistant>::new("s1", model).with_service(shopping_cart::build());
+    let answer = kit.call("ask", "what is in cart c9?".to_string());
+    assert_eq!(answer.plan.tools, vec!["lookup"]);
+    assert_eq!(answer.plan.guardrails, vec!["no-secrets"]);
+    // The tool ran in this process, against the kit's in-memory cart, which is empty.
+    assert_eq!(answer.tool_results, vec!["cart c9 is empty"]);
+    assert_eq!(answer.reply.as_deref(), Some("Your cart is empty."));
+}
+// docs:end agent-test
 
 #[test]
 fn a_literal_route_outranks_a_cart_id() {

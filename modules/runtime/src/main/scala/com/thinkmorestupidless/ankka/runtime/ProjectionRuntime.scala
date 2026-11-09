@@ -162,6 +162,7 @@ final class ProjectionRuntime private (
 
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
+    synchronized { runningOn = Some(system) }
     replication = service.replication
     val client = service.componentClient
 
@@ -464,6 +465,15 @@ final class ProjectionRuntime private (
   private val subscriptions = java.util.concurrent.CopyOnWriteArrayList[Subscribed]()
 
   /**
+   * The actor system this runtime is started on, until it stops (#157). A view's subscription can
+   * complete after `stop`: it waits on the version check and the rebuild, both futures, and a
+   * service restarted meanwhile has already stopped every subscription it had. Kept, that late one
+   * stayed live on a terminated system, and the next message drained into it failed "materializer
+   * has been shutdown". One made for any other system, or after `stop`, is ended at once.
+   */
+  @volatile private var runningOn: Option[ActorSystem[?]] = None
+
+  /**
    * Subscribes one topic source and says so, with everything a person looking for its messages on
    * the broker needs: the topic, the group, where it starts and its version.
    */
@@ -502,8 +512,19 @@ final class ProjectionRuntime private (
         }
     val subscription = TopicSubscription(topic, group, startFrom, parallel)
     val subscribed   = broker.subscribe(subscription, handle)
+    val kept         = synchronized {
+      runningOn.contains(system) && { subscriptions.add(subscribed): Unit; true }
+    }
+    if !kept then
+      subscribed.stop()
+      system.log.info(
+        "topic source not subscribed, the service stopped first: component={} topic={} group={}",
+        componentId,
+        topic,
+        group
+      )
+      return subscribed
     Divergence(system).touch(topic, Some(group), broker)
-    subscriptions.add(subscribed): Unit
     val poll = system.scheduler.scheduleWithFixedDelay(
       ProjectionRuntime.LagInterval,
       ProjectionRuntime.LagInterval
@@ -1395,6 +1416,7 @@ final class ProjectionRuntime private (
     )
 
   override def stop(): Unit =
+    synchronized { runningOn = None }
     subscriptions.forEach(_.stop())
     subscriptions.clear()
     subscriber.foreach(_.stop())

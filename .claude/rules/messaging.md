@@ -240,3 +240,11 @@ view's registry; the evaluator re-runs the watched statement for each written ke
 - **A test topic is not in the broker's metadata the moment it is created.** `KafkaSuite.createTopic`
   waited for leaders with `describeTopics`, which throws `UnknownTopicOrPartitionException` until the
   metadata has the topic; on a loaded machine every case failed there. It now reads that as not led.
+- **A view's topic subscription can arrive after its service stopped** (2026-11-09, #157). A view
+  subscribes only after its version check and any rebuild, both futures, and a restart in between
+  stopped every subscription the runtime held; the late one then stayed live on a terminated system,
+  and the next publication drained into it failed `Trying to materialize stream after materializer
+  has been shutdown`. `ProjectionRuntime` keeps the system it runs on and ends any subscription made
+  for another or after `stop`. Note that a rebuild reports its gap *before* subscribing, so waiting
+  for the gap is not waiting for the subscription. `LateTopicSubscriptionSuite` restarts seven times
+  without waiting and publishes once.

@@ -4,10 +4,12 @@ import com.thinkmorestupidless.ankka.agent.javasdk.Agent;
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentEffect;
 import com.thinkmorestupidless.ankka.agent.javasdk.Guardrail;
 import com.thinkmorestupidless.ankka.agent.javasdk.Memory;
+import com.thinkmorestupidless.ankka.agent.javasdk.StreamEffect;
 import com.thinkmorestupidless.ankka.agent.javasdk.Tool;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Command;
 import com.thinkmorestupidless.ankka.javasdk.annotations.ComponentId;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Describe;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Stream;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -88,6 +90,18 @@ public class WeatherAgent extends Agent {
         .guardrails(new NoKeys())
         .thenReply();
   }
+
+  // docs:start chat
+  /** Streams the reply token by token, tools and all: a stream, not a command. */
+  @Stream("chat")
+  public StreamEffect chat(String question) {
+    return effects()
+        .systemMessage(SYSTEM_MESSAGE)
+        .userMessage(question)
+        .tools(Tools.class)
+        .thenStream();
+  }
+  // docs:end chat
 
   // docs:start short-memory
   /** Reads only the last two messages, to exercise the memory window. */

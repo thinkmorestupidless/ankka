@@ -550,14 +550,29 @@ func localAddress(env map[string]string) string {
 }
 
 var (
-	processStoreMu sync.RWMutex
-	processStore   Storage = NoStorage
+	processStoreMu    sync.RWMutex
+	processStore      Storage = NoStorage
+	processStoreOwner uint64  // which use set the store; zero for none
+	processStoreUses  uint64
 )
 
-func setProcessStorage(s Storage) {
+// useProcessStorage makes s the store a handler without one of its own is given, while a service
+// serves. restore puts back the store before it, unless another service has since set its own, so
+// a test that started a service leaves nothing behind for the tests after it.
+func useProcessStorage(s Storage) (restore func()) {
 	processStoreMu.Lock()
-	processStore = s
+	processStoreUses++
+	owner := processStoreUses
+	before, beforeOwner := processStore, processStoreOwner
+	processStore, processStoreOwner = s, owner
 	processStoreMu.Unlock()
+	return func() {
+		processStoreMu.Lock()
+		if processStoreOwner == owner {
+			processStore, processStoreOwner = before, beforeOwner
+		}
+		processStoreMu.Unlock()
+	}
 }
 
 type storageKeyType struct{}

@@ -199,6 +199,10 @@ func (s *Service) serve(ctx context.Context, lis net.Listener, st startSettings)
 		return err
 	}
 	s.mu.Lock()
+	store := s.storage
+	s.mu.Unlock()
+	defer useProcessStorage(store)()
+	s.mu.Lock()
 	if s.client == nil {
 		s.client = &Client{address: st.sidecar, decls: s.decls}
 	}
@@ -267,7 +271,6 @@ func (s *Service) chooseStore(st startSettings) error {
 	s.mu.Lock()
 	s.storage = store
 	s.mu.Unlock()
-	setProcessStorage(store)
 	s.log.Info("ankka: object storage", "backend", string(backend), "root", where)
 	return nil
 }

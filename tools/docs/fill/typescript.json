@@ -1,0 +1,20 @@
+[
+  {"slot": "build/agents.md:406", "include": "sdks/typescript/examples/shopping-cart/planner.ts#activity"},
+  {"slot": "build/agents.md:437", "include": "sdks/typescript/examples/shopping-cart/weather.ts#structured"},
+  {"slot": "build/agents.md:449", "include": "sdks/typescript/examples/shopping-cart/weather.ts#forecast", "note": "The shape is the type and the codec at once; TypeScript needs no separate serializer or given"},
+  {"slot": "build/agents.md:465", "include": "sdks/typescript/examples/shopping-cart/weather.ts#tools", "note": "A TypeScript tool's parameters are one record shape with no per-field descriptions, so the tool's description says what they are; a tool with no parameters takes an empty record"},
+  {"slot": "build/agents.md:520", "include": "sdks/typescript/examples/shopping-cart/support.ts#requires-approval"},
+  {"slot": "build/agents.md:538", "include": "sdks/typescript/examples/shopping-cart/support.ts#requires-approval-within"},
+  {"slot": "build/agents.md:556", "include": "sdks/typescript/examples/shopping-cart/support.ts#ask-and-decide"},
+  {"slot": "build/agents.md:591", "include": "sdks/typescript/examples/shopping-cart/support.ts#sse-approval"},
+  {"slot": "build/agents.md:610", "include": "sdks/typescript/examples/shopping-cart/support.ts#service-call-tool"},
+  {"slot": "build/agents.md:638", "include": "sdks/typescript/examples/shopping-cart/weather.ts#guarded", "note": "The TypeScript SDK provides no ready-made guardrails (no maxInputLength or forbidding); the region declares the length check itself and names it in the plan"},
+  {"slot": "build/agents.md:652", "include": "sdks/typescript/examples/shopping-cart/weather.ts#no-keys"},
+  {"slot": "build/agents.md:687", "exclude": "A TypeScript agent's memory is the whole session or none: `memory(false)` for a one-shot interaction; there is no window, read-only, write-only or filtered provider, which are the JVM runtime's", "limitations_missing": true},
+  {"slot": "build/agents.md:709", "include": "sdks/typescript/examples/shopping-cart/planner.ts#registration", "note": "There is no AgentRuntime in a TypeScript service: agents are registered as any component is, and the model is the sidecar's, configured through the descriptor's environment"},
+  {"slot": "build/agents.md:742", "exclude": "A process names a configured provider, not a model: the provider classes are the JVM runtime's, and a TypeScript service configures its providers on the sidecar through the descriptor's environment", "limitations_missing": false},
+  {"slot": "build/agents.md:749", "exclude": "A process names a configured provider, not a model: a TypeScript service's providers are configured on the sidecar (ANTHROPIC_API_KEY, OPENAI_API_KEY, ANKKA_MODEL_<NAME>_*), not built in code", "limitations_missing": false},
+  {"slot": "build/agents.md:767", "include": "sdks/typescript/examples/shopping-cart/support.ts#naming-a-provider"},
+  {"slot": "build/agents.md:786", "exclude": "A process names a configured provider, not a model: a provider's defaults are the sidecar's configuration, not a value a TypeScript handler builds", "limitations_missing": false},
+  {"slot": "build/agents.md:822", "exclude": "Compaction is not yet configurable for a Python or TypeScript service's sessions", "limitations_missing": true}
+]

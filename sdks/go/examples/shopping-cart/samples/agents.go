@@ -46,6 +46,8 @@ type ActivityRequest struct {
 
 // ActivityAgent suggests activities, reading the traveller's preferences itself.
 var ActivityAgent = ankka.Agent("activity-agent",
+	// The role every message this agent writes to a session carries.
+	ankka.Role(SpecialistActivity),
 	ankka.Ask("consult", func(ctx context.Context, req ActivityRequest) (ankka.AgentEffect, error) {
 		// The agent reads what it needs through the client; no constructor plumbing needed.
 		prefs, err := ankka.Invoke[Preferences](ctx, "preferences", req.UserID, "get", ankka.Unit{})
@@ -126,8 +128,23 @@ var maxInputLength = ankka.Guardrail("max-input-length",
 
 // WeatherAgent answers weather questions, with and without tools, in text and as a Forecast.
 var WeatherAgent = ankka.Agent("weather-agent",
+	ankka.Role(SpecialistWeather),
 	ankka.Tools(getWeather, currentDate),
 	ankka.Guardrails(maxInputLength, noKeys),
+	// The planner's specialist: a forecast for a destination, through the tool.
+	ankka.Ask("consult", func(_ context.Context, destination string) (ankka.AgentEffect, error) {
+		return ankka.SystemMessage("You are a concise weather specialist. One sentence.").
+			UserMessage("What is the weather like in " + destination + "?").
+			Tools("get_weather").ThenReply(), nil
+	}),
+	// docs:start chat
+	// Streams the reply token by token, tools and all: registered as a stream, not an ask, so a
+	// caller cannot await one value from a handler that produces many.
+	ankka.AskStream("chat", func(_ context.Context, question string) (ankka.AgentEffect, error) {
+		return ankka.SystemMessage(weatherSystemMessage).UserMessage(question).
+			Tools("get_weather").ThenReply(), nil
+	}),
+	// docs:end chat
 	ankka.Ask("ask", func(_ context.Context, question string) (ankka.AgentEffect, error) {
 		return ankka.SystemMessage(weatherSystemMessage).UserMessage(question).
 			Tools("get_weather", "current_date").ThenReply(), nil

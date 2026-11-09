@@ -120,6 +120,7 @@ type TransferState struct {
 }
 
 type transferStep = ankka.StepEffect[TransferState]
+type transferStart = ankka.WorkflowEffect[TransferState, ankka.Done]
 
 // docs:start transfer-companion
 
@@ -148,7 +149,7 @@ var TransferWorkflow = ankka.Workflow[TransferState]("transfer",
 // startTransfer sets the initial state and starts the workflow at its first step. The reply is sent
 // once the new state and the transition are journalled, so a caller that sees it knows the
 // workflow will run.
-func startTransfer(_ context.Context, s TransferState, t Transfer) (ankka.WorkflowEffect[TransferState, ankka.Done], error) {
+func startTransfer(_ context.Context, s TransferState, t Transfer) (transferStart, error) {
 	if t.Amount <= 0 {
 		return ankka.WorkflowEffect[TransferState, ankka.Done]{},
 			ankka.Refuse(ankka.BadRequest, "transfer amount must be greater than zero")

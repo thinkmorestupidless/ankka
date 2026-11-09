@@ -32,7 +32,8 @@ func TestAnAssistantFillsACartThroughTheTools(t *testing.T) {
 		t.Fatalf("get_cart answered %+v, %v", got, err)
 	}
 	// A refused command is the tool's error, which a model reads and can act on.
-	if _, err := kit.Call(ctx, "add_item", map[string]any{"cartId": "c1", "productId": "ink", "quantity": 0}, assistant); err == nil {
+	zero := map[string]any{"cartId": "c1", "productId": "ink", "quantity": 0}
+	if _, err := kit.Call(ctx, "add_item", zero, assistant); err == nil {
 		t.Fatal("a zero quantity was added")
 	}
 }

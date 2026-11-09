@@ -8,6 +8,8 @@ import (
 	"github.com/thinkmorestupidless/ankka-go/testkit"
 )
 
+// docs:start workflow-test
+
 func TestATransferStartsAtItsFirstStep(t *testing.T) {
 	ctx := context.Background()
 	if p := TransferService().Problems(); len(p) > 0 {
@@ -17,8 +19,9 @@ func TestATransferStartsAtItsFirstStep(t *testing.T) {
 	defer kit.Close()
 	transfer := Transfer{From: "a", To: "b", Amount: 10}
 
-	if r := kit.Command(ctx, "start", Transfer{From: "a", To: "b"}); r.Refusal() == nil || r.Refusal().Code != ankka.BadRequest {
-		t.Fatalf("a transfer of nothing answered %v", r.Refusal())
+	nothing := kit.Command(ctx, "start", Transfer{From: "a", To: "b"})
+	if nothing.Refusal() == nil || nothing.Refusal().Code != ankka.BadRequest {
+		t.Fatalf("a transfer of nothing answered %v", nothing.Refusal())
 	}
 	r := kit.Command(ctx, "start", transfer)
 	if r.Refusal() != nil || r.Reply() != (ankka.Done{}) || r.Transition() == nil || r.Transition().Step != "withdraw" {
@@ -36,6 +39,8 @@ func TestATransferStartsAtItsFirstStep(t *testing.T) {
 		t.Fatalf("the withdrawal ran: %+v", progress)
 	}
 }
+
+// docs:end workflow-test
 
 func TestTheWalletAppliesAKeyOnce(t *testing.T) {
 	ctx := context.Background()

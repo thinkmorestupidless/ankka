@@ -39,12 +39,17 @@ func TestTheWeatherAgentAnswersAsAForecast(t *testing.T) {
 	}
 }
 
+// docs:start agent-test
+
 func TestTheWeatherAgentsToolsAnswerTheModel(t *testing.T) {
+	// docs:start scripted-model
+	// The model answers from its script, in order, and fails loudly when it runs out.
 	model := testkit.NewScriptedModel().
 		ExpectToolCall("current_date", map[string]any{}).
 		ExpectToolCall("get_weather", map[string]any{"location": "Lisbon"}).
 		ExpectToolCall("get_weather", map[string]any{"location": "Nowhere", "date": "2026-09-07"}).
 		ExpectText("Lisbon is sunny; Nowhere is unknown.")
+	// docs:end scripted-model
 	k := testkit.Agent(WeatherAgent, "s1", model)
 	defer k.Close()
 	answer, err := k.Ask(context.Background(), "ask", "Lisbon or Nowhere?")
@@ -58,10 +63,13 @@ func TestTheWeatherAgentsToolsAnswerTheModel(t *testing.T) {
 		}
 	}
 	want := []string{"2026-09-06", "Lisbon: 18C, sunny"}
-	if len(results) != 3 || results[0] != want[0] || results[1] != want[1] || !strings.Contains(results[2], "unknown location") {
+	if len(results) != 3 || results[0] != want[0] || results[1] != want[1] ||
+		!strings.Contains(results[2], "unknown location") {
 		t.Fatalf("the model was told %q", results)
 	}
 }
+
+// docs:end agent-test
 
 func TestTheGuardrailsRejectBeforeAndAfterTheModel(t *testing.T) {
 	model := testkit.NewScriptedModel()

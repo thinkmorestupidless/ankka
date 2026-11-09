@@ -11,13 +11,17 @@ import (
 
 // The client-side samples against a real sidecar, whose model is scripted: a turn that waits for a
 // person, decided through the client, and a stream that ends with the approval event.
+// docs:start scripted-sidecar
+
 func TestAnApprovalIsDecidedThroughTheSidecar(t *testing.T) {
+	// The sidecar's model, scripted: turns consumed in order, across every session.
 	script := `[{"tool":"issue_refund","arguments":{"order":"o-7","amount":12}},` +
 		`{"text":"Refunded 12 on o-7."},` +
 		`{"tool":"issue_refund","arguments":{"order":"o-7","amount":12}}]`
 	kit := testkit.StartT(t, ankka.NewService(ApprovalAgent, SupportEndpoint),
 		testkit.Env(map[string]string{"ANKKA_MODEL_SCRIPT": script}))
 	ctx := t.Context()
+	// docs:end scripted-sidecar
 
 	answer, err := askAndDecide(kit.Context(ctx))
 	if err != nil || answer != "Refunded 12 on o-7." {

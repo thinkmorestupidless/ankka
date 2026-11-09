@@ -21,7 +21,8 @@ func TestRecordingACheckoutReplacesTheValue(t *testing.T) {
 	if s := kit.State(); s.At != 1_700_000_000_000 || !s.Notified || s.CartID != "c1" {
 		t.Fatalf("the record is %+v", s)
 	}
-	if q := kit.Query(ctx, "get", ankka.Unit{}); q.Reply() != (CheckoutRecord{CartID: "c1", At: 1_700_000_000_000, Notified: true}) {
+	want := CheckoutRecord{CartID: "c1", At: 1_700_000_000_000, Notified: true}
+	if q := kit.Query(ctx, "get", ankka.Unit{}); q.Reply() != want {
 		t.Fatalf("get answered %+v", q.Reply())
 	}
 }

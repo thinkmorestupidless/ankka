@@ -27,8 +27,11 @@ var Entity = ankka.EventSourced[Cart, Event](ComponentID, Events, Empty, Apply,
 	ankka.Query("total-quantity", func(_ context.Context, c Cart, _ ankka.Unit) (ankka.ReadOnlyEffect[int], error) {
 		return ankka.Reply(TotalQuantity(c)), nil
 	}),
+	// docs:start codecs
+	// A JSON codec derived from the type, under the manifest the journal records it by.
 	ankka.StateCodec(ankka.CodecFor[Cart](ankka.Manifest("shopping-cart"))),
 	ankka.EventCodec(ankka.CodecFor[Event](ankka.Manifest("shopping-cart-event"))),
+	// docs:end codecs
 	ankka.SnapshotEvery(3),
 )
 
@@ -38,6 +41,10 @@ var checkedOut = ankka.Refuse(ankka.Conflict, "cart is already checked out")
 
 func done(Cart) ankka.Done { return ankka.Done{} }
 
+// docs:start add-item
+
+// addItem describes what should happen: a refusal is a returned error and nothing is persisted; an
+// accepted item is an event the runtime persists before it replies.
 func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], error) {
 	if c.CheckedOut {
 		return effect[ankka.Done]{}, checkedOut
@@ -47,6 +54,8 @@ func addItem(_ context.Context, c Cart, item LineItem) (effect[ankka.Done], erro
 	}
 	return ankka.Persist[Cart, Event, ankka.Done](ItemAdded{Item: item}).ThenReply(done), nil
 }
+
+// docs:end add-item
 
 func removeItem(_ context.Context, c Cart, productID string) (effect[ankka.Done], error) {
 	if c.CheckedOut {

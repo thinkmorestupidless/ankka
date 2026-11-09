@@ -51,7 +51,13 @@ version X)". The pages that name a release take it from the release that builds 
   reads now, under the same short timeout, remembers what it read, and gives the notice when a newer
   release exists, whenever the notice was last given.
 - Q: Do the proposed terms stand? → A: Yes: latest release, development build and notice, with
-  update, upgrade notice and snapshot refused.
+  upgrade notice, newest version and dev version refused (update and snapshot already mean other things in the features).
+- Q (at planning): How does a page that names a release get the right one? → A: The page keeps a
+  real release in its text, so it reads correctly with no renderer. Building the documentation, for
+  the site and for the pages the command line carries, rewrites every occurrence the documentation
+  recognises as naming a release of ankka to the release being built; `docs sync` rewrites them to
+  the newest release tag; the check refuses an ankka release named anywhere else. No step is added
+  to the release.
 
 ## User Scenarios & Testing *(mandatory)*
 

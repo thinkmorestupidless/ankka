@@ -45,4 +45,6 @@ tools are where the model reads.
 
 ## Refresh
 
-A read at start, then every 24 h on a daemon thread; each successful read replaces `latest`.
+A read at start when one is due (no remembered read, or one a day old), which `initialize` waits
+for up to 2 s; then every 24 h on a daemon thread. Each successful read replaces `latest` and is
+remembered as the command line's is.

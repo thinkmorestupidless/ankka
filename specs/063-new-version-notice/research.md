@@ -61,9 +61,10 @@ that has none, for a difference the clarification does not need.
 ## R4. The MCP server
 
 **Decision**: `ankka mcp` builds a `ReleaseStatus` (the CLI's release, the latest when known) and
-hands it to the server and the tools. At start it takes the remembered result and starts a read; a
-scheduled daemon thread reads again every 24 h. The instructions are fixed at `initialize`, so they
-carry the notice when a newer release is known by then. `whoami` and `installation_status` answer
+hands it to the server and the tools. At start it takes the remembered result and, when a read is
+due, starts one; `initialize` waits for that read, up to its 2 s timeout, when it is in flight
+(clarified at analyze), so the instructions, fixed at `initialize`, carry the notice from the first
+connection. A scheduled daemon thread reads again every 24 h. `whoami` and `installation_status` answer
 `{"…": their current fields, "release": {...}}`, adding one field; `search_docs` and `read_doc` put a
 one-line note before their text when a newer release is known. Shapes in `contracts/mcp-tools.md`.
 The rules of R2 apply except JSON output and the terminal; CI and `ANKKA_NO_UPDATE_CHECK=1` still
@@ -128,3 +129,7 @@ Shape in `data-model.md`.
 - `DocsBundleSuite` (cli): the bundled pages name only the CLI's release.
 - The publishing scenarios (a published release, an unpublished one) are the release workflow's:
   the `docs` job's `needs: publish` is the proof of the second; a test of the workflow file asserts it.
+
+## Design finished
+
+2026-11-09: analyze reported nothing above LOW (left at LOW: T012's timing assertion may be noisy on a loaded runner; the check cannot see a hand-written version no tag yet has).

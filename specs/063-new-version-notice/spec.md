@@ -58,6 +58,10 @@ version X)". The pages that name a release take it from the release that builds 
   recognises as naming a release of ankka to the release being built; `docs sync` rewrites them to
   the newest release tag; the check refuses an ankka release named anywhere else. No step is added
   to the release.
+- Q (at analyze): On a fresh machine, does `ankka mcp` wait for its first read before answering the
+  model's `initialize`? → A: Yes, up to the read's 2 s timeout, and only when nothing is remembered
+  or the remembered read is a day old; the instructions then carry the notice from the first
+  connection (SC-004).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -161,6 +165,7 @@ hand-written release to a page and run the check.
 - The remembered result cannot be written (a read-only home): the command still succeeds; the check
   may run again next time.
 - Two commands run at once: each may read; neither fails, and the remembered result is whole.
+- A plugin's command: the plugin is its own program and may own the terminal; it gives no notice.
 - A person on the newest release whose installation is older than the command line: nothing is said
   about the installation (the command line works against older installations within its
   compatibility rule).
@@ -200,6 +205,8 @@ hand-written release to a page and run the check.
 - **FR-008**: The command line MUST neither read the latest release nor give the notice when output
   is JSON, when its error output is not a terminal, when the environment says it runs under CI, when
   `ANKKA_NO_UPDATE_CHECK=1`, or when it is a development build (a version that is not a release).
+  A plugin's command and `ankka mcp` give no notice on the error output: a plugin may own the
+  terminal, and the MCP server has its own (FR-009).
 
 **The MCP server**
 
@@ -237,7 +244,8 @@ hand-written release to a page and run the check.
 ### Measurable Outcomes
 
 - **SC-001**: A person on a release older than the latest sees the notice within a day of the newer
-  release being published, the first time they run a command after that.
+  release being published: on the first command they run once a read has seen it, which is the
+  command that read it unless that command ended first, and then the next one.
 - **SC-002**: A command with the latest release unreachable takes no more than 100 ms longer than the
   same command with the check turned off.
 - **SC-003**: No command's output or exit code differs between a run with the check on and a run with

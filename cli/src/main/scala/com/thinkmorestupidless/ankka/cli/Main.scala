@@ -1843,13 +1843,19 @@ object Main:
         }
       }
       val serve = (urlOpt, tokenOpt, projectOpt).mapN { (url, token, project) => () =>
-        val tools  = mcp.AnkkaTools(() => Settings.resolve(url, token, project))
+        val version = com.thinkmorestupidless.ankka.core.BuildInfo.version
+        val release = mcp.ReleaseStatus.forServer(version, sys.env)
+        val tools   = mcp.AnkkaTools(
+          () => Settings.resolve(url, token, project),
+          release = release
+        )
         val server = mcp.McpServer(
           "ankka",
-          com.thinkmorestupidless.ankka.core.BuildInfo.version,
+          version,
           mcp.AnkkaTools.Instructions,
           tools.all,
-          () => tools.resources()
+          () => tools.resources(),
+          Some(release)
         )
         server.serve(
           java.io.BufferedReader(Console.in),

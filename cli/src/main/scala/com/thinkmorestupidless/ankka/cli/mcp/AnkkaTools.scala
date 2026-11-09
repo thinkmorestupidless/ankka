@@ -7,7 +7,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import com.thinkmorestupidless.ankka.cli.console.{InvokeRequest, LocalSource, Source}
-import com.thinkmorestupidless.ankka.cli.{ControlPlaneClient, Settings}
+import com.thinkmorestupidless.ankka.cli.{ControlPlaneClient, Release, Settings}
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
@@ -27,13 +27,28 @@ import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
  */
 private[cli] final class AnkkaTools(
     settings: () => Settings,
-    local: () => Source = () => LocalSource()
+    local: () => Source = () => LocalSource(),
+    release: ReleaseStatus = ReleaseStatus.off(com.thinkmorestupidless.ankka.core.BuildInfo.version)
 ):
 
   private def client = ControlPlaneClient(settings())
 
   private def json[A](value: A)(using JsonValueCodec[A]): String =
     writeToString(value, WriterConfig.withIndentionStep(2))
+
+  /**
+   * A control plane answer with the `release` field added: the command line's release and what is
+   * known of the latest, so a model that asks who or where it is learns that a newer one exists.
+   */
+  private def withRelease(text: String, more: Vector[(String, Json)] = Vector.empty): String =
+    Json.parse(text) match
+      case Right(Json.Obj(fields)) =>
+        Json.Obj(fields :+ ("release" -> Json.Obj(release.json ++ more))).pretty
+      case _ => text
+
+  /** A documentation answer, preceded by a note when a newer release than these pages' exists. */
+  private def documentation(text: String): ToolResult =
+    ToolResult(release.docsNote.fold(text)(note => s"$note\n\n$text"))
 
   private def project(arguments: Json): String =
     arguments
@@ -127,11 +142,11 @@ private[cli] final class AnkkaTools(
     Tool(
       "whoami",
       "Who am I",
-      "Who the control plane thinks the caller is: subject, name, email, organizations and roles. Use it to check the login works.",
+      "Who the control plane thinks the caller is: subject, name, email, organizations and roles; and, under `release`, this command line's ankka release and whether a newer one is available. Use it to check the login works.",
       schema(Nil),
       readOnly = true,
       idempotent = true
-    )(_ => ToolResult(json(client.whoami()))),
+    )(_ => ToolResult(withRelease(json(client.whoami())))),
     Tool(
       "list_organizations",
       "List organizations",
@@ -162,11 +177,25 @@ private[cli] final class AnkkaTools(
     Tool(
       "installation_status",
       "Installation backups",
-      "Where the installation's backups go, the least any project keeps them for, whether a copy outside the cluster is required, whether the backups share the cluster's failure domain, and how they are encrypted; and its model server, with each model it serves and its state.",
+      "Where the installation's backups go, the least any project keeps them for, whether a copy outside the cluster is required, whether the backups share the cluster's failure domain, and how they are encrypted; and its model server, with each model it serves and its state. Under `release`: this command line's ankka release, the installation's, and whether a newer one is available.",
       schema(Nil),
       readOnly = true,
       idempotent = true
-    )(_ => ToolResult(json(client.installation()))),
+    ) { _ =>
+      val installation = client.installation()
+      val newer        =
+        for
+          theirs <- Release.parse(installation.platformVersion)
+          mine   <- Release.parse(release.cli)
+          if theirs > mine
+        yield "installationNewer" -> Json.bool(true)
+      ToolResult(
+        withRelease(
+          json(installation),
+          Vector("installation" -> Json.str(installation.platformVersion)) ++ newer
+        )
+      )
+    },
     Tool(
       "list_services",
       "List services",
@@ -642,7 +671,7 @@ private[cli] final class AnkkaTools(
     ) { args =>
       val pages = Docs.search(required(args, "query"), 8)
       if pages.isEmpty then ToolResult("no page matches; `read_doc` with `index.md` shows the map")
-      else ToolResult(pages.map(p => s"${p.path} — ${p.title}: ${p.description}").mkString("\n"))
+      else documentation(pages.map(p => s"${p.path} — ${p.title}: ${p.description}").mkString("\n"))
     },
     Tool(
       "read_doc",
@@ -657,7 +686,7 @@ private[cli] final class AnkkaTools(
     ) { args =>
       val path = required(args, "path").stripPrefix("/").stripPrefix("ankka://docs/")
       Docs.read(path) match
-        case Some(text) => ToolResult(text)
+        case Some(text) => documentation(text)
         case None       => ToolResult(s"no page '$path'; `search_docs` finds pages", isError = true)
     }
   )

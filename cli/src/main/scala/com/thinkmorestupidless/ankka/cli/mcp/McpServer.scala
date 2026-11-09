@@ -71,7 +71,8 @@ private[cli] final class McpServer(
     version: String,
     instructions: String,
     tools: Vector[Tool],
-    resources: () => Vector[Resource]
+    resources: () => Vector[Resource],
+    release: Option[ReleaseStatus] = None
 ):
 
   private val byName = tools.map(t => t.name -> t).toMap
@@ -144,6 +145,12 @@ private[cli] final class McpServer(
   private def dispatch(method: String, params: Json): Either[McpServer.Failure, Json] =
     method match
       case "initialize" =>
+        // The instructions are fixed here, for the whole conversation: a first read of the latest
+        // release still under way is waited for, up to its timeout, so they can say what it found.
+        release.foreach(_.awaitStart())
+        val said = release
+          .flatMap(_.instructions)
+          .fold(instructions)(paragraph => s"$instructions\n\n$paragraph")
         val requested = params.string("protocolVersion")
         val agreed    =
           requested
@@ -157,7 +164,7 @@ private[cli] final class McpServer(
               "resources" -> Json.obj("listChanged" -> Json.bool(false))
             ),
             "serverInfo"   -> Json.obj("name" -> Json.str(name), "version" -> Json.str(version)),
-            "instructions" -> Json.str(instructions)
+            "instructions" -> Json.str(said)
           )
         )
       case "ping"       => Right(Json.obj())

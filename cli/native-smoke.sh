@@ -146,3 +146,33 @@ said="$(PATH="$work/plugins:$PATH" "$bin" smoke hello)" || code=$?
 PATH="$work/plugins:$PATH" "$bin" plugin list | grep -Eq '^smoke .*ankka-smoke +runs$' \
   || fail "ankka plugin list does not show ankka-smoke as running"
 echo "plugin     runs with its arguments and exit code, and is listed"
+
+# The release check reads latest.json over the JDK's HTTP client on a thread of its own and writes
+# what it read beside the settings, which the native image could get wrong where the JVM does not. An
+# address that refuses changes nothing; on a release build, with the check on, a newer release served
+# on loopback gives the notice. A build from a checkout is a development build and never reads.
+refused="$(free_port)"
+said="$(env -u CI ANKKA_LATEST_URL="http://127.0.0.1:$refused/latest.json" "$bin" -Dankka.terminal=true version 2>"$work/refused.err")" \
+  || fail "ankka version failed with the latest release unreachable"
+[ "$said" = "$version" ] || fail "ankka version printed '$said' with the latest release unreachable"
+[ ! -s "$work/refused.err" ] || fail "ankka version wrote '$(cat "$work/refused.err")' with the latest release unreachable"
+if [ -n "$expected" ]; then
+  mkdir -p "$work/latest"
+  printf '{"version":"99.0.0","released":"2026-11-09"}' > "$work/latest/latest.json"
+  latest_port="$(free_port)"
+  python3 -m http.server "$latest_port" --bind 127.0.0.1 --directory "$work/latest" > /dev/null 2>&1 &
+  listener=$!
+  for _ in $(seq 1 50); do
+    curl -fs "http://127.0.0.1:$latest_port/latest.json" > /dev/null && break
+    sleep 0.1
+  done
+  env -u CI ANKKA_LATEST_URL="http://127.0.0.1:$latest_port/latest.json" "$bin" -Dankka.terminal=true version \
+    2>"$work/notice.err" > /dev/null
+  grep -qx "ankka version 99.0.0 is available (you're currently using version $expected)" "$work/notice.err" \
+    || fail "ankka version gave no notice of a newer release: '$(cat "$work/notice.err")'"
+  [ -s "$(dirname "$ANKKA_CONFIG")/release-check.json" ] || fail "the release check was not remembered"
+  kill "$listener" 2>/dev/null || true
+  echo "release    reads the latest release, gives the notice and remembers it"
+else
+  echo "release    an unreachable latest release changes nothing"
+fi

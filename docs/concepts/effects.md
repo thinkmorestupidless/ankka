@@ -2,7 +2,7 @@
 title: Effects are data
 description: Why every ankka handler returns a description of what should happen instead of doing it, what each component's effects look like, and why a refusal is a returned value rather than an exception.
 kind: concept
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 related: [concepts/components.md, build/testing.md, reference/error-codes.md, concepts/consistency.md]
 ---
 

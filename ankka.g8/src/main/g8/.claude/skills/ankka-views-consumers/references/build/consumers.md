@@ -178,6 +178,68 @@ object CheckoutFanout
   override val produceTo: Option[String] = Some("conformance-fanout")
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-fanout")
+public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(Publication.to("conformance-fanout"));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
+      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publishMessages(
+                  List.of(
+                      Outgoing.of(new Fanned(1)),
+                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
+                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-fanout")
+class CheckoutFanout : Consumer<CartEvent, Fanned>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
+        when (event) {
+            is CartEvent.ItemAdded -> publishAll(emptyList())
+            is CartEvent.ItemRemoved -> publish(Fanned(0))
+            CartEvent.CheckedOut ->
+                publishMessages(
+                    listOf(
+                        Outgoing.of(Fanned(1)),
+                        Outgoing.of(Fanned(2)).withKey("second:\${messageContext().subject()}"),
+                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
+                    )
+                )
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -292,68 +354,6 @@ impl Consumer for CheckoutFanout {
 }
 ```
 
-**Java**
-
-```java
-@ComponentId("checkout-fanout")
-public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected Optional<Publication> publishes() {
-    return Optional.of(Publication.to("conformance-fanout"));
-  }
-
-  @Override
-  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
-    return switch (event) {
-      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
-      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
-      case CartEvent.CheckedOut ignored ->
-          effects()
-              .publishMessages(
-                  List.of(
-                      Outgoing.of(new Fanned(1)),
-                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
-                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
-      case CartEvent.Discarded ignored -> effects().ignore();
-    };
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-fanout")
-class CheckoutFanout : Consumer<CartEvent, Fanned>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
-
-    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
-        when (event) {
-            is CartEvent.ItemAdded -> publishAll(emptyList())
-            is CartEvent.ItemRemoved -> publish(Fanned(0))
-            CartEvent.CheckedOut ->
-                publishMessages(
-                    listOf(
-                        Outgoing.of(Fanned(1)),
-                        Outgoing.of(Fanned(2)).withKey("second:\${messageContext().subject()}"),
-                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
-                    )
-                )
-            CartEvent.Discarded -> ignore()
-        }
-    }
-}
-```
-
 **Go**
 
 ```go
@@ -438,6 +438,45 @@ object CheckoutRecorder
   def create(ctx: ConsumerContext) = new CheckoutRecorder(ctx.componentClient)
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-recorder")
+public class CheckoutRecorder extends Consumer<CartEvent, Void> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(CartEvent event) {
+    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
+    componentClient()
+        .forEventSourcedEntity(messageContext().subject())
+        .call(ConformanceEntity::record)
+        .invoke("checkout");
+    return effects().done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-recorder")
+class CheckoutRecorder : Consumer<CartEvent, Void>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
+        if (event != CartEvent.CheckedOut) return effects { ignore() }
+        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
+        return effects { done() }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -512,45 +551,6 @@ impl Consumer for CheckoutNotifier {
             ctx.client().invoke(CheckoutLog, cart_id, "record", at);
         recorded.expect("the checkout log answers");
         consumer::done()
-    }
-}
-```
-
-**Java**
-
-```java
-@ComponentId("checkout-recorder")
-public class CheckoutRecorder extends Consumer<CartEvent, Void> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected ConsumerEffect<Void> onChange(CartEvent event) {
-    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
-    componentClient()
-        .forEventSourcedEntity(messageContext().subject())
-        .call(ConformanceEntity::record)
-        .invoke("checkout");
-    return effects().done();
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-recorder")
-class CheckoutRecorder : Consumer<CartEvent, Void>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
-        if (event != CartEvent.CheckedOut) return effects { ignore() }
-        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
-        return effects { done() }
     }
 }
 ```
@@ -650,6 +650,52 @@ object CheckoutEnds
   def create(ctx: ConsumerContext) = new CheckoutEnds(ctx.componentClient)
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-ends")
+public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
+    var standing = messageContext().standing();
+    // Running or paused: not an end, and nothing to do.
+    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
+    var lifecycle = standing.get();
+    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
+    componentClient()
+        .forKeyValueEntity("end-" + messageContext().subject())
+        .call(Profile::set)
+        .invoke(end.orElse(lifecycle.status()));
+    return effects().done();
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-ends")
+class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
+        val lifecycle = messageContext().standingOrNull
+        // Running or paused: not an end, and nothing to do.
+        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
+        val end = lifecycle.failure.orNull()?.let { why -> "\${lifecycle.status}: \$why" } ?: lifecycle.status
+        componentClient().forKeyValueEntity("end-\${messageContext().subject()}").call(Profile::set).invoke(end)
+        return effects { done() }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -718,52 +764,6 @@ impl Consumer for CheckoutEnds {
         let recorded: Result<String, CommandError> = ctx.client().invoke(Profile, &id, "set", end);
         recorded.expect("the profile records the end");
         consumer::done()
-    }
-}
-```
-
-**Java**
-
-```java
-@ComponentId("checkout-ends")
-public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
-
-  @Override
-  protected ChangeSource<Checkout.CheckoutState> source() {
-    return ChangeSource.ofWorkflow(Checkout.class);
-  }
-
-  @Override
-  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
-    var standing = messageContext().standing();
-    // Running or paused: not an end, and nothing to do.
-    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
-    var lifecycle = standing.get();
-    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
-    componentClient()
-        .forKeyValueEntity("end-" + messageContext().subject())
-        .call(Profile::set)
-        .invoke(end.orElse(lifecycle.status()));
-    return effects().done();
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-ends")
-class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
-
-    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
-
-    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
-        val lifecycle = messageContext().standingOrNull
-        // Running or paused: not an end, and nothing to do.
-        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
-        val end = lifecycle.failure.orNull()?.let { why -> "\${lifecycle.status}: \$why" } ?: lifecycle.status
-        componentClient().forKeyValueEntity("end-\${messageContext().subject()}").call(Profile::set).invoke(end)
-        return effects { done() }
     }
 }
 ```
@@ -862,37 +862,6 @@ val service = Ankka.service
   .start()
 ```
 
-**Python**
-
-```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CheckoutLog)
-    .register(CheckoutNotifier)
-)
-```
-
-**TypeScript**
-
-```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CheckoutLog)
-  .register(CheckoutNotifier)
-```
-
-**Rust**
-
-```rust
-pub fn build() -> Service {
-    Service::new("cart")
-        .register(ShoppingCart)
-        .register(CheckoutLog)
-        .register(CheckoutNotifier)
-}
-```
-
 **Java**
 
 ```java
@@ -926,6 +895,37 @@ fun service(): ServiceBuilder =
 
 fun main() {
     service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
+**Python**
+
+```python
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CheckoutLog)
+    .register(CheckoutNotifier)
+)
+```
+
+**TypeScript**
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CheckoutLog)
+  .register(CheckoutNotifier)
+```
+
+**Rust**
+
+```rust
+pub fn build() -> Service {
+    Service::new("cart")
+        .register(ShoppingCart)
+        .register(CheckoutLog)
+        .register(CheckoutNotifier)
 }
 ```
 

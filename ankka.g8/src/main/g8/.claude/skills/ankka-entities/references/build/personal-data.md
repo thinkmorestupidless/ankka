@@ -119,21 +119,6 @@ const PlayerRegistered = s.record("PlayerRegistered", {
 const event = { playerId: id, email: personal(subject(`player/\${id}`), email), currency: "EUR" }
 ```
 
-**Go**
-
-```go
-type PlayerRegistered struct {
-	PlayerID string                 `json:"playerId"`
-	Email    ankka.Personal[string] `json:"email"`
-	Currency string                 `json:"currency"`
-}
-
-event := PlayerRegistered{PlayerID: id, Email: ankka.PersonalOf(ankka.MustSubject("player/"+id), email), Currency: "EUR"}
-```
-
-`ankka.Subject(text)` answers an error instead of panicking. A zero `Personal` has no data subject and
-cannot be written, so a field that may be absent is a pointer, `*ankka.Personal[string]`.
-
 **Rust**
 
 ```rust
@@ -150,6 +135,21 @@ struct PlayerRegistered {
 let subject = DataSubject::new(format!("player/{id}"))?;
 PlayerRegistered { player_id: id, email: Personal::present(subject, email), currency: "EUR".into() }
 ```
+
+**Go**
+
+```go
+type PlayerRegistered struct {
+	PlayerID string                 `json:"playerId"`
+	Email    ankka.Personal[string] `json:"email"`
+	Currency string                 `json:"currency"`
+}
+
+event := PlayerRegistered{PlayerID: id, Email: ankka.PersonalOf(ankka.MustSubject("player/"+id), email), Currency: "EUR"}
+```
+
+`ankka.Subject(text)` answers an error instead of panicking. A zero `Personal` has no data subject and
+cannot be written, so a field that may be absent is a pointer, `*ankka.Personal[string]`.
 
 A field marked this way is held encrypted wherever ankka's serializers write it: an event in the
 journal, a snapshot, a key value entity's state, a view's row, a workflow's state, a message published to
@@ -337,6 +337,15 @@ client.forAutonomousAgent("resolver", "case-91", { subject: "player/8c1f" });
 
 A task takes one with `subject` in the options of `client.tasks.create`.
 
+**Rust**
+
+```rust
+let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
+// every call to an agent made through it names the data subject
+```
+
+A task takes one with `NewTask::subject`, an instance with `InstanceCalls::with_subject`.
+
 **Go**
 
 ```go
@@ -347,15 +356,6 @@ instance := ankka.Instance(client, "case-91").WithSubject(ankka.MustSubject("pla
 ```
 
 A task takes one in `TaskOptions.Subject`.
-
-**Rust**
-
-```rust
-let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
-// every call to an agent made through it names the data subject
-```
-
-A task takes one with `NewTask::subject`, an instance with `InstanceCalls::with_subject`.
 
 The data subject is fixed by the first call; a later call naming another data subject is refused. Once
 the subject is erased:
@@ -458,6 +458,17 @@ Ankka.service({ client }).erasureHandler(async (ctx, subject) => {
 })
 ```
 
+**Rust**
+
+```rust
+Service::new("players").erasure_handler(|ctx, subject| {
+    let storage = ctx.storage().expect("an erasure handler has the buckets");
+    Ok(storage.bucket("kyc").erase(subject)?)
+})
+```
+
+`service!` exports the handler as `ankka1_erase`.
+
 **Go**
 
 ```go
@@ -472,17 +483,6 @@ svc.ErasureHandler(func(ctx context.Context, subject ankka.DataSubject) (ankka.E
 ```
 
 `ankka.ErasureFrom(ctx)` is the erasure's sequence and whether this run is a re-run.
-
-**Rust**
-
-```rust
-Service::new("players").erasure_handler(|ctx, subject| {
-    let storage = ctx.storage().expect("an erasure handler has the buckets");
-    Ok(storage.bucket("kyc").erase(subject)?)
-})
-```
-
-`service!` exports the handler as `ankka1_erase`.
 
 A handler that erases from a bucket the service's descriptor does not give is refused, naming the bucket,
 and the service's completion says so.
@@ -547,12 +547,6 @@ asked = await self.erasures.ask("player/8c1f", not_before=date(2031, 10, 8), rea
 const asked = await this.erasures.ask({ subject: "player/8c1f", reason: "aml-retention", correlation: "closure-4411" })
 ```
 
-**Go**
-
-```go
-asked, err := ankka.Erasures(ctx).Ask(ankka.AskErasure{Subject: ankka.MustSubject("player/8c1f"), Reason: "aml-retention"})
-```
-
 **Rust**
 
 ```rust
@@ -561,6 +555,12 @@ let asked = erasures.ask(AskErasure::of(subject).reason("aml-retention"))?;
 ```
 
 A WebAssembly module asks through the `erasure_ask` import, wherever it may make a request.
+
+**Go**
+
+```go
+asked, err := ankka.Erasures(ctx).Ask(ankka.AskErasure{Subject: ankka.MustSubject("player/8c1f"), Reason: "aml-retention"})
+```
 
 The request is asked in the service's own project unless it names another. The service needs the
 `erasure` grant of the project it asks in, its own project included, and is recorded as who asked:

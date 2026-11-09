@@ -2,7 +2,7 @@
 title: Event sourced entities
 description: Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Java, Kotlin, Python, TypeScript or Rust.
 kind: guide
-languages: [scala, python, typescript, rust, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity]
 related: [concepts/effects.md, concepts/wire-names.md, concepts/replicated-entities.md, build/views.md, build/serialization.md, build/testing.md]
 ---

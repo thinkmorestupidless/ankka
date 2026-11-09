@@ -2,7 +2,7 @@
 title: Components
 description: The component kinds an ankka service is built from, what each is for, how the runtime hosts it, and how to choose between them.
 kind: concept
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
 related: [concepts/designing-services.md, concepts/effects.md, concepts/consistency.md, concepts/architecture.md]
 ---

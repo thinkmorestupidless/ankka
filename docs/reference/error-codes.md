@@ -2,7 +2,7 @@
 title: Error codes
 description: The error codes a component can refuse with, and the one a wait for a failed workflow answers with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
 kind: reference
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 related: [concepts/effects.md, build/http-endpoints.md, build/component-client.md, reference/control-plane-api.md]
 ---
 

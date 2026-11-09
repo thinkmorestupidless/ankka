@@ -188,6 +188,74 @@ object CheckoutFanout
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/CheckoutFanout.java#consumer -->
+```java
+@ComponentId("checkout-fanout")
+public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected Optional<Publication> publishes() {
+    return Optional.of(Publication.to("conformance-fanout"));
+  }
+
+  @Override
+  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
+    return switch (event) {
+      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
+      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publishMessages(
+                  List.of(
+                      Outgoing.of(new Fanned(1)),
+                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
+                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CheckoutConsumers.kt#fanout -->
+```kotlin
+@ComponentId("checkout-fanout")
+class CheckoutFanout : Consumer<CartEvent, Fanned>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
+        when (event) {
+            is CartEvent.ItemAdded -> publishAll(emptyList())
+            is CartEvent.ItemRemoved -> publish(Fanned(0))
+            CartEvent.CheckedOut ->
+                publishMessages(
+                    listOf(
+                        Outgoing.of(Fanned(1)),
+                        Outgoing.of(Fanned(2)).withKey("second:${messageContext().subject()}"),
+                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
+                    )
+                )
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/conformance.py#fanout -->
@@ -311,74 +379,6 @@ impl Consumer for CheckoutFanout {
 
 ///
 
-/// tab | Java
-
-<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/CheckoutFanout.java#consumer -->
-```java
-@ComponentId("checkout-fanout")
-public class CheckoutFanout extends Consumer<CartEvent, Fanned> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected Optional<Publication> publishes() {
-    return Optional.of(Publication.to("conformance-fanout"));
-  }
-
-  @Override
-  protected ConsumerEffect<Fanned> onChange(CartEvent event) {
-    return switch (event) {
-      case CartEvent.ItemAdded ignored -> effects().publishAll(List.of());
-      case CartEvent.ItemRemoved ignored -> effects().publish(new Fanned(0));
-      case CartEvent.CheckedOut ignored ->
-          effects()
-              .publishMessages(
-                  List.of(
-                      Outgoing.of(new Fanned(1)),
-                      Outgoing.of(new Fanned(2)).withKey("second:" + messageContext().subject()),
-                      Outgoing.of(new Fanned(3)).withMetadata("x-n", "3")));
-      case CartEvent.Discarded ignored -> effects().ignore();
-    };
-  }
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CheckoutConsumers.kt#fanout -->
-```kotlin
-@ComponentId("checkout-fanout")
-class CheckoutFanout : Consumer<CartEvent, Fanned>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun publishes(): Optional<Publication> = Optional.of(Publication.to("conformance-fanout"))
-
-    override fun onChange(event: CartEvent): ConsumerEffect<Fanned> = effects {
-        when (event) {
-            is CartEvent.ItemAdded -> publishAll(emptyList())
-            is CartEvent.ItemRemoved -> publish(Fanned(0))
-            CartEvent.CheckedOut ->
-                publishMessages(
-                    listOf(
-                        Outgoing.of(Fanned(1)),
-                        Outgoing.of(Fanned(2)).withKey("second:${messageContext().subject()}"),
-                        Outgoing.of(Fanned(3)).withMetadata("x-n", "3"),
-                    )
-                )
-            CartEvent.Discarded -> ignore()
-        }
-    }
-}
-```
-
-///
-
 /// tab | Go
 
 <!-- include: sdks/go/examples/shopping-cart/conformance/consumers.go#fanout -->
@@ -468,6 +468,51 @@ object CheckoutRecorder
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/CheckoutRecorder.java#calls-components -->
+```java
+@ComponentId("checkout-recorder")
+public class CheckoutRecorder extends Consumer<CartEvent, Void> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(CartEvent event) {
+    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
+    componentClient()
+        .forEventSourcedEntity(messageContext().subject())
+        .call(ConformanceEntity::record)
+        .invoke("checkout");
+    return effects().done();
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CheckoutConsumers.kt#calls-components -->
+```kotlin
+@ComponentId("checkout-recorder")
+class CheckoutRecorder : Consumer<CartEvent, Void>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
+        if (event != CartEvent.CheckedOut) return effects { ignore() }
+        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
+        return effects { done() }
+    }
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/checkout_notifier.py -->
@@ -549,51 +594,6 @@ impl Consumer for CheckoutNotifier {
             ctx.client().invoke(CheckoutLog, cart_id, "record", at);
         recorded.expect("the checkout log answers");
         consumer::done()
-    }
-}
-```
-
-///
-
-/// tab | Java
-
-<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/CheckoutRecorder.java#calls-components -->
-```java
-@ComponentId("checkout-recorder")
-public class CheckoutRecorder extends Consumer<CartEvent, Void> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected ConsumerEffect<Void> onChange(CartEvent event) {
-    if (!(event instanceof CartEvent.CheckedOut)) return effects().ignore();
-    componentClient()
-        .forEventSourcedEntity(messageContext().subject())
-        .call(ConformanceEntity::record)
-        .invoke("checkout");
-    return effects().done();
-  }
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CheckoutConsumers.kt#calls-components -->
-```kotlin
-@ComponentId("checkout-recorder")
-class CheckoutRecorder : Consumer<CartEvent, Void>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun onChange(event: CartEvent): ConsumerEffect<Void> {
-        if (event != CartEvent.CheckedOut) return effects { ignore() }
-        componentClient().forEventSourcedEntity(messageContext().subject()).call(ConformanceEntity::record).invoke("checkout")
-        return effects { done() }
     }
 }
 ```
@@ -701,6 +701,58 @@ object CheckoutEnds
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/CheckoutEnds.java#workflow-consumer -->
+```java
+@ComponentId("checkout-ends")
+public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
+    var standing = messageContext().standing();
+    // Running or paused: not an end, and nothing to do.
+    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
+    var lifecycle = standing.get();
+    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
+    componentClient()
+        .forKeyValueEntity("end-" + messageContext().subject())
+        .call(Profile::set)
+        .invoke(end.orElse(lifecycle.status()));
+    return effects().done();
+  }
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CheckoutConsumers.kt#workflow-consumer -->
+```kotlin
+@ComponentId("checkout-ends")
+class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
+        val lifecycle = messageContext().standingOrNull
+        // Running or paused: not an end, and nothing to do.
+        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
+        val end = lifecycle.failure.orNull()?.let { why -> "${lifecycle.status}: $why" } ?: lifecycle.status
+        componentClient().forKeyValueEntity("end-${messageContext().subject()}").call(Profile::set).invoke(end)
+        return effects { done() }
+    }
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/conformance.py#workflow-consumer -->
@@ -776,58 +828,6 @@ impl Consumer for CheckoutEnds {
         let recorded: Result<String, CommandError> = ctx.client().invoke(Profile, &id, "set", end);
         recorded.expect("the profile records the end");
         consumer::done()
-    }
-}
-```
-
-///
-
-/// tab | Java
-
-<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/CheckoutEnds.java#workflow-consumer -->
-```java
-@ComponentId("checkout-ends")
-public class CheckoutEnds extends Consumer<Checkout.CheckoutState, Void> {
-
-  @Override
-  protected ChangeSource<Checkout.CheckoutState> source() {
-    return ChangeSource.ofWorkflow(Checkout.class);
-  }
-
-  @Override
-  protected ConsumerEffect<Void> onChange(Checkout.CheckoutState state) {
-    var standing = messageContext().standing();
-    // Running or paused: not an end, and nothing to do.
-    if (standing.isEmpty() || !standing.get().isTerminal()) return effects().ignore();
-    var lifecycle = standing.get();
-    var end = lifecycle.failure().map(why -> lifecycle.status() + ": " + why);
-    componentClient()
-        .forKeyValueEntity("end-" + messageContext().subject())
-        .call(Profile::set)
-        .invoke(end.orElse(lifecycle.status()));
-    return effects().done();
-  }
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/CheckoutConsumers.kt#workflow-consumer -->
-```kotlin
-@ComponentId("checkout-ends")
-class CheckoutEnds : Consumer<Checkout.CheckoutState, Void>() {
-
-    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
-
-    override fun onChange(state: Checkout.CheckoutState): ConsumerEffect<Void> {
-        val lifecycle = messageContext().standingOrNull
-        // Running or paused: not an end, and nothing to do.
-        if (lifecycle == null || !lifecycle.isTerminal) return effects { ignore() }
-        val end = lifecycle.failure.orNull()?.let { why -> "${lifecycle.status}: $why" } ?: lifecycle.status
-        componentClient().forKeyValueEntity("end-${messageContext().subject()}").call(Profile::set).invoke(end)
-        return effects { done() }
     }
 }
 ```
@@ -934,43 +934,6 @@ val service = Ankka.service
 
 ///
 
-/// tab | Python
-
-```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CheckoutLog)
-    .register(CheckoutNotifier)
-)
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CheckoutLog)
-  .register(CheckoutNotifier)
-```
-
-///
-
-/// tab | Rust
-
-```rust
-pub fn build() -> Service {
-    Service::new("cart")
-        .register(ShoppingCart)
-        .register(CheckoutLog)
-        .register(CheckoutNotifier)
-}
-```
-
-///
-
 /// tab | Java
 
 <!-- include: samples/shopping-cart-java/src/main/java/shoppingcart/javasdk/Main.java#service -->
@@ -1008,6 +971,43 @@ fun service(): ServiceBuilder =
 
 fun main() {
     service().start().whenTerminated().toCompletableFuture().join()
+}
+```
+
+///
+
+/// tab | Python
+
+```python
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CheckoutLog)
+    .register(CheckoutNotifier)
+)
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CheckoutLog)
+  .register(CheckoutNotifier)
+```
+
+///
+
+/// tab | Rust
+
+```rust
+pub fn build() -> Service {
+    Service::new("cart")
+        .register(ShoppingCart)
+        .register(CheckoutLog)
+        .register(CheckoutNotifier)
 }
 ```
 

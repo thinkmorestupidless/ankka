@@ -2,7 +2,7 @@
 title: Multi-agent orchestration
 description: Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [agent, workflow]
 related: [build/agents.md, build/workflows.md, concepts/agents.md, build/testing.md]
 ---

@@ -2,7 +2,7 @@
 title: Key value entities
 description: Store only the latest value of a piece of state, replace it with updateState, delete or expire it, and decide when that is a better fit than event sourcing.
 kind: guide
-languages: [scala, python, typescript, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [key-value-entity]
 related: [build/event-sourced-entities.md, concepts/components.md, build/views.md]
 ---

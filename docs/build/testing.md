@@ -41,6 +41,38 @@ assertEquals(kit.currentState.totalQuantity, 2)
 
 ///
 
+/// tab | Java
+
+<!-- include: cli/src/main/templates/java/src/test/java/{{package_path}}/ShoppingCartTest.java#entity-test -->
+```java
+@Test
+void anItemAddedIsInTheCart() {
+  var cart = EventSourcedTestKit.of(ShoppingCart.class, "c1");
+  var result = cart.call(ShoppingCart::addItem, new LineItem("p1", "Pen", 2));
+  assertEquals(Done.DONE, result.reply());
+  assertEquals(List.of(new CartEvent.ItemAdded(new LineItem("p1", "Pen", 2))), result.events());
+  assertEquals(2, cart.state().totalQuantity());
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: cli/src/main/templates/kotlin/src/test/kotlin/{{package_path}}/ShoppingCartTest.kt#entity-test -->
+```kotlin
+@Test
+fun `an item added is in the cart`() {
+    val cart = eventSourcedTestKit(ShoppingCart::class, "c1")
+    val result = cart.call(ShoppingCart::addItem, LineItem("p1", "Pen", 2))
+    assertEquals(Done.DONE, result.reply())
+    assertEquals(listOf<CartEvent>(CartEvent.ItemAdded(LineItem("p1", "Pen", 2))), result.events())
+    assertEquals(2, cart.state().totalQuantity)
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -95,38 +127,6 @@ fn a_refused_command_persists_nothing() {
     assert!(refused.events.is_empty());
     assert_eq!(refused.error().map(|e| e.code), Some(ErrorCode::BadRequest));
     assert!(kit.state().items.is_empty());
-}
-```
-
-///
-
-/// tab | Java
-
-<!-- include: cli/src/main/templates/java/src/test/java/{{package_path}}/ShoppingCartTest.java#entity-test -->
-```java
-@Test
-void anItemAddedIsInTheCart() {
-  var cart = EventSourcedTestKit.of(ShoppingCart.class, "c1");
-  var result = cart.call(ShoppingCart::addItem, new LineItem("p1", "Pen", 2));
-  assertEquals(Done.DONE, result.reply());
-  assertEquals(List.of(new CartEvent.ItemAdded(new LineItem("p1", "Pen", 2))), result.events());
-  assertEquals(2, cart.state().totalQuantity());
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: cli/src/main/templates/kotlin/src/test/kotlin/{{package_path}}/ShoppingCartTest.kt#entity-test -->
-```kotlin
-@Test
-fun `an item added is in the cart`() {
-    val cart = eventSourcedTestKit(ShoppingCart::class, "c1")
-    val result = cart.call(ShoppingCart::addItem, LineItem("p1", "Pen", 2))
-    assertEquals(Done.DONE, result.reply())
-    assertEquals(listOf<CartEvent>(CartEvent.ItemAdded(LineItem("p1", "Pen", 2))), result.events())
-    assertEquals(2, cart.state().totalQuantity)
 }
 ```
 
@@ -504,6 +504,63 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite:
 
 ///
 
+/// tab | Java
+
+<!-- include: cli/src/main/templates/java/src/test/java/{{package_path}}/ServiceTest.java#service-test -->
+```java
+@Test
+void anItemAddedOverHttpIsReadBackAfterARestart() throws Exception {
+  var added =
+      send(
+          HttpRequest.newBuilder(kit.http().resolve("/carts/c1/items"))
+              .header("Content-Type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofString(
+                  "{\"productId\":\"p1\",\"name\":\"Pen\",\"quantity\":2}")));
+  assertEquals(204, added.statusCode(), added.body());
+
+  kit.restartService();
+
+  var cart = send(HttpRequest.newBuilder(kit.http().resolve("/carts/c1")).GET());
+  assertEquals(200, cart.statusCode(), cart.body());
+  assertTrue(cart.body().contains("\"quantity\":2"), cart.body());
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: cli/src/main/templates/kotlin/src/test/kotlin/{{package_path}}/ServiceTest.kt#service-test -->
+```kotlin
+@Test
+fun `an item added over HTTP is read back after a restart, and reaches the view`() =
+    ankkaTestKit(service()) {
+        val added =
+            send(
+                HttpRequest.newBuilder(http().resolve("/carts/c1/items"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("""{"productId":"p1","name":"Pen","quantity":2}"""))
+            )
+        assertEquals(204, added.statusCode(), added.body())
+
+        restartService()
+
+        val cart = send(HttpRequest.newBuilder(http().resolve("/carts/c1")).GET())
+        assertEquals(200, cart.statusCode(), cart.body())
+        assertTrue(cart.body().contains("\"quantity\":2"), cart.body())
+
+        runBlocking {
+            eventually {
+                val row = send(HttpRequest.newBuilder(http().resolve("/carts/c1/row")).GET())
+                assertEquals(200, row.statusCode(), row.body())
+                assertTrue(row.body().contains("\"p1\":2"), row.body())
+            }
+        }
+    }
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/test_cart.py#integration -->
@@ -621,63 +678,6 @@ fn the_cart_through_the_runtime_survives_a_restart() {
     let fresh: Cart = rt.http().get("/carts/c2").send().unwrap().json().unwrap();
     assert_eq!(fresh, Cart::empty("c2"));
 }
-```
-
-///
-
-/// tab | Java
-
-<!-- include: cli/src/main/templates/java/src/test/java/{{package_path}}/ServiceTest.java#service-test -->
-```java
-@Test
-void anItemAddedOverHttpIsReadBackAfterARestart() throws Exception {
-  var added =
-      send(
-          HttpRequest.newBuilder(kit.http().resolve("/carts/c1/items"))
-              .header("Content-Type", "application/json")
-              .POST(HttpRequest.BodyPublishers.ofString(
-                  "{\"productId\":\"p1\",\"name\":\"Pen\",\"quantity\":2}")));
-  assertEquals(204, added.statusCode(), added.body());
-
-  kit.restartService();
-
-  var cart = send(HttpRequest.newBuilder(kit.http().resolve("/carts/c1")).GET());
-  assertEquals(200, cart.statusCode(), cart.body());
-  assertTrue(cart.body().contains("\"quantity\":2"), cart.body());
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: cli/src/main/templates/kotlin/src/test/kotlin/{{package_path}}/ServiceTest.kt#service-test -->
-```kotlin
-@Test
-fun `an item added over HTTP is read back after a restart, and reaches the view`() =
-    ankkaTestKit(service()) {
-        val added =
-            send(
-                HttpRequest.newBuilder(http().resolve("/carts/c1/items"))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString("""{"productId":"p1","name":"Pen","quantity":2}"""))
-            )
-        assertEquals(204, added.statusCode(), added.body())
-
-        restartService()
-
-        val cart = send(HttpRequest.newBuilder(http().resolve("/carts/c1")).GET())
-        assertEquals(200, cart.statusCode(), cart.body())
-        assertTrue(cart.body().contains("\"quantity\":2"), cart.body())
-
-        runBlocking {
-            eventually {
-                val row = send(HttpRequest.newBuilder(http().resolve("/carts/c1/row")).GET())
-                assertEquals(200, row.statusCode(), row.body())
-                assertTrue(row.body().contains("\"p1\":2"), row.body())
-            }
-        }
-    }
 ```
 
 ///

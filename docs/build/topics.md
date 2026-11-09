@@ -2,7 +2,7 @@
 title: Broker topics
 description: Read views and consumers from a Kafka topic and publish to one — start positions, groups, contracts, a topic on another broker, parallel partitions, rebuilding by version, headers, ordering, and testing without a broker.
 kind: guide
-languages: [scala, python, typescript, rust, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [view, consumer]
 related: [build/views.md, build/consumers.md, build/graph.md, concepts/consistency.md, reference/configuration.md]
 ---

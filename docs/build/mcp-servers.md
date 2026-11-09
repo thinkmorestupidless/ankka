@@ -2,7 +2,7 @@
 title: MCP servers
 description: Offer an agent the tools of MCP servers beside its own — where each server is, the credential it is sent, approval for a whole server, result guardrails that check what a server answers — and test it against a scripted server.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, go]
 components: [agent]
 related: [build/agents.md, build/autonomous-agents.md, reference/configuration.md, reference/limitations.md]
 ---

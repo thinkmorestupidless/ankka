@@ -2,7 +2,7 @@
 title: Calling components
 description: Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity, key-value-entity, workflow, agent, view]
 related: [build/http-endpoints.md, concepts/consistency.md, build/views.md, reference/error-codes.md]
 ---

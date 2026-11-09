@@ -2,7 +2,7 @@
 title: gRPC endpoints
 description: Serve a .proto service definition from a Scala service — every kind of method, access control, statuses, streams, reflection, calling another service's gRPC endpoint, and testing it.
 kind: guide
-languages: [scala]
+languages: [scala, java, kotlin]
 components: [grpc-endpoint]
 related: [build/http-endpoints.md, build/testing.md, deploy/expose.md, platform/networking.md, reference/error-codes.md]
 ---

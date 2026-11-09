@@ -2,7 +2,7 @@
 title: Replicated entities
 description: An event sourced entity held at several installations and written at one, its home — followers, the replication set, the handover, forwarded writes, stale reads, conflicts, and the replication transport.
 kind: concept
-languages: [scala, python, typescript, rust]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity, consumer, view]
 related: [build/event-sourced-entities.md, concepts/consistency.md, build/consumers.md, build/views.md, reference/limitations.md]
 ---

@@ -73,6 +73,83 @@ object CartGraph
   def create(ctx: ConsumerContext) = new CartGraph
 ```
 
+**Java**
+
+```java
+@ComponentId("cart-graph")
+public class CartGraph extends GraphConsumer<CartEvent> {
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCartEntity.class);
+  }
+
+  @Override
+  protected String topic() {
+    return "conformance-graph";
+  }
+
+  private GraphElement cart(String id, boolean checkedOut) {
+    return graph()
+        .node("cart:" + id, List.of("Cart"), Map.of("cartId", id, "checkedOut", checkedOut));
+  }
+
+  @Override
+  protected GraphEffect onChange(CartEvent event) {
+    var id = messageContext().subject();
+    return switch (event) {
+      case CartEvent.ItemAdded ignored -> effects().publish(cart(id, false));
+      case CartEvent.ItemRemoved ignored -> effects().publish(cart(id, false));
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .publish(
+                  cart(id, true),
+                  graph().node("checkout:" + id, List.of("Checkout"), Map.of("cartId", id)),
+                  graph()
+                      .edge("checked-out:" + id, "CHECKED_OUT", "cart:" + id, "checkout:" + id,
+                          Map.of()));
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+
+  @Override
+  protected GraphEffect onDelete() {
+    return effects().publish(graph().tombstoneNode("cart:" + messageContext().subject()));
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("cart-graph")
+class CartGraph : GraphConsumer<CartEvent>() {
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
+
+    override fun topic(): String = "conformance-graph"
+
+    private fun cart(id: String, checkedOut: Boolean): GraphElement =
+        graph().node("cart:$id", listOf("Cart"), mapOf("cartId" to id, "checkedOut" to checkedOut))
+
+    override fun onChange(event: CartEvent): GraphEffect = effects {
+        val id = messageContext().subject()
+        when (event) {
+            is CartEvent.ItemAdded, is CartEvent.ItemRemoved -> publish(cart(id, false))
+            CartEvent.CheckedOut ->
+                publish(
+                    cart(id, true),
+                    graph().node("checkout:$id", listOf("Checkout"), mapOf("cartId" to id)),
+                    graph().edge("checked-out:$id", "CHECKED_OUT", "cart:$id", "checkout:$id", emptyMap()),
+                )
+            CartEvent.Discarded -> ignore()
+        }
+    }
+
+    override fun onDelete(): GraphEffect = effects { publish(graph().tombstoneNode("cart:${messageContext().subject()}")) }
+}
+```
+
 **Python**
 
 ```python
@@ -198,83 +275,6 @@ fn cart(id: &str, checked_out: bool) -> Element {
         .label("Cart")
         .property("cartId", id)
         .property("checkedOut", checked_out)
-}
-```
-
-**Java**
-
-```java
-@ComponentId("cart-graph")
-public class CartGraph extends GraphConsumer<CartEvent> {
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCartEntity.class);
-  }
-
-  @Override
-  protected String topic() {
-    return "conformance-graph";
-  }
-
-  private GraphElement cart(String id, boolean checkedOut) {
-    return graph()
-        .node("cart:" + id, List.of("Cart"), Map.of("cartId", id, "checkedOut", checkedOut));
-  }
-
-  @Override
-  protected GraphEffect onChange(CartEvent event) {
-    var id = messageContext().subject();
-    return switch (event) {
-      case CartEvent.ItemAdded ignored -> effects().publish(cart(id, false));
-      case CartEvent.ItemRemoved ignored -> effects().publish(cart(id, false));
-      case CartEvent.CheckedOut ignored ->
-          effects()
-              .publish(
-                  cart(id, true),
-                  graph().node("checkout:" + id, List.of("Checkout"), Map.of("cartId", id)),
-                  graph()
-                      .edge("checked-out:" + id, "CHECKED_OUT", "cart:" + id, "checkout:" + id,
-                          Map.of()));
-      case CartEvent.Discarded ignored -> effects().ignore();
-    };
-  }
-
-  @Override
-  protected GraphEffect onDelete() {
-    return effects().publish(graph().tombstoneNode("cart:" + messageContext().subject()));
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("cart-graph")
-class CartGraph : GraphConsumer<CartEvent>() {
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCartEntity::class.java)
-
-    override fun topic(): String = "conformance-graph"
-
-    private fun cart(id: String, checkedOut: Boolean): GraphElement =
-        graph().node("cart:$id", listOf("Cart"), mapOf("cartId" to id, "checkedOut" to checkedOut))
-
-    override fun onChange(event: CartEvent): GraphEffect = effects {
-        val id = messageContext().subject()
-        when (event) {
-            is CartEvent.ItemAdded, is CartEvent.ItemRemoved -> publish(cart(id, false))
-            CartEvent.CheckedOut ->
-                publish(
-                    cart(id, true),
-                    graph().node("checkout:$id", listOf("Checkout"), mapOf("cartId" to id)),
-                    graph().edge("checked-out:$id", "CHECKED_OUT", "cart:$id", "checkout:$id", emptyMap()),
-                )
-            CartEvent.Discarded -> ignore()
-        }
-    }
-
-    override fun onDelete(): GraphEffect = effects { publish(graph().tombstoneNode("cart:${messageContext().subject()}")) }
 }
 ```
 

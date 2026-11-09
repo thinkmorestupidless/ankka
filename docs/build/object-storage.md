@@ -2,7 +2,7 @@
 title: Objects a service keeps
 description: Keep photos, documents and exports in a service's buckets — put, get, list, stat and delete by name, sign a URL a browser uploads or downloads with, give a public address, and run the same code with no object store.
 kind: guide
-languages: [scala, python, typescript, rust, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [http-endpoint, workflow, consumer, timed-action, agent]
 related: [platform/object-storage.md, build/http-endpoints.md, build/testing.md, reference/service-descriptor.md, reference/limitations.md]
 ---

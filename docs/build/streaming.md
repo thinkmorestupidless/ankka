@@ -2,7 +2,7 @@
 title: Streaming responses
 description: Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, go]
 components: [agent, http-endpoint]
 related: [build/agents.md, build/http-endpoints.md, build/component-client.md]
 ---

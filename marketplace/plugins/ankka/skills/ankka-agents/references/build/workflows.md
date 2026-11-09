@@ -595,25 +595,6 @@ postBody("/{id}") { (id: String, request: QuoteRequest) =>
 }
 ```
 
-**Python**
-
-```python
-@post("/{cartId}/checkouts/wait")
-async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
-    """Starts the checkout and answers with how it ended, as one request."""
-    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
-    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
-```
-
-**TypeScript**
-
-```typescript
-/** Starts the checkout and answers with how it ended, as one request. */
-checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
-  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
-),
-```
-
 **Java**
 
 ```java
@@ -647,6 +628,25 @@ fun checkoutAwait(id: String, @Body mode: String): String =
         val end = failed.workflowFailureOrNull ?: throw failed
         throw ProblemException(Problem(424, "", "${end.step.orNull() ?: ""}: ${end.reason}"))
     }
+```
+
+**Python**
+
+```python
+@post("/{cartId}/checkouts/wait")
+async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
+    """Starts the checkout and answers with how it ended, as one request."""
+    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
+```
+
+**TypeScript**
+
+```typescript
+/** Starts the checkout and answers with how it ended, as one request. */
+checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
+  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
+),
 ```
 
 **Go**
@@ -764,6 +764,15 @@ sseEvents("/{id}/events") { (id: String) =>
 }
 ```
 
+**Java**
+
+```java
+@Sse("/checkouts/{id}/end")
+public Flow.Publisher<SseEvent> end(String id) {
+  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
+}
+```
+
 **Python**
 
 ```python
@@ -782,15 +791,6 @@ async def checkout_events(self, cartId: str) -> AsyncIterator[str]:
 checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingCartEndpoint, req) {
   for await (const part of ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEndParts<Checkout>(600_000)) yield awaitPartJson(part)
 }),
-```
-
-**Java**
-
-```java
-@Sse("/checkouts/{id}/end")
-public Flow.Publisher<SseEvent> end(String id) {
-  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
-}
 ```
 
 A gateway in front of the service still bounds the response, as it bounds any stream through it; see

@@ -125,6 +125,93 @@ object CartRows
   def create(ctx: ViewComponentContext) = new CartRowsView
 ```
 
+**Java**
+
+```java
+@ComponentId("cart-rows")
+public class CartRows extends View<CartEvent, CartRows.CartRow> {
+
+  @Manifest("cart-row")
+  public record CartRow(
+      String cartId,
+      Map<String, Integer> quantities,
+      boolean checkedOut,
+      Map<String, String> names) {}
+
+  @Override
+  protected ChangeSource<CartEvent> source() {
+    return ChangeSource.of(ShoppingCart.class);
+  }
+
+  @Override
+  protected ViewEffect<CartRow> onChange(CartEvent event) {
+    var current =
+        rowState().orElse(new CartRow(updateContext().subject(), Map.of(), false, Map.of()));
+    var quantities = new HashMap<>(current.quantities());
+    var names = new HashMap<>(current.names());
+    return switch (event) {
+      case CartEvent.ItemAdded added -> {
+        quantities.merge(added.item().productId(), added.item().quantity(), Integer::sum);
+        names.put(added.item().productId(), added.item().name());
+        yield effects()
+            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
+      }
+      case CartEvent.ItemRemoved removed -> {
+        quantities.remove(removed.productId());
+        names.remove(removed.productId());
+        yield effects()
+            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
+      }
+      case CartEvent.CheckedOut ignored ->
+          effects()
+              .updateRow(
+                  new CartRow(current.cartId(), current.quantities(), true, current.names()));
+      // The deletion that follows removes the row: a discarded cart leaves the listing.
+      case CartEvent.Discarded ignored -> effects().ignore();
+    };
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/**
+ * Every cart as a row, to answer what the entity cannot: which carts hold a product, which are
+ * checked out. The row's JSON is the Scala cart's `cart-row`.
+ */
+@ComponentId("cart-rows")
+class CartRows : View<CartEvent, CartRows.CartRow>() {
+    @Manifest("cart-row")
+    data class CartRow(
+        val cartId: String,
+        val quantities: Map<String, Int>,
+        val checkedOut: Boolean,
+        val names: Map<String, String>,
+    )
+
+    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
+
+    override fun onChange(event: CartEvent): ViewEffect<CartRow> = effects {
+        val row = rowState().orNull() ?: CartRow(updateContext().subject(), emptyMap(), false, emptyMap())
+        when (event) {
+            is CartEvent.ItemAdded ->
+                updateRow(
+                    row.copy(
+                        quantities = row.quantities + (event.item.productId to (row.quantities[event.item.productId] ?: 0) + event.item.quantity),
+                        names = row.names + (event.item.productId to event.item.name),
+                    )
+                )
+            is CartEvent.ItemRemoved ->
+                updateRow(row.copy(quantities = row.quantities - event.productId, names = row.names - event.productId))
+            CartEvent.CheckedOut -> updateRow(row.copy(checkedOut = true))
+            // The deletion that follows removes the row: a discarded cart leaves the listing.
+            CartEvent.Discarded -> ignore()
+        }
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -210,93 +297,6 @@ export class CartRows extends View<ShoppingCartEvent, CartRow> {
         return this.effects.ignore()
     }
   }
-}
-```
-
-**Java**
-
-```java
-@ComponentId("cart-rows")
-public class CartRows extends View<CartEvent, CartRows.CartRow> {
-
-  @Manifest("cart-row")
-  public record CartRow(
-      String cartId,
-      Map<String, Integer> quantities,
-      boolean checkedOut,
-      Map<String, String> names) {}
-
-  @Override
-  protected ChangeSource<CartEvent> source() {
-    return ChangeSource.of(ShoppingCart.class);
-  }
-
-  @Override
-  protected ViewEffect<CartRow> onChange(CartEvent event) {
-    var current =
-        rowState().orElse(new CartRow(updateContext().subject(), Map.of(), false, Map.of()));
-    var quantities = new HashMap<>(current.quantities());
-    var names = new HashMap<>(current.names());
-    return switch (event) {
-      case CartEvent.ItemAdded added -> {
-        quantities.merge(added.item().productId(), added.item().quantity(), Integer::sum);
-        names.put(added.item().productId(), added.item().name());
-        yield effects()
-            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
-      }
-      case CartEvent.ItemRemoved removed -> {
-        quantities.remove(removed.productId());
-        names.remove(removed.productId());
-        yield effects()
-            .updateRow(new CartRow(current.cartId(), quantities, current.checkedOut(), names));
-      }
-      case CartEvent.CheckedOut ignored ->
-          effects()
-              .updateRow(
-                  new CartRow(current.cartId(), current.quantities(), true, current.names()));
-      // The deletion that follows removes the row: a discarded cart leaves the listing.
-      case CartEvent.Discarded ignored -> effects().ignore();
-    };
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-/**
- * Every cart as a row, to answer what the entity cannot: which carts hold a product, which are
- * checked out. The row's JSON is the Scala cart's `cart-row`.
- */
-@ComponentId("cart-rows")
-class CartRows : View<CartEvent, CartRows.CartRow>() {
-    @Manifest("cart-row")
-    data class CartRow(
-        val cartId: String,
-        val quantities: Map<String, Int>,
-        val checkedOut: Boolean,
-        val names: Map<String, String>,
-    )
-
-    override fun source(): ChangeSource<CartEvent> = ChangeSource.of(ShoppingCart::class.java)
-
-    override fun onChange(event: CartEvent): ViewEffect<CartRow> = effects {
-        val row = rowState().orNull() ?: CartRow(updateContext().subject(), emptyMap(), false, emptyMap())
-        when (event) {
-            is CartEvent.ItemAdded ->
-                updateRow(
-                    row.copy(
-                        quantities = row.quantities + (event.item.productId to (row.quantities[event.item.productId] ?: 0) + event.item.quantity),
-                        names = row.names + (event.item.productId to event.item.name),
-                    )
-                )
-            is CartEvent.ItemRemoved ->
-                updateRow(row.copy(quantities = row.quantities - event.productId, names = row.names - event.productId))
-            CartEvent.CheckedOut -> updateRow(row.copy(checkedOut = true))
-            // The deletion that follows removes the row: a discarded cart leaves the listing.
-            CartEvent.Discarded -> ignore()
-        }
-    }
 }
 ```
 
@@ -453,6 +453,92 @@ object CheckoutRows
   )
 ```
 
+**Java**
+
+```java
+@ComponentId("checkout-rows")
+public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.CheckoutRow> {
+
+  @Manifest("checkout-row")
+  public record CheckoutRow(
+      String id,
+      String status,
+      String standing,
+      Optional<String> step,
+      Optional<String> failure) {}
+
+  public static final ViewQuery BY_STANDING =
+      ViewQuery.declare(
+          "by-standing",
+          "SELECT payload FROM "
+              + ViewQuery.tableOf(CheckoutRows.class)
+              + " WHERE payload::jsonb->>'standing' = :standing");
+
+  private static final WorkflowLifecycle UNKNOWN =
+      new WorkflowLifecycle("Unknown", Optional.empty(), Map.of(), Optional.empty());
+
+  @Override
+  protected ChangeSource<Checkout.CheckoutState> source() {
+    return ChangeSource.ofWorkflow(Checkout.class);
+  }
+
+  @Override
+  protected ViewEffect<CheckoutRow> onChange(Checkout.CheckoutState state) {
+    // A change from a workflow carries its standing: where it stood once the effect that
+    // recorded `state` was applied.
+    var standing = updateContext().standing().orElse(UNKNOWN);
+    return effects()
+        .updateRow(
+            new CheckoutRow(
+                updateContext().subject(),
+                state.status(),
+                standing.status(),
+                standing.pendingStep(),
+                standing.failure()));
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+@ComponentId("checkout-rows")
+class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
+
+    @Manifest("checkout-row")
+    data class CheckoutRow(val id: String, val status: String, val standing: String, val step: String?, val failure: String?)
+
+    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
+
+    override fun onChange(state: Checkout.CheckoutState): ViewEffect<CheckoutRow> {
+        // A change from a workflow carries its standing: where it stood once the effect that
+        // recorded `state` was applied.
+        val standing = updateContext().standingOrNull ?: UNKNOWN
+        return effects {
+            updateRow(
+                CheckoutRow(
+                    updateContext().subject(),
+                    state.status,
+                    standing.status,
+                    standing.pendingStep.orNull(),
+                    standing.failure.orNull(),
+                )
+            )
+        }
+    }
+
+    companion object {
+        val BY_STANDING: ViewQuery =
+            ViewQuery.declare(
+                "by-standing",
+                "SELECT payload FROM \${ViewQuery.tableOf(CheckoutRows::class.java)} WHERE payload::jsonb->>'standing' = :standing",
+            )
+
+        private val UNKNOWN = WorkflowLifecycle("Unknown", Optional.empty(), emptyMap(), Optional.empty())
+    }
+}
+```
+
 **Python**
 
 ```python
@@ -572,92 +658,6 @@ impl View for CheckoutRows {
 }
 ```
 
-**Java**
-
-```java
-@ComponentId("checkout-rows")
-public class CheckoutRows extends View<Checkout.CheckoutState, CheckoutRows.CheckoutRow> {
-
-  @Manifest("checkout-row")
-  public record CheckoutRow(
-      String id,
-      String status,
-      String standing,
-      Optional<String> step,
-      Optional<String> failure) {}
-
-  public static final ViewQuery BY_STANDING =
-      ViewQuery.declare(
-          "by-standing",
-          "SELECT payload FROM "
-              + ViewQuery.tableOf(CheckoutRows.class)
-              + " WHERE payload::jsonb->>'standing' = :standing");
-
-  private static final WorkflowLifecycle UNKNOWN =
-      new WorkflowLifecycle("Unknown", Optional.empty(), Map.of(), Optional.empty());
-
-  @Override
-  protected ChangeSource<Checkout.CheckoutState> source() {
-    return ChangeSource.ofWorkflow(Checkout.class);
-  }
-
-  @Override
-  protected ViewEffect<CheckoutRow> onChange(Checkout.CheckoutState state) {
-    // A change from a workflow carries its standing: where it stood once the effect that
-    // recorded `state` was applied.
-    var standing = updateContext().standing().orElse(UNKNOWN);
-    return effects()
-        .updateRow(
-            new CheckoutRow(
-                updateContext().subject(),
-                state.status(),
-                standing.status(),
-                standing.pendingStep(),
-                standing.failure()));
-  }
-}
-```
-
-**Kotlin**
-
-```kotlin
-@ComponentId("checkout-rows")
-class CheckoutRows : View<Checkout.CheckoutState, CheckoutRows.CheckoutRow>() {
-
-    @Manifest("checkout-row")
-    data class CheckoutRow(val id: String, val status: String, val standing: String, val step: String?, val failure: String?)
-
-    override fun source(): ChangeSource<Checkout.CheckoutState> = ChangeSource.ofWorkflow(Checkout::class.java)
-
-    override fun onChange(state: Checkout.CheckoutState): ViewEffect<CheckoutRow> {
-        // A change from a workflow carries its standing: where it stood once the effect that
-        // recorded `state` was applied.
-        val standing = updateContext().standingOrNull ?: UNKNOWN
-        return effects {
-            updateRow(
-                CheckoutRow(
-                    updateContext().subject(),
-                    state.status,
-                    standing.status,
-                    standing.pendingStep.orNull(),
-                    standing.failure.orNull(),
-                )
-            )
-        }
-    }
-
-    companion object {
-        val BY_STANDING: ViewQuery =
-            ViewQuery.declare(
-                "by-standing",
-                "SELECT payload FROM \${ViewQuery.tableOf(CheckoutRows::class.java)} WHERE payload::jsonb->>'standing' = :standing",
-            )
-
-        private val UNKNOWN = WorkflowLifecycle("Unknown", Optional.empty(), emptyMap(), Optional.empty())
-    }
-}
-```
-
 **Go**
 
 ```go
@@ -721,24 +721,6 @@ val service = Ankka.service
   .start()
 ```
 
-**Python**
-
-```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CartRows)
-)
-```
-
-**TypeScript**
-
-```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CartRows)
-```
-
 **Java**
 
 ```java
@@ -773,6 +755,24 @@ fun service(): ServiceBuilder =
 fun main() {
     service().start().whenTerminated().toCompletableFuture().join()
 }
+```
+
+**Python**
+
+```python
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+)
+```
+
+**TypeScript**
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CartRows)
 ```
 
 **Go**
@@ -910,49 +910,6 @@ val under = clients.viewClient.forView(Nodes).ask(Nodes.under, "row" -> nodeId)
 val first = clients.viewClient.forView(Nodes).ask(Nodes.under, 100, "row" -> nodeId)   // at most 100 rows
 ```
 
-**Python**
-
-```python
-from ankka.view import query, table_of
-
-class Nodes(View[NodeEvent, NodeRow]):
-    component_id = "nodes"
-    source = NodeEntity
-    event_codec = NODE_EVENTS
-    row_codec = NODE_ROW
-    under = query("under", f"""
-        WITH RECURSIVE below AS (
-          SELECT row_key, payload FROM {table_of("nodes")} WHERE payload::jsonb->>'under' = :row
-          UNION
-          SELECT n.row_key, n.payload FROM {table_of("nodes")} n
-            JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
-        SELECT payload FROM below""")
-
-rows = await self.client.views.ask("nodes", "under", NodeRow, {"row": node_id})
-```
-
-**TypeScript**
-
-```ts
-import { declaredQuery, tableOf } from "ankka"
-
-export class Nodes extends View<NodeEvent, NodeRow> {
-  static readonly componentId = "nodes"
-  static readonly declared = [
-    declaredQuery("under", `
-      WITH RECURSIVE below AS (
-        SELECT row_key, payload FROM \${tableOf("nodes")} WHERE payload::jsonb->>'under' = :row
-        UNION
-        SELECT n.row_key, n.payload FROM \${tableOf("nodes")} n
-          JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
-      SELECT payload FROM below`),
-  ]
-  // ...
-}
-
-const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
-```
-
 **Java**
 
 Declare a query as a `public static final ViewQuery` field of the view, naming the view's table with `ViewQuery.tableOf`:
@@ -1011,6 +968,49 @@ Ask it through the view client, with each value it takes by name:
 @Get("/tree/{nodeId}/below")
 fun below(nodeId: String): List<String> =
     viewClient().forView(TreeRows::class.java).ask(TreeRows.UNDER, mapOf("row" to nodeId)).map { it.key }
+```
+
+**Python**
+
+```python
+from ankka.view import query, table_of
+
+class Nodes(View[NodeEvent, NodeRow]):
+    component_id = "nodes"
+    source = NodeEntity
+    event_codec = NODE_EVENTS
+    row_codec = NODE_ROW
+    under = query("under", f"""
+        WITH RECURSIVE below AS (
+          SELECT row_key, payload FROM {table_of("nodes")} WHERE payload::jsonb->>'under' = :row
+          UNION
+          SELECT n.row_key, n.payload FROM {table_of("nodes")} n
+            JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
+        SELECT payload FROM below""")
+
+rows = await self.client.views.ask("nodes", "under", NodeRow, {"row": node_id})
+```
+
+**TypeScript**
+
+```ts
+import { declaredQuery, tableOf } from "ankka"
+
+export class Nodes extends View<NodeEvent, NodeRow> {
+  static readonly componentId = "nodes"
+  static readonly declared = [
+    declaredQuery("under", `
+      WITH RECURSIVE below AS (
+        SELECT row_key, payload FROM \${tableOf("nodes")} WHERE payload::jsonb->>'under' = :row
+        UNION
+        SELECT n.row_key, n.payload FROM \${tableOf("nodes")} n
+          JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
+      SELECT payload FROM below`),
+  ]
+  // ...
+}
+
+const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
 ```
 
 **Go**
@@ -1088,28 +1088,6 @@ unless the caller gives one — the way to read every row of a large view withou
 val everyCart = rows.allStream().runWith(Sink.seq)
 ```
 
-**Python**
-
-`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
-
-```python
-@sse("/streamed")
-async def streamed(self) -> AsyncIterator[str]:
-    views = self.client.with_metadata(self.request.metadata).views
-    async for row in views.stream("tree-rows", "all-rows", TreeRow):
-        yield row.key
-```
-
-**TypeScript**
-
-`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
-
-```ts
-streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
-  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
-}),
-```
-
 **Java**
 
 `askStream(query, values)` answers a `Flow.Publisher` of the rows, which an `@Sse` route serves as it is:
@@ -1132,6 +1110,28 @@ public Flow.Publisher<SseEvent> streamed() {
 @Sse("/tree/streamed")
 fun streamed(): Flow.Publisher<SseEvent> =
     viewClient().forView(TreeRows::class.java).askFlow(TreeRows.ALL_ROWS).map { SseEvent.text(it.key) }.asPublisher()
+```
+
+**Python**
+
+`views.stream(view_id, name, row, values, limit=None)` asks `all` or a declared query and yields the rows:
+
+```python
+@sse("/streamed")
+async def streamed(self) -> AsyncIterator[str]:
+    views = self.client.with_metadata(self.request.metadata).views
+    async for row in views.stream("tree-rows", "all-rows", TreeRow):
+        yield row.key
+```
+
+**TypeScript**
+
+`views.stream(viewId, name, values, row, { limit })` asks `all` or a declared query and yields the rows:
+
+```ts
+streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
+  for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key
+}),
 ```
 
 **Go**
@@ -1189,18 +1189,6 @@ val openCarts = query("open-carts")(
 ).watched
 ```
 
-**Python**
-
-```python
-all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
-```
-
-**TypeScript**
-
-```ts
-declaredQuery("all-rows", `SELECT row_key, payload FROM \${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
-```
-
 **Java**
 
 ```java
@@ -1215,6 +1203,18 @@ public static final ViewQuery ALL_ROWS =
 ```kotlin
 /** Every row, by key, watchable: the same statement in every language. */
 val ALL_ROWS: ViewQuery = ViewQuery.declare("all-rows", "SELECT row_key, payload FROM \$TABLE ORDER BY row_key").watched()
+```
+
+**Python**
+
+```python
+all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
+```
+
+**TypeScript**
+
+```ts
+declaredQuery("all-rows", `SELECT row_key, payload FROM \${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
 ```
 
 **Go**
@@ -1242,6 +1242,28 @@ key and the row as JSON:
 sseEvents("/")(() => views.forView(CartRows).watch(CartRows.openCarts).asSse)
 ```
 
+**Java**
+
+`watch(query, values)` and `watchRow(key)` answer a `ViewWatch`, whose `asSse()` an `@Sse` route returns:
+
+```java
+// The rows now, `caught-up`, then each row as it is written, as named events.
+@Sse("/tree/watched")
+public Flow.Publisher<SseEvent> watched() {
+  return viewClient().forView(TreeRows.class).watch(TreeRows.ALL_ROWS, Map.of()).asSse();
+}
+```
+
+**Kotlin**
+
+The Java SDK's `ViewWatch`, served by an `@Sse` route through `asSse()`:
+
+```kotlin
+// The rows now, `caught-up`, then each row as it is written, as named events.
+@Sse("/tree/watched")
+fun watched(): Flow.Publisher<SseEvent> = viewClient().forView(TreeRows::class.java).watch(TreeRows.ALL_ROWS, emptyMap()).asSse()
+```
+
 **Python**
 
 `views.watch(view_id, name, row, values, unread=…, overflow=…)` and `views.watch_row(view_id, key, row)`
@@ -1264,28 +1286,6 @@ an `sse` route:
 
 ```ts
 watched: sse("/watched", (ep: TreeEndpoint) => sseEvents(ep.client.views.watch(TreeRows.componentId, "all-rows", {}, TreeRow))),
-```
-
-**Java**
-
-`watch(query, values)` and `watchRow(key)` answer a `ViewWatch`, whose `asSse()` an `@Sse` route returns:
-
-```java
-// The rows now, `caught-up`, then each row as it is written, as named events.
-@Sse("/tree/watched")
-public Flow.Publisher<SseEvent> watched() {
-  return viewClient().forView(TreeRows.class).watch(TreeRows.ALL_ROWS, Map.of()).asSse();
-}
-```
-
-**Kotlin**
-
-The Java SDK's `ViewWatch`, served by an `@Sse` route through `asSse()`:
-
-```kotlin
-// The rows now, `caught-up`, then each row as it is written, as named events.
-@Sse("/tree/watched")
-fun watched(): Flow.Publisher<SseEvent> = viewClient().forView(TreeRows::class.java).watch(TreeRows.ALL_ROWS, emptyMap()).asSse()
 ```
 
 **Go**

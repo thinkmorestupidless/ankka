@@ -2,7 +2,7 @@
 title: Autonomous agents
 description: Write an autonomous agent in Scala or Python — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [autonomous-agent]
 related: [concepts/autonomous-agents.md, build/agents.md, build/streaming.md, build/testing.md, reference/limitations.md]
 ---
@@ -59,34 +59,6 @@ text result.
 
 ///
 
-/// tab | Python
-
-<!-- include: sdks/python/examples/shopping_cart/answerer.py#task-type -->
-```python
-@dataclass
-class Answer:
-    answer: str
-    sources: list[str]
-
-
-def cites_sources(answer: Answer) -> Accepted | Rejected:
-    return Rejected("say which tools you used in sources") if not answer.sources else Accepted()
-
-
-# "answer" is the wire name, written into every task of this type.
-ANSWER = TaskType(
-    "answer",
-    "Answer a question about a shopping cart, citing what you looked at",
-    result=Answer,
-    rules=(TaskRule("cites-sources", cites_sources),),
-)
-```
-
-The result's dataclass fields are the schema the model sees, as a tool's input fields are. A task type
-with no `result` has a text result.
-
-///
-
 /// tab | Java
 
 <!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CartTasks.java#task-type -->
@@ -138,6 +110,34 @@ val ANSWER: TaskType<Answer> =
 ```
 
 The result is a data class; its properties are the schema the model is shown.
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/answerer.py#task-type -->
+```python
+@dataclass
+class Answer:
+    answer: str
+    sources: list[str]
+
+
+def cites_sources(answer: Answer) -> Accepted | Rejected:
+    return Rejected("say which tools you used in sources") if not answer.sources else Accepted()
+
+
+# "answer" is the wire name, written into every task of this type.
+ANSWER = TaskType(
+    "answer",
+    "Answer a question about a shopping cart, citing what you looked at",
+    result=Answer,
+    rules=(TaskRule("cites-sources", cites_sources),),
+)
+```
+
+The result's dataclass fields are the schema the model sees, as a tool's input fields are. A task type
+with no `result` has a text result.
 
 ///
 
@@ -207,44 +207,6 @@ Ankka.service
   .withExtension(AgentRuntime.withDefaultModel(AnthropicProvider.fromEnv()))
   .withExtension(ProjectionRuntime())
 ```
-
-///
-
-/// tab | Python
-
-<!-- include: sdks/python/examples/shopping_cart/answerer.py#agent -->
-```python
-async def _cart(agent: AutonomousAgent, ref: CartRef) -> ShoppingCart:
-    assert agent.client is not None
-    return await agent.client.for_event_sourced_entity("shopping-cart", ref.cartId).call("get-cart").invoke(reply=ShoppingCart)
-
-
-async def cart_contents(agent: AutonomousAgent, ref: CartRef) -> str:
-    cart = await _cart(agent, ref)
-    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items) or f"cart {ref.cartId} is empty"
-
-
-async def cart_total(agent: AutonomousAgent, ref: CartRef) -> str:
-    cart = await _cart(agent, ref)
-    return f"cart {ref.cartId} holds {sum(i.quantity for i in cart.items)} items"
-
-
-class CartAnswerer(AutonomousAgent):
-    """Tools may run more than once for one request of the model — after a crash, the last recorded
-    request's tools run again — and these only read, so that costs nothing."""
-
-    component_id = "cart-answerer"
-    description = "Answers questions about shopping carts"
-    instructions = "Look carts up rather than guessing. Be brief."
-    tools = {
-        "cart_contents": Tool("Lists what is in a cart.", cart_contents, CartRef),
-        "cart_total": Tool("Counts the items in a cart.", cart_total, CartRef),
-    }
-    accepts = [TaskAcceptance(ANSWER, max_iterations=5)]
-```
-
-Register it with `Ankka.service().register(CartAnswerer)`. The sidecar runs the loop and keeps the
-records, so a projection runtime and session memory are the sidecar's concern, not the process's.
 
 ///
 
@@ -333,6 +295,44 @@ class Guide : AutonomousAgent() {
 ```
 
 A tool may be a `suspend fun`, and a tool's lone data class parameter's properties are its arguments.
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/answerer.py#agent -->
+```python
+async def _cart(agent: AutonomousAgent, ref: CartRef) -> ShoppingCart:
+    assert agent.client is not None
+    return await agent.client.for_event_sourced_entity("shopping-cart", ref.cartId).call("get-cart").invoke(reply=ShoppingCart)
+
+
+async def cart_contents(agent: AutonomousAgent, ref: CartRef) -> str:
+    cart = await _cart(agent, ref)
+    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items) or f"cart {ref.cartId} is empty"
+
+
+async def cart_total(agent: AutonomousAgent, ref: CartRef) -> str:
+    cart = await _cart(agent, ref)
+    return f"cart {ref.cartId} holds {sum(i.quantity for i in cart.items)} items"
+
+
+class CartAnswerer(AutonomousAgent):
+    """Tools may run more than once for one request of the model — after a crash, the last recorded
+    request's tools run again — and these only read, so that costs nothing."""
+
+    component_id = "cart-answerer"
+    description = "Answers questions about shopping carts"
+    instructions = "Look carts up rather than guessing. Be brief."
+    tools = {
+        "cart_contents": Tool("Lists what is in a cart.", cart_contents, CartRef),
+        "cart_total": Tool("Counts the items in a cart.", cart_total, CartRef),
+    }
+    accepts = [TaskAcceptance(ANSWER, max_iterations=5)]
+```
+
+Register it with `Ankka.service().register(CartAnswerer)`. The sidecar runs the loop and keeps the
+records, so a projection runtime and session memory are the sidecar's concern, not the process's.
 
 ///
 
@@ -450,31 +450,6 @@ fails with `Timeout` naming where it had got to otherwise.
 
 ///
 
-/// tab | Python
-
-<!-- include: sdks/python/examples/shopping_cart/questions.py#run-task -->
-```python
-@post("/ask")
-async def ask(self, question: str) -> Asked:
-    """Starts the work and answers at once, with where to look for the answer."""
-    client = self.client.with_metadata(self.request.metadata)
-    task_id = await client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, question)
-    task = await client.for_task(task_id).get()
-    return Asked(task_id, task.assignee[1] if task.assignee else "")
-```
-
-<!-- include: sdks/python/examples/shopping_cart/questions.py#read-task -->
-```python
-@get("/{taskId}")
-async def read(self, taskId: str) -> Question:
-    task = await self.client.with_metadata(self.request.metadata).for_task(taskId).get(ANSWER)
-    return Question(taskId, task.status, task.result, task.reason, task.iterations)
-```
-
-`await client.for_task(id).wait(ANSWER, timeout)` waits until the task has ended.
-
-///
-
 /// tab | Java
 
 <!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#run-task -->
@@ -499,6 +474,31 @@ public static TaskSnapshot<CartTasks.Answer> answer(ComponentClient client, Stri
 val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
 val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
 ```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/questions.py#run-task -->
+```python
+@post("/ask")
+async def ask(self, question: str) -> Asked:
+    """Starts the work and answers at once, with where to look for the answer."""
+    client = self.client.with_metadata(self.request.metadata)
+    task_id = await client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, question)
+    task = await client.for_task(task_id).get()
+    return Asked(task_id, task.assignee[1] if task.assignee else "")
+```
+
+<!-- include: sdks/python/examples/shopping_cart/questions.py#read-task -->
+```python
+@get("/{taskId}")
+async def read(self, taskId: str) -> Question:
+    task = await self.client.with_metadata(self.request.metadata).for_task(taskId).get(ANSWER)
+    return Question(taskId, task.status, task.result, task.reason, task.iterations)
+```
+
+`await client.for_task(id).wait(ANSWER, timeout)` waits until the task has ended.
 
 ///
 
@@ -612,6 +612,46 @@ proves an agent survives a crash.
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#service-test -->
+```java
+var model =
+    new TestModelProvider()
+        .expectToolCall("cart_total", "{\"cartId\":\"c-1\"}")
+        .expectCompleteTask(
+            "{\"answer\":\"Cart c-1 holds 3 items.\",\"sources\":[\"cart_total\"]}");
+try (var kit = AnkkaTestKit.start(service(model))) {
+  var client = kit.componentClient();
+  client.forEventSourcedEntity("c-1").call(ShoppingCart::addItem).invoke(new LineItem("p", "Pen", 3));
+
+  var taskId = startAnswer(client, "How many items are in cart c-1?");
+  return answer(client, taskId).result().orElseThrow();
+}
+```
+
+In the whole-service kit the scripted `TestModelProvider` is the agents module's default model, and the task is worked to its end.
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/GuideTest.kt#test -->
+```kotlin
+val model =
+    TestModelProvider()
+        .expectToolCall("read_page", """{"page":"style"}""")
+        .expectCompleteTask("""{"answer":"Be brief.","sources":["style"]}""")
+AnkkaTestKit.start(guideService(model)).use { kit ->
+    val client = kit.componentClient()
+    val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
+    val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
+    assertEquals(Answer("Be brief.", listOf("style")), done.result().orElseThrow())
+}
+```
+
+///
+
 /// tab | Python
 
 The loop runs in the sidecar, so an end-to-end test scripts the sidecar's model with
@@ -660,46 +700,6 @@ async def test_answerer_pieces_without_a_sidecar() -> None:
     kit = AutonomousAgentTestKit.of(CartAnswerer)
     assert await kit.check_result(ANSWER, Answer("3", [])) == ("cites-sources", "say which tools you used in sources")
     assert await kit.check_result(ANSWER, Answer("3", ["cart_total"])) is None
-```
-
-///
-
-/// tab | Java
-
-<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/AgentSamples.java#service-test -->
-```java
-var model =
-    new TestModelProvider()
-        .expectToolCall("cart_total", "{\"cartId\":\"c-1\"}")
-        .expectCompleteTask(
-            "{\"answer\":\"Cart c-1 holds 3 items.\",\"sources\":[\"cart_total\"]}");
-try (var kit = AnkkaTestKit.start(service(model))) {
-  var client = kit.componentClient();
-  client.forEventSourcedEntity("c-1").call(ShoppingCart::addItem).invoke(new LineItem("p", "Pen", 3));
-
-  var taskId = startAnswer(client, "How many items are in cart c-1?");
-  return answer(client, taskId).result().orElseThrow();
-}
-```
-
-In the whole-service kit the scripted `TestModelProvider` is the agents module's default model, and the task is worked to its end.
-
-///
-
-/// tab | Kotlin
-
-<!-- include: sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/GuideTest.kt#test -->
-```kotlin
-val model =
-    TestModelProvider()
-        .expectToolCall("read_page", """{"page":"style"}""")
-        .expectCompleteTask("""{"answer":"Be brief.","sources":["style"]}""")
-AnkkaTestKit.start(guideService(model)).use { kit ->
-    val client = kit.componentClient()
-    val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
-    val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
-    assertEquals(Answer("Be brief.", listOf("style")), done.result().orElseThrow())
-}
 ```
 
 ///

@@ -51,50 +51,6 @@ get("/call/{service}") { (service: String) =>
 }
 ```
 
-**Python**
-
-```python
-class CallingEndpoint(Endpoint):
-    """Calls another service of this project, as this service: the answer is what that service
-    answered, and the service it called saw this one as the caller."""
-
-    prefix = "/calling"
-    acl = Acl.allow_callers(Callers.self_)
-
-    @get("/call/{service}")
-    async def call(self, service: str) -> str:
-        path = self.request.query_param("path") or "/callers/whoami"
-        try:
-            return await self.services(service).get_text(path)
-        except ServiceUnresolvable as unresolvable:
-            raise HttpProblem(503, str(unresolvable)) from unresolvable
-```
-
-**TypeScript**
-
-```ts
-/**
- * Calls another service of this project, as this service: the answer is what that service answered,
- * and the service it called saw this one as the caller.
- */
-export class CallingEndpoint extends Endpoint {
-  static readonly prefix = "/calling"
-  static readonly acl = Acl.allowCallers(Callers.self)
-
-  static readonly routes = {
-    call: get("/call/{service}", s.string, async (ep: CallingEndpoint, req) => {
-      const path = req.query.get("path") ?? "/callers/whoami"
-      try {
-        return await ep.services.service(req.params.service).getText(path)
-      } catch (e) {
-        if (e instanceof ServiceUnresolvable) throw new HttpProblem(503, e.message)
-        throw e
-      }
-    }),
-  }
-}
-```
-
 **Java**
 
 ```java
@@ -167,6 +123,50 @@ fun serviceCall(@Body body: String): ServiceCallRecord {
     } catch (e: CommandException) {
         ServiceCallRecord("refused", message = e.problem().detail)
     }
+}
+```
+
+**Python**
+
+```python
+class CallingEndpoint(Endpoint):
+    """Calls another service of this project, as this service: the answer is what that service
+    answered, and the service it called saw this one as the caller."""
+
+    prefix = "/calling"
+    acl = Acl.allow_callers(Callers.self_)
+
+    @get("/call/{service}")
+    async def call(self, service: str) -> str:
+        path = self.request.query_param("path") or "/callers/whoami"
+        try:
+            return await self.services(service).get_text(path)
+        except ServiceUnresolvable as unresolvable:
+            raise HttpProblem(503, str(unresolvable)) from unresolvable
+```
+
+**TypeScript**
+
+```ts
+/**
+ * Calls another service of this project, as this service: the answer is what that service answered,
+ * and the service it called saw this one as the caller.
+ */
+export class CallingEndpoint extends Endpoint {
+  static readonly prefix = "/calling"
+  static readonly acl = Acl.allowCallers(Callers.self)
+
+  static readonly routes = {
+    call: get("/call/{service}", s.string, async (ep: CallingEndpoint, req) => {
+      const path = req.query.get("path") ?? "/callers/whoami"
+      try {
+        return await ep.services.service(req.params.service).getText(path)
+      } catch (e) {
+        if (e instanceof ServiceUnresolvable) throw new HttpProblem(503, e.message)
+        throw e
+      }
+    }),
+  }
 }
 ```
 

@@ -2,7 +2,7 @@
 title: Handlers and wire names
 description: How ankka names components, handlers and stored types independently of your code's names, why those names are a versioning boundary, and which renames are safe in a running system.
 kind: concept
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 related: [build/serialization.md, deploy/scaling-and-rollouts.md, concepts/designing-services.md]
 ---
 

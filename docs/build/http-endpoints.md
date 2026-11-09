@@ -2,7 +2,7 @@
 title: HTTP endpoints
 description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Java, Kotlin, Python or TypeScript.
 kind: guide
-languages: [scala, python, typescript, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [http-endpoint]
 related: [build/component-client.md, build/streaming.md, deploy/expose.md, concepts/tenancy-and-access.md]
 ---

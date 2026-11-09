@@ -2,6 +2,7 @@
 title: ankka
 description: What ankka is, who it is for, the components a service is built from, and where in this documentation to start.
 kind: concept
+languages: [scala, java, kotlin, python, typescript, rust, go]
 related: [get-started/install.md, concepts/architecture.md, concepts/components.md]
 ---
 
@@ -56,113 +57,6 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
   def addItem(item: LineItem): Effect[Done] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else effects.persist(ItemAdded(item)).thenReply(_ => Done)
-```
-
-///
-
-/// tab | Python
-
-```python
-class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
-    component_id = "shopping-cart"
-    state_codec = json_codec(ShoppingCart, "shopping-cart")
-    event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
-
-    def empty_state(self) -> ShoppingCart:
-        return ShoppingCart.empty(self.entity_id)
-
-    def apply_event(self, state: ShoppingCart, event: ShoppingCartEvent) -> ShoppingCart:
-        match event:
-            case ItemAdded(item):
-                return state.add_item(item)
-            case ItemRemoved(product_id):
-                return state.remove_item(product_id)
-            case CheckedOut():
-                return state.on_checked_out()
-        raise AssertionError(event)
-
-    @command("add-item")
-    def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
-        if self.state.checkedOut:
-            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
-        return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
-  static readonly componentId = "shopping-cart"
-  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
-  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
-
-  static readonly handlers = {
-    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
-  }
-
-  emptyState(): ShoppingCart {
-    return emptyCart(this.entityId)
-  }
-
-  applyEvent(cart: ShoppingCart, event: ShoppingCartEvent): ShoppingCart {
-    switch (event.type) {
-      case "ItemAdded":
-        return addItem(cart, event.item)
-      case "ItemRemoved":
-        return removeItem(cart, event.productId)
-      case "CheckedOut":
-        return { ...cart, checkedOut: true }
-    }
-  }
-
-  addItem(item: LineItem) {
-    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
-    return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
-  }
-}
-```
-
-///
-
-/// tab | Rust
-
-```rust
-pub struct ShoppingCart;
-
-impl ShoppingCart {
-    fn add_item(cart: &Cart, item: LineItem, _: &Context) -> Effect<ShoppingCartEvent, Done> {
-        if cart.checked_out {
-            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
-        }
-        effects::persist(ShoppingCartEvent::ItemAdded { item }).then_reply_value(Done)
-    }
-}
-
-impl EventSourcedEntity for ShoppingCart {
-    type State = Cart;
-    type Event = ShoppingCartEvent;
-    const COMPONENT_ID: &'static str = "shopping-cart";
-    const STATE_MANIFEST: Option<&'static str> = Some("shopping-cart");
-    const EVENT_MANIFEST: Option<&'static str> = Some("shopping-cart-event");
-
-    fn empty_state(cart_id: &str) -> Cart {
-        Cart::empty(cart_id)
-    }
-
-    fn apply(cart: Cart, event: &ShoppingCartEvent) -> Cart {
-        match event {
-            ShoppingCartEvent::ItemAdded { item } => cart.add_item(item.clone()),
-            ShoppingCartEvent::ItemRemoved { product_id } => cart.remove_item(product_id),
-            ShoppingCartEvent::CheckedOut => cart.on_checked_out(),
-        }
-    }
-
-    fn handlers() -> Handlers<ShoppingCart> {
-        Handlers::new().command("add-item", ShoppingCart::add_item)
-    }
-}
 ```
 
 ///
@@ -295,6 +189,113 @@ class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
 
     private val checkedOut: Problem
         get() = Problem.conflict("cart is already checked out")
+}
+```
+
+///
+
+/// tab | Python
+
+```python
+class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
+    component_id = "shopping-cart"
+    state_codec = json_codec(ShoppingCart, "shopping-cart")
+    event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
+
+    def empty_state(self) -> ShoppingCart:
+        return ShoppingCart.empty(self.entity_id)
+
+    def apply_event(self, state: ShoppingCart, event: ShoppingCartEvent) -> ShoppingCart:
+        match event:
+            case ItemAdded(item):
+                return state.add_item(item)
+            case ItemRemoved(product_id):
+                return state.remove_item(product_id)
+            case CheckedOut():
+                return state.on_checked_out()
+        raise AssertionError(event)
+
+    @command("add-item")
+    def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+        if self.state.checkedOut:
+            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+        return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
+  static readonly componentId = "shopping-cart"
+  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+
+  static readonly handlers = {
+    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+  }
+
+  emptyState(): ShoppingCart {
+    return emptyCart(this.entityId)
+  }
+
+  applyEvent(cart: ShoppingCart, event: ShoppingCartEvent): ShoppingCart {
+    switch (event.type) {
+      case "ItemAdded":
+        return addItem(cart, event.item)
+      case "ItemRemoved":
+        return removeItem(cart, event.productId)
+      case "CheckedOut":
+        return { ...cart, checkedOut: true }
+    }
+  }
+
+  addItem(item: LineItem) {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+```rust
+pub struct ShoppingCart;
+
+impl ShoppingCart {
+    fn add_item(cart: &Cart, item: LineItem, _: &Context) -> Effect<ShoppingCartEvent, Done> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
+        effects::persist(ShoppingCartEvent::ItemAdded { item }).then_reply_value(Done)
+    }
+}
+
+impl EventSourcedEntity for ShoppingCart {
+    type State = Cart;
+    type Event = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "shopping-cart";
+    const STATE_MANIFEST: Option<&'static str> = Some("shopping-cart");
+    const EVENT_MANIFEST: Option<&'static str> = Some("shopping-cart-event");
+
+    fn empty_state(cart_id: &str) -> Cart {
+        Cart::empty(cart_id)
+    }
+
+    fn apply(cart: Cart, event: &ShoppingCartEvent) -> Cart {
+        match event {
+            ShoppingCartEvent::ItemAdded { item } => cart.add_item(item.clone()),
+            ShoppingCartEvent::ItemRemoved { product_id } => cart.remove_item(product_id),
+            ShoppingCartEvent::CheckedOut => cart.on_checked_out(),
+        }
+    }
+
+    fn handlers() -> Handlers<ShoppingCart> {
+        Handlers::new().command("add-item", ShoppingCart::add_item)
+    }
 }
 ```
 

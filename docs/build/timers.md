@@ -54,47 +54,6 @@ final class OrderTimers(context: TimedActionContext) extends TimedAction:
 
 ///
 
-/// tab | Python
-
-```python
-from ankka import Done
-from ankka.effects.timed_action import TimedActionEffect
-from ankka.timed_action import TimedAction, action
-
-
-class Reminder(TimedAction):
-    component_id = "reminder"
-
-    @action("nudge")
-    async def nudge(self, cart_id: str) -> TimedActionEffect:
-        attempts = int(self.metadata.get("ankka.attempts") or "0")
-        if attempts > 5:
-            return self.effects.done()          # give up quietly rather than retry forever
-        assert self.client is not None
-        await self.client.for_key_value_entity("reminders", cart_id).call("record").invoke(reply=Done)
-        return self.effects.done()
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-import { TimedAction, action, s } from "ankka"
-
-export class Reminder extends TimedAction {
-  static readonly componentId = "reminder"
-  static readonly actions = {
-    nudge: action("nudge", s.string, async (r: Reminder, cartId) => {
-      await r.client.of(Reminders, cartId).call(Reminders.handlers.record).invoke()
-      return r.effects.done()
-    }),
-  }
-}
-```
-
-///
-
 /// tab | Java
 
 <!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/Reminder.java#timed-action -->
@@ -151,6 +110,47 @@ class Reminder : TimedAction() {
     private fun record(id: String, what: String) {
         context().componentClient().forEventSourcedEntity(id).call(ConformanceEntity::record).invoke(what)
     }
+}
+```
+
+///
+
+/// tab | Python
+
+```python
+from ankka import Done
+from ankka.effects.timed_action import TimedActionEffect
+from ankka.timed_action import TimedAction, action
+
+
+class Reminder(TimedAction):
+    component_id = "reminder"
+
+    @action("nudge")
+    async def nudge(self, cart_id: str) -> TimedActionEffect:
+        attempts = int(self.metadata.get("ankka.attempts") or "0")
+        if attempts > 5:
+            return self.effects.done()          # give up quietly rather than retry forever
+        assert self.client is not None
+        await self.client.for_key_value_entity("reminders", cart_id).call("record").invoke(reply=Done)
+        return self.effects.done()
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+import { TimedAction, action, s } from "ankka"
+
+export class Reminder extends TimedAction {
+  static readonly componentId = "reminder"
+  static readonly actions = {
+    nudge: action("nudge", s.string, async (r: Reminder, cartId) => {
+      await r.client.of(Reminders, cartId).call(Reminders.handlers.record).invoke()
+      return r.effects.done()
+    }),
+  }
 }
 ```
 
@@ -234,6 +234,32 @@ assert(scheduler.exists("expire-o-1"))
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#schedule -->
+```java
+@Post("/conformance/remind/{id}")
+public Done remind(String id) {
+  timers().schedule("remind-" + id, Duration.ofSeconds(1), Reminder::remind, id);
+  return Done.done();
+}
+```
+
+///
+
+/// tab | Kotlin
+
+<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#schedule -->
+```kotlin
+@Post("/conformance/remind/{id}")
+fun remind(id: String): Done {
+    timers().schedule("remind-$id", Duration.ofSeconds(1), Reminder::remind, id)
+    return Done.done()
+}
+```
+
+///
+
 /// tab | Python
 
 ```python
@@ -261,32 +287,6 @@ await client.timers.cancel("nudge-c1")
 ```rust
 ctx.client().schedule("nudge-c1", Duration::of_hours(1), Reminder, None, "nudge", "c1".to_string())?;
 ctx.client().cancel("nudge-c1")?;
-```
-
-///
-
-/// tab | Java
-
-<!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#schedule -->
-```java
-@Post("/conformance/remind/{id}")
-public Done remind(String id) {
-  timers().schedule("remind-" + id, Duration.ofSeconds(1), Reminder::remind, id);
-  return Done.done();
-}
-```
-
-///
-
-/// tab | Kotlin
-
-<!-- include: sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt#schedule -->
-```kotlin
-@Post("/conformance/remind/{id}")
-fun remind(id: String): Done {
-    timers().schedule("remind-$id", Duration.ofSeconds(1), Reminder::remind, id)
-    return Done.done()
-}
 ```
 
 ///
@@ -335,34 +335,6 @@ scheduler.createRecurringTimer(
 
 ///
 
-/// tab | Python
-
-```python
-from datetime import timedelta
-
-await client.timers.schedule_recurring("sweep-carts", timedelta(0), timedelta(hours=1), "cleanup", "sweep")
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-import { Duration } from "ankka"
-
-await client.timers.scheduleRecurring("sweep-carts", Duration.ZERO, Duration.ofHours(1), { component: Cleanup, handler: Cleanup.actions.sweep })
-```
-
-///
-
-/// tab | Rust
-
-```rust
-ctx.client().schedule_recurring("sweep-carts", Duration::of_seconds(0), Duration::of_hours(1), Cleanup, "sweep", ())?;
-```
-
-///
-
 /// tab | Java
 
 <!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#recurring -->
@@ -388,6 +360,34 @@ fun recur(id: String): Done {
     timers().scheduleRecurring("recur-$id", Duration.ZERO, Duration.ofSeconds(1), Reminder::tick, id)
     return Done.done()
 }
+```
+
+///
+
+/// tab | Python
+
+```python
+from datetime import timedelta
+
+await client.timers.schedule_recurring("sweep-carts", timedelta(0), timedelta(hours=1), "cleanup", "sweep")
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+import { Duration } from "ankka"
+
+await client.timers.scheduleRecurring("sweep-carts", Duration.ZERO, Duration.ofHours(1), { component: Cleanup, handler: Cleanup.actions.sweep })
+```
+
+///
+
+/// tab | Rust
+
+```rust
+ctx.client().schedule_recurring("sweep-carts", Duration::of_seconds(0), Duration::of_hours(1), Cleanup, "sweep", ())?;
 ```
 
 ///

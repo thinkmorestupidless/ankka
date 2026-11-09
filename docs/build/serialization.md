@@ -2,7 +2,7 @@
 title: Serialization and evolution
 description: How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [event-sourced-entity, key-value-entity, view, consumer]
 related: [build/event-sourced-entities.md, concepts/polyglot.md, reference/sidecar-protocol.md]
 ---

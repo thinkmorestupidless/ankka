@@ -2,7 +2,7 @@
 title: Workflows
 description: Build a durable multi-step process in Scala, Java, Kotlin, Python or TypeScript — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 kind: guide
-languages: [scala, java, kotlin, python, typescript, go]
+languages: [scala, java, kotlin, python, typescript, rust, go]
 components: [workflow]
 related: [build/multi-agent-orchestration.md, build/component-client.md, concepts/consistency.md, build/testing.md]
 ---
@@ -630,31 +630,6 @@ postBody("/{id}") { (id: String, request: QuoteRequest) =>
 
 ///
 
-/// tab | Python
-
-<!-- include: sdks/python/examples/shopping_cart/endpoint.py#start-and-await -->
-```python
-@post("/{cartId}/checkouts/wait")
-async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
-    """Starts the checkout and answers with how it ended, as one request."""
-    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
-    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
-```
-
-///
-
-/// tab | TypeScript
-
-<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#start-and-await -->
-```typescript
-/** Starts the checkout and answers with how it ended, as one request. */
-checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
-  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
-),
-```
-
-///
-
 /// tab | Java
 
 <!-- include: modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java#start-and-await -->
@@ -692,6 +667,31 @@ fun checkoutAwait(id: String, @Body mode: String): String =
         val end = failed.workflowFailureOrNull ?: throw failed
         throw ProblemException(Problem(424, "", "${end.step.orNull() ?: ""}: ${end.reason}"))
     }
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/endpoint.py#start-and-await -->
+```python
+@post("/{cartId}/checkouts/wait")
+async def check_out_and_wait(self, cartId: str, mode: str) -> Checkout:
+    """Starts the checkout and answers with how it ended, as one request."""
+    checkout = self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId)
+    return await checkout.call("start").then_await_end(30.0).invoke(mode or "ok", reply=Checkout)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#start-and-await -->
+```typescript
+/** Starts the checkout and answers with how it ended, as one request. */
+checkOutAndWait: post("/{cartId}/checkouts/wait", s.string, Checkout, (ep: ShoppingCartEndpoint, req, mode) =>
+  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).thenAwaitEnd<Checkout>(30_000).invoke(mode || "ok"),
+),
 ```
 
 ///
@@ -827,6 +827,18 @@ sseEvents("/{id}/events") { (id: String) =>
 
 ///
 
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CheckoutEvents.java#sse-await -->
+```java
+@Sse("/checkouts/{id}/end")
+public Flow.Publisher<SseEvent> end(String id) {
+  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
+}
+```
+
+///
+
 /// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#sse-await -->
@@ -849,18 +861,6 @@ async def checkout_events(self, cartId: str) -> AsyncIterator[str]:
 checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingCartEndpoint, req) {
   for await (const part of ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEndParts<Checkout>(600_000)) yield awaitPartJson(part)
 }),
-```
-
-///
-
-/// tab | Java
-
-<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/CheckoutEvents.java#sse-await -->
-```java
-@Sse("/checkouts/{id}/end")
-public Flow.Publisher<SseEvent> end(String id) {
-  return componentClient().forWorkflow(id).awaitEndEvents(Checkout.class, Duration.ofSeconds(30));
-}
 ```
 
 ///

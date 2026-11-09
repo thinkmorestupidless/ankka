@@ -2,7 +2,7 @@
 title: Blueprints
 description: Describe workers and the steps between them as data the platform runs — ask, work, for-each, gather, judge, critique and call steps — register it, start runs by hand or on a schedule, follow them, and test with a scripted model.
 kind: guide
-languages: [scala]
+languages: [scala, java, kotlin]
 components: [agent, autonomous-agent]
 related: [build/agents.md, build/autonomous-agents.md, build/multi-agent-orchestration.md, build/judgments.md, build/timers.md, build/testing.md, reference/limitations.md]
 ---

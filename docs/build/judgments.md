@@ -2,7 +2,7 @@
 title: Judgments
 description: Ask a System One model typed questions about a state — a choice, a score, a yes or no — read typed answers with their probabilities, guard agents with them, and test them offline.
 kind: guide
-languages: [scala]
+languages: [scala, java, kotlin]
 components: [agent]
 related: [concepts/agents.md, concepts/designing-agents.md, build/agents.md, build/testing.md]
 ---

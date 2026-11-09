@@ -83,99 +83,6 @@ object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assista
   val chat = stream("chat")(_.chat)
 ```
 
-**Python**
-
-```python
-"""An agent that answers questions about a cart. It declares its instructions, one tool and one
-guardrail; the sidecar runs the loop — the model, memory, compaction — and asks this process to run
-the tool and check the guardrail. No model key lives here."""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-from ankka.agent import Agent, Guardrail, Tool, stream
-from ankka.effects.agent import AgentEffect
-from ankka.event_sourced_entity import command
-
-from examples.shopping_cart.domain import ShoppingCart
-
-
-@dataclass(frozen=True)
-class CartLookup:
-    cartId: str
-
-
-async def _lookup(agent: Agent, arguments: CartLookup) -> str:
-    assert agent.client is not None
-    cart = await agent.client.for_event_sourced_entity("shopping-cart", arguments.cartId).call("get-cart").invoke(reply=ShoppingCart)
-    if not cart.items:
-        return f"cart {arguments.cartId} is empty"
-    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items)
-
-
-class CartAssistant(Agent):
-    component_id = "assistant"
-    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
-    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
-
-    def _describe(self, question: str) -> AgentEffect[str]:
-        return (
-            self.effects.system_message("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
-            .user_message(question)
-            .tools("lookup")
-            .guardrails("no-secrets")
-            .then_reply()
-        )
-
-    @command("ask")
-    def ask(self, question: str) -> AgentEffect[str]:
-        return self._describe(question)
-
-    @stream("chat")
-    def chat(self, question: str) -> AgentEffect[str]:
-        return self._describe(question)
-```
-
-**TypeScript**
-
-```ts
-const CartLookup = s.record("CartLookup", { cartId: s.string })
-
-export class CartAssistant extends Agent {
-  static readonly componentId = "assistant"
-  static readonly role = "helps shoppers with their carts"
-
-  static readonly tools = {
-    lookup: tool("lookup", "Looks up what is in a cart by its id.", CartLookup, (a: CartAssistant, input) => a.lookup(input.cartId)),
-  }
-
-  static readonly guardrails = {
-    noSecrets: guardrail("no-secrets", (stage, text) => (stage === "output" && text.includes("sk-") ? "a key leaked" : null)),
-  }
-
-  static readonly handlers = {
-    ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
-    chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
-  }
-
-  describe(question: string) {
-    return this.effects
-      .systemMessage("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
-      .userMessage(question)
-      .tools("lookup")
-      .guardrails("no-secrets")
-      .thenReply()
-  }
-
-  async lookup(cartId: string): Promise<string> {
-    const cart = await this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
-    if (cart.items.length === 0) return `cart ${cartId} is empty`
-    return cart.items.map((i) => `${i.quantity} x ${i.name}`).join(", ")
-  }
-}
-```
-
 **Java**
 
 ```java
@@ -294,6 +201,99 @@ class Forecaster : Agent() {
 
 Kotlin uses the Java agent library: a handler and a tool may be a `suspend fun`, `effects { ... }` builds
 the interaction, and `thenReply<R>()` reads a data class.
+
+**Python**
+
+```python
+"""An agent that answers questions about a cart. It declares its instructions, one tool and one
+guardrail; the sidecar runs the loop — the model, memory, compaction — and asks this process to run
+the tool and check the guardrail. No model key lives here."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ankka.agent import Agent, Guardrail, Tool, stream
+from ankka.effects.agent import AgentEffect
+from ankka.event_sourced_entity import command
+
+from examples.shopping_cart.domain import ShoppingCart
+
+
+@dataclass(frozen=True)
+class CartLookup:
+    cartId: str
+
+
+async def _lookup(agent: Agent, arguments: CartLookup) -> str:
+    assert agent.client is not None
+    cart = await agent.client.for_event_sourced_entity("shopping-cart", arguments.cartId).call("get-cart").invoke(reply=ShoppingCart)
+    if not cart.items:
+        return f"cart {arguments.cartId} is empty"
+    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items)
+
+
+class CartAssistant(Agent):
+    component_id = "assistant"
+    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
+    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
+
+    def _describe(self, question: str) -> AgentEffect[str]:
+        return (
+            self.effects.system_message("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
+            .user_message(question)
+            .tools("lookup")
+            .guardrails("no-secrets")
+            .then_reply()
+        )
+
+    @command("ask")
+    def ask(self, question: str) -> AgentEffect[str]:
+        return self._describe(question)
+
+    @stream("chat")
+    def chat(self, question: str) -> AgentEffect[str]:
+        return self._describe(question)
+```
+
+**TypeScript**
+
+```ts
+const CartLookup = s.record("CartLookup", { cartId: s.string })
+
+export class CartAssistant extends Agent {
+  static readonly componentId = "assistant"
+  static readonly role = "helps shoppers with their carts"
+
+  static readonly tools = {
+    lookup: tool("lookup", "Looks up what is in a cart by its id.", CartLookup, (a: CartAssistant, input) => a.lookup(input.cartId)),
+  }
+
+  static readonly guardrails = {
+    noSecrets: guardrail("no-secrets", (stage, text) => (stage === "output" && text.includes("sk-") ? "a key leaked" : null)),
+  }
+
+  static readonly handlers = {
+    ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
+    chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
+  }
+
+  describe(question: string) {
+    return this.effects
+      .systemMessage("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
+      .userMessage(question)
+      .tools("lookup")
+      .guardrails("no-secrets")
+      .thenReply()
+  }
+
+  async lookup(cartId: string): Promise<string> {
+    const cart = await this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
+    if (cart.items.length === 0) return `cart ${cartId} is empty`
+    return cart.items.map((i) => `${i.quantity} x ${i.name}`).join(", ")
+  }
+}
+```
 
 **Go**
 
@@ -822,18 +822,6 @@ val answer: String =
   componentClient.forAgent(SessionId("session-42")).call(WeatherAgent.consult).invoke("Lisbon")
 ```
 
-**Python**
-
-```python
-answer = await client.for_agent("assistant", "session-42").call("ask").invoke("what is in cart c1?", reply=str)
-```
-
-**TypeScript**
-
-```ts
-const answer = await client.of(CartAssistant, "session-42").call(CartAssistant.handlers.ask).invoke("what is in cart c1?")
-```
-
 **Java**
 
 ```java
@@ -849,6 +837,18 @@ public static String ask(ComponentClient client, String session, String question
 val reply = runBlocking {
     kit.componentClient().forAgent("s-1").call(Forecaster::ask).invokeSuspending("How warm is Oslo?")
 }
+```
+
+**Python**
+
+```python
+answer = await client.for_agent("assistant", "session-42").call("ask").invoke("what is in cart c1?", reply=str)
+```
+
+**TypeScript**
+
+```ts
+const answer = await client.of(CartAssistant, "session-42").call(CartAssistant.handlers.ask).invoke("what is in cart c1?")
 ```
 
 **Go**
@@ -890,14 +890,6 @@ await client.for_agent("helper", "support-91", subject="player/8c1f").call("ask"
 await client.forAgent("helper", "support-91", { subject: "player/8c1f" }).call("ask").invoke("my card was declined");
 ```
 
-**Go**
-
-```go
-ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
-```
-
-Every call to an agent made with `ctx` names the data subject.
-
 **Rust**
 
 ```rust
@@ -905,6 +897,14 @@ let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
 ```
 
 Every call to an agent made through `client` names the data subject.
+
+**Go**
+
+```go
+ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
+```
+
+Every call to an agent made with `ctx` names the data subject.
 
 The data subject is fixed by the session's first call, and a later call naming another is refused. Once
 the data subject is erased, the session's conversation reads as empty, the model is told at its next turn

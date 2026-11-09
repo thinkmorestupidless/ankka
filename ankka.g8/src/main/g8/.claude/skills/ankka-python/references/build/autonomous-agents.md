@@ -50,31 +50,6 @@ A case class result needs a `JsonValueCodec`, which decodes it, and a `JsonSchem
 the model; both derive from the same declaration. A task type declared without `resultConformsTo` has a
 text result.
 
-**Python**
-
-```python
-@dataclass
-class Answer:
-    answer: str
-    sources: list[str]
-
-
-def cites_sources(answer: Answer) -> Accepted | Rejected:
-    return Rejected("say which tools you used in sources") if not answer.sources else Accepted()
-
-
-# "answer" is the wire name, written into every task of this type.
-ANSWER = TaskType(
-    "answer",
-    "Answer a question about a shopping cart, citing what you looked at",
-    result=Answer,
-    rules=(TaskRule("cites-sources", cites_sources),),
-)
-```
-
-The result's dataclass fields are the schema the model sees, as a tool's input fields are. A task type
-with no `result` has a text result.
-
 **Java**
 
 ```java
@@ -122,6 +97,31 @@ val ANSWER: TaskType<Answer> =
 ```
 
 The result is a data class; its properties are the schema the model is shown.
+
+**Python**
+
+```python
+@dataclass
+class Answer:
+    answer: str
+    sources: list[str]
+
+
+def cites_sources(answer: Answer) -> Accepted | Rejected:
+    return Rejected("say which tools you used in sources") if not answer.sources else Accepted()
+
+
+# "answer" is the wire name, written into every task of this type.
+ANSWER = TaskType(
+    "answer",
+    "Answer a question about a shopping cart, citing what you looked at",
+    result=Answer,
+    rules=(TaskRule("cites-sources", cites_sources),),
+)
+```
+
+The result's dataclass fields are the schema the model sees, as a tool's input fields are. A task type
+with no `result` has a text result.
 
 ## An agent
 
@@ -188,41 +188,6 @@ Ankka.service
   .withExtension(AgentRuntime.withDefaultModel(AnthropicProvider.fromEnv()))
   .withExtension(ProjectionRuntime())
 ```
-
-**Python**
-
-```python
-async def _cart(agent: AutonomousAgent, ref: CartRef) -> ShoppingCart:
-    assert agent.client is not None
-    return await agent.client.for_event_sourced_entity("shopping-cart", ref.cartId).call("get-cart").invoke(reply=ShoppingCart)
-
-
-async def cart_contents(agent: AutonomousAgent, ref: CartRef) -> str:
-    cart = await _cart(agent, ref)
-    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items) or f"cart {ref.cartId} is empty"
-
-
-async def cart_total(agent: AutonomousAgent, ref: CartRef) -> str:
-    cart = await _cart(agent, ref)
-    return f"cart {ref.cartId} holds {sum(i.quantity for i in cart.items)} items"
-
-
-class CartAnswerer(AutonomousAgent):
-    """Tools may run more than once for one request of the model — after a crash, the last recorded
-    request's tools run again — and these only read, so that costs nothing."""
-
-    component_id = "cart-answerer"
-    description = "Answers questions about shopping carts"
-    instructions = "Look carts up rather than guessing. Be brief."
-    tools = {
-        "cart_contents": Tool("Lists what is in a cart.", cart_contents, CartRef),
-        "cart_total": Tool("Counts the items in a cart.", cart_total, CartRef),
-    }
-    accepts = [TaskAcceptance(ANSWER, max_iterations=5)]
-```
-
-Register it with `Ankka.service().register(CartAnswerer)`. The sidecar runs the loop and keeps the
-records, so a projection runtime and session memory are the sidecar's concern, not the process's.
 
 **Java**
 
@@ -305,6 +270,41 @@ class Guide : AutonomousAgent() {
 ```
 
 A tool may be a `suspend fun`, and a tool's lone data class parameter's properties are its arguments.
+
+**Python**
+
+```python
+async def _cart(agent: AutonomousAgent, ref: CartRef) -> ShoppingCart:
+    assert agent.client is not None
+    return await agent.client.for_event_sourced_entity("shopping-cart", ref.cartId).call("get-cart").invoke(reply=ShoppingCart)
+
+
+async def cart_contents(agent: AutonomousAgent, ref: CartRef) -> str:
+    cart = await _cart(agent, ref)
+    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items) or f"cart {ref.cartId} is empty"
+
+
+async def cart_total(agent: AutonomousAgent, ref: CartRef) -> str:
+    cart = await _cart(agent, ref)
+    return f"cart {ref.cartId} holds {sum(i.quantity for i in cart.items)} items"
+
+
+class CartAnswerer(AutonomousAgent):
+    """Tools may run more than once for one request of the model — after a crash, the last recorded
+    request's tools run again — and these only read, so that costs nothing."""
+
+    component_id = "cart-answerer"
+    description = "Answers questions about shopping carts"
+    instructions = "Look carts up rather than guessing. Be brief."
+    tools = {
+        "cart_contents": Tool("Lists what is in a cart.", cart_contents, CartRef),
+        "cart_total": Tool("Counts the items in a cart.", cart_total, CartRef),
+    }
+    accepts = [TaskAcceptance(ANSWER, max_iterations=5)]
+```
+
+Register it with `Ankka.service().register(CartAnswerer)`. The sidecar runs the loop and keeps the
+records, so a projection runtime and session memory are the sidecar's concern, not the process's.
 
 **Tools may run more than once for one request of the model.** Each iteration is recorded as it goes: a
 model response that was recorded is never asked for again, but a tool whose result had not been recorded
@@ -415,27 +415,6 @@ get("/{taskId}") { (taskId: String) =>
 `forTask(id).await(task, timeout)` blocks until the task has completed, failed or been cancelled, and
 fails with `Timeout` naming where it had got to otherwise.
 
-**Python**
-
-```python
-@post("/ask")
-async def ask(self, question: str) -> Asked:
-    """Starts the work and answers at once, with where to look for the answer."""
-    client = self.client.with_metadata(self.request.metadata)
-    task_id = await client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, question)
-    task = await client.for_task(task_id).get()
-    return Asked(task_id, task.assignee[1] if task.assignee else "")
-```
-
-```python
-@get("/{taskId}")
-async def read(self, taskId: str) -> Question:
-    task = await self.client.with_metadata(self.request.metadata).for_task(taskId).get(ANSWER)
-    return Question(taskId, task.status, task.result, task.reason, task.iterations)
-```
-
-`await client.for_task(id).wait(ANSWER, timeout)` waits until the task has ended.
-
 **Java**
 
 ```java
@@ -456,6 +435,27 @@ public static TaskSnapshot<CartTasks.Answer> answer(ComponentClient client, Stri
 val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
 val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
 ```
+
+**Python**
+
+```python
+@post("/ask")
+async def ask(self, question: str) -> Asked:
+    """Starts the work and answers at once, with where to look for the answer."""
+    client = self.client.with_metadata(self.request.metadata)
+    task_id = await client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, question)
+    task = await client.for_task(task_id).get()
+    return Asked(task_id, task.assignee[1] if task.assignee else "")
+```
+
+```python
+@get("/{taskId}")
+async def read(self, taskId: str) -> Question:
+    task = await self.client.with_metadata(self.request.metadata).for_task(taskId).get(ANSWER)
+    return Question(taskId, task.status, task.result, task.reason, task.iterations)
+```
+
+`await client.for_task(id).wait(ANSWER, timeout)` waits until the task has ended.
 
 To give an instance several tasks, create them — optionally with attachments and dependencies — and
 assign them to an instance by an id you choose; they are worked one at a time, in order:
@@ -554,6 +554,40 @@ assertEquals(done.result, Some(Answer("Cart c-1 holds 3 items.", List("cart_tota
 `restartService()` stops the whole service mid-task, and the task still completes, which is how a test
 proves an agent survives a crash.
 
+**Java**
+
+```java
+var model =
+    new TestModelProvider()
+        .expectToolCall("cart_total", "{\"cartId\":\"c-1\"}")
+        .expectCompleteTask(
+            "{\"answer\":\"Cart c-1 holds 3 items.\",\"sources\":[\"cart_total\"]}");
+try (var kit = AnkkaTestKit.start(service(model))) {
+  var client = kit.componentClient();
+  client.forEventSourcedEntity("c-1").call(ShoppingCart::addItem).invoke(new LineItem("p", "Pen", 3));
+
+  var taskId = startAnswer(client, "How many items are in cart c-1?");
+  return answer(client, taskId).result().orElseThrow();
+}
+```
+
+In the whole-service kit the scripted `TestModelProvider` is the agents module's default model, and the task is worked to its end.
+
+**Kotlin**
+
+```kotlin
+val model =
+    TestModelProvider()
+        .expectToolCall("read_page", """{"page":"style"}""")
+        .expectCompleteTask("""{"answer":"Be brief.","sources":["style"]}""")
+AnkkaTestKit.start(guideService(model)).use { kit ->
+    val client = kit.componentClient()
+    val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
+    val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
+    assertEquals(Answer("Be brief.", listOf("style")), done.result().orElseThrow())
+}
+```
+
 **Python**
 
 The loop runs in the sidecar, so an end-to-end test scripts the sidecar's model with
@@ -600,38 +634,4 @@ async def test_answerer_pieces_without_a_sidecar() -> None:
     kit = AutonomousAgentTestKit.of(CartAnswerer)
     assert await kit.check_result(ANSWER, Answer("3", [])) == ("cites-sources", "say which tools you used in sources")
     assert await kit.check_result(ANSWER, Answer("3", ["cart_total"])) is None
-```
-
-**Java**
-
-```java
-var model =
-    new TestModelProvider()
-        .expectToolCall("cart_total", "{\"cartId\":\"c-1\"}")
-        .expectCompleteTask(
-            "{\"answer\":\"Cart c-1 holds 3 items.\",\"sources\":[\"cart_total\"]}");
-try (var kit = AnkkaTestKit.start(service(model))) {
-  var client = kit.componentClient();
-  client.forEventSourcedEntity("c-1").call(ShoppingCart::addItem).invoke(new LineItem("p", "Pen", 3));
-
-  var taskId = startAnswer(client, "How many items are in cart c-1?");
-  return answer(client, taskId).result().orElseThrow();
-}
-```
-
-In the whole-service kit the scripted `TestModelProvider` is the agents module's default model, and the task is worked to its end.
-
-**Kotlin**
-
-```kotlin
-val model =
-    TestModelProvider()
-        .expectToolCall("read_page", """{"page":"style"}""")
-        .expectCompleteTask("""{"answer":"Be brief.","sources":["style"]}""")
-AnkkaTestKit.start(guideService(model)).use { kit ->
-    val client = kit.componentClient()
-    val taskId = AgentClients.runSingleTask(client, Guide::class.java, ANSWER, "How should I write?")
-    val done = AgentClients.forTask(client, taskId).await(ANSWER, Duration.ofMinutes(1))
-    assertEquals(Answer("Be brief.", listOf("style")), done.result().orElseThrow())
-}
 ```

@@ -11,9 +11,9 @@ import scala.concurrent.duration.DurationInt
 /**
  * The checkout workflow against real sharding, persistence and recovery.
  *
- * A workflow cannot be driven by a unit kit the way an entity can: the steps run asynchronously and
- * the engine's retries and failover are the behaviour under test, so this needs the whole runtime
- * and a real journal.
+ * `CheckoutWorkflowUnitSuite` drives the same steps in memory. This suite is for what a unit kit
+ * cannot show: the steps running asynchronously, a pause resuming on its own timeout, and recovery
+ * against a real journal.
  */
 class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
 

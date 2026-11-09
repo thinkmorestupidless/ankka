@@ -57,6 +57,7 @@ class CartAssistantSuite extends munit.FunSuite with LogCapturing:
     assertEquals(reply, "I can help with your cart.")
   }
 
+  // docs:start scripted-model
   test("the lookup tool reads the real cart and feeds its contents back to the model") {
     fill("cart-a")
     model
@@ -70,6 +71,7 @@ class CartAssistantSuite extends munit.FunSuite with LogCapturing:
     // Items are held sorted by product id, so this order is stable.
     assertEquals(toolResultIn(1), Some("2 x Widget, 1 x Gadget"))
   }
+  // docs:end scripted-model
 
   test("the lookup tool says so when the cart is empty rather than answering with nothing") {
     model

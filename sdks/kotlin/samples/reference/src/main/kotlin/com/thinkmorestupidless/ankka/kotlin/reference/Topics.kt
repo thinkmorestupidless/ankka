@@ -66,10 +66,11 @@ class ContractRelay : Consumer<Fanned, Fanned>() {
 
     companion object {
         /** The contract every reference states, from the same schema document: the fixtures' one. */
-        const val ORDER_SCHEMA =
-            "{\"\$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"type\":\"object\"," +
-                "\"required\":[\"id\",\"total\"],\"properties\":{\"id\":{\"type\":\"string\"}," +
-                "\"total\":{\"type\":\"number\"}}}"
+        val ORDER_SCHEMA =
+            """
+            {"${'$'}schema":"https://json-schema.org/draft/2020-12/schema","type":"object",
+             "required":["id","total"],"properties":{"id":{"type":"string"},"total":{"type":"number"}}}
+            """.trimIndent()
 
         val ORDER: Contract = Contract.fromSchema("order.v1", ORDER_SCHEMA.toByteArray())
 

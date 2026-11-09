@@ -189,6 +189,50 @@ type ApprovalRequest struct {
 	ExpiresAt     *time.Time
 }
 
+// approvalWire is a request as every SDK and the Scala reference write it: the model's arguments
+// as JSON, the times in epoch milliseconds.
+type approvalWire struct {
+	ID          string          `json:"id"`
+	Tool        string          `json:"tool"`
+	Arguments   json.RawMessage `json:"arguments"`
+	RequestedAt int64           `json:"requestedAt"`
+	ExpiresAt   *int64          `json:"expiresAt,omitempty"`
+}
+
+// MarshalJSON writes {"id", "tool", "arguments", "requestedAt", "expiresAt"}, the shape every
+// other SDK's approval request has, so an endpoint can answer with the request as it is.
+func (r ApprovalRequest) MarshalJSON() ([]byte, error) {
+	args := json.RawMessage(r.ArgumentsJSON)
+	if len(args) == 0 {
+		args = json.RawMessage("{}")
+	} else if !json.Valid(args) {
+		return nil, fmt.Errorf("approval request %s: its arguments are not JSON", r.ID)
+	}
+	w := approvalWire{ID: r.ID, Tool: r.Tool, Arguments: args, RequestedAt: r.RequestedAt.UnixMilli()}
+	if r.ExpiresAt != nil {
+		ms := r.ExpiresAt.UnixMilli()
+		w.ExpiresAt = &ms
+	}
+	return json.Marshal(w)
+}
+
+// UnmarshalJSON reads the shape MarshalJSON writes.
+func (r *ApprovalRequest) UnmarshalJSON(data []byte) error {
+	var w approvalWire
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	*r = ApprovalRequest{ID: w.ID, Tool: w.Tool, ArgumentsJSON: string(w.Arguments), RequestedAt: time.UnixMilli(w.RequestedAt).UTC()}
+	if r.ArgumentsJSON == "" || r.ArgumentsJSON == "null" {
+		r.ArgumentsJSON = "{}"
+	}
+	if w.ExpiresAt != nil {
+		t := time.UnixMilli(*w.ExpiresAt).UTC()
+		r.ExpiresAt = &t
+	}
+	return nil
+}
+
 func approvalsOf(a *pb.ApprovalAwaited) *ApprovalAwaitedError {
 	out := &ApprovalAwaitedError{}
 	for _, r := range a.GetRequests() {

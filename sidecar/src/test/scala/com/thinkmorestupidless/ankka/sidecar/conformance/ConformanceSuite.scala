@@ -2101,7 +2101,14 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     r.json("awaiting")
       .flatMap(_.asArray)
       .getOrElse(fail(s"not awaiting: ${r.body}"))
-      .map(j => (j("id").flatMap(_.asString).get, j("tool").flatMap(_.asString).get))
+      .map { j =>
+        // The model's arguments as JSON, as every SDK's approval request writes them: a Go
+        // struct encoded by default once wrote `ArgumentsJSON`, a string, and no `arguments`.
+        j("arguments") match
+          case Some(Json.Obj(_)) => ()
+          case _ => fail(s"an approval request's arguments are not a JSON object: ${r.body}")
+        (j("id").flatMap(_.asString).get, j("tool").flatMap(_.asString).get)
+      }
 
   private def answeredIn(r: Reply): String =
     assertEquals(r.status, 200, r.body)

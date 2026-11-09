@@ -360,21 +360,9 @@ func storageGet(ctx context.Context, req *ankka.Request) (StorageRecord, error) 
 func outcomeOf(text string, err error) (string, error) {
 	var waiting *ankka.ApprovalAwaitedError
 	if errors.As(err, &waiting) {
-		type request struct {
-			ID        string          `json:"id"`
-			Tool      string          `json:"tool"`
-			Arguments json.RawMessage `json:"arguments"`
-		}
 		out := struct {
-			Awaiting []request `json:"awaiting"`
-		}{Awaiting: []request{}}
-		for _, r := range waiting.Requests {
-			args := r.ArgumentsJSON
-			if args == "" {
-				args = "{}"
-			}
-			out.Awaiting = append(out.Awaiting, request{r.ID, r.Tool, json.RawMessage(args)})
-		}
+			Awaiting []ankka.ApprovalRequest `json:"awaiting"`
+		}{Awaiting: append([]ankka.ApprovalRequest{}, waiting.Requests...)}
 		data, err := json.Marshal(out)
 		return string(data), err
 	}

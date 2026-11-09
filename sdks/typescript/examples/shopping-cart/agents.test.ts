@@ -132,7 +132,7 @@ describe("context and providers", () => {
     assert.equal(plan.model, "openai")
   })
 
-  test("the planner registers its entity and its agent", () => {
-    assert.deepEqual([...plannerService().validate().components.keys()].sort(), ["activity-agent", "preferences"])
+  test("the planner registers its entity, its workflow and its agents", () => {
+    assert.deepEqual([...plannerService().validate().components.keys()].sort(), ["activity-agent", "budget-agent", "planner", "preferences", "selector-agent", "summary-agent", "weather-agent"])
   })
 })

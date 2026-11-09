@@ -14,6 +14,7 @@ import { ShoppingCartEndpoint } from "./endpoint.ts"
 import { CallingEndpoint } from "./calling.ts"
 import { CartAnswerer } from "./answerer.ts"
 import { QuestionsEndpoint } from "./questions.ts"
+import { CartKeysEndpoint, CartMcp } from "./cartMcp.ts"
 
 /**
  * The whole inventory: registration is explicit, so nothing is discovered by scanning. The checkout
@@ -32,7 +33,13 @@ export function service() {
     .register(ShoppingCartEndpoint)
     .register(QuestionsEndpoint)
     .register(CallingEndpoint)
+    .register(CartMcp)
+    .register(CartKeysEndpoint)
+  // docs:start broker-from-env
+  // The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+  // components that need one are registered only where it is set.
   return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+  // docs:end broker-from-env
 }
 
 if (import.meta.main) {

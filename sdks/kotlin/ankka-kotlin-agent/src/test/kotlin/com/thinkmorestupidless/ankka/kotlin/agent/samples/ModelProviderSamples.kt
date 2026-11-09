@@ -29,6 +29,11 @@ object ModelProviderSamples {
     val agents: AgentModule = Agents.module().withModelProvider(claude)
     // docs:end two-providers
 
+    // docs:start installation-model
+    /** The installation's own model server, by the model's tag; its address and credential are the platform's. */
+    fun installation(): ModelProvider = ModelProviders.installation("qwen3:0.6b")
+    // docs:end installation-model
+
     // docs:start compaction
     /** The oldest messages of a session are summarised once its text passes 100,000 characters. */
     fun compactingService(model: ModelProvider): ServiceBuilder {

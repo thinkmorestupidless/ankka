@@ -26,4 +26,11 @@ public final class Providers {
     return Agents.module().withModelProvider(CLAUDE);
   }
   // docs:end two-providers
+
+  // docs:start installation-model
+  /** The installation's own model server, by the model's tag; its address and credential are the platform's. */
+  public static ModelProvider installation() {
+    return ModelProviders.installation("qwen3:0.6b");
+  }
+  // docs:end installation-model
 }

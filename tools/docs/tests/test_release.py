@@ -15,8 +15,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ankka_docs import cli
-from ankka_docs.pages import project
+from ankka_docs import check, cli, release
+from ankka_docs.pages import load, project
+
+HOOKS = Path(release.__file__).with_name("hooks.py")
 
 MKDOCS = """\
 site_name: widget
@@ -27,6 +29,8 @@ site_dir: build/site
 nav:
   - Home: index.md
   - Install: install.md
+hooks:
+  - {hooks}
 extra:
   docs:
     release:
@@ -67,6 +71,10 @@ other spec-kit.git@v
 """
 
 
+def problems(root: Path) -> list[str]:
+    return [str(p) for p in check.run(load(project(root)))]
+
+
 def write(root: Path, path: str, text: str) -> None:
     target = root / path
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -79,7 +87,7 @@ def git(root: Path, *args: str) -> None:
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    write(tmp_path, "mkdocs.yml", MKDOCS)
+    write(tmp_path, "mkdocs.yml", MKDOCS.format(hooks=HOOKS))
     write(tmp_path, "docs/index.md", INDEX)
     write(tmp_path, "docs/install.md", INSTALL)
     write(tmp_path, "docs/release-patterns.txt", PATTERNS)
@@ -139,5 +147,70 @@ def test_a_release_whose_libraries_were_not_published_leaves_the_latest_release_
 
 
 def test_a_repository_without_release_settings_is_read_as_before(tmp_path: Path) -> None:
-    write(tmp_path, "mkdocs.yml", MKDOCS.replace("    release:\n      patterns: docs/release-patterns.txt\n      tags: \"v*\"\n", ""))
+    write(tmp_path, "mkdocs.yml", MKDOCS.format(hooks=HOOKS).replace("    release:\n      patterns: docs/release-patterns.txt\n      tags: \"v*\"\n", ""))
+    write(tmp_path, "docs/index.md", INDEX + "\nwidget 0.14.0 by hand, and no tags at all.\n")
+    write(tmp_path, "docs/install.md", INSTALL)
     assert project(tmp_path).settings.release is None
+    assert problems(tmp_path) == []
+
+
+def test_a_page_that_names_a_release_of_ankka_names_the_release_the_documentation_was_built_for(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert build(repo, "--release", "0.16.0", monkeypatch=monkeypatch) == 0
+    site = repo / "build/site"
+    for rendering in ("install/index.html", "install.md", "llms-full.txt"):
+        text = (site / rendering).read_text(encoding="utf-8")
+        assert "widget-go@v0.16.0" in text, rendering
+        assert "widget-go@v0.14.0" not in text, rendering
+    # A build never writes a source.
+    assert "widget-go@v0.14.0" in (repo / "docs/install.md").read_text(encoding="utf-8")
+
+
+def test_a_build_without_a_release_names_the_newest_release_tag(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert build(repo, monkeypatch=monkeypatch) == 0
+    assert "widget-go@v0.16.0" in (repo / "build/site/install/index.html").read_text(encoding="utf-8")
+
+
+def test_a_page_that_names_a_release_of_ankka_by_hand_fails_the_documentations_check(repo: Path) -> None:
+    assert problems(repo) == []
+    write(repo, "docs/index.md", INDEX + "\nUpgrade from widget 0.14.0 first.\n")
+    found = problems(repo)
+    assert len(found) == 1
+    assert found[0].startswith("docs/index.md:11: names release 0.14.0 by hand")
+
+
+def test_a_page_that_names_a_release_of_another_project_is_not_refused(repo: Path) -> None:
+    write(repo, "docs/index.md", INDEX + "\n`uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.14.1`\n")
+    assert problems(repo) == []
+
+
+def test_numbers_that_are_not_a_release_are_not_refused(repo: Path) -> None:
+    write(repo, "docs/index.md", INDEX + "\nAt 127.0.0.1, `0.14.0-SNAPSHOT` and `0.14.0+3-abc` and 10.14.0 and 0.14.0.1.\n")
+    assert problems(repo) == []
+
+
+def test_sync_rewrites_the_sources_to_the_newest_release_tag(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(repo)
+    assert cli.run_sync(project(repo)) == 0
+    assert "widget-go@v0.16.0" in (repo / "docs/install.md").read_text(encoding="utf-8")
+
+
+def test_a_checkout_without_the_tags_fails_the_check_rather_than_checking_nothing(repo: Path) -> None:
+    for tag in ("v0.14.0", "v0.14.1", "v0.16.0"):
+        git(repo, "tag", "-d", tag)
+    found = problems(repo)
+    assert len(found) == 1
+    assert "no git tag matches 'v*'" in found[0]
+    assert found[0].startswith("docs/release-patterns.txt:1:")
+
+
+def test_a_patterns_file_the_tool_cannot_use_is_a_problem(repo: Path) -> None:
+    write(repo, "docs/release-patterns.txt", "release widget-go@v\n")
+    assert "holds `{version}` once" in problems(repo)[0]
+
+
+def test_an_other_prefix_survives_its_trailing_space_being_trimmed(repo: Path) -> None:
+    write(repo, "docs/release-patterns.txt", PATTERNS + "other from version\n")
+    write(repo, "docs/index.md", INDEX + "\nA rule that holds from version 0.14.0 on.\n")
+    assert problems(repo) == []

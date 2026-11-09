@@ -40,18 +40,17 @@ and tested natively:
 ```toml
 [package]
 name = "cart"
-version = "0.1.0"
 edition = "2024"
 
 [lib]
 crate-type = ["cdylib", "rlib"]            # cdylib: the module; rlib: the tests
 
 [dependencies]
-ankka = "0.8.0"                            # the version of the platform you will deploy to
+ankka = "0.16.0"                            # the version of the platform you will deploy to
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-ankka = { version = "0.8.0", features = ["testkit"] }
+ankka = { version = "0.16.0", features = ["testkit"] }
 
 [features]
 slow = []                                  # the tests that start Docker

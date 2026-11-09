@@ -33,6 +33,7 @@ release platform   {version}
 other spec-kit.git@v
 other speckit-bdd/releases/download/v
 other speckit-bdd-extension-
+other speckit-bdd-preset-
 other ankka-graph-sink-neo4j:
 other ankka-gcp
 

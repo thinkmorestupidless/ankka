@@ -20,7 +20,7 @@ The module is published at the same version as every ankka release, so pin the v
 you deploy to:
 
 ```bash
-go get github.com/thinkmorestupidless/ankka-go@v0.14.0
+go get github.com/thinkmorestupidless/ankka-go@v0.16.0
 ```
 
 The floor is Go 1.26. A service runs with the standard toolchain, `go run .`, and builds to one static
@@ -1193,8 +1193,8 @@ SDK's own version. See [Testing](../build/testing.md).
 
 ## The version and the development build
 
-`ankka.Version()` is the SDK's version as the service's build recorded it, without the `v`: `0.14.0` for
-a service that depends on `v0.14.0`. It is `0.0.0` for a development build, when the dependency is
+`ankka.Version()` is the SDK's version as the service's build recorded it, without the `v`: `1.2.3` for
+a service that depends on `v1.2.3`. It is `0.0.0` for a development build, when the dependency is
 replaced by a local directory, when the SDK is itself the main module, or when the build recorded
 nothing. The service reports the version to the sidecar at discovery, and the integration test kit reads
 it to choose the sidecar image. Nothing in the module carries a version of its own.

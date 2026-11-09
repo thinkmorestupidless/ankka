@@ -90,7 +90,7 @@ The template made `service.json`, the service's desired state:
   "name": "orders",
   "service": {
     "image": "orders:latest",
-    "runtime": "0.2.0"
+    "runtime": "0.16.0"
   }
 }
 ```

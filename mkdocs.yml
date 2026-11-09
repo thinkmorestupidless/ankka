@@ -63,6 +63,11 @@ theme:
 # the raw Markdown an indented fence. The blocks syntax keeps the fence flush left, so the include
 # machinery is untouched, and `render.py` flattens `/// tab | Python` back to a bold label for every
 # machine-facing rendering — so the plainness rule above still holds off the site.
+# The docs tool's hook: the site names the release `docs build` builds, rewriting each form
+# docs/release-patterns.txt lists, while the sources keep the release written in them.
+hooks:
+  - tools/docs/src/ankka_docs/hooks.py
+
 markdown_extensions:
   - toc:
       permalink: true

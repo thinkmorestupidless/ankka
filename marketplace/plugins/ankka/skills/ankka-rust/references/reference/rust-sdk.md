@@ -19,11 +19,11 @@ version of the platform you deploy to:
 crate-type = ["cdylib", "rlib"]            # the module, and the library the tests link
 
 [dependencies]
-ankka = "0.8.0"
+ankka = "0.16.0"
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-ankka = { version = "0.8.0", features = ["testkit"] }   # the integration testkit, which needs Docker
+ankka = { version = "0.16.0", features = ["testkit"] }   # the integration testkit, which needs Docker
 ```
 
 A module is built for `wasm32-unknown-unknown` (`rustup target add wasm32-unknown-unknown`) with

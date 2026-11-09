@@ -1018,6 +1018,8 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the tags: docs check refuses a release named by hand, and must see them
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.12"

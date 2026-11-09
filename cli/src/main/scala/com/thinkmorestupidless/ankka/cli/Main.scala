@@ -1935,16 +1935,28 @@ object Main:
    * Separate from `main` so tests can drive the real command tree without the process exiting
    * underneath them — and so the exit codes are themselves testable, which for a CLI used in
    * scripts is part of the contract.
+   *
+   * `env` is the environment the command sees, so a test can set `CI` without touching the JVM's.
    */
-  def run(args: Seq[String], out: PrintStream, err: PrintStream): Int =
+  def run(
+      args: Seq[String],
+      out: PrintStream,
+      err: PrintStream,
+      env: Map[String, String] = sys.env
+  ): Int =
     args.headOption match
       // Before decline: everything after a plugin's word is the plugin's, `--help` included.
       case Some(word) if !word.startsWith("-") && !builtIn(word) =>
         Plugins.dispatch(word, args.tail, builtIn, err)
-      case _ => parse(args, out, err)
+      case _ => parse(args, out, err, env)
 
-  private def parse(args: Seq[String], out: PrintStream, err: PrintStream): Int =
-    command.parse(args, sys.env) match
+  private def parse(
+      args: Seq[String],
+      out: PrintStream,
+      err: PrintStream,
+      env: Map[String, String]
+  ): Int =
+    command.parse(args, env) match
       case Left(help) =>
         // Decline prints usage on a parse failure. That is a usage error, not a failure of
         // the operation, so it gets its own exit code.

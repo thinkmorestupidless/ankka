@@ -35,8 +35,10 @@ A topic already made uncompacted is made compacted when its declaration says so.
 
 The sink is a consumer. Register it beside the service's other components with the topic and the
 store, and it reads the topic from its start, in parallel over the partitions the instance holds
-unless told `parallel = false`:
+unless told `parallel = false`. The sink and its stores are Scala libraries: a service in another
+language runs the sink as the sidecar image beside it rather than registering it.
 
+<!-- languages: scala; the sink and its stores are Scala libraries, registered in a Scala service or run as the sidecar image -->
 ```scala
 import com.thinkmorestupidless.ankka.graph.sink.{GraphSink, InMemoryGraphStore}
 
@@ -51,6 +53,7 @@ tests, and is empty again when the service restarts, which the sink then fills f
 a store that outlives the service, pass one over a database. ankka-contrib's `neo4j-graph-store`
 is one, for Neo4j 5.26 or later:
 
+<!-- languages: scala; the stores are Scala libraries, handed to the sink by the Scala service or the sidecar image that registers it -->
 ```scala
 import com.thinkmorestupidless.ankka.contrib.neo4j.{Neo4jSettings, Neo4jStore}
 

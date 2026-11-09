@@ -447,3 +447,8 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
   The release workflow's `docs` job runs `docs build --release <tag>`, which also writes `latest.json`
   (what the CLI's notice reads); it and CI's `docs` job check out with `fetch-depth: 0`, because the
   check refuses a version equal to a release *tag*, and without tags it fails rather than check nothing.
+- **`scalafmtSbt` formats `project/*.scala`, and the build's dialect is Scala 2.12** (2026-11-09).
+  `.scalafmt.conf` sets `runner.dialect = scala3` with `convertToNewSyntax`, which turned a new
+  `project/ReleasePatterns.scala` into `if … then` and `while … do`; sbt 1 compiles `project/` with
+  2.12, so the build stopped loading, and a suite run before the format had passed. A `fileOverride`
+  gives `**/project/*.scala` the 2.12 dialect and no rewrites, as the templates' `project/` has.

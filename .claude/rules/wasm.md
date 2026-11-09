@@ -129,3 +129,9 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
   then kept that path's directory view even after the file existed. Both compose files mount the
   module with `bind.create_host_path: false`, so a missing module is refused (or, on OrbStack, the
   runtime refuses `no module at /module/service.wasm`) and nothing is created on the host.
+- **The crate's toolchain is pinned, because its compile-fail tests read rustc's words** (2026-11-09,
+  #235). `tests/compile_fail/*.stderr` hold rustc's exact output, which changes between releases
+  (1.99 prints `ankka::Storage` where 1.98 printed `Storage`), so `channel = "stable"` failed on
+  whichever machine was a release behind. `sdks/rust/rust-toolchain.toml` and the three
+  `dtolnay/rust-toolchain@<version>` steps move together; regenerate the `.stderr` files with
+  `TRYBUILD=overwrite cargo test -p ankka --test compile_fail` on the new toolchain in the same commit.

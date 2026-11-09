@@ -1,4 +1,7 @@
+# Pinned, not "stable": the compile_fail tests compare rustc's exact output, which changes between
+# releases. Move this and the three dtolnay/rust-toolchain steps in .github/workflows together, and
+# regenerate tests/compile_fail/*.stderr with TRYBUILD=overwrite on the new toolchain.
 [toolchain]
-channel = "stable"
+channel = "1.99.1"
 targets = ["wasm32-unknown-unknown"]
 components = ["rustfmt", "clippy"]

@@ -27,7 +27,7 @@ object Dependencies {
     val pekkoMgmt = "1.2.1"
 
     val jsoniter  = "2.42.2"
-    val anthropic = "3.3.0"
+    val anthropic = "3.6.0"
     // OpenAI's official Java SDK (feature 052), transport only, as Anthropic's is. Apache-2.0.
     val openai = "4.96.0"
 

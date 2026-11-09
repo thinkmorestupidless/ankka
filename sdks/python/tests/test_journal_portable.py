@@ -17,9 +17,24 @@ PEN = {"productId": "p1", "name": "Pen", "quantity": 2}
 INK = {"productId": "p2", "name": "Ink", "quantity": 1}
 
 
+def _image_or_skip(name: str) -> None:
+    """Skip, naming the image and how to build it, when it is not on this machine. Never under CI,
+    which builds it first: a skip there would hide that the step did not."""
+    import docker  # type: ignore[import-untyped]
+    from docker.errors import ImageNotFound  # type: ignore[import-untyped]
+
+    try:
+        docker.from_env().images.get(name)
+    except ImageNotFound:
+        if os.environ.get("CI"):
+            raise
+        pytest.skip(f"the image {name} is not built here: sbt shoppingCart/docker:publishLocal, or set ANKKA_SAMPLE_IMAGE")
+
+
 @pytest.mark.slow
 async def test_python_writes_scala_reads_and_the_reverse() -> None:
     scala_image = os.environ.get("ANKKA_SAMPLE_IMAGE", "sample-shopping-cart:latest")
+    _image_or_skip(scala_image)
     service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
     async with await AnkkaTestKit.start(service) as kit:
         # Python writes c1.

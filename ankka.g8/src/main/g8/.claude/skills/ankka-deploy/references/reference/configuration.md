@@ -627,9 +627,10 @@ loopback. The platform sets these variables on the two containers, and a descrip
   handshake before giving up, `60s` by default. It accepts `ms`, `s` and `m` suffixes; a bare number is
   seconds.
 
-`ANKKA_LOCAL_CALLER_TOKEN` is the secret a test presents to name a caller outside a cluster. The Python and
-TypeScript integration testkits generate one and pass it to the sidecar they start; nothing sets it in a
-cluster, where the caller comes from a certificate and the header is not read.
+`ANKKA_LOCAL_CALLER_TOKEN` is the secret a test presents to name a caller outside a cluster. The Python
+integration testkit generates one, passes it to the sidecar it starts, and puts it on a request through
+`kit.caller_headers(caller)`. Nothing sets it in a cluster, where the caller comes from a certificate and
+the header is not read.
 
 The Python and TypeScript integration testkits read `ANKKA_SIDECAR_IMAGE` to choose the sidecar image they
 start. Without it, a released SDK starts `ghcr.io/thinkmorestupidless/ankka-sidecar` at its own version, and an

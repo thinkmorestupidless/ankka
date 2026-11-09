@@ -19,6 +19,7 @@ from collections.abc import AsyncIterator
 import asyncio
 import base64
 import os
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +35,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from ankka.autonomous import Notification, TaskSnapshot, TaskType
 from ankka.client import ComponentClient
+from ankka.context import Caller, Gateway, MachineCaller, ServiceCaller
 from ankka.server import Server
 from ankka.service import ServiceBuilder
 from ankka.storage import STORAGE_BACKEND, Buckets, from_environment
@@ -126,6 +128,16 @@ class KitKeyring:
 PUBLISHED_SIDECAR = "ghcr.io/thinkmorestupidless/ankka-sidecar"
 
 
+def encode_caller(caller: Caller) -> str:
+    """A caller as the platform writes it: ``gateway``, ``service:<project>/<name>``,
+    ``machine:<organization>/<name>`` or ``local``."""
+    if isinstance(caller, ServiceCaller):
+        return f"service:{caller.project}/{caller.name}"
+    if isinstance(caller, MachineCaller):
+        return f"machine:{caller.organization}/{caller.name}"
+    return "gateway" if isinstance(caller, Gateway) else "local"
+
+
 def sidecar_image(version: str | None = None) -> str:
     """The sidecar this testkit starts: see the module's docstring. A release publishes the SDK and the
     sidecar under one version, so a released SDK's own version names the sidecar it was tested with."""
@@ -189,6 +201,9 @@ class AnkkaTestKit:
         self._local_url = ""
         # The sidecar's keyring: erase a data subject, start or end an outage (feature 042).
         self.keyring = KitKeyring(self)
+        # The secret a request presents to name its caller, given to the sidecar this kit starts:
+        # `caller_headers` puts it on a request. A caller's `env` may set it instead.
+        self.caller_token = self.env.get("ANKKA_LOCAL_CALLER_TOKEN") or secrets.token_hex(24)
 
     @classmethod
     async def start(
@@ -262,6 +277,7 @@ class AnkkaTestKit:
             # `env` replaces it, and `{"ANKKA_SECRET_KEY": ""}` starts a service with none.
             .with_env("ANKKA_SECRET_KEY", base64.b64encode(os.urandom(32)).decode("ascii"))
             .with_env("ANKKA_OBSERVABILITY_ADDRESS", f"0.0.0.0:{LOCAL_ENDPOINT_PORT}")
+            .with_env("ANKKA_LOCAL_CALLER_TOKEN", self.caller_token)
             .with_exposed_ports(HTTP_PORT, CALLBACK_PORT, LOCAL_ENDPOINT_PORT)
             .with_kwargs(extra_hosts={"host.docker.internal": "host-gateway"})
         )
@@ -408,6 +424,13 @@ class AnkkaTestKit:
         failure = personal_value_failure(values, text)
         if failure is not None:
             raise AssertionError(failure)
+
+    def caller_headers(self, caller: Caller) -> dict[str, str]:
+        """The headers that make a request to ``kit.http`` arrive as ``caller``, as a certificate
+        would name it in a cluster, so a route's caller rules apply:
+        ``await kit.http.get("/callers/whoami", headers=kit.caller_headers(ServiceCaller("local", "orders")))``.
+        A request without them arrives as the local machine."""
+        return {"X-Ankka-Local-Caller": f"{self.caller_token} {encode_caller(caller)}"}
 
     def sidecar_logs(self) -> str:
         if self._sidecar is None:

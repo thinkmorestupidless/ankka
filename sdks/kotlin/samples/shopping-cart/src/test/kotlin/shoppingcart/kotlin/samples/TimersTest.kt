@@ -23,8 +23,9 @@ class TimersTest {
             kit.timers().schedule("expire-o-1", Duration.ofMillis(300), OrderTimers::expireOrder, "o-1")
             kit.eventually(Duration.ofSeconds(10)) {
                 assertEquals("cancelled", orders.forKeyValueEntity("o-1").call(OrderEntity::status).invoke())
+                // The action records what it saw after the entity's state changed, so wait for both.
+                assertTrue(OrderTimers.OBSERVED.contains("o-1:cancelled"), OrderTimers.OBSERVED.toString())
             }
-            assertTrue(OrderTimers.OBSERVED.contains("o-1:cancelled"), OrderTimers.OBSERVED.toString())
 
             orders.forKeyValueEntity("o-7").call(OrderEntity::place).invoke("book")
             kit.timers().scheduleRecurring("expire-o-7", Duration.ZERO, Duration.ofSeconds(1), OrderTimers::expireOrder, "o-7")
@@ -36,10 +37,12 @@ class TimersTest {
             assertEquals(due[0].plusSeconds(1), due[1])
             assertEquals(due[1].plusSeconds(1), due[2])
             // docs:end due-times
+            kit.eventually(Duration.ofSeconds(10)) {
+                assertTrue(OrderTimers.OBSERVED.contains("o-7:cancelled"), OrderTimers.OBSERVED.toString())
+                assertTrue(OrderTimers.OBSERVED.contains("o-7:already cancelled"), OrderTimers.OBSERVED.toString())
+            }
             kit.timers().cancel("expire-o-7")
             assertFalse(kit.timers().exists("expire-o-7"))
-            assertTrue(OrderTimers.OBSERVED.contains("o-7:cancelled"), OrderTimers.OBSERVED.toString())
-            assertTrue(OrderTimers.OBSERVED.contains("o-7:already cancelled"), OrderTimers.OBSERVED.toString())
         }
     }
 }

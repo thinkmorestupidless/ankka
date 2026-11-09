@@ -335,7 +335,7 @@ get_cart = tool.query(
 
 **TypeScript**
 
-```ts
+```typescript
 .query("get_cart", "Reads one cart: its lines, and whether it is checked out", ShoppingCartEntity, "get-cart", {
   id: "cartId",
 })
@@ -478,7 +478,7 @@ async def add_item(self, cartId: str, productId: str, quantity: int) -> Done:
 
 **TypeScript**
 
-```ts
+```typescript
 .tool("add_item", "Adds a quantity of a product to a cart", AddItem, undefined, async (args, ep) => {
   const item = { productId: args.productId, name: args.productId, quantity: args.quantity }
   await ep.client.of(ShoppingCartEntity, args.cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)
@@ -611,7 +611,7 @@ acl = Acl.CLIENT_KEYS
 
 **TypeScript**
 
-```ts
+```typescript
 // A request carrying one of the cart's client keys, as the key's subject (`CartKeysEndpoint`).
 static readonly acl = Acl.clientKeys
 ```
@@ -1107,7 +1107,7 @@ async def mcp(kit: AnkkaTestKit, key: str, method: str, params: dict[str, Any]) 
 
 **TypeScript**
 
-```ts
+```typescript
 test("an assistant lists and calls the tools with a key the cart issued", async () => {
   const kit = await AnkkaTestKit.start(service())
   try {

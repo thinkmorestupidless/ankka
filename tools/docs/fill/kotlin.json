@@ -1,0 +1,860 @@
+[
+  {
+    "slot": "build/agents.md:406",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/Specialists.kt#activity"
+  },
+  {
+    "slot": "build/agents.md:437",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#structured"
+  },
+  {
+    "slot": "build/agents.md:449",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#structured-type",
+    "note": "A Kotlin data class needs no codec: the page's sentence about declaring a codec for the reply type does not apply to Kotlin."
+  },
+  {
+    "slot": "build/agents.md:465",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#tools"
+  },
+  {
+    "slot": "build/agents.md:520",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ApprovalAgent.kt#requires-approval"
+  },
+  {
+    "slot": "build/agents.md:538",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ApprovalAgent.kt#requires-approval-within"
+  },
+  {
+    "slot": "build/agents.md:556",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ApprovalTest.kt#ask-and-decide"
+  },
+  {
+    "slot": "build/agents.md:591",
+    "exclude": "A Java or Kotlin service streams an agent's reply as text only: the Java SDK's `AgentRef.stream` has no streamed approval event, so a streaming route cannot carry the requests a tool that waits for a person makes.",
+    "limitations_missing": true,
+    "note": "The Java agent SDK has no `streamParts`; `thenStream()` and `stream(ref)` give a `Publisher<String>`."
+  },
+  {
+    "slot": "build/agents.md:610",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WalletAgent.kt#service-call-tool"
+  },
+  {
+    "slot": "build/agents.md:638",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#guarded"
+  },
+  {
+    "slot": "build/agents.md:652",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#custom-guardrail"
+  },
+  {
+    "slot": "build/agents.md:687",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/WeatherAgent.kt#short-memory"
+  },
+  {
+    "slot": "build/agents.md:709",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/Planner.kt#registration",
+    "note": "The Kotlin planner carries no blueprint (see build/blueprints.md:435) and no endpoint; the module registers the agents and the session memory."
+  },
+  {
+    "slot": "build/agents.md:742",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ModelProviderSamples.kt#provider-imports"
+  },
+  {
+    "slot": "build/agents.md:749",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ModelProviderSamples.kt#two-providers"
+  },
+  {
+    "slot": "build/agents.md:767",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ModelProviderSamples.kt#naming-a-provider"
+  },
+  {
+    "slot": "build/agents.md:786",
+    "exclude": "The Java and Kotlin SDKs' model providers run with each provider's defaults: `ModelProviders` has no setting for `maxTokens`, `thinking`, `effort` or `temperature`.",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/agents.md:822",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ModelProviderSamples.kt#compaction"
+  },
+  {
+    "slot": "build/agents.md:926",
+    "exclude": "Java and Kotlin services start no session or autonomous agent's instance with a data subject.",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:1005",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/ApprovalAgent.kt#approver-routes"
+  },
+  {
+    "slot": "build/autonomous-agents.md:362",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/autonomous-agents.md:396",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/autonomous-agents.md:402",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/autonomous-agents.md:406",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/autonomous-agents.md:508",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/autonomous-agents.md:539",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:36",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:116",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:151",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:172",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:186",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:203",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:368",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:388",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:435",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:510",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:532",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/blueprints.md:552",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/calling-services.md:51",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/calling-services.md:254",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/calling-services.md:274",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/component-client.md:26",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/component-client.md:102",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/component-client.md:118",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/component-client.md:159",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/component-client.md:188",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/consumers.md:82",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/consumers.md:881",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/consumers.md:1056",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/consumers.md:1079",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:39",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:142",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:442",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:514",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:565",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:612",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:680",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:773",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:884",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:972",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:985",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:1044",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/graph.md:442",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/graph.md:692",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:62",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:71",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:98",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:164",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:187",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:207",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:283",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:301",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:325",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:334",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/grpc-endpoints.md:360",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:26",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:251",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:438",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:481",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:494",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:522",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:546",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:574",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:583",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:618",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:633",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:654",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:690",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:707",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:750",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:825",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:894",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/http-endpoints.md:909",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:31",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:77",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:89",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:103",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:138",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:185",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:206",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:271",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/judgments.md:286",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/key-value-entities.md:45",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/key-value-entities.md:217",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/key-value-entities.md:262",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:334",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:350",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:379",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:404",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:738",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-servers.md:24",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-servers.md:156",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/mcp-servers.md:223",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:52",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerWorkflow.kt#select"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:81",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerWorkflow.kt#settings"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:98",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerWorkflow.kt#parallel",
+    "note": "Kotlin fans out with coroutines (`async` inside `coroutineScope`) on the step's own thread rather than `invokeAsync` and `ComponentClient.await`."
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:146",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/Specialists.kt#selector"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:183",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerWorkflow.kt#session"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:191",
+    "exclude": "The Java and Kotlin SDKs' `Memory` has no filter: a session is read whole, as its last messages, or not at all, so an agent cannot narrow it to the specialists' roles.",
+    "limitations_missing": true,
+    "note": "The Kotlin `SummaryAgent` (Specialists.kt#summary) reads the whole session, which holds only the specialists' contributions because the selector keeps nothing in it; the page's paragraph on filtering by role does not hold for it."
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:213",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerWorkflow.kt#summarise"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:233",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/Specialists.kt#activity"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:265",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerWorkflow.kt#select",
+    "note": "The tab set shows a shortened select step; the Kotlin region is the planner's whole step."
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:310",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerTest.kt#observe"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:325",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerTest.kt#script"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:344",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerTest.kt#assert"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:373",
+    "include": "sdks/kotlin/ankka-kotlin-agent/src/test/kotlin/com/thinkmorestupidless/ankka/kotlin/agent/samples/planner/PlannerTest.kt#drain"
+  },
+  {
+    "slot": "build/object-storage.md:88",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:125",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:222",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:282",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:347",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:436",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:549",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/object-storage.md:636",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/personal-data.md:277",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/personal-data.md:328",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/personal-data.md:666",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:56",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:86",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:120",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:146",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:167",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:198",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:270",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/secrets.md:286",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/serialization.md:26",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/streaming.md:24",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/streaming.md:62",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/streaming.md:76",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/streaming.md:121",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:190",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:202",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:243",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:261",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:344",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:749",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:797",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:827",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:878",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:963",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:1002",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:1021",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:1079",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:1098",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/testing.md:1139",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/timers.md:190",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/timers.md:471",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/timers.md:477",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/timers.md:488",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/timers.md:503",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:21",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:141",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:448",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:462",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:688",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:717",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:845",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:928",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:1034",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/topics.md:1166",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:868",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:889",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:895",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:915",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:938",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1504",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1547",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1609",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1656",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1690",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1704",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/views.md:1727",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:41",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:70",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:90",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:121",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:133",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:480",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:585",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:723",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:793",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "build/workflows.md:815",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/components.md:153",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/effects.md:16",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/effects.md:109",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/replicated-entities.md:87",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/replicated-entities.md:103",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/wire-names.md:20",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/wire-names.md:73",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "concepts/wire-names.md:81",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "deploy/images.md:35",
+    "unresolved": "not yet worked"
+  },
+  {
+    "slot": "reference/error-codes.md:61",
+    "unresolved": "not yet worked"
+  }
+]

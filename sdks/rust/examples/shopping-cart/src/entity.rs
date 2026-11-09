@@ -9,6 +9,7 @@ use crate::domain::{LineItem, ShoppingCart as Cart, ShoppingCartEvent};
 pub struct ShoppingCart;
 
 impl ShoppingCart {
+    // docs:start add-item
     fn add_item(cart: &Cart, item: LineItem, _: &Context) -> Effect<ShoppingCartEvent, Done> {
         if cart.checked_out {
             return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
@@ -19,6 +20,7 @@ impl ShoppingCart {
         }
         effects::persist(ShoppingCartEvent::ItemAdded { item }).then_reply_value(Done)
     }
+    // docs:end add-item
 
     fn remove_item(
         cart: &Cart,
@@ -47,6 +49,9 @@ impl ShoppingCart {
         effects::persist(ShoppingCartEvent::CheckedOut).then_reply(|cart: &Cart| cart.clone())
     }
 
+    // docs:start discard
+    /// Records the discard and then deletes the cart, so the same id starts again empty. A
+    /// checked-out cart is a record of an order and is not discarded.
     fn discard(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Done> {
         if cart.checked_out {
             return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
@@ -57,6 +62,7 @@ impl ShoppingCart {
             .delete_entity()
             .then_reply_value(Done)
     }
+    // docs:end discard
 
     fn get_cart(cart: &Cart, _: (), _: &Context) -> ReadOnlyEffect<Cart> {
         effects::reply(cart.clone())
@@ -89,6 +95,9 @@ impl EventSourcedEntity for ShoppingCart {
         }
     }
 
+    // docs:start handlers
+    /// Every handler under its wire name: the name a caller and a stored timer use, which does
+    /// not change when the Rust function is renamed.
     fn handlers() -> Handlers<ShoppingCart> {
         Handlers::new()
             .command("add-item", ShoppingCart::add_item)
@@ -98,6 +107,7 @@ impl EventSourcedEntity for ShoppingCart {
             .query("get-cart", ShoppingCart::get_cart)
             .query("total-quantity", ShoppingCart::total_quantity)
     }
+    // docs:end handlers
 
     fn snapshot_every() -> u32 {
         100

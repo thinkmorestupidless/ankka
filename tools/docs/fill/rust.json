@@ -1,0 +1,787 @@
+[
+  {
+    "slot": "build/agents.md:30",
+    "include": "sdks/rust/examples/shopping-cart/src/assistant.rs#agent"
+  },
+  {
+    "slot": "build/agents.md:406",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#activity"
+  },
+  {
+    "slot": "build/agents.md:437",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#structured",
+    "note": "Rust has no typed reply: `json_shape` describes the JSON and the caller decodes it, as weather.rs#forecast shows"
+  },
+  {
+    "slot": "build/agents.md:449",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#forecast"
+  },
+  {
+    "slot": "build/agents.md:465",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#tools-declared",
+    "note": "the tool functions themselves are src/weather.rs#tools"
+  },
+  {
+    "slot": "build/agents.md:520",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:538",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:556",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:591",
+    "exclude": "A module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route",
+    "limitations_missing": false,
+    "note": "also A module's agents take no part in approvals or MCP servers"
+  },
+  {
+    "slot": "build/agents.md:610",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#service-call-tool"
+  },
+  {
+    "slot": "build/agents.md:638",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#guarded"
+  },
+  {
+    "slot": "build/agents.md:652",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#no-keys"
+  },
+  {
+    "slot": "build/agents.md:687",
+    "exclude": "The Rust SDK's agent effect has `session_memory(bool)` only: a module cannot choose a memory provider or read the last turns",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/agents.md:709",
+    "exclude": "A process names a configured provider, not a model: the provider is configured on the sidecar's container, so a Rust service has no AgentRuntime, provider or compaction code",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:742",
+    "exclude": "A process names a configured provider, not a model: the provider is configured on the sidecar's container, so a Rust service has no AgentRuntime, provider or compaction code",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:749",
+    "exclude": "A process names a configured provider, not a model: the provider is configured on the sidecar's container, so a Rust service has no AgentRuntime, provider or compaction code",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:767",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#naming-a-provider",
+    "note": "a Rust handler names a configured provider by `model(name)`; the provider's own settings are the sidecar container's"
+  },
+  {
+    "slot": "build/agents.md:786",
+    "exclude": "A process names a configured provider, not a model: the provider is configured on the sidecar's container, so a Rust service has no AgentRuntime, provider or compaction code",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:822",
+    "exclude": "A process names a configured provider, not a model: the provider is configured on the sidecar's container, so a Rust service has no AgentRuntime, provider or compaction code",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/agents.md:855",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#call-agent"
+  },
+  {
+    "slot": "build/agents.md:1005",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/autonomous-agents.md:30",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#autonomous-task-type"
+  },
+  {
+    "slot": "build/autonomous-agents.md:151",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#autonomous-agent"
+  },
+  {
+    "slot": "build/autonomous-agents.md:362",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/autonomous-agents.md:396",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/autonomous-agents.md:402",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/autonomous-agents.md:406",
+    "exclude": "A module's agents take no part in approvals or MCP servers",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/autonomous-agents.md:427",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#autonomous-run"
+  },
+  {
+    "slot": "build/autonomous-agents.md:508",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#autonomous-tasks",
+    "note": "creating a task without running it, then assigning it to an instance"
+  },
+  {
+    "slot": "build/autonomous-agents.md:539",
+    "exclude": "A module cannot forward an autonomous agent's notifications",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/autonomous-agents.md:593",
+    "include": "sdks/rust/examples/shopping-cart/tests/answerer.rs#autonomous-test",
+    "note": "the Rust kit runs the tools, guardrails and task type rules with no loop: no sidecar SDK's unit test kit scripts an autonomous agent's model"
+  },
+  {
+    "slot": "build/calling-services.md:51",
+    "include": "sdks/rust/examples/shopping-cart/src/service_calls.rs#call-another-service"
+  },
+  {
+    "slot": "build/calling-services.md:61",
+    "include": "sdks/rust/examples/shopping-cart/src/service_calls.rs#call-another-service"
+  },
+  {
+    "slot": "build/calling-services.md:254",
+    "include": "sdks/rust/examples/shopping-cart/src/service_calls.rs#step-calls-service"
+  },
+  {
+    "slot": "build/calling-services.md:274",
+    "include": "sdks/rust/examples/shopping-cart/src/service_calls.rs#step-calls-service"
+  },
+  {
+    "slot": "build/component-client.md:26",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#endpoint"
+  },
+  {
+    "slot": "build/component-client.md:102",
+    "exclude": "The Rust client has no asynchronous invoke: a module's call to another component blocks until it is answered, and several calls run one after another",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/component-client.md:118",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#refusal"
+  },
+  {
+    "slot": "build/component-client.md:159",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#problem"
+  },
+  {
+    "slot": "build/component-client.md:188",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#start-workflow"
+  },
+  {
+    "slot": "build/consumers.md:82",
+    "include": "sdks/rust/examples/shopping-cart/src/checkout_notifier.rs#consumer"
+  },
+  {
+    "slot": "build/consumers.md:881",
+    "include": "sdks/rust/examples/shopping-cart/src/fleet.rs#mirrored-change"
+  },
+  {
+    "slot": "build/consumers.md:1056",
+    "include": "sdks/rust/examples/shopping-cart/src/lib.rs#consumer-test"
+  },
+  {
+    "slot": "build/consumers.md:1079",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "InMemoryPublisher and InMemoryBroker are the Scala kit's"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:39",
+    "include": "sdks/rust/examples/shopping-cart/src/domain.rs#events"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:142",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#entity"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:442",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#handlers"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:514",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#discard"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:565",
+    "include": "sdks/rust/examples/shopping-cart/src/lib.rs#service"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:612",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#endpoint"
+  },
+  {
+    "slot": "build/event-sourced-entities.md:972",
+    "exclude": "The Rust client has no call for a replicated entity's replication status (home, replication set, position)",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/event-sourced-entities.md:1044",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#unit-test"
+  },
+  {
+    "slot": "build/http-endpoints.md:26",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#routes"
+  },
+  {
+    "slot": "build/http-endpoints.md:251",
+    "exclude": "A module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/http-endpoints.md:438",
+    "include": "sdks/rust/examples/shopping-cart/src/pages.rs#pages"
+  },
+  {
+    "slot": "build/http-endpoints.md:481",
+    "include": "sdks/rust/examples/shopping-cart/src/pages.rs#query"
+  },
+  {
+    "slot": "build/http-endpoints.md:494",
+    "include": "sdks/rust/examples/shopping-cart/src/pages.rs#header"
+  },
+  {
+    "slot": "build/http-endpoints.md:522",
+    "exclude": "A module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/http-endpoints.md:546",
+    "exclude": "The Rust `Acl` has no predicate variant (Scala's `Acl.AllowIf`): a Rust route is admitted by AllowAll, DenyAll, Authenticated, Callers, ClientKeys or AnyOf, and decides anything finer in the handler",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/http-endpoints.md:574",
+    "exclude": "An sbt or Scala-runtime setting with no Rust counterpart",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/http-endpoints.md:583",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#private-endpoint"
+  },
+  {
+    "slot": "build/http-endpoints.md:618",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint"
+  },
+  {
+    "slot": "build/http-endpoints.md:633",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint"
+  },
+  {
+    "slot": "build/http-endpoints.md:654",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint",
+    "note": "the granted-callers route is one of this endpoint's routes"
+  },
+  {
+    "slot": "build/http-endpoints.md:690",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "`testKit.asCaller` is the Scala kit's; the Rust endpoint kit cannot name a caller"
+  },
+  {
+    "slot": "build/http-endpoints.md:707",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint",
+    "note": "`.with_acl(acl)` applies to the route declared just before it"
+  },
+  {
+    "slot": "build/http-endpoints.md:750",
+    "include": "sdks/rust/examples/shopping-cart/src/lib.rs#service"
+  },
+  {
+    "slot": "build/http-endpoints.md:825",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#problem"
+  },
+  {
+    "slot": "build/http-endpoints.md:894",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint"
+  },
+  {
+    "slot": "build/http-endpoints.md:909",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#callers-endpoint"
+  },
+  {
+    "slot": "build/key-value-entities.md:45",
+    "include": "sdks/rust/examples/shopping-cart/src/checkout_log.rs#key-value"
+  },
+  {
+    "slot": "build/key-value-entities.md:217",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#call-key-value",
+    "note": "src/lib.rs#service registers the entity"
+  },
+  {
+    "slot": "build/key-value-entities.md:262",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#key-value-test"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:334",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#mcp-endpoint"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:350",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#mcp-endpoint"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:379",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#mcp-endpoint"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:404",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#mcp-keys"
+  },
+  {
+    "slot": "build/mcp-endpoints.md:738",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "the JSON-RPC exchange is tested through the sidecar's conformance suite, not a unit kit"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:52",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#select"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:81",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#planner-settings"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:98",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#consult",
+    "note": "the Rust client has no asynchronous invoke, so the specialists are consulted one after another; the prose beside the tab must say so"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:146",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#selector"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:183",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#session"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:191",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#summary",
+    "note": "Rust has `session_memory(bool)` only: the summary agent keeps or drops the session, it cannot filter it"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:213",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#summarise"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:233",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#activity"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:265",
+    "include": "sdks/rust/examples/shopping-cart/src/planner.rs#select"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:310",
+    "exclude": "The Rust client has no lifecycle call for a workflow: a module reads the domain state its own query answers",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:325",
+    "include": "sdks/rust/examples/shopping-cart/tests/planner.rs#planner-test",
+    "note": "the unit kit answers entities only, so the planner's agents are reached by a scripted model one at a time and the workflow's step without its agent fails; the Scala block runs the whole plan in the integration kit"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:344",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "the Rust planner test (tests/planner.rs#planner-test) is at 325"
+  },
+  {
+    "slot": "build/multi-agent-orchestration.md:373",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "draining a shared scripted model is a concern of the Scala integration kit only"
+  },
+  {
+    "slot": "build/object-storage.md:88",
+    "include": "sdks/rust/examples/shopping-cart/src/listing.rs#listing-entity"
+  },
+  {
+    "slot": "build/object-storage.md:125",
+    "include": "sdks/rust/examples/shopping-cart/src/listing.rs#photos-endpoint"
+  },
+  {
+    "slot": "build/object-storage.md:222",
+    "exclude": "Rust is already on this page at the Rust section (src/conformance.rs#storage); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/object-storage.md:282",
+    "exclude": "Rust is already on this page at the Rust section (src/conformance.rs#storage); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/object-storage.md:436",
+    "exclude": "Rust is already on this page at the Rust section (src/conformance.rs#storage); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/object-storage.md:549",
+    "exclude": "Rust is already on this page at the Rust section (src/conformance.rs#storage); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/object-storage.md:636",
+    "include": "sdks/rust/examples/shopping-cart/tests/listing.rs#storage-test"
+  },
+  {
+    "slot": "build/personal-data.md:277",
+    "exclude": "Lookup fields are declared in the Scala SDK only",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/personal-data.md:666",
+    "include": "sdks/rust/examples/shopping-cart/tests/personal.rs#erasure-test"
+  },
+  {
+    "slot": "build/secrets.md:56",
+    "include": "sdks/rust/examples/shopping-cart/src/credentials.rs#credentials-endpoint"
+  },
+  {
+    "slot": "build/secrets.md:86",
+    "include": "sdks/rust/examples/shopping-cart/src/credentials.rs#charge-workflow"
+  },
+  {
+    "slot": "build/secrets.md:120",
+    "exclude": "Rust is already on this page at line 166 (src/conformance.rs#secrets); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/secrets.md:146",
+    "exclude": "Rust is already on this page at line 166 (src/conformance.rs#secrets); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/secrets.md:198",
+    "exclude": "Rust is already on this page at line 166 (src/conformance.rs#secrets); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/secrets.md:270",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "FakeSecretManager is the Scala kit's; the Rust unit kit's secrets are the in-memory store tests/credentials.rs#secrets-unit-test reads"
+  },
+  {
+    "slot": "build/secrets.md:286",
+    "include": "sdks/rust/examples/shopping-cart/tests/credentials.rs#secrets-unit-test"
+  },
+  {
+    "slot": "build/serialization.md:26",
+    "include": "sdks/rust/examples/shopping-cart/src/domain.rs#domain",
+    "note": "a Rust type derives Serialize and Deserialize; the manifest is named on the component (STATE_MANIFEST, EVENT_MANIFEST), not on a serializer"
+  },
+  {
+    "slot": "build/testing.md:190",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#key-value-test"
+  },
+  {
+    "slot": "build/testing.md:202",
+    "include": "sdks/rust/examples/shopping-cart/tests/joined.rs#keyed-view-test"
+  },
+  {
+    "slot": "build/testing.md:243",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#workflow-test"
+  },
+  {
+    "slot": "build/testing.md:261",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#agent-test"
+  },
+  {
+    "slot": "build/testing.md:749",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/testing.md:797",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "LogCapturing is a munit mixin"
+  },
+  {
+    "slot": "build/testing.md:827",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "several installations in one test is the Scala kit's `AnkkaTestKit.installations`"
+  },
+  {
+    "slot": "build/testing.md:878",
+    "include": "sdks/rust/examples/shopping-cart/tests/fleet.rs#follower-kit"
+  },
+  {
+    "slot": "build/testing.md:963",
+    "exclude": "Gherkin step definitions (speckit-bdd) bind to the Scala integration kit; a Rust module has no feature runner",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/testing.md:1002",
+    "include": "sdks/rust/examples/shopping-cart/tests/weather.rs#agent-test",
+    "note": "the same weather script in Rust's ScriptedModel, which fails loudly when it runs out"
+  },
+  {
+    "slot": "build/testing.md:1021",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/testing.md:1079",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#agent-test",
+    "note": "a Rust module's model is scripted in the test itself with ScriptedModel, not by a JSON script handed to the sidecar"
+  },
+  {
+    "slot": "build/testing.md:1098",
+    "exclude": "A WebAssembly module's unit kit scripts the model in-process (tests/cart.rs#agent-test at 1079); there is no sidecar script for a module",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/testing.md:1139",
+    "exclude": "ModelStandIn is the Scala agent module's; a module's provider is the sidecar container's and is not stood in from Rust",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/timers.md:41",
+    "include": "sdks/rust/examples/shopping-cart/src/orders.rs#expire-order"
+  },
+  {
+    "slot": "build/timers.md:190",
+    "include": "sdks/rust/examples/shopping-cart/src/orders.rs#order-timers"
+  },
+  {
+    "slot": "build/timers.md:471",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "TimerRuntime is the Scala runtime's extension"
+  },
+  {
+    "slot": "build/timers.md:477",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "TimerProbe is the Scala kit's"
+  },
+  {
+    "slot": "build/timers.md:488",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false,
+    "note": "MovableClock is the Scala kit's; the Rust kit fires a timed action directly (tests/orders.rs#timed-action-test)"
+  },
+  {
+    "slot": "build/timers.md:503",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/topics.md:21",
+    "include": "sdks/rust/examples/shopping-cart/src/stock.rs#topic-view"
+  },
+  {
+    "slot": "build/topics.md:448",
+    "exclude": "A deployed module is configured by its descriptor: the broker is the runtime's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS, and no Rust code names one",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/topics.md:462",
+    "include": "sdks/rust/examples/shopping-cart/src/lib.rs#service",
+    "note": "the module registers its topic components only when ANKKA_KAFKA_BOOTSTRAP_SERVERS is set, as the Scala `fromEnv()` does"
+  },
+  {
+    "slot": "build/topics.md:688",
+    "include": "sdks/rust/examples/shopping-cart/src/stock.rs#contract"
+  },
+  {
+    "slot": "build/topics.md:1166",
+    "include": "sdks/rust/examples/shopping-cart/tests/stock.rs#topic-view-test"
+  },
+  {
+    "slot": "build/views.md:66",
+    "include": "sdks/rust/examples/shopping-cart/src/cart_rows.rs#view"
+  },
+  {
+    "slot": "build/views.md:757",
+    "include": "sdks/rust/examples/shopping-cart/src/lib.rs#service"
+  },
+  {
+    "slot": "build/views.md:868",
+    "exclude": "Querying a view with SQL fragments at the call is the Scala view client's alone; a Rust service reads a view through its declared queries (views.md:954)",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:889",
+    "exclude": "Querying a view with SQL fragments at the call is the Scala view client's alone; a Rust service reads a view through its declared queries (views.md:954)",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:895",
+    "exclude": "Querying a view with SQL fragments at the call is the Scala view client's alone; a Rust service reads a view through its declared queries (views.md:954)",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:915",
+    "exclude": "Querying a view with SQL fragments at the call is the Scala view client's alone; a Rust service reads a view through its declared queries (views.md:954)",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:938",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#problem",
+    "note": "the carts route queries the view through `client().query(CartRows, ...)`"
+  },
+  {
+    "slot": "build/views.md:954",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#declared-recursive-query"
+  },
+  {
+    "slot": "build/views.md:1165",
+    "exclude": "A module reads a view whole: it cannot ask a query as a stream or watch one",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:1282",
+    "exclude": "A module reads a view whole: it cannot ask a query as a stream or watch one",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:1356",
+    "exclude": "A module reads a view whole: it cannot ask a query as a stream or watch one",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:1504",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#keyed-view"
+  },
+  {
+    "slot": "build/views.md:1547",
+    "exclude": "Rust is already on this page at line 1504 (src/conformance.rs#keyed-view); the same example should not appear twice",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:1609",
+    "include": "sdks/rust/examples/shopping-cart/src/stock.rs#version"
+  },
+  {
+    "slot": "build/views.md:1656",
+    "exclude": "Lookup fields are declared in the Scala SDK only",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/views.md:1690",
+    "include": "sdks/rust/examples/shopping-cart/tests/cart.rs#view-test"
+  },
+  {
+    "slot": "build/views.md:1704",
+    "include": "sdks/rust/examples/shopping-cart/tests/joined.rs#keyed-view-test"
+  },
+  {
+    "slot": "build/views.md:1727",
+    "exclude": "Scala's integration test kit (AnkkaTestKit) and what runs in it have no Rust counterpart; a module's end-to-end behaviour is proven by the conformance suite",
+    "limitations_missing": false
+  },
+  {
+    "slot": "build/workflows.md:41",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-companion"
+  },
+  {
+    "slot": "build/workflows.md:70",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-start"
+  },
+  {
+    "slot": "build/workflows.md:90",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-steps"
+  },
+  {
+    "slot": "build/workflows.md:121",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-service"
+  },
+  {
+    "slot": "build/workflows.md:133",
+    "include": "sdks/rust/examples/shopping-cart/src/checkout_workflow.rs#workflow"
+  },
+  {
+    "slot": "build/workflows.md:480",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#transfer-settings"
+  },
+  {
+    "slot": "build/workflows.md:585",
+    "exclude": "The Rust client has no lifecycle call for a workflow: a module reads the domain state its own query answers",
+    "limitations_missing": true
+  },
+  {
+    "slot": "build/workflows.md:617",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#start-and-await"
+  },
+  {
+    "slot": "build/workflows.md:723",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#await-later"
+  },
+  {
+    "slot": "build/workflows.md:793",
+    "include": "sdks/rust/examples/shopping-cart/src/transfer.rs#step-awaits"
+  },
+  {
+    "slot": "build/workflows.md:815",
+    "exclude": "A module cannot stream: a WebAssembly module answers every call whole, so its handlers and HTTP routes cannot stream, and it cannot declare a socket route",
+    "limitations_missing": false,
+    "note": "A module waits whole: it cannot serve the wait as a stream"
+  },
+  {
+    "slot": "concepts/components.md:153",
+    "include": "sdks/rust/examples/shopping-cart/src/lib.rs#service"
+  },
+  {
+    "slot": "concepts/effects.md:16",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#add-item"
+  },
+  {
+    "slot": "concepts/effects.md:109",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#add-item"
+  },
+  {
+    "slot": "concepts/replicated-entities.md:87",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#replicate-to"
+  },
+  {
+    "slot": "concepts/replicated-entities.md:103",
+    "include": "sdks/rust/examples/shopping-cart/src/conformance.rs#hand-over"
+  },
+  {
+    "slot": "concepts/wire-names.md:20",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#handlers"
+  },
+  {
+    "slot": "concepts/wire-names.md:73",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#endpoint"
+  },
+  {
+    "slot": "concepts/wire-names.md:81",
+    "include": "sdks/rust/examples/shopping-cart/src/endpoint.rs#endpoint"
+  },
+  {
+    "slot": "deploy/images.md:35",
+    "exclude": "An sbt or Scala-runtime setting with no Rust counterpart",
+    "limitations_missing": false,
+    "note": "a module's image copies service.wasm into /ankka/module; the page's Rust section already says so"
+  },
+  {
+    "slot": "deploy/local-models.md:36",
+    "include": "sdks/rust/examples/shopping-cart/src/weather.rs#naming-a-provider",
+    "note": "the Rust section of this page says the provider is the sidecar container's; a handler names it by `model(name)`"
+  },
+  {
+    "slot": "reference/error-codes.md:61",
+    "include": "sdks/rust/examples/shopping-cart/src/entity.rs#add-item"
+  }
+]

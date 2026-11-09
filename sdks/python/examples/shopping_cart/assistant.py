@@ -44,6 +44,8 @@ class CartAssistant(Agent):
     def ask(self, question: str) -> AgentEffect[str]:
         return self._describe(question)
 
+    # docs:start stream
     @stream("chat")
     def chat(self, question: str) -> AgentEffect[str]:
         return self._describe(question)
+    # docs:end stream

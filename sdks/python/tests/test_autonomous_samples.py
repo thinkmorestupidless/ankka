@@ -46,7 +46,7 @@ def _read_metrics(agent: AutonomousAgent, arguments: ServiceName) -> str:
     return f"{arguments.service} is healthy"
 
 
-OPERATE = TaskType("operate", "Keep a service healthy")
+OPERATE: TaskType[None] = TaskType("operate", "Keep a service healthy")
 
 
 # docs:start autonomous-requires-approval

@@ -263,6 +263,7 @@ def test_a_sidecar_too_old_for_a_keyed_view_is_refused_naming_it() -> None:
 def test_the_keyed_kit_applies_each_source_and_answers_only_what_it_was_told() -> None:
     from tests.counter import Incremented
 
+    # docs:start keyed-view-test
     kit = KeyedViewTestKit.of(Shipments)
     kit.change(CounterEntity, "s1", Incremented(1))
     assert kit.get("s1") == ShipmentRow("s1", "c1", ("shipment",))
@@ -271,3 +272,4 @@ def test_the_keyed_kit_applies_each_source_and_answers_only_what_it_was_told() -
     kit.answering("of-customer", lambda values: [r for r in kit.rows.values() if r.customer == values["customer"]])
     kit.change(Customer, "c1", Note("renamed"))
     assert kit.get("s1") == ShipmentRow("s1", "c1", ("shipment", "renamed"))
+    # docs:end keyed-view-test

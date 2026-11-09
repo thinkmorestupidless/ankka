@@ -26,7 +26,9 @@ from tests.weather_agent import Forecast, WeatherAgent, tool_calls
 
 def test_the_model_calls_a_tool_and_the_result_goes_back_to_it() -> None:
     tool_calls.clear()
+    # docs:start scripted-model
     model = ScriptedModel().expect_tool_call("get_weather", {"location": "Lisbon"}).expect_text("Lisbon: 18C, sunny.")
+    # docs:end scripted-model
     answer = AgentTestKit.of(WeatherAgent, "w-1", model).call("ask", "Lisbon today?")
     assert answer.reply == "Lisbon: 18C, sunny." and answer.tool_results == ["Lisbon: 18C, sunny"]
     assert tool_calls == ["get_weather(Lisbon,-)"]
@@ -117,7 +119,7 @@ class _Sidecar:
 
 def _client(sidecar: _Sidecar) -> ComponentClient:
     client = ComponentClient(address="127.0.0.1:0")
-    client._stub_cache = sidecar
+    client._stub_cache = sidecar  # type: ignore[assignment]
     return client
 
 

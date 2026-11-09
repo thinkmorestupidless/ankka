@@ -32,7 +32,20 @@ Feature: A notice when a newer release exists
     Given the latest release "0.16.0" was read less than a day ago
     When a person runs a command
     Then the latest release is not read again
-    And the command's error output ends with the line "ankka version 0.16.0 is available (you're currently using version 0.13.0)"
+
+  Scenario: the notice is given at most once a day
+    Given the latest release "0.16.0"
+    And the notice was given less than a day ago
+    When a person runs a command
+    Then no notice is given
+
+  Scenario: the version command reads the latest release at once and gives the notice whenever a newer release exists
+    Given the latest release "0.16.0" was read less than a day ago
+    And the notice was given less than a day ago
+    And the latest release "0.17.0" was published since
+    When a person runs the version command
+    Then the latest release is read
+    And the command's error output ends with the line "ankka version 0.17.0 is available (you're currently using version 0.13.0)"
 
   Scenario: a latest release that cannot be read changes nothing about the command
     Given the latest release cannot be read
@@ -57,6 +70,7 @@ Feature: A notice when a newer release exists
       | with JSON output                   |
       | under CI                           |
       | with the check turned off          |
+      | with its error output not a terminal |
 
   Scenario: a development build of the command line never reads the latest release
     Given the command line is a development build

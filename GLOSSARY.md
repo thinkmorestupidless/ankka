@@ -1055,17 +1055,20 @@ each package registry. A service is built on one release's libraries and may run
 installation at a later one.
 
 ### latest release
-*Proposed.* The newest release, as the file published beside the documentation names it, with the
+The newest release, as the file published beside the documentation names it, with the
 date it was released. Published only once the release's libraries can be fetched.
+Avoid: newest version.
 
 ### development build
-*Proposed.* A command line built from a commit that is not a release, whose version is not a
+A command line built from a commit that is not a release, whose version is not a
 release's. It never reads the latest release.
+Avoid: dev version.
 
 ### notice
-*Proposed.* The one sentence that says a newer release exists: "ankka version Y is available (you're
+The one sentence that says a newer release exists: "ankka version Y is available (you're
 currently using version X)", Y the latest release and X the command line's. Given only when the
-latest release is newer.
+latest release is newer, at most once a day at the command line.
+Avoid: upgrade notice.
 
 ### limitations
 The page of the documentation that lists what ankka does not do, area by area. A feature that
@@ -3190,7 +3193,7 @@ releases that service alone. Avoid: release tag.
 
 ## Everyday words
 
-exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords
+exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords, terminal
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

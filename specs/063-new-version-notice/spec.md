@@ -37,14 +37,30 @@ the site, and has the command line and its MCP server read it: at most once a da
 of a command, and in exactly Trevor's words, "ankka version Y is available (you're currently using
 version X)". The pages that name a release take it from the release that builds them.
 
+## Clarifications
+
+### Session 2026-11-09
+
+- Q: Once the command line knows a newer release exists, how often does it give the notice? → A:
+  At most once a day: the first command after the newer release is known gives it, and later
+  commands that day give none.
+- Q: Is the notice given when the error output is not a terminal (piped, redirected, a script)? →
+  A: No. The command line neither reads the latest release nor gives the notice unless its error
+  output is a terminal.
+- Q: Does `ankka version` read the latest release at once, past the once-a-day limit? → A: Yes. It
+  reads now, under the same short timeout, remembers what it read, and gives the notice when a newer
+  release exists, whenever the notice was last given.
+- Q: Do the proposed terms stand? → A: Yes: latest release, development build and notice, with
+  update, upgrade notice and snapshot refused.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A person at the command line is told a newer release exists (Priority: P1)
 
 A person runs any command of an older command line. After the command's own output, they see one
 line saying which release is available and which they are using. The command is no slower, its
-output and its exit code are what they were, and they are not told again more than once a day's
-check allows.
+output and its exit code are what they were, and they are told at most once a day. `ankka version`
+reads the latest release at once and always says when a newer one exists.
 
 **Why this priority**: the command line is what every person on ankka runs, and it is where an old
 release is cheapest to notice and fix.
@@ -59,6 +75,8 @@ as fast as before with no notice.
 - added `features/command-line/new-release-notice.feature`: a command line at the latest release gives no notice
 - added `features/command-line/new-release-notice.feature`: a latest release that is not newer than the command line gives no notice
 - added `features/command-line/new-release-notice.feature`: the latest release is read at most once a day
+- added `features/command-line/new-release-notice.feature`: the notice is given at most once a day
+- added `features/command-line/new-release-notice.feature`: the version command reads the latest release at once and gives the notice whenever a newer release exists
 - added `features/command-line/new-release-notice.feature`: a latest release that cannot be read changes nothing about the command
 - added `features/command-line/new-release-notice.feature`: a command ends when its own work ends, not when the read of the latest release does
 - added `features/command-line/new-release-notice.feature`: the latest release is not read and no notice is given where a notice would be in the way
@@ -142,7 +160,6 @@ hand-written release to a page and run the check.
   compatibility rule).
 - A page that names another project's release (a tool such as spec-kit pinned at its own version)
   is not a release of ankka and is not refused.
-- The command line's own `ankka version` command: it shows the notice as every other command does.
 
 ## Requirements *(mandatory)*
 
@@ -170,15 +187,19 @@ hand-written release to a page and run the check.
   own override.
 - **FR-006**: Reading the latest release MUST NOT delay a command beyond its own work, MUST NOT
   change its output or its exit code, and MUST give up after a short timeout.
-- **FR-007**: The notice MUST be one line on the error output, after the command's own output.
+- **FR-007**: The notice MUST be one line on the error output, after the command's own output, and
+  MUST be given at most once in 24 hours, by the first command that knows of the newer release.
+- **FR-007a**: `ankka version` MUST read the latest release at once, under the same timeout, past the
+  once-a-day limit, remember what it read, and give the notice whenever a newer release exists.
 - **FR-008**: The command line MUST neither read the latest release nor give the notice when output
-  is JSON, when the environment says it runs under CI, when `ANKKA_NO_UPDATE_CHECK=1`, or when it is a
-  development build (a version that is not a release).
+  is JSON, when its error output is not a terminal, when the environment says it runs under CI, when
+  `ANKKA_NO_UPDATE_CHECK=1`, or when it is a development build (a version that is not a release).
 
 **The MCP server**
 
 - **FR-009**: The MCP server MUST read the latest release when it starts and again at least every 24
-  hours while it runs, under the same conditions as FR-008 except JSON output.
+  hours while it runs, under the same conditions as FR-008 except JSON output and the terminal,
+  since a model, not a terminal, reads it.
 - **FR-010**: When a newer release exists at start, the server's instructions MUST carry the notice.
 - **FR-011**: The answers of `whoami` and `installation_status` MUST carry the command line's release
   and, when known, the latest release.
@@ -201,8 +222,8 @@ hand-written release to a page and run the check.
 
 - **Latest release**: the release a published file says is newest: its version and the date it was
   released.
-- **Remembered check**: what the command line last read of the latest release, and when; it decides
-  whether to read again.
+- **Remembered check**: what the command line last read of the latest release, when, and when it last
+  gave the notice; it decides whether to read again and whether to give the notice.
 - **Notice**: the one sentence that says a newer release is available and which release is in use.
 
 ## Success Criteria *(mandatory)*

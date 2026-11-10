@@ -36,3 +36,10 @@ Feature: A long session is compacted
     Then the log of "support" holds a warning that names the session and the failure
     And nothing in the log of "support" reads as a message of the session
     And the session holds its "14" messages verbatim and no summary
+
+  Scenario: compaction of a session started with a data subject waits while the keyring cannot be reached and is made once it can
+    Given a session of "helper" started with the data subject "player/8c1f", with "14" messages of "100103" characters together
+    And the keyring cannot be reached since the last turn in the session ended
+    When the keyring can be reached again
+    Then the session holds a summary and then its "10" most recent messages verbatim
+    And no compaction of the session failed

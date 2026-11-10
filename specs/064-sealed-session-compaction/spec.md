@@ -44,6 +44,7 @@ unchanged: a sealed event whose subject was erased has nothing to compact.
 - Q: Should a compaction failure be logged, beside `SessionCompactor.failures`? → A: Yes. Every compaction failure, of a session with a data subject or without, logs one warning naming the session and the kind of failure, never the conversation or a provider's message body.
 - Q: How far does the feature go on the summariser's model being sent a data subject's conversation? → A: It is documented. The guide says the summariser's model is sent the conversation, and that this is beyond an erasure. Behaviour does not change and nothing is opt-in.
 - Q: Planning found a keyring outage fails a sealed event in the projection, before the compactor's handler. Skip and record as first specified, or wait? → A: Wait, as every consumer of personal fields does: the event is retried until the keyring answers, nothing is recorded as failed and no compaction is lost.
+- Q: Analyze found FR-006 with no living scenario. Add one? → A: Yes: "compaction of a session started with a data subject waits while the keyring cannot be reached and is made once it can", which the build must prove deterministically.
 - Read from the code, not asked: the sidecar never turns compaction on (`withCompaction` is called only by the Scala, Java and Kotlin agent modules), so a Python, TypeScript, Go or Rust service's sessions are outside this feature.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -60,7 +61,7 @@ under the subject's key.
 bounding what each turn sends the model. Both are documented as defaults.
 
 **Independent Test**: in the integration kit, run a session started with a data subject past
-`maxHistoryBytes` with more than `keepRecentMessages + minMessagesToCompact` messages, and read its
+`maxHistoryBytes` with at least `keepRecentMessages + minMessagesToCompact` messages, and read its
 history: a summary first, then the kept messages. Then check the database holds the summary only
 encrypted.
 
@@ -72,6 +73,7 @@ encrypted.
 - added `features/agents/compaction.feature`: a session with too few messages beyond those kept is not compacted
 - added `features/erasure/agents.feature`: the summary of a session started with a data subject is kept encrypted under the subject key
 - added `features/erasure/agents.feature`: a session of an erased data subject is not compacted
+- added `features/agents/compaction.feature`: compaction of a session started with a data subject waits while the keyring cannot be reached and is made once it can
 - added `features/agents/compaction.feature`: a compaction that fails is reported in the log of the service by its session and never by its conversation
 
 ---
@@ -85,7 +87,8 @@ encrypted.
   still not acted on, so compaction cannot trigger itself (the guard compaction already has for the
   plain event).
 - **A turn that waits for approval.** As today, compaction never touches a turn that is waiting.
-  Sealing changes nothing here.
+  Sealing changes nothing here: a sealed record of a suspended turn is not an AI message, and the
+  compactor ignores it.
 - **Sealed events already in the journal.** A deployment that upgrades has sealed sessions that are
   already past the limit. They are compacted after their next turn, not by replaying the journal.
   The consumer's offset is not reset.
@@ -110,7 +113,8 @@ encrypted.
   - it writes nothing when the summary is no shorter than what it replaces.
 - **FR-003**: The summary written for a session started with a data subject MUST be persisted
   sealed under that subject's key, like every other event of the session (feature 042). No part of
-  it may be readable in the database or the broker.
+  it may be readable in the database, in the journal or in a snapshot. Session memory's events are
+  published to no topic, so nothing of a session reaches the broker.
 - **FR-004**: A sealed event whose data subject has been erased MUST NOT lead to a summarisation or
   a write, and MUST NOT be recorded as a failure.
 - **FR-005**: A sealed event that holds the compactor's own `HistoryCompacted` MUST NOT lead to
@@ -147,8 +151,8 @@ encrypted.
 - **SC-001**: A session started with a data subject is compacted after the first turn that ends past
   the size limit with enough messages to drop. Its history then holds the same number of messages
   as a session with no data subject run through the same turns.
-- **SC-002**: The database and the broker of a service whose sealed session was compacted contain
-  none of the summary's text, by the kit's `assertNoPersonalValue`.
+- **SC-002**: The database of a service whose sealed session was compacted contains none of the
+  summary's text, by the kit's `assertNoPersonalValue`.
 - **SC-003**: The kit test that reproduces the bug passes: 14 messages, over 100 000 characters,
   `keepRecentMessages = 10`. On 0.16.0 it drew no summariser call; after the fix, the history reads
   as one summary and 10 kept messages.

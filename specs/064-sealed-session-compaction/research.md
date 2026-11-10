@@ -67,12 +67,13 @@ recorded and logged as any other compaction failure (R6) and the consumer moves 
 **Alternatives considered**: skip and record, as the spec first said (needs a second decoder of the
 session event shape, kept in step with the entity's by hand); never opening the event (R1).
 
-**Proof**: `KeyringOutageSuite` already proves the cache and the refusal. This feature adds one kit
-case: the compactor is held in a first session's summariser on a latch, a sealed session's turn is
-written behind it, the outage starts with `ankka.keyring.cache.outage-bound` set short for the
-kit, the latch is released, and after the outage ends the sealed session is compacted with nothing
-in `SessionCompactor.failures` for it. If the kit cannot shorten the bound, the case is reported in
-`tasks.md` as not provable in the kit rather than written to pass by timing.
+**Proof**: the scenario "compaction of a session started with a data subject waits while the
+keyring cannot be reached and is made once it can" (`features/agents/compaction.feature`, added by
+analyze, asked). `CompactionFeatures` binds it: the compactor is held in a first session's
+summariser on a latch, a sealed session's turns are written behind it, the outage starts with
+`ankka.keyring.cache.outage-bound` set short for the kit, the latch is released, and after the
+outage ends the sealed session is compacted with nothing in `SessionCompactor.failures` for it. A
+step that passes by timing is not a proof; a build that cannot make it deterministic stops.
 
 ## R5. Which languages this reaches
 
@@ -106,7 +107,7 @@ kind for one with (two shapes of one line, and a plain session can hold a person
 
 | Scenario | Proved by |
 |---|---|
-| `features/agents/compaction.feature`, all five | a new `CompactionFeatures` (`GherkinSuite` over the one file) with `CompactionSteps`, in `modules/testkit/src/test/.../testkit/agents/`, on `AnkkaTestKit` with two `TestModelProvider`s |
+| `features/agents/compaction.feature`, all six | a new `CompactionFeatures` (`GherkinSuite` over the one file) with `CompactionSteps`, in `modules/testkit/src/test/.../testkit/agents/`, on `AnkkaTestKit` with two `TestModelProvider`s |
 | `features/erasure/agents.feature`: the summary is kept encrypted | new steps in `ErasureAgentsFeatures` (`controlplane` tests), whose service gains compaction with a summariser of its own |
 | `features/erasure/agents.feature`: an erased data subject's session is not compacted | the same suite; the summariser's provider is scripted with nothing, so a call fails loudly |
 | the documentation steps | the existing pattern in `ErasureAgentsFeatures`: the page's text is read and searched |
@@ -119,9 +120,11 @@ for something that happens).
 
 `ErasureAgentsFeatures` is not a k3s suite; it runs in `build (rest)`.
 
-**Red first**: the sealed scenarios fail on `main` (no summary ever appears). The two plain
-scenarios pass on `main`; they are there because the feature file had no scenario for compaction at
-all, and are proved able to fail by breaking the comparison once.
+**Red first**: on `main` the sealed session's compaction scenario fails (no summary ever appears)
+and the scenario with no data subject passes; it is there because no feature described compaction
+at all. The two not-compacted scenarios use a session started with a data subject, so on `main`
+they pass for the wrong reason. Each is proved able to fail after the fix, by breaking the rule it
+names once.
 
 ## R8. Documentation
 
@@ -155,3 +158,8 @@ patch release by tag, which is not this feature's work.
 - 2026-11-10: every compaction failure logs one warning, session and kind, no text (FR-009).
 - 2026-11-10: the summariser's model being sent the conversation is documented, not made opt-in.
 - 2026-11-10: in a keyring outage the compactor waits as every consumer does (R4; FR-006 rewritten).
+- 2026-11-10: FR-006 gets a living scenario of its own, which the build must prove (analyze, C1).
+
+## Design finished
+
+2026-11-10: analyze reported nothing above LOW.

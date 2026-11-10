@@ -41,7 +41,7 @@ alone, so no other language gets a sample or a tab (research R5).
 data subject writes; the consumer's offset is not reset; warning-free compile (`-Werror`)
 
 **Scale/Scope**: about 20 lines in `agent` main; one new Gherkin suite, steps added to another,
-cases added to two existing suites; three docs pages, one skill line, one rule-file trap
+cases added to two existing unit suites; three docs pages, one skill line, one rule-file trap
 
 ## Constitution Check
 
@@ -92,7 +92,7 @@ modules/agent/src/test/scala/com/thinkmorestupidless/ankka/agent/
 modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/
 ├── agents/CompactionFeatures.scala        # GherkinSuite over features/agents/compaction.feature
 ├── agents/CompactionSteps.scala
-└── CompactionIntegrationSuite.scala       # the keyring outage case (R4); existing cases unchanged
+└── CompactionIntegrationSuite.scala       # not edited: its seven cases are SC-004's proof
 
 controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/
 └── ErasureAgentsFeatures.scala    # compaction on, a summariser's provider, steps for two scenarios

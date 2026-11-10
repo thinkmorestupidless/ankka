@@ -10,18 +10,19 @@ sbt 'testkit/testOnly *CompactionFeatures'
 
 Before the fix, "a session started with a data subject past the compaction size is compacted as one
 started with none" fails: the wait for a summary runs out, and the summariser's provider was never
-called. The two scenarios with no data subject pass.
+called. The scenario with no data subject passes. The two not-compacted scenarios pass for the
+wrong reason (nothing compacts such a session yet) and are proved able to fail after the fix.
 
 ## 2. The fix, green
 
 ```bash
 sbt 'agent/testOnly *SealingSuite *CompactionSuite'          # opened; what the compactor acts on; the warning
-sbt 'testkit/testOnly *CompactionFeatures'                   # features/agents/compaction.feature, five scenarios
-sbt 'testkit/testOnly *CompactionIntegrationSuite'           # the existing cases, unchanged, and the keyring outage
+sbt 'testkit/testOnly *CompactionFeatures'                   # features/agents/compaction.feature, six scenarios
+sbt 'testkit/testOnly *CompactionIntegrationSuite'           # the seven existing cases, unchanged
 sbt 'controlPlane/testOnly *ErasureAgentsFeatures'           # features/erasure/agents.feature, six scenarios
 ```
 
-Expected: every suite green; `CompactionFeatures` reports five scenarios and
+Expected: every suite green; `CompactionFeatures` reports six scenarios and
 `ErasureAgentsFeatures` six. A suite that reports zero tests has proved nothing: read the count.
 
 ## 3. What to look at

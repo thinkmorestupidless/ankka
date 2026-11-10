@@ -1,6 +1,5 @@
 //! The order and its timed action with nothing running.
 
-use ankka::prelude::*;
 use ankka::testkit::{KeyValueEntityTestKit, TimedActionTestKit};
 use shopping_cart::orders::{OrderEntity, OrderTimers};
 
@@ -24,13 +23,16 @@ fn cancelling_a_pending_order_cancels_it_and_a_settled_one_is_left_alone() {
 
 // docs:start timed-action-test
 #[test]
-fn the_expiry_fires_the_cancel_and_reports_what_the_entity_refused() {
-    // The unit kit answers event sourced entities only; the order is a key value entity, so the
-    // action's call is refused and the action fails, as it would with no runtime to call.
+fn the_expiry_fires_the_cancel_and_the_timer_is_done() {
+    // The kit answers the action's call from the order held in memory: the entity answers the
+    // cancel, and either answer ends the timer.
     let kit = TimedActionTestKit::<OrderTimers>::new()
         .with_service(shopping_cart::orders::build())
         .with_metadata("ankka.timer", "expire-o-7");
-    let fired = kit.fire("expire-order", "o-7".to_string());
-    assert_eq!(fired.map_err(|e| e.code), Err(ErrorCode::Unavailable));
+    assert_eq!(
+        kit.fire("expire-order", "o-7".to_string())
+            .map_err(|e| e.code),
+        Ok(())
+    );
 }
 // docs:end timed-action-test

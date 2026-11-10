@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.modelkeeper
 import com.thinkmorestupidless.ankka.core.{
   ModelServerDocument,
   ModelServerDocumentJson,
+  ModelServerDoor,
   ModelState,
   ModelStatus
 }
@@ -169,6 +170,48 @@ class DoorSuite extends munit.FunSuite with LogCapturing:
     finally
       hold.countDown()
       ollama.streamHold = None
+  }
+
+  // #183: the door could not tell that a caller gave up, so Ollama went on writing an answer nobody
+  // read, in the one slot the next call waited for.
+  test("a call is ended when its caller's wait passes, and the wait is not passed on to Ollama") {
+    val hold = new CountDownLatch(1)
+    ollama.completionHold = Some(hold)
+    // A door that waits as long as Ollama takes is answered when the stand-in lets go, after 20 s.
+    val release = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+    release.schedule((() => hold.countDown()): Runnable, 20, java.util.concurrent.TimeUnit.SECONDS)
+    val started  = System.nanoTime()
+    val response =
+      try
+        request(
+          cart,
+          "POST",
+          "/v1/chat/completions",
+          chatBody,
+          Seq(ModelServerDoor.TimeoutHeader -> "500")
+        )
+      finally
+        hold.countDown()
+        release.shutdownNow(): Unit
+        ollama.completionHold = None
+    val took = (System.nanoTime() - started).nanos
+    assertEquals(response.statusCode, 504, response.body)
+    assert(response.body.contains("did not answer within 500 ms"), response.body)
+    assert(took < 15.seconds, s"a call that waits 500 ms took $took")
+    val passed = ollama.requestsTo("POST", "/v1/chat/completions").last
+    assertEquals(passed.header(ModelServerDoor.TimeoutHeader), None)
+  }
+
+  test("a wait that is not a whole number of milliseconds above zero is not a wait") {
+    for wait <- Seq("0", "-5", "soon", "1.5") do
+      val response = request(
+        cart,
+        "POST",
+        "/v1/chat/completions",
+        chatBody,
+        Seq(ModelServerDoor.TimeoutHeader -> wait)
+      )
+      assertEquals(response.statusCode, 200, s"$wait: ${response.body}")
   }
 
   test("the gateway's certificate is refused: the model server admits services only") {

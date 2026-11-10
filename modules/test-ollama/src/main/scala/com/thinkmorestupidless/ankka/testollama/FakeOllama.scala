@@ -42,6 +42,11 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
   /** When set, a streamed completion waits on it between its first chunk and the rest. */
   @volatile var streamHold: Option[CountDownLatch] = None
 
+  /**
+   * When set, a completion not streamed waits on it before it answers, as a long generation does.
+   */
+  @volatile var completionHold: Option[CountDownLatch] = None
+
   /** When set, a fetch waits on it after its first status line, as a download of minutes does. */
   @volatile var pullHold: Option[CountDownLatch] = None
 
@@ -193,7 +198,9 @@ final class FakeOllama private (server: HttpServer, defaultKeepAlive: Option[Dur
           event(out, chunk(tag, "lo"))
           out.write("data: [DONE]\n\n".getBytes(UTF_8))
           out.close()
-        else json(exchange, 200, completion.replace("{model}", tag))
+        else
+          completionHold.foreach(_.await())
+          json(exchange, 200, completion.replace("{model}", tag))
       case other =>
         json(
           exchange,

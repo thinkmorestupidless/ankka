@@ -187,3 +187,8 @@ is the Scala form; the sidecar reads the certificate only when an installation m
 - **The stand-in answers 418 with nothing scripted**, and holds a reasoning replay to the current turn only
   (calls since the last user message), as OpenAI does; an earlier turn's call goes back without its
   reasoning, which was never kept.
+- **A model timeout must end the call, not only the wait** (#183). `Await.result(provider.complete(r), modelTimeout)` gave up and
+  left the HTTP call running: Ollama, behind the keeper's door at `OLLAMA_NUM_PARALLEL=1`, went on writing a 2000-word story
+  for a 10 s caller, and the next scenario's tool question waited past 840 s. `ModelRequest.timeout` carries the wait to the
+  providers (the SDKs' `RequestOptions` timeout) and, for the installation, to the door as `X-Ankka-Model-Timeout`; the door
+  cannot see its caller leave (JDK `HttpServer` has no disconnect notice), so it needs the header. (2026-11-10)

@@ -21,7 +21,7 @@ private[openai] object ResponsesShape:
       provider: String,
       request: ModelRequest,
       settings: OpenAiSettings,
-      traceparent: Option[String] = None
+      headers: Seq[(String, String)] = Nil
   ): ResponseCreateParams =
     val builder = ResponseCreateParams
       .builder()
@@ -52,7 +52,7 @@ private[openai] object ResponsesShape:
         "tools",
         OpenAiProvider.jsonValue(Json.Arr(request.tools.map(tool)))
       ): Unit
-    traceparent.foreach(t => builder.putAdditionalHeader("traceparent", t): Unit)
+    headers.foreach((n, v) => builder.putAdditionalHeader(n, v): Unit)
     builder.build()
 
   private def tool(spec: ToolSpec): Json =

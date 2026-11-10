@@ -1,7 +1,11 @@
 package com.thinkmorestupidless.ankka.modelkeeper
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
-import com.thinkmorestupidless.ankka.core.{ModelServerDocument, ModelServerDocumentJson}
+import com.thinkmorestupidless.ankka.core.{
+  ModelServerDocument,
+  ModelServerDocumentJson,
+  ModelServerDoor
+}
 import com.thinkmorestupidless.ankka.proxy.TlsTransport
 import com.thinkmorestupidless.ankka.proxy.core.Sender
 import com.thinkmorestupidless.ankka.runtime.RotatingTls
@@ -10,7 +14,7 @@ import org.slf4j.LoggerFactory
 import java.io.{InputStream, OutputStream}
 import java.net.http.HttpRequest.BodyPublishers
 import java.net.http.HttpResponse.BodyHandlers
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.net.http.{HttpClient, HttpRequest, HttpResponse, HttpTimeoutException}
 import java.net.{InetAddress, InetSocketAddress, URI}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.time.Duration
@@ -142,14 +146,25 @@ final class Door(
         values.asScala.foreach(v => request.header(name, v))
     }
     request.header(CallerHeader, caller)
+    // The caller's wait bounds Ollama's: past it the JDK's client drops the connection, and Ollama
+    // stops a generation whose connection is gone. Without it, the door cannot tell that a caller
+    // gave up, and the slot stays taken until the model has finished an answer nobody reads.
+    val waits = timeoutOf(exchange)
+    waits.foreach(request.timeout)
     request.method(
       method,
       if body.isEmpty then BodyPublishers.noBody() else BodyPublishers.ofByteArray(body)
     )
     val response: Either[Int, HttpResponse[InputStream]] =
       try Right(client.send(request.build(), BodyHandlers.ofInputStream()))
-      catch case NonFatal(_) => Left(503)
+      catch
+        case _: HttpTimeoutException => Left(504)
+        case NonFatal(_)             => Left(503)
     response match
+      case Left(504) =>
+        val millis = waits.fold(0L)(_.toMillis)
+        json(exchange, 504, s"""{"error":"the model server did not answer within $millis ms"}""")
+        504
       case Left(status) =>
         json(exchange, status, """{"error":"the model server is not answering"}""")
         status
@@ -261,8 +276,19 @@ object Door:
     "trailer",
     "transfer-encoding",
     "upgrade",
-    CallerHeader.toLowerCase
+    CallerHeader.toLowerCase,
+    ModelServerDoor.TimeoutHeader.toLowerCase
   )
+
+  /**
+   * The caller's wait, from its header: whole milliseconds above zero. A header that is not one is
+   * ignored, as an absent one is, and the call waits as long as Ollama takes.
+   */
+  private[modelkeeper] def timeoutOf(exchange: HttpExchange): Option[Duration] =
+    Option(exchange.getRequestHeaders.getFirst(ModelServerDoor.TimeoutHeader))
+      .flatMap(_.trim.toLongOption)
+      .filter(_ > 0)
+      .map(Duration.ofMillis)
 
   private val NotPassedBack: Set[String] =
     Set("connection", "content-length", "keep-alive", "transfer-encoding", "trailer", "upgrade")

@@ -6,7 +6,7 @@ import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.stream.scaladsl.Sink
 
 import scala.concurrent.Await
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, DurationLong}
 
 /** Anthropic's protocol at an address of the developer's own: a local server that speaks it. */
 class AnthropicCompatibleSuite extends munit.FunSuite:
@@ -46,6 +46,22 @@ class AnthropicCompatibleSuite extends munit.FunSuite:
     assertEquals(at.lastRequest.path, "/v1/messages")
     assertEquals(at.lastRequest.header("x-api-key"), Some("none"))
     assertEquals(local.name, "local")
+  }
+
+  // #183: a call the caller gave up on ran on at the model, still generating and still billed.
+  standIn.test("a call ends when its caller stops waiting, completed or streamed") { at =>
+    at.hang()
+    try
+      val local   = AnthropicProvider.at("local", at.address, "qwen3:8b")
+      val waits   = ask("hi").copy(timeout = Some(500.millis))
+      val started = System.nanoTime()
+      intercept[ModelCallFailed](complete(local, waits))
+      intercept[ModelCallFailed](
+        Await.result(local.stream(waits).runWith(Sink.seq), 30.seconds)
+      )
+      val took = (System.nanoTime() - started).nanos
+      assert(took < 15.seconds, s"two calls that wait 500 ms each took $took")
+    finally at.release()
   }
 
   standIn.test(

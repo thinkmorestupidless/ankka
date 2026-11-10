@@ -54,6 +54,7 @@ class CompactionSuite extends munit.FunSuite:
     assertEquals(result, "They discussed museums in Lisbon.")
     // Sent as one user turn, under a compression system message.
     assertEquals(model.lastRequest.messages.size, 1)
+    assertEquals(model.lastRequest.timeout, Some(5.seconds), "the summariser's wait is the call's")
     assert(
       model.lastRequest.systemMessage.exists(_.contains("compress")),
       model.lastRequest.toString

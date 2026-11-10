@@ -20,7 +20,8 @@ The model server serves the models its declaration lists, by Ollama's tag, and n
   five paths (`/v1/chat/completions`, `/v1/models`, `/api/tags`, `/api/ps` and `/api/show`) and answers
   every other path that it is not served.
 - **It is one server per cluster.** It runs one replica, and what it runs at once is a setting of the
-  installation.
+  installation. A call waits its turn behind the ones running; a call whose agent stopped waiting at its
+  model timeout is ended there, so it does not hold a turn for the calls after it.
 - **It serves chat completions.** It does not serve embeddings, and an agent's judgments are not made
   on it.
 - **It serves no one outside the installation.** No route through the gateway reaches it.

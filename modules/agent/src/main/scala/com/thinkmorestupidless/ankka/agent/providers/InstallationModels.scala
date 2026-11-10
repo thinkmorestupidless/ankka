@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.agent.{
   ModelRequest,
   ModelResponse
 }
+import com.thinkmorestupidless.ankka.core.ModelServerDoor
 import com.thinkmorestupidless.ankka.runtime.{RotatingTls, Trace}
 import com.typesafe.config.Config
 import org.apache.pekko.NotUsed
@@ -86,7 +87,8 @@ object InstallationModels:
       None,
       shape = config.shape,
       quirks = config.quirks,
-      tls = Some(clientTls)
+      tls = Some(clientTls),
+      timeoutHeader = Some(ModelServerDoor.TimeoutHeader)
     )
     Checked(inner, Capabilities(config.url.stripSuffix("/v1"), context))
 

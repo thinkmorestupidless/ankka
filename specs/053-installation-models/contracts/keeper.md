@@ -50,6 +50,13 @@ Every other path is 404 `{"error": "not served to services"}`: no pull, delete, 
 generate or embed through the door. Forwarded requests carry `X-Ankka-Caller: <project>/<service>`
 for Ollama's log and nothing else of the keeper's.
 
+A request may carry `X-Ankka-Model-Timeout: <milliseconds>`, how long its caller waits (the agent's
+model timeout; the installation's provider sends it on every call). The door ends its call to Ollama
+when that passes, which ends the generation, and answers 504 `{"error": "the model server did not
+answer within <n> ms"}`. The header is not passed on. A value that is not a whole number above zero
+is ignored, as an absent header is, and the call waits as long as Ollama takes. (#183: without it
+the door could not tell that a caller gave up, and the slot stayed taken.)
+
 Each forwarded call is counted (`calls.answered` or `calls.failed`, by Ollama's status class) and
 is a span `models.call` with attributes `ankka.model`, `ankka.caller.project`,
 `ankka.caller.service` and `http.response.status_code`, a child of the request's `traceparent`

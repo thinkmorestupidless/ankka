@@ -203,7 +203,8 @@ private[ankka] final class IterationLoop(
       messages = firstTurn(taskRecord, dependencies) +: withState(
         PromptReplay.replay(history(taskRecord.id))
       ),
-      tools = allTools.map(_.spec).toVector ++ builtIns(taskType)
+      tools = allTools.map(_.spec).toVector ++ builtIns(taskType),
+      timeout = Some(modelTimeout)
     )
     val response =
       try Right(Await.result(model.complete(request), modelTimeout))

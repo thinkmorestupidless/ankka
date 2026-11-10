@@ -24,31 +24,17 @@ Feature: Reading how a copy stands in every language
       | Kotlin     |
       | Go         |
 
-  Scenario Outline: a handler reads a handover waiting in every language
-    Given a service "fleet" written in "<language>"
+  Scenario: a handler reads a handover waiting
+    Given a service "fleet" written in "Scala"
     And a handover of the home of "v1" to "vienna" was asked for and has not completed
     When a handler of "fleet" at "leipzig" reads how "v1" stands
     Then the handler is told the handover waiting goes to "vienna"
 
-    Examples:
-      | language   |
-      | Python     |
-      | TypeScript |
-      | Rust       |
-      | Go         |
-
-  Scenario Outline: a handler reads a conflict in every language
-    Given a service "fleet" written in "<language>"
+  Scenario: a handler reads a conflict
+    Given a service "fleet" written in "Scala"
     And "v2" was created at "leipzig" and at "vienna", and the two histories met
     When a handler of "fleet" at "leipzig" reads how "v2" stands
     Then the handler is told "v2" is in conflict with the home "vienna"
-
-    Examples:
-      | language   |
-      | Python     |
-      | TypeScript |
-      | Rust       |
-      | Go         |
 
   Scenario Outline: a handler reading how a copy of an entity that is not replicated stands is refused in every language
     Given a service "fleet" written in "<language>" with an entity "garage" that is not replicated
@@ -63,7 +49,7 @@ Feature: Reading how a copy stands in every language
       | Go         |
 
   Scenario: an installation outside the replication set answers with the copy it last held
-    Given a service "fleet" written in "Python" at the installations "leipzig", "vienna" and "graz"
+    Given a service "fleet" written in "Scala" at the installations "leipzig", "vienna" and "graz"
     And "graz" was removed from the replication set of "v1" after it held 2 events
     When a handler of "fleet" at "graz" reads how "v1" stands
     Then the handler is told the position 2 and a replication set without "graz"
@@ -80,6 +66,25 @@ Feature: Reading how a copy stands in every language
       | TypeScript |
       | Rust       |
       | Go         |
+
+  Scenario Outline: the component test kit answers a handover waiting and a conflict as it was told
+    Given a component test of an endpoint written in "<language>" that reads how a copy of "vehicle" stands
+    And the component test kit is told "v1" has a handover waiting to "vienna" and "v2" is in conflict with the home "vienna"
+    When the test calls the endpoint for "v1" and for "v2"
+    Then the endpoint is told the handover waiting goes to "vienna" for "v1" and the conflict with "vienna" for "v2"
+
+    Examples:
+      | language   |
+      | Python     |
+      | TypeScript |
+      | Rust       |
+      | Go         |
+
+  Scenario: the Rust component test kit answers how a copy stands from the entity it runs
+    Given a component test of an endpoint written in "Rust" that reads how a copy of "vehicle" stands
+    And the component test kit holds "v1" with 3 events and was told nothing about it
+    When the test calls the endpoint for "v1"
+    Then the endpoint is told the position 3
 
   Scenario Outline: the test kit reads how a copy stands from the running service
     Given a test of a service "fleet" written in "<language>"

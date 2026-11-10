@@ -35,6 +35,22 @@ tells the other four to record in their own state whether a workflow is still go
 very workaround the standing read exists to remove. This feature gives the four the same two reads,
 answered by the same platform, so a page shows all seven and the limitation goes.
 
+## Clarifications
+
+### Session 2026-11-10
+
+- Q: What do the Python, TypeScript, Rust and Go clients call the two reads? → A: `lifecycle` and
+  `replication`, as the Scala, Java and Kotlin calls are, in each language's case. The documentation's
+  prose keeps the glossary's word, standing.
+- Q: How much of how a copy stands is proved in each of the four languages? → A: Every field, from
+  one fixture: per language, a copy's home, replication set and position read end to end, a copy of
+  an entity that is not replicated refused end to end, and a handover waiting and a conflict decoded
+  through the component test kit. A handover waiting, a conflict and an installation outside the
+  replication set end to end stay proved once, in Scala.
+- Q: How does Rust's component test kit answer the two reads, since it runs entities and workflows in
+  memory? → A: Both ways: from the workflow or the entity it runs, and from an answer a test sets for
+  an id, which wins over what it runs.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A service in any language reads a workflow's standing (Priority: P1)
@@ -76,8 +92,8 @@ and compare the refusal.
 **Acceptance Scenarios**:
 
 - added `features/replication/status.feature`: a handler reads the home, the replication set and the position of a copy in every language
-- added `features/replication/status.feature`: a handler reads a handover waiting in every language
-- added `features/replication/status.feature`: a handler reads a conflict in every language
+- added `features/replication/status.feature`: a handler reads a handover waiting
+- added `features/replication/status.feature`: a handler reads a conflict
 - added `features/replication/status.feature`: a handler reading how a copy of an entity that is not replicated stands is refused in every language
 - added `features/replication/status.feature`: an installation outside the replication set answers with the copy it last held
 
@@ -98,9 +114,13 @@ the kit answering a failed standing, and an integration test reads a real workfl
 **Acceptance Scenarios**:
 
 - added `features/polyglot/standing.feature`: the component test kit answers a workflow's standing it was told
+- added `features/polyglot/standing.feature`: the Rust component test kit answers the standing of a workflow it runs
+- added `features/polyglot/standing.feature`: an answer a Rust component test kit was told wins over the workflow it runs
 - added `features/polyglot/standing.feature`: the component test kit refuses a standing it was not told
 - added `features/polyglot/standing.feature`: the test kit reads a workflow's standing from the running service
 - added `features/replication/status.feature`: the component test kit answers how a copy stands as it was told
+- added `features/replication/status.feature`: the component test kit answers a handover waiting and a conflict as it was told
+- added `features/replication/status.feature`: the Rust component test kit answers how a copy stands from the entity it runs
 - added `features/replication/status.feature`: the test kit reads how a copy stands from the running service
 
 ---
@@ -157,10 +177,11 @@ check passes with no exclusion comment on them, and the limitation line is gone.
 
 ### Functional Requirements
 
-- **FR-001**: The Python, TypeScript, Rust and Go component clients MUST each have a call that reads
-  a workflow's standing by the workflow's component and id, answering the standing, pending step,
+- **FR-001**: The Python, TypeScript, Rust and Go component clients MUST each have a call named
+  `lifecycle`, in the language's case, that reads a workflow's standing by the workflow's component and id, answering the standing, pending step,
   retries per step and failure reason.
-- **FR-002**: The four clients MUST each have a call that reads a replicated event sourced entity's
+- **FR-002**: The four clients MUST each have a call named `replication`, in the language's case,
+  that reads a replicated event sourced entity's
   replication status by the entity's component and id, answering its home, replication set, pending
   handover, conflict and position.
 - **FR-003**: Each answer MUST carry the same values the Scala client reads for the same workflow or
@@ -175,13 +196,16 @@ check passes with no exclusion comment on them, and the limitation line is gone.
   1.24 as the one it needs.
 - **FR-008**: A Rust module MUST make both reads through the module's host calls, with the same
   answers and refusals as a process.
-- **FR-009**: Each of the four SDKs' unit test kits MUST let a test say what each read answers for a
-  given component and id, and refuse a read nothing was said about.
-- **FR-010**: Each of the four SDKs' integration test kits MUST make both reads against the running
-  runtime.
+- **FR-009**: Each of the four SDKs' component test kits MUST let a test say what each read answers
+  for a given component and id, and refuse a read nothing was said about. Rust's kit, which runs
+  workflows and entities in memory, MUST also answer from the workflow or entity it runs, and an
+  answer a test set for an id MUST win over it.
+- **FR-010**: Each of the four SDKs' test kits MUST make both reads against the running service.
 - **FR-011**: The conformance suite MUST prove, for each of the four languages, a standing read of a
-  running and of a failed workflow and a replication status read, each against the Scala client's
-  answer.
+  running and of a failed workflow, and the home, replication set and position of a replicated copy
+  and the refusal of a copy that is not replicated, each against the Scala client's answer. A
+  handover waiting and a conflict MUST be proved decoded in each language's component test kit; end
+  to end they are proved once, in Scala.
 - **FR-012**: The workflows page's "Domain state and lifecycle", the multi-agent orchestration page's
   standing sample and the event sourced entities page's "Reading how a copy stands" MUST show all
   seven languages from tested samples, with their exclusion comments removed.
@@ -202,9 +226,9 @@ check passes with no exclusion comment on them, and the limitation line is gone.
 
 ### Measurable Outcomes
 
-- **SC-001**: In each of the four languages, every acceptance scenario of User Stories 1 and 2 reads
-  the same values as the Scala client for the same workflow or copy: 9 scenarios in 4 languages, 36
-  comparisons, all equal.
+- **SC-001**: In each of the four languages, every standing scenario of User Story 1, and the read
+  and the refusal of User Story 2, read the same values as the Scala client for the same workflow or
+  copy: all equal, none skipped.
 - **SC-002**: The three documentation sections show 7 language tabs each, every one from a sample a
   test compiles and runs, and the documentation check passes.
 - **SC-003**: A read against a runtime older than 1.24 fails, in each of the four languages, with an

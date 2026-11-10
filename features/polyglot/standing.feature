@@ -71,6 +71,19 @@ Feature: Reading a workflow's standing in every language
       | Rust       |
       | Go         |
 
+  Scenario: the Rust component test kit answers the standing of a workflow it runs
+    Given a component test of an endpoint written in "Rust" that reads the standing of a workflow of "plan"
+    And the component test kit runs the workflow "p5" of "plan" until its step "consult" fails it
+    When the test calls the endpoint for "p5"
+    Then the endpoint is told the standing failed and the reason
+
+  Scenario: an answer a Rust component test kit was told wins over the workflow it runs
+    Given a component test of an endpoint written in "Rust" that reads the standing of a workflow of "plan"
+    And the component test kit runs the workflow "p6" of "plan" until it ends
+    And the component test kit is told the standing of "p6" is paused
+    When the test calls the endpoint for "p6"
+    Then the endpoint is told the standing paused
+
   Scenario Outline: the component test kit refuses a standing it was not told
     Given a component test of an endpoint written in "<language>" that reads the standing of a workflow of "plan"
     When the test calls the endpoint for "p9"

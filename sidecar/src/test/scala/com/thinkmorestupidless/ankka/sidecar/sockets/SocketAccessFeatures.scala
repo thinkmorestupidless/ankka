@@ -54,7 +54,7 @@ final class SocketAccessFeatures
   private final class Notices extends HttpEndpoint("/notices"):
     val acl: Acl = Acl.AllowAll
     withAcl(verified) {
-      socket("/stream") { socket =>
+      socket("/stream") { (socket: Socket) =>
         runs.incrementAndGet(): Unit
         socket.send(principal.subject)
         while socket.receive().isDefined do
@@ -63,7 +63,7 @@ final class SocketAccessFeatures
       }
     }
     withAcl(Acl.Authenticate(stub)) {
-      socket("/judged") { socket =>
+      socket("/judged") { (socket: Socket) =>
         runs.incrementAndGet(): Unit
         socket.receive(): Unit
       }

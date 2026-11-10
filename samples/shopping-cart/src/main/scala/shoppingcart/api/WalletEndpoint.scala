@@ -1,7 +1,7 @@
 package shoppingcart.api
 
 import com.thinkmorestupidless.ankka.core.EntityId
-import com.thinkmorestupidless.ankka.http.{Acl, Callers, HttpEndpoint, HttpProblem}
+import com.thinkmorestupidless.ankka.http.{Acl, Callers, HttpEndpoint, HttpProblem, Socket}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.apache.pekko.stream.scaladsl.Source
 import shoppingcart.application.WalletEntity
@@ -47,7 +47,7 @@ final class WalletEndpoint(client: ComponentClient) extends HttpEndpoint("/v1/wa
   }
 
   /** Every frame answered with who sent it, until the socket closes: a socket a grant may admit. */
-  socket[String]("/{player}/events") { (player, socket) =>
+  socket("/{player}/events") { (player: String, socket: Socket) =>
     Iterator
       .continually(socket.receive())
       .takeWhile(_.isDefined)

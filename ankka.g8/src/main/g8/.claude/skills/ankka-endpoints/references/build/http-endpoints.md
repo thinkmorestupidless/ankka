@@ -324,10 +324,11 @@ declared, applies the ACL, opens the request's trace, and forwards each request 
 | `GET`, opening a socket | `socket(template) { … }` | none; see [Sockets](#sockets) |
 
 A template is relative to the prefix and names its path parameters in braces: `"/{cartId}/items/{productId}"`.
-A handler takes up to two path parameters, in template order, followed by the body for the `…Body`
-forms. **Annotate every handler parameter with its type** — `{ (cartId: String) => … }`, not
-`{ cartId => … }` — because the annotation is what selects the right overload and how the parameter is
-parsed.
+A handler takes every path parameter its template names, however many, in template order, followed by
+the body for the `…Body` forms and by the `Socket` for `socket`. **Annotate every handler parameter
+with its type** — `{ (cartId: String) => … }`, not `{ cartId => … }` — because the annotation is how
+the parameter is parsed, and a handler whose parameter has no type does not compile. A handler that
+takes a different number of path parameters than its template names fails the service's start.
 
 A path parameter may be a `String`, `Int`, `Long`, `Boolean` or `java.util.UUID`. A value that does not
 parse is a `400` naming the problem, before the handler runs.

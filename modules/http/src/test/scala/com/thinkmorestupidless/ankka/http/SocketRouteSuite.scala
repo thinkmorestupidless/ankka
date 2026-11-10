@@ -24,21 +24,21 @@ class SocketRouteSuite extends munit.FunSuite:
 
   private final class Notices extends HttpEndpoint("/notices"):
     val acl: Acl = Acl.AllowAll
-    socket("/stream")(socket => socket.send("hello"))
+    socket("/stream")((socket: Socket) => socket.send("hello"))
     socket("/rooms/{room}")((room: String, socket: Socket) => socket.send(room))
     socket("/rooms/{room}/{seat}")((room: String, seat: Int, socket: Socket) =>
       socket.send(s"$room:$seat")
     )
     post("/stream")(() => "posted")
     withAcl(Acl.DenyAll) {
-      socket("/closed")(_ => ())
+      socket("/closed")((_: Socket) => ())
     }
 
   test("a handler whose arity does not match its template is refused at construction") {
     val refused = intercept[IllegalArgumentException] {
       new HttpEndpoint("/bad"):
         val acl: Acl = Acl.AllowAll
-        socket("/{room}")(_ => ())
+        socket("/{room}")((_: Socket) => ())
     }
     assert(
       refused.getMessage.contains("SOCKET /bad/{room} declares 1 path parameter"),
@@ -87,12 +87,12 @@ class SocketRouteSuite extends munit.FunSuite:
   private final class OnAGet extends HttpEndpoint("/a"):
     val acl: Acl = Acl.AllowAll
     get("/x")(() => "x")
-    socket("/x")(_ => ())
+    socket("/x")((_: Socket) => ())
 
   private final class OnAnSse extends HttpEndpoint("/b"):
     val acl: Acl = Acl.AllowAll
     sse("/x")(() => Source.single("x"))
-    socket("/x")(_ => ())
+    socket("/x")((_: Socket) => ())
 
   test("a socket route on the template of a GET or an SSE route does not start") {
     for (endpoint, prefix) <- Seq(new OnAGet -> "/a", new OnAnSse -> "/b") do

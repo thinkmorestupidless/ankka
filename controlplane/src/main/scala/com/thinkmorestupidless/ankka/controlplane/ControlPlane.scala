@@ -452,10 +452,8 @@ object ControlPlane:
     // no client certificate, so the broker and every service read them inside the cluster. Only
     // where the control plane serves TLS: elsewhere the main port serves them already.
     val keysPort = config.getInt("ankka.controlplane.machines.keys-port")
-    val tls      =
-      config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
     val withKeys =
-      if tls && keysPort > 0 then
+      if servesTls(config) && keysPort > 0 then
         base.withExtension(
           HttpServer
             .at(interface.getOrElse("0.0.0.0"), keysPort)(_ => MachineKeysEndpoint(keys, machines))
@@ -463,6 +461,20 @@ object ControlPlane:
         )
       else base
     tokens.fold(withKeys)(withKeys.withExtension)
+
+  /**
+   * Whether the control plane's HTTP server will serve TLS, read from the configuration the service
+   * starts with: `config` with the overlay for this means of execution, as `Ankka.start` layers it.
+   * `Main` passes `ConfigFactory.load()`, which has no overlay, and the Kubernetes overlay is what
+   * turns TLS on, so the flag read from `config` alone was off on every installation and the keys
+   * port was never served (#197).
+   */
+  private[controlplane] def servesTls(
+      config: Config,
+      env: Map[String, String] = sys.env
+  ): Boolean =
+    val started = com.thinkmorestupidless.ankka.runtime.ClusterConfig.layered(config, env)
+    started.hasPath("ankka.http.tls.enabled") && started.getBoolean("ankka.http.tls.enabled")
 
   /**
    * The ACL from configuration: verified OpenID Connect tokens from the configured issuer.

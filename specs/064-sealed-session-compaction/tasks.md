@@ -73,7 +73,7 @@ compaction size, as one started with none; its summary is kept sealed; an erased
 ## Phase 4: Polish
 
 - [X] T018 [P] In `.claude/rules/agents.md`, Traps, add, dated 2026-11-10, feature 064: a consumer of session memory's events sees `Sealed` for every event of a session started with a data subject after `Started`; match on `SessionMemoryEvent.opened(event)`, never on a plain case alone. The compactor matched `AiMessageAdded` and never compacted a sealed session, silently, from 042 until 064.
-- [ ] T019 Run quickstart.md end to end: `sbt scalafmtCheckAll compile` (warning-free), `just features` (0 findings), `just docs`, the four suite commands of its section 2 with their scenario counts read from the output (six and six, never zero), then `sbt -Dankka.cluster.tests=off test` under `caffeinate -i`. Check SC-001 to SC-005 one by one against what ran and say in the commit which test shows each.
+- [X] T019 Run quickstart.md end to end: `sbt scalafmtCheckAll compile` (warning-free), `just features` (0 findings), `just docs`, the four suite commands of its section 2 with their scenario counts read from the output (six and six, never zero), then `sbt -Dankka.cluster.tests=off test` under `caffeinate -i`. Check SC-001 to SC-005 one by one against what ran and say in the commit which test shows each.
 - [X] T020 In `specs/064-sealed-session-compaction/spec.md` set **Status** to `Implemented`, and confirm `docs/reference/limitations.md` needs no change: its line that a Python, TypeScript, Rust or Go agent's compaction is not yet configurable still holds and is what excludes those languages here.
 
 ## Dependencies

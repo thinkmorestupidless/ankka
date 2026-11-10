@@ -674,13 +674,30 @@ timers it sets and every handler's `clock` move with it. So does every workflow'
 set by that clock, and the pause ends when the test moves the clock past it, whether the workflow is
 awake, passivated or restarted. The clock moves forward only.
 
-<!-- languages: scala; `MovableClock` is the Scala kit's: in every other kit a timer fires when its due time arrives on the wall clock -->
+<!-- languages: scala, java; `MovableClock` is the Scala kit's and the Java kit's, which a Kotlin test uses as it is: in every other kit a timer fires when its due time arrives on the wall clock -->
 /// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/MovableClockTimerSuite.scala#clock -->
 ```scala
 private val clock  = MovableClock.at(Instant.parse("2026-10-11T18:00:00Z"))
 private val timers = TimerRuntime(pollInterval = 200.millis, clock = clock)
+```
+
+///
+
+/// tab | Java
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ClockChecks.java#movable-clock -->
+```java
+var clock = MovableClock.at(Instant.parse("2026-11-10T09:00:00Z"));
+var settings = Settings.defaults().withClock(clock);
+try (var kit = AnkkaTestKit.start(Ankka.service("timers").register(CartTimers.class), settings)) {
+  kit.timers().schedule("expire-c-9", Duration.ofHours(1), CartTimers::expire, "c-9");
+```
+
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ClockChecks.java#move -->
+```java
+clock.moveBy(Duration.ofHours(1));
 ```
 
 ///

@@ -37,6 +37,16 @@ private[ankka] object Clients:
   def of(scala: ScalaClient, refs: Refs): ComponentClient =
     JavaComponentClient(scala.transportRef, refs)
 
+  /**
+   * A client that stands for another, read each time it is used: the test kit's, which follows the
+   * service across a restart. What looks for the client underneath (an agent's reference) asks it.
+   */
+  private[ankka] trait Following extends ComponentClient:
+    def current: ComponentClient
+    def forEventSourcedEntity(entityId: String): EntityRef = current.forEventSourcedEntity(entityId)
+    def forKeyValueEntity(entityId: String): EntityRef     = current.forKeyValueEntity(entityId)
+    def forWorkflow(workflowId: String): WorkflowRef       = current.forWorkflow(workflowId)
+
   /** The client of an instance built outside a host, which answers nothing. */
   val unavailable: ComponentClient = new ComponentClient:
     def forEventSourcedEntity(entityId: String): EntityRef = refuse

@@ -73,6 +73,12 @@ class DocsTestingSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("a timer an hour away fires when the kit's clock is moved past it, and not before (#231)") {
+    val runs = ClockChecks.anHourAway()
+    assertEquals(runs.before, 0L)
+    assertEquals(runs.after, 1L)
+  }
+
   test("a recurring timer's due times are a period apart, whenever its runs started") {
     val kit = AnkkaTestKit.start(Ankka.service("timers").register(classOf[CartTimers]))
     try

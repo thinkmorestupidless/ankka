@@ -123,8 +123,10 @@ private[ankka] object AgentBridge:
     JavaAgentRef(java.transport, plan, sessionId)
 
   private def javaClient(client: ComponentClient): JavaComponentClient = client match
-    case java: JavaComponentClient => java
-    case _                         =>
+    case java: JavaComponentClient                                                 => java
+    case following: com.thinkmorestupidless.ankka.javasdk.bridge.Clients.Following =>
+      javaClient(following.current)
+    case _ =>
       throw IllegalStateException(
         "an agent is called through the component client a service or a test kit gave"
       )

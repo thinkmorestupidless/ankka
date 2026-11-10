@@ -72,6 +72,11 @@ public final class AnkkaTestKit implements AutoCloseable {
     return new TestSocket(kit.socket(path, headers, subprotocols));
   }
 
+  /**
+   * The service's components, called as another component would call them. The client follows the
+   * service across {@link #restartService()}: one taken before a restart calls the service started
+   * by it.
+   */
   public ComponentClient componentClient() {
     return kit.componentClient();
   }

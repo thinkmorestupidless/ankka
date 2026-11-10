@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.javasdk.testkit;
 
 import java.net.URI;
+import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,27 +17,30 @@ public final class Settings {
   private final List<String> services;
   private final Map<String, URI> local;
   private final boolean storageFromEnvironment;
+  private final Clock clock;
 
   private Settings(
       Map<String, String> config,
       List<String> services,
       Map<String, URI> local,
-      boolean storageFromEnvironment) {
+      boolean storageFromEnvironment,
+      Clock clock) {
     this.config = Map.copyOf(config);
     this.services = List.copyOf(services);
     this.local = Map.copyOf(local);
     this.storageFromEnvironment = storageFromEnvironment;
+    this.clock = clock;
   }
 
   public static Settings defaults() {
-    return new Settings(Map.of(), List.of(), Map.of(), false);
+    return new Settings(Map.of(), List.of(), Map.of(), false, Clock.systemUTC());
   }
 
   /** A configuration value the service is started with, on every restart too. */
   public Settings withConfig(String path, String value) {
     Map<String, String> more = new LinkedHashMap<>(config);
     more.put(path, value);
-    return new Settings(more, services, local, storageFromEnvironment);
+    return new Settings(more, services, local, storageFromEnvironment, clock);
   }
 
   /**
@@ -48,7 +52,8 @@ public final class Settings {
         config,
         Stream.concat(services.stream(), Stream.of(name)).toList(),
         local,
-        storageFromEnvironment);
+        storageFromEnvironment,
+        clock);
   }
 
   /**
@@ -58,7 +63,7 @@ public final class Settings {
   public Settings withLocalService(String name, URI address) {
     Map<String, URI> more = new LinkedHashMap<>(local);
     more.put(name, address);
-    return new Settings(config, services, more, storageFromEnvironment);
+    return new Settings(config, services, more, storageFromEnvironment, clock);
   }
 
   /**
@@ -67,7 +72,16 @@ public final class Settings {
    * {@code ankka.storage.directory} when the configuration names one).
    */
   public Settings withStorageFromEnvironment() {
-    return new Settings(config, services, local, true);
+    return new Settings(config, services, local, true, clock);
+  }
+
+  /**
+   * The clock the service's timers are due by, and its workflows' pauses: a {@link MovableClock}
+   * makes a timer a week away, or a pause of a day, end when the test moves it. It is kept across
+   * {@link AnkkaTestKit#restartService()}.
+   */
+  public Settings withClock(Clock clock) {
+    return new Settings(config, services, local, storageFromEnvironment, clock);
   }
 
   public Map<String, String> config() {
@@ -84,5 +98,9 @@ public final class Settings {
 
   public boolean storageFromEnvironment() {
     return storageFromEnvironment;
+  }
+
+  public Clock clock() {
+    return clock;
   }
 }

@@ -586,6 +586,19 @@ private val clock  = MovableClock.at(Instant.parse("2026-10-11T18:00:00Z"))
 private val timers = TimerRuntime(pollInterval = 200.millis, clock = clock)
 ```
 
+**Java**
+
+```java
+var clock = MovableClock.at(Instant.parse("2026-11-10T09:00:00Z"));
+var settings = Settings.defaults().withClock(clock);
+try (var kit = AnkkaTestKit.start(Ankka.service("timers").register(CartTimers.class), settings)) {
+  kit.timers().schedule("expire-c-9", Duration.ofHours(1), CartTimers::expire, "c-9");
+```
+
+```java
+clock.moveBy(Duration.ofHours(1));
+```
+
 Another extension that needs the same clock finds the timer runtime by type:
 `service.extension[TimerRuntime].map(_.clock)`.
 

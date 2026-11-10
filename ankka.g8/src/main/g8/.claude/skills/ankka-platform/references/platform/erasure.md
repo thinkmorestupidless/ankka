@@ -97,6 +97,8 @@ keyring restored from such a backup is safe, since it replays the erasure log be
 destroys the key again; the exposure is a copy of the backup read outside the keyring. Erasure is final
 for backups only when the oldest backup and archived log taken before it have aged out of the keyring's
 retention, so keep that retention as short as recovery allows, and the root key apart from the backups.
+How it is backed up, how long to keep it and how to restore it is in
+[Back up and restore the keyring's database](../operate/recovery.md#back-up-and-restore-the-keyrings-database).
 
 ## Asking for an erasure
 

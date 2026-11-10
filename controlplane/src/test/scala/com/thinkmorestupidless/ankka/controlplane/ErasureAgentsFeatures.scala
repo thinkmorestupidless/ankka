@@ -127,6 +127,7 @@ class ErasureAgentsFeatures
     model.reset()
     SessionCompactor.compacted.clear()
     long = Vector.empty
+    summaryText = "the earlier conversation, in a few words"
     asked = Map.empty
     session = None
     before = None
@@ -433,7 +434,10 @@ class ErasureAgentsFeatures
   }
 
   When("compaction runs on the session") { () =>
-    // The turn that would compact the session were it not erased: its fourth.
+    // The turn that would compact the session were it not erased: its fourth. An erased session
+    // answers it and records nothing of it, so this proves the outcome (no summary, nothing read),
+    // not the compactor's own rule that an erased event opens as nothing: `CompactionSuite` holds
+    // that, with no runtime.
     longTurn()
     // Then the compactor is known to have read past it: a plain session written after it, past
     // the size, is compacted.

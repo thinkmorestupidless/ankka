@@ -16,3 +16,9 @@ Feature: The documentation of replicated entities
     Then the documentation says what one installation offers for a replicated entity
     And the documentation says the replication transport between installations is "ankka-replication"
     And the documentation says there is no forced takeover and no coordinated creation
+
+  Scenario: the documentation shows how a copy stands read in every language
+    Given the published documentation
+    When a reader reads about how a copy stands
+    Then the documentation shows the read in Scala, Java, Kotlin, Python, TypeScript, Rust and Go, each from a sample a test runs
+    And the documentation names no language that cannot read how a copy stands

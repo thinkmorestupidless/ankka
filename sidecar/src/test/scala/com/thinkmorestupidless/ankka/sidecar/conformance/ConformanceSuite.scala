@@ -963,11 +963,11 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test("timer.recurring.due-time") {
     assertEquals(post("/conformance/recur/rd1").status, 204)
     val told = eventually(15.seconds)(Some(ticks("rd1")).filter(_.size >= 2))
-    val next = nextDue("rd1").getOrElse(fail("no timer recur-rd1"))
     // What the handler was told is the runtime's own cadence: the table's next due is on the same
-    // grid, and after everything the handler has been told.
+    // grid, and after everything the handler has been told. The runtime advances the row only once
+    // the handler that recorded the last tick has returned, so the table may trail it by one run.
+    val next = eventually(5.seconds)(nextDue("rd1").filter(_ > told.last))
     assertEquals((next - told.head) % 1000L, 0L, s"next due $next is off the grid of $told")
-    assert(next > told.last, s"next due $next is not after $told")
     spacedBySecond(told)
     assertEquals(post("/conformance/recur/rd1/cancel").status, 204)
   }

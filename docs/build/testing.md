@@ -834,8 +834,9 @@ dispatch the module's exports use:
 | `GraphConsumerTestKit::<G>::new()` | `on_message(subject, sequence, message)`, `on_deleted(subject, sequence)`, each returning the elements published |
 | `EndpointTestKit::<E>::new()` | an endpoint's routes by method and path |
 
-A kit built `.with_service(build())` answers its component's calls to the service's event sourced
-entities in memory; without it those calls are refused.
+A kit built `.with_service(build())` answers its component's calls to the service's event sourced and
+key value entities in memory, each instance keeping its state from call to call; a call to a workflow or
+an agent, and every call without it, is refused as unavailable.
 
 ### What a Go kit gives you
 

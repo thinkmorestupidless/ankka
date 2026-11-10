@@ -61,6 +61,61 @@ final class SealingSuite extends munit.FunSuite:
     )
   }
 
+  /**
+   * `event` sealed under the subject's key and read back, as a consumer of the journal is given it.
+   */
+  private def throughTheJournal(
+      event: SessionMemoryEvent,
+      keyring: TestKeyring
+  ): SessionMemoryEvent =
+    val sealedOne = SessionMemoryEvent.Sealed(
+      Sealing.seal(subject, event, erased = false)(using SessionMemoryCodecs.event)
+    )
+    val events = SessionMemoryEntity.eventSerializer
+    val bytes  = Keyring.binding(keyring)(events.toBytes(sealedOne))
+    Keyring.binding(keyring)(events.fromBytes(bytes))
+
+  test("a plain session event is opened as itself") {
+    val plain = SessionMemoryEvent.AiMessageAdded(
+      SessionMessage.AiMessage(2L, "an answer", "helper"),
+      TokenUsage.zero
+    )
+    assertEquals(SessionMemoryEvent.opened(plain), Some(plain))
+    assertEquals(
+      SessionMemoryEvent.opened(SessionMemoryEvent.Started(subject.value)),
+      Some(
+        SessionMemoryEvent.Started(subject.value)
+      )
+    )
+  }
+
+  test("a sealed session event is opened as the event it holds") {
+    val keyring = TestKeyring()
+    val answer  = SessionMemoryEvent.AiMessageAdded(
+      SessionMessage.AiMessage(2L, words, "helper"),
+      TokenUsage(3, 4)
+    )
+    val summary = SessionMemoryEvent.HistoryCompacted(
+      SessionMessage.SummaryMessage(3L, s"they said $words", SessionCompactor.AgentId),
+      4
+    )
+    val waiting = SessionMemoryEvent.TurnSuspended(
+      SuspendedTurn("helper", "ask", false, "", Vector(message), TokenUsage.zero, 1, Vector.empty)
+    )
+    for event <- Seq(answer, summary, waiting) do
+      val read = throughTheJournal(event, keyring)
+      assert(read.isInstanceOf[SessionMemoryEvent.Sealed], s"not sealed: $read")
+      assertEquals(SessionMemoryEvent.opened(read), Some(event))
+  }
+
+  test("a sealed session event read after its key is destroyed opens as nothing") {
+    val keyring = TestKeyring()
+    val bytes   = Keyring.binding(keyring)(SessionMemoryEntity.eventSerializer.toBytes(sealedEvent))
+    keyring.destroyed = true
+    val read = Keyring.binding(keyring)(SessionMemoryEntity.eventSerializer.fromBytes(bytes))
+    assertEquals(SessionMemoryEvent.opened(read), None)
+  }
+
   private val held =
     SessionHistory(Vector(message), TokenUsage.zero, 10, subject = Some(subject.value))
 

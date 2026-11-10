@@ -22,6 +22,20 @@ Feature: An agent's conversation about a data subject is forgotten
     Then its conversation is erased
     And a new turn in the session begins with no earlier conversation, and the model is told that the earlier conversation was erased
 
+  Scenario: the summary of a session started with a data subject is kept encrypted under the subject key
+    Given a session of "helper" started with the data subject "player/8c1f", past the compaction size of "helper"
+    When compaction replaces the oldest messages of the session with the summary "the player's card was declined twice"
+    Then the database of "support" holds the summary encrypted under the subject key of "player/8c1f"
+    And nothing in the database of "support" reads as "the player's card was declined twice"
+    And the documentation says that what compaction sent to the model that writes the summary is beyond an erasure
+
+  Scenario: a session of an erased data subject is not compacted
+    Given a session of "helper" started with the data subject "player/8c1f", past the compaction size of "helper"
+    And "player/8c1f" has since been erased
+    When compaction runs on the session
+    Then no summary is asked of the model
+    And the conversation of the session is erased
+
   Scenario Outline: an agent instance or a task tagged with an erased data subject reads as erased and the agent instance is stopped
     Given <what> of "resolver" started with the data subject "player/8c1f"
     When "player/8c1f" is erased

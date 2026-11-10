@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.agent
 
-import com.thinkmorestupidless.ankka.sdk.ChangeSource
+import com.thinkmorestupidless.ankka.core.{CommandError, DataSubject, ErrorCode, Personal}
+import com.thinkmorestupidless.ankka.sdk.{ChangeSource, ConsumerContext}
 
 import scala.concurrent.duration.DurationInt
 
@@ -79,4 +80,62 @@ class CompactionSuite extends munit.FunSuite:
       case ChangeSource.EventSourced(componentId, _) =>
         assertEquals(componentId, SessionMemoryEntity.componentId)
       case other => fail(s"expected an event-sourced source, got $other")
+  }
+
+  // What the compactor acts on (feature 064). Built over a context that answers nothing: an event
+  // the compactor ignores returns at once, and one it acts on reads the message's context, which
+  // outside a delivery throws, before it reaches any client.
+  private val noContext =
+    java.lang.reflect.Proxy
+      .newProxyInstance(
+        getClass.getClassLoader,
+        Array(classOf[ConsumerContext]),
+        (_, _, _) => null
+      )
+      .asInstanceOf[ConsumerContext]
+
+  private val compactor = SessionCompactor(noContext, CompactionSettings(), _ => "summary")
+
+  private val subject = DataSubject("player/8c1f")
+
+  private def sealedAs(event: SessionMemoryEvent): SessionMemoryEvent =
+    SessionMemoryEvent.Sealed(
+      Sealing.seal(subject, event, erased = false)(using SessionMemoryCodecs.event)
+    )
+
+  private def considered(event: SessionMemoryEvent): Boolean =
+    try
+      compactor.onMessage(event): Unit
+      false
+    catch case _: IllegalStateException => true
+
+  private val answer   = SessionMemoryEvent.AiMessageAdded(ai("an answer"), TokenUsage.zero)
+  private val question = SessionMemoryEvent.UserMessageAdded(user("a question"))
+  private val written  = SessionMemoryEvent.HistoryCompacted(summary("before"), 4)
+  private val waiting  = SessionMemoryEvent.TurnSuspended(
+    SuspendedTurn("a", "ask", false, "", Vector.empty, TokenUsage.zero, 1, Vector.empty)
+  )
+
+  test("the compactor considers a session after an AI message, plain or sealed") {
+    assert(considered(answer))
+    assert(considered(sealedAs(answer)))
+  }
+
+  test("the compactor ignores every other event, sealed or not, and an erased one") {
+    for event <- Seq(question, written, waiting, SessionMemoryEvent.Started(subject.value)) do
+      assert(!considered(event), s"considered $event")
+      assert(!considered(sealedAs(event)), s"considered a sealed $event")
+    assert(!considered(SessionMemoryEvent.Sealed(Personal.Erased(subject))))
+  }
+
+  test("a failed compaction's warning names the failure's kind and never its message") {
+    val words   = "my card was declined"
+    val refused = ModelCallFailed("test", s"refused: $words")
+    assertEquals(SessionCompactor.kind(refused), "ModelCallFailed")
+    val out = CommandError(s"no session holding $words", ErrorCode.Unavailable)
+    assertEquals(SessionCompactor.kind(out), "CommandError(Unavailable)")
+    assertEquals(
+      SessionCompactor.kind(java.util.concurrent.TimeoutException(words)),
+      "TimeoutException"
+    )
   }

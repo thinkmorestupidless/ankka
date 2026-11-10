@@ -69,6 +69,10 @@ class ErasureFeatures(
       "ErasureAgentsFeatures",
     "a session started with no data subject is unchanged by any erasure" ->
       "ErasureAgentsFeatures",
+    "the summary of a session started with a data subject is kept encrypted under the subject key" ->
+      "ErasureAgentsFeatures",
+    "a session of an erased data subject is not compacted" ->
+      "ErasureAgentsFeatures",
     // Two installations of one service in this JVM, and the test kit's keyring relay.
     "a follower of a replicated entity reads a personal field with the subject key the home's keyring gives it" ->
       "ErasureReplicationFeatures",

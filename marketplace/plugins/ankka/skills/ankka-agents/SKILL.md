@@ -84,7 +84,8 @@ probabilities behind each answer — for a decision whose answer is one of a kno
 - **Start every session, autonomous instance or task about a person with that person's data subject**:
   `forAgent(SessionId(id), subject = Some(DataSubject("player/8c1f")))`, `forAutonomousAgent(A, id,
   subject = ...)`, a task's `.withSubject(...)` in Scala; `subject=` in Python. What it keeps is then
-  encrypted under the subject's key. The subject is fixed by the first call.
+  encrypted under the subject's key. The subject is fixed by the first call. Such a session is
+  compacted like any other, and its summary is kept sealed too.
 - After an erasure the conversation reads as empty, the model is told so at the next turn, a new turn is
   answered and not recorded, and an instance with the subject is terminated.
 - A session started with no data subject can never be erased, and what was sent to a model provider is

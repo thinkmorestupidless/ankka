@@ -51,8 +51,13 @@ public final class ConsumerTestKit<Src, Out> {
     return kit.onMessage(message, subject, sequenceNumber);
   }
 
-  /** Tells the consumer that {@code subject}, its source entity, was deleted. */
+  /** Tells the consumer that {@code subject}, its source entity, was deleted at sequence one. */
   public ConsumerResult<Out> onDelete(String subject) {
-    return kit.onDelete(subject);
+    return onDelete(subject, 1);
+  }
+
+  /** Tells the consumer that {@code subject}, its source entity, was deleted at {@code sequenceNumber}. */
+  public ConsumerResult<Out> onDelete(String subject, long sequenceNumber) {
+    return kit.onDelete(subject, sequenceNumber);
   }
 }

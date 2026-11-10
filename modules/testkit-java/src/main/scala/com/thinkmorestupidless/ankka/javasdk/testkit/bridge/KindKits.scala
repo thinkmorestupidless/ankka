@@ -265,7 +265,8 @@ object KindKits:
 
     def onMessage[O](message: Any, subject: String, sequenceNumber: Long): ConsumerResult[O] =
       JavaConsumerResult(kit.onMessage(message, subject, sequenceNumber))
-    def onDelete[O](subject: String): ConsumerResult[O] = JavaConsumerResult(kit.onDelete(subject))
+    def onDelete[O](subject: String, sequenceNumber: Long): ConsumerResult[O] =
+      JavaConsumerResult(kit.onDelete(subject, sequenceNumber))
 
   private final case class JavaConsumerResult[O](scala: stk.ConsumerTestKit.Result[Any])
       extends ConsumerResult[O]:
@@ -289,5 +290,5 @@ object KindKits:
 
     def onMessage(message: Any, subject: String, sequenceNumber: Long): java.util.List[GraphDelta] =
       kit.onMessage(message, subject, sequenceNumber).map(GraphDeltas.toJava).asJava
-    def onDelete(subject: String): java.util.List[GraphDelta] =
-      kit.onDelete(subject).map(GraphDeltas.toJava).asJava
+    def onDelete(subject: String, sequenceNumber: Long): java.util.List[GraphDelta] =
+      kit.onDelete(subject, sequenceNumber).map(GraphDeltas.toJava).asJava

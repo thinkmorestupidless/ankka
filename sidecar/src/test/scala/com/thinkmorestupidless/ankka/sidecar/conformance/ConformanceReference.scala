@@ -1274,15 +1274,15 @@ object ConformanceReference:
         )
       )
     }
-    get[Int, String]("/status/{code}")((code: Int) =>
-      throw HttpProblem(code, s"status $code as asked")
+    get("/status/{code}")((code: Int) =>
+      (throw HttpProblem(code, s"status $code as asked")): String
     )
-    get[String]("/boom")(() => throw RuntimeException("boom from the handler"))
+    get("/boom")(() => (throw RuntimeException("boom from the handler")): String)
 
     // A route whose acl differs from its endpoint's: `/conformance` admits everyone, this one
     // admits nobody, and the routes declared around it are unaffected.
     withAcl(Acl.DenyAll) {
-      get[String]("/closed")(() => "never reached")
+      get("/closed")(() => "never reached")
     }
     sse("/stream/{session}") { (session: String) =>
       val _ = session
@@ -1298,8 +1298,8 @@ object ConformanceReference:
       }
       socketLog.add(s"closed:$room"): Unit
     }
-    socket("/socket-once")(socket => socket.receive(): Unit)
-    socket("/socket-fail") { socket =>
+    socket("/socket-once")((socket: Socket) => socket.receive(): Unit)
+    socket("/socket-fail") { (socket: Socket) =>
       socket.receive(): Unit
       throw RuntimeException("the socket handler broke")
     }
@@ -1337,30 +1337,30 @@ object ConformanceReference:
           val end = WorkflowEnd.failure(failed).get
           throw HttpProblem(424, s"${end.step.getOrElse("")}: ${end.reason}")
     }
-    post[String, Done]("/remind/{id}") { (id: String) =>
+    post("/remind/{id}") { (id: String) =>
       timers().createSingleTimer(s"remind-$id", 1.second, Reminder.remind.deferred(id))
-      Done
+      Done.done
     }
     // A recurring timer: due at once, then every second.
-    post[String, Done]("/recur/{id}") { (id: String) =>
+    post("/recur/{id}") { (id: String) =>
       timers().createRecurringTimer(
         s"recur-$id",
         Duration.Zero,
         1.second,
         Reminder.tick.deferred(id)
       )
-      Done
+      Done.done
     }
     // The same timer set again, with a delay a replacement would be first due after.
-    post[String, Done]("/recur/{id}/again") { (id: String) =>
+    post("/recur/{id}/again") { (id: String) =>
       timers().createRecurringTimer(s"recur-$id", 60.seconds, 1.second, Reminder.tick.deferred(id))
-      Done
+      Done.done
     }
-    post[String, Done]("/recur/{id}/cancel") { (id: String) =>
+    post("/recur/{id}/cancel") { (id: String) =>
       timers().delete(s"recur-$id")
-      Done
+      Done.done
     }
-    post[String, Done]("/recur-refused/{id}") { (id: String) =>
+    post("/recur-refused/{id}") { (id: String) =>
       try
         timers().createRecurringTimer(
           s"recur-$id",
@@ -1370,7 +1370,7 @@ object ConformanceReference:
         )
       catch
         case e: IllegalArgumentException => throw CommandError(e.getMessage, ErrorCode.BadRequest)
-      Done
+      Done.done
     }
     postBody("/ask/{session}") { (session: String, question: String) =>
       agent(session).call(Assistant.ask).invoke(question)
@@ -1425,7 +1425,7 @@ object ConformanceReference:
       catch
         case e: CommandError =>
           PersonalRecord("refused", code = codeWord(e.code), message = e.message)
-    post[String, Done]("/{id}/no-reply") { (id: String) =>
+    post("/{id}/no-reply") { (id: String) =>
       // A handler that answers nothing: the ask is never awaited, and the route says so with 204.
       val _ = transport.ask(
         Conformance.componentId,
@@ -1434,7 +1434,7 @@ object ConformanceReference:
         Array.emptyByteArray,
         Metadata.empty
       )
-      Done
+      Done.done
     }
     postBody("/{id}/{handler}") { (id: String, handler: String, body: String) =>
       // The generic forwarder: the body goes through as the handler's input, the reply comes back as text.
@@ -1467,7 +1467,7 @@ object ConformanceReference:
       s"""{"taskId":"$id","instanceId":"$instance"}"""
     }
     get("/tasks/{id}")((id: String) => record(id))
-    post[String, Done]("/tasks/{id}/cancel")((id: String) => client.forTask(id).cancel())
+    post("/tasks/{id}/cancel")((id: String) => client.forTask(id).cancel())
     postBody("/tasks/{type}/create") { (taskType: String, body: String) =>
       // {"instructions": "...", "dependsOn": ["..."]} — creates without running.
       if taskType != AnswerType.name then throw HttpProblem.badRequest(s"no task type '$taskType'")
@@ -1485,7 +1485,7 @@ object ConformanceReference:
       val r = client.forAutonomousAgent(Answerer)(instance).assign(ids*)
       s"""{"accepted":[${r.accepted.map(i => s"\"$i\"").mkString(",")}]}"""
     }
-    post[String, String, Done]("/instances/{instance}/{op}") { (instance: String, op: String) =>
+    post("/instances/{instance}/{op}") { (instance: String, op: String) =>
       val calls = client.forAutonomousAgent(Answerer)(instance)
       op match
         case "suspend"   => calls.suspend()
@@ -1554,7 +1554,7 @@ object ConformanceReference:
         .render
     )
     // The principal and the caller, sent once when the socket opens.
-    socket("/socket") { socket =>
+    socket("/socket") { (socket: Socket) =>
       socketLog.add(s"private:${principal.subject}"): Unit
       socket.send(
         Json

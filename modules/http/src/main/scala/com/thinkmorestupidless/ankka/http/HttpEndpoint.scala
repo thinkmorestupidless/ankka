@@ -253,9 +253,10 @@ private[ankka] final case class SocketRoute(
  * Routes are declared in the constructor body and collected as they are declared, so the endpoint's
  * shape is a value the server can inspect and log at startup.
  *
- * Handler parameters must be annotated with their type — `{ (cartId: String) => ... }` rather than
- * `{ cartId => ... }` — because that annotation is what selects the right arity overload and the
- * right `FromPath` instance.
+ * A handler is a function of every path parameter its template names, however many, followed by the
+ * body, the streamed body or the socket for the routes that have one. Its parameters must be
+ * annotated with their type — `{ (cartId: String) => ... }` rather than `{ cartId => ... }` —
+ * because that annotation is what selects each parameter's `FromPath` instance (`HandlerShape`).
  */
 abstract class HttpEndpoint(val prefix: String):
 
@@ -391,28 +392,20 @@ abstract class HttpEndpoint(val prefix: String):
   private[ankka] def servesReservedStorage: Boolean = false
 
   /**
-   * Records a route, checking the handler's arity against the template's placeholders.
+   * A route's template, checked against the number of path parameters its handler takes.
    *
    * A mismatch throws here — during construction, therefore during startup — so it lands next to
    * the other service-definition failures rather than as a surprise on the first request that
    * happens to match.
    */
-  private def add[R](method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
-      run: (Vector[String], Array[Byte]) => R
-  )(using response: ToResponse[R]): Unit =
+  private def checked(method: String, rawTemplate: String, arity: Int): PathTemplate =
     val template = PathTemplate.parse(rawTemplate)
     if template.arity != arity then
       throw IllegalArgumentException(
         s"$method $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
           s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
       )
-    collected += Route(
-      method,
-      template,
-      needsBody,
-      (args, body) => encode(run(args, body)),
-      scopedAcl
-    )
+    template
 
   /** A handler's value as the server answers it: whole, or as a stream the server writes. */
   private def encode[R](value: R)(using response: ToResponse[R]): EncodedResponse =
@@ -435,52 +428,62 @@ abstract class HttpEndpoint(val prefix: String):
           response.headers(value)
         )
 
+  /** Records a route whose handler takes its path parameters and nothing else. */
+  private def route[F](method: String, rawTemplate: String, handler: F)(using
+      shape: HandlerShape[F]
+  )(using path: PathArguments[shape.Args], response: ToResponse[shape.Out]): Unit =
+    val template = checked(method, rawTemplate, path.arity)
+    val run      = shape.tupled(handler)
+    collected += Route(
+      method,
+      template,
+      needsBody = false,
+      (args, _) => encode(run(path.read(args, rawTemplate))),
+      scopedAcl
+    )
+
+  /** Records a route whose handler takes its path parameters and then the decoded body. */
+  private def routeBody[F, Body](method: String, rawTemplate: String, handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      path: PathArgumentsThen[shape.Args, Body],
+      from: FromBody[Body],
+      response: ToResponse[shape.Out]
+  ): Unit =
+    val template = checked(method, rawTemplate, path.arity)
+    val run      = shape.tupled(handler)
+    collected += Route(
+      method,
+      template,
+      needsBody = true,
+      (args, body) =>
+        // The path is read before the body, so a request wrong in both is told about its path.
+        val withBody = path.read(args, rawTemplate)
+        encode(run(withBody(bodyArg[Body](body))))
+      ,
+      scopedAcl
+    )
+
   /**
    * Records a route whose body is read as it arrives (feature 055). Its handler is given a
-   * `StreamedBody` and may answer anything a route answers, a `Streamed` body included.
+   * `StreamedBody` after its path parameters and may answer anything a route answers, a `Streamed`
+   * body included.
    */
-  private def addStreamedBody[R](method: String, rawTemplate: String, arity: Int)(
-      run: (Vector[String], StreamedBody) => R
-  )(using response: ToResponse[R]): Unit =
-    val template = PathTemplate.parse(rawTemplate)
-    if template.arity != arity then
-      throw IllegalArgumentException(
-        s"$method $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
-          s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
-      )
+  private def routeStreamedBody[F](method: String, rawTemplate: String, handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      path: PathArgumentsThen[shape.Args, StreamedBody],
+      response: ToResponse[shape.Out]
+  ): Unit =
+    val template = checked(method, rawTemplate, path.arity)
+    val run      = shape.tupled(handler)
     collected += Route(
       method,
       template,
       needsBody = false,
       (_, _) => throw IllegalStateException(s"$method $rawTemplate reads its body as a stream"),
       scopedAcl,
-      Some((args, body) => encode(run(args, body)))
-    )
-
-  /**
-   * A `POST` whose body is read as it arrives rather than whole (feature 055): an upload passed
-   * straight to a bucket, say, of any size up to `ankka.http.max-stream-bytes`. A larger declared
-   * body is answered `413` and the handler never runs.
-   */
-  protected def postStream[R: ToResponse](template: String)(handler: StreamedBody => R): Unit =
-    addStreamedBody("POST", template, 0)((_, body) => handler(body))
-
-  protected def postStream[A: FromPath, R: ToResponse](template: String)(
-      handler: (A, StreamedBody) => R
-  ): Unit =
-    addStreamedBody("POST", template, 1)((args, body) =>
-      handler(pathArg[A](args, 0, template), body)
-    )
-
-  /** A `PUT` whose body is read as it arrives, as `postStream`. */
-  protected def putStream[R: ToResponse](template: String)(handler: StreamedBody => R): Unit =
-    addStreamedBody("PUT", template, 0)((_, body) => handler(body))
-
-  protected def putStream[A: FromPath, R: ToResponse](template: String)(
-      handler: (A, StreamedBody) => R
-  ): Unit =
-    addStreamedBody("PUT", template, 1)((args, body) =>
-      handler(pathArg[A](args, 0, template), body)
+      Some((args, body) => encode(run(path.read(args, rawTemplate)(body))))
     )
 
   /**
@@ -489,84 +492,173 @@ abstract class HttpEndpoint(val prefix: String):
    * Declared with `sse` rather than `get` because the response is open-ended: the handler returns a
    * `Source` and the server holds the connection until it completes.
    */
-  private def addStream(method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
-      run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?]
+  private def routeEvents[F, E](rawTemplate: String, handler: F, event: E => SseEvent)(using
+      shape: HandlerShape[F]
+  )(using
+      path: PathArguments[shape.Args],
+      events: shape.Out <:< org.apache.pekko.stream.scaladsl.Source[E, ?]
   ): Unit =
-    addEventStream(method, rawTemplate, arity, needsBody)((args, body) =>
-      run(args, body).map(SseEvent.text)
+    val template = checked("GET", rawTemplate, path.arity)
+    val run      = shape.tupled(handler)
+    collectedStreams += StreamRoute(
+      "GET",
+      template,
+      needsBody = false,
+      (args, _) => events(run(path.read(args, rawTemplate))).map(event),
+      scopedAcl
     )
 
-  private def addEventStream(method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
-      run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  /** Records a server-sent-events route that is a `POST` with a decoded body. */
+  private def routeEventsBody[F, Body, E](rawTemplate: String, handler: F, event: E => SseEvent)(
+      using shape: HandlerShape[F]
+  )(using
+      path: PathArgumentsThen[shape.Args, Body],
+      from: FromBody[Body],
+      events: shape.Out <:< org.apache.pekko.stream.scaladsl.Source[E, ?]
   ): Unit =
-    val template = PathTemplate.parse(rawTemplate)
-    if template.arity != arity then
-      throw IllegalArgumentException(
-        s"$method $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
-          s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
-      )
-    collectedStreams += StreamRoute(method, template, needsBody, run, scopedAcl)
-
-  /** `GET $prefix$template`, answered as server-sent events. */
-  protected def sse[A: FromPath](template: String)(
-      handler: A => org.apache.pekko.stream.scaladsl.Source[String, ?]
-  ): Unit =
-    addStream("GET", template, 1, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template))
+    val template = checked("POST", rawTemplate, path.arity)
+    val run      = shape.tupled(handler)
+    collectedStreams += StreamRoute(
+      "POST",
+      template,
+      needsBody = true,
+      (args, body) =>
+        val withBody = path.read(args, rawTemplate)
+        events(run(withBody(bodyArg[Body](body)))).map(event)
+      ,
+      scopedAcl
     )
 
-  /** `GET $prefix$template` with no path parameters, answered as server-sent events. */
-  protected def sse(template: String)(
-      handler: () => org.apache.pekko.stream.scaladsl.Source[String, ?]
-  ): Unit =
-    addStream("GET", template, 0, needsBody = false)((_, _) => handler())
+  private def bodyArg[B](bytes: Array[Byte])(using from: FromBody[B]): B =
+    from.read(bytes) match
+      case Right(value) => value
+      case Left(reason) => throw HttpProblem.badRequest(reason)
 
-  /** `POST $prefix$template` with a decoded body, answered as server-sent events. */
-  protected def sseBody[A: FromPath, Body: FromBody](template: String)(
-      handler: (A, Body) => org.apache.pekko.stream.scaladsl.Source[String, ?]
-  ): Unit =
-    addStream("POST", template, 1, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
-    )
+  /** Routes `GET $$prefix$$template` to `handler`, a function of the template's path parameters. */
+  protected def get[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      ToResponse[shape.Out]
+  ): Unit = route("GET", template, handler)
 
   /**
-   * Records a socket route, checking the handler's arity against the template's placeholders, as
-   * `add` does.
+   * Routes `DELETE $$prefix$$template` to `handler`, a function of the template's path parameters.
    */
-  private def addSocket(rawTemplate: String, arity: Int)(
-      run: Vector[String] => Socket => Unit
-  ): Unit =
-    val template = PathTemplate.parse(rawTemplate)
-    if template.arity != arity then
-      throw IllegalArgumentException(
-        s"SOCKET $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
-          s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
-      )
-    collectedSockets += SocketRoute(template, run, scopedAcl)
+  protected def delete[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      ToResponse[shape.Out]
+  ): Unit = route("DELETE", template, handler)
 
   /**
-   * `GET $prefix$template`, answered by opening a socket. The handler runs on a virtual thread for
-   * as long as the socket is open; see `Socket`.
+   * Routes `POST $$prefix$$template` to `handler`, a function of the template's path parameters.
    */
-  protected def socket(template: String)(handler: Socket => Unit): Unit =
-    addSocket(template, 0)(_ => handler)
+  protected def post[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      ToResponse[shape.Out]
+  ): Unit = route("POST", template, handler)
 
-  /** A socket route with one path parameter. */
-  protected def socket[A: FromPath](template: String)(handler: (A, Socket) => Unit): Unit =
-    addSocket(template, 1) { args =>
-      val a = pathArg[A](args, 0, template)
-      socket => handler(a, socket)
-    }
+  /** Routes `PUT $$prefix$$template` to `handler`, a function of the template's path parameters. */
+  protected def put[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      ToResponse[shape.Out]
+  ): Unit = route("PUT", template, handler)
 
-  /** A socket route with two path parameters. */
-  protected def socket[A: FromPath, B: FromPath](template: String)(
-      handler: (A, B, Socket) => Unit
-  ): Unit =
-    addSocket(template, 2) { args =>
-      val a = pathArg[A](args, 0, template)
-      val b = pathArg[B](args, 1, template)
-      socket => handler(a, b, socket)
-    }
+  /**
+   * Routes `PATCH $$prefix$$template` to `handler`, a function of the template's path parameters.
+   */
+  protected def patch[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      ToResponse[shape.Out]
+  ): Unit = route("PATCH", template, handler)
+
+  /**
+   * Routes `POST $$prefix$$template` to `handler`, a function of the template's path parameters and
+   * then the decoded request body.
+   */
+  protected def postBody[F, Body](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, Body],
+      FromBody[Body],
+      ToResponse[shape.Out]
+  ): Unit = routeBody("POST", template, handler)
+
+  /**
+   * Routes `PUT $$prefix$$template` to `handler`, a function of the template's path parameters and
+   * then the decoded request body.
+   */
+  protected def putBody[F, Body](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, Body],
+      FromBody[Body],
+      ToResponse[shape.Out]
+  ): Unit = routeBody("PUT", template, handler)
+
+  /**
+   * Routes `PATCH $$prefix$$template` to `handler`, a function of the template's path parameters
+   * and then the decoded request body.
+   */
+  protected def patchBody[F, Body](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, Body],
+      FromBody[Body],
+      ToResponse[shape.Out]
+  ): Unit = routeBody("PATCH", template, handler)
+
+  /**
+   * A `POST` whose body is read as it arrives rather than whole (feature 055): an upload passed
+   * straight to a bucket, say, of any size up to `ankka.http.max-stream-bytes`. A larger declared
+   * body is answered `413` and the handler never runs. The handler takes the template's path
+   * parameters and then the `StreamedBody`.
+   */
+  protected def postStream[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, StreamedBody],
+      ToResponse[shape.Out]
+  ): Unit = routeStreamedBody("POST", template, handler)
+
+  /** A `PUT` whose body is read as it arrives, as `postStream`. */
+  protected def putStream[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, StreamedBody],
+      ToResponse[shape.Out]
+  ): Unit = routeStreamedBody("PUT", template, handler)
+
+  /**
+   * `GET $prefix$template`, answered as server-sent events: the handler takes the template's path
+   * parameters and answers a `Source` of text.
+   */
+  protected def sse[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      shape.Out <:< org.apache.pekko.stream.scaladsl.Source[String, ?]
+  ): Unit = routeEvents(template, handler, SseEvent.text)
+
+  /**
+   * `POST $prefix$template`, answered as server-sent events: the handler takes the template's path
+   * parameters and then the decoded body.
+   */
+  protected def sseBody[F, Body](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, Body],
+      FromBody[Body],
+      shape.Out <:< org.apache.pekko.stream.scaladsl.Source[String, ?]
+  ): Unit = routeEventsBody(template, handler, SseEvent.text)
 
   /**
    * `GET $prefix$template`, answered as server-sent events the handler names itself.
@@ -575,231 +667,43 @@ abstract class HttpEndpoint(val prefix: String):
    * approval sends its requests as a named event after its text. A separate name from `sse`, so a
    * handler's lambda never has to say which of the two element types it returns.
    */
-  protected def sseEvents[A: FromPath](template: String)(
-      handler: A => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
-  ): Unit =
-    addEventStream("GET", template, 1, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template))
-    )
-
-  /** `GET $prefix$template` with no path parameters, answered as server-sent events it names. */
-  protected def sseEvents(template: String)(
-      handler: () => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
-  ): Unit =
-    addEventStream("GET", template, 0, needsBody = false)((_, _) => handler())
+  protected def sseEvents[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArguments[shape.Args],
+      shape.Out <:< org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit = routeEvents(template, handler, identity[SseEvent])
 
   /** `POST $prefix$template` with a decoded body, answered as server-sent events it names. */
-  protected def sseEventsBody[A: FromPath, Body: FromBody](template: String)(
-      handler: (A, Body) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  protected def sseEventsBody[F, Body](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      PathArgumentsThen[shape.Args, Body],
+      FromBody[Body],
+      shape.Out <:< org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit = routeEventsBody(template, handler, identity[SseEvent])
+
+  /**
+   * `GET $prefix$template`, answered by opening a socket: the handler takes the template's path
+   * parameters and then the `Socket`, and runs on a virtual thread for as long as the socket is
+   * open; see `Socket`. What it answers is not read.
+   */
+  protected def socket[F](template: String)(handler: F)(using
+      shape: HandlerShape[F]
+  )(using
+      path: PathArgumentsThen[shape.Args, Socket]
   ): Unit =
-    addEventStream("POST", template, 1, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
-    )
-
-  private def pathArg[A](args: Vector[String], index: Int, template: String)(using
-      from: FromPath[A]
-  ): A =
-    from.parse(args(index)) match
-      case Right(value) => value
-      case Left(reason) => throw HttpProblem.badRequest(s"$reason in '$template'")
-
-  private def bodyArg[B](bytes: Array[Byte])(using from: FromBody[B]): B =
-    from.read(bytes) match
-      case Right(value) => value
-      case Left(reason) => throw HttpProblem.badRequest(reason)
-
-  /** Routes `GET $$prefix$$template` to `handler`. */
-  protected def get[R: ToResponse](template: String)(
-      handler: () => R
-  ): Unit =
-    add("GET", template, 0, needsBody = false)((_, _) => handler())
-
-  /** Routes `GET $$prefix$$template` to `handler`. */
-  protected def get[A: FromPath, R: ToResponse](template: String)(
-      handler: (A) => R
-  ): Unit =
-    add("GET", template, 1, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template)))
-
-  /** Routes `GET $$prefix$$template` to `handler`. */
-  protected def get[A: FromPath, B: FromPath, R: ToResponse](template: String)(
-      handler: (A, B) => R
-  ): Unit =
-    add("GET", template, 2, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
-    )
-
-  /** Routes `DELETE $$prefix$$template` to `handler`. */
-  protected def delete[R: ToResponse](template: String)(
-      handler: () => R
-  ): Unit =
-    add("DELETE", template, 0, needsBody = false)((_, _) => handler())
-
-  /** Routes `DELETE $$prefix$$template` to `handler`. */
-  protected def delete[A: FromPath, R: ToResponse](template: String)(
-      handler: (A) => R
-  ): Unit =
-    add("DELETE", template, 1, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template))
-    )
-
-  /** Routes `DELETE $$prefix$$template` to `handler`. */
-  protected def delete[A: FromPath, B: FromPath, R: ToResponse](template: String)(
-      handler: (A, B) => R
-  ): Unit =
-    add("DELETE", template, 2, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
-    )
-
-  /** Routes `DELETE $$prefix$$template` to `handler`, with three path parameters. */
-  protected def delete[A: FromPath, B: FromPath, C: FromPath, R: ToResponse](template: String)(
-      handler: (A, B, C) => R
-  ): Unit =
-    add("DELETE", template, 3, needsBody = false)((args, _) =>
-      handler(
-        pathArg[A](args, 0, template),
-        pathArg[B](args, 1, template),
-        pathArg[C](args, 2, template)
-      )
-    )
-
-  /** Routes `POST $$prefix$$template` to `handler`. */
-  protected def post[R: ToResponse](template: String)(
-      handler: () => R
-  ): Unit =
-    add("POST", template, 0, needsBody = false)((_, _) => handler())
-
-  /** Routes `POST $$prefix$$template` to `handler`. */
-  protected def post[A: FromPath, R: ToResponse](template: String)(
-      handler: (A) => R
-  ): Unit =
-    add("POST", template, 1, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template)))
-
-  /** Routes `POST $$prefix$$template` to `handler`. */
-  protected def post[A: FromPath, B: FromPath, R: ToResponse](template: String)(
-      handler: (A, B) => R
-  ): Unit =
-    add("POST", template, 2, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
-    )
-
-  /** Routes `PUT $$prefix$$template` to `handler`. */
-  protected def put[R: ToResponse](template: String)(
-      handler: () => R
-  ): Unit =
-    add("PUT", template, 0, needsBody = false)((_, _) => handler())
-
-  /** Routes `PUT $$prefix$$template` to `handler`. */
-  protected def put[A: FromPath, R: ToResponse](template: String)(
-      handler: (A) => R
-  ): Unit =
-    add("PUT", template, 1, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template)))
-
-  /** Routes `PUT $$prefix$$template` to `handler`. */
-  protected def put[A: FromPath, B: FromPath, R: ToResponse](template: String)(
-      handler: (A, B) => R
-  ): Unit =
-    add("PUT", template, 2, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
-    )
-
-  /** Routes `PUT $$prefix$$template` to `handler`, with three path parameters. */
-  protected def put[A: FromPath, B: FromPath, C: FromPath, R: ToResponse](template: String)(
-      handler: (A, B, C) => R
-  ): Unit =
-    add("PUT", template, 3, needsBody = false)((args, _) =>
-      handler(
-        pathArg[A](args, 0, template),
-        pathArg[B](args, 1, template),
-        pathArg[C](args, 2, template)
-      )
-    )
-
-  /** Routes `PATCH $$prefix$$template` to `handler`. */
-  protected def patch[R: ToResponse](template: String)(
-      handler: () => R
-  ): Unit =
-    add("PATCH", template, 0, needsBody = false)((_, _) => handler())
-
-  /** Routes `PATCH $$prefix$$template` to `handler`. */
-  protected def patch[A: FromPath, R: ToResponse](template: String)(
-      handler: (A) => R
-  ): Unit =
-    add("PATCH", template, 1, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template))
-    )
-
-  /** Routes `PATCH $$prefix$$template` to `handler`. */
-  protected def patch[A: FromPath, B: FromPath, R: ToResponse](template: String)(
-      handler: (A, B) => R
-  ): Unit =
-    add("PATCH", template, 2, needsBody = false)((args, _) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
-    )
-
-  /** Routes `POST $$prefix$$template` with a decoded request body. */
-  protected def postBody[Body: FromBody, R: ToResponse](template: String)(
-      handler: (Body) => R
-  ): Unit =
-    add("POST", template, 0, needsBody = true)((_, body) => handler(bodyArg[Body](body)))
-
-  /** Routes `POST $$prefix$$template` with a decoded request body. */
-  protected def postBody[A: FromPath, Body: FromBody, R: ToResponse](template: String)(
-      handler: (A, Body) => R
-  ): Unit =
-    add("POST", template, 1, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
-    )
-
-  /** Routes `POST $$prefix$$template` with a decoded request body. */
-  protected def postBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](template: String)(
-      handler: (A, B, Body) => R
-  ): Unit =
-    add("POST", template, 2, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body))
-    )
-
-  /** Routes `PUT $$prefix$$template` with a decoded request body. */
-  protected def putBody[Body: FromBody, R: ToResponse](template: String)(
-      handler: (Body) => R
-  ): Unit =
-    add("PUT", template, 0, needsBody = true)((_, body) => handler(bodyArg[Body](body)))
-
-  /** Routes `PUT $$prefix$$template` with a decoded request body. */
-  protected def putBody[A: FromPath, Body: FromBody, R: ToResponse](template: String)(
-      handler: (A, Body) => R
-  ): Unit =
-    add("PUT", template, 1, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
-    )
-
-  /** Routes `PUT $$prefix$$template` with a decoded request body. */
-  protected def putBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](template: String)(
-      handler: (A, B, Body) => R
-  ): Unit =
-    add("PUT", template, 2, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body))
-    )
-
-  /** Routes `PATCH $$prefix$$template` with a decoded request body. */
-  protected def patchBody[Body: FromBody, R: ToResponse](template: String)(
-      handler: (Body) => R
-  ): Unit =
-    add("PATCH", template, 0, needsBody = true)((_, body) => handler(bodyArg[Body](body)))
-
-  /** Routes `PATCH $$prefix$$template` with a decoded request body. */
-  protected def patchBody[A: FromPath, Body: FromBody, R: ToResponse](template: String)(
-      handler: (A, Body) => R
-  ): Unit =
-    add("PATCH", template, 1, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
-    )
-
-  /** Routes `PATCH $$prefix$$template` with a decoded request body. */
-  protected def patchBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](
-      template: String
-  )(
-      handler: (A, B, Body) => R
-  ): Unit =
-    add("PATCH", template, 2, needsBody = true)((args, body) =>
-      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body))
+    val parsed = checked("SOCKET", template, path.arity)
+    val run    = shape.tupled(handler)
+    collectedSockets += SocketRoute(
+      parsed,
+      args =>
+        // Read before any socket exists: a path value that does not parse is a 400 to the opening
+        // request, not a socket that closes at once.
+        val withSocket = path.read(args, template)
+        socket =>
+          run(withSocket(socket))
+          ()
+      ,
+      scopedAcl
     )

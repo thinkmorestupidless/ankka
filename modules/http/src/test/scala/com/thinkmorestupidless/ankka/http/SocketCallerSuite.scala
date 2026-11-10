@@ -35,13 +35,13 @@ class SocketCallerSuite extends munit.FunSuite:
 
   private final class Notices extends HttpEndpoint("/notices"):
     val acl: Acl = Acl.allowCallers(Callers.service("checkout"))
-    socket("/stream") { socket =>
+    socket("/stream") { (socket: Socket) =>
       runs.incrementAndGet(): Unit
       socket.send(Caller.encode(caller))
       socket.receive(): Unit
     }
     withAcl(Acl.Authenticate(decide)) {
-      socket("/account") { socket =>
+      socket("/account") { (socket: Socket) =>
         socket.send(s"${principal.subject} via ${Caller.encode(caller)}")
         socket.receive(): Unit
       }

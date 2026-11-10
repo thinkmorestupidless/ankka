@@ -57,7 +57,7 @@ abstract class SocketSteps(features: String) extends GherkinSuite(features) with
       extends HttpEndpoint("/notices"):
     val acl: Acl = Acl.AllowAll
 
-    socket("/stream") { s =>
+    socket("/stream") { (s: Socket) =>
       def frames = Iterator.continually(s.receive()).takeWhile(_.isDefined).flatten
       behaviour.get match
         case Behaviour.Echo =>
@@ -249,7 +249,7 @@ abstract class SocketSteps(features: String) extends GherkinSuite(features) with
     val clash = new HttpEndpoint("/notices"):
       val acl: Acl = Acl.AllowAll
       get("/stream")(() => "a route")
-      socket("/stream")(_ => ())
+      socket("/stream")((_: Socket) => ())
     failedToStart =
       try
         val server = HttpServer.at("127.0.0.1", 0)(_ => clash)

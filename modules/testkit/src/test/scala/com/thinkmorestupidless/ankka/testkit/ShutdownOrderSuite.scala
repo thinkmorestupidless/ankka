@@ -53,7 +53,7 @@ class ShutdownOrderSuite extends FunSuite with LogCapturing:
       extends com.thinkmorestupidless.ankka.http.HttpEndpoint("/waiting"):
     val acl: com.thinkmorestupidless.ankka.http.Acl =
       com.thinkmorestupidless.ankka.http.Acl.AllowAll
-    socket("/socket") { socket =>
+    socket("/socket") { (socket: com.thinkmorestupidless.ankka.http.Socket) =>
       while socket.receive().isDefined do ()
       toldClosed.countDown()
     }

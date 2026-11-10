@@ -51,25 +51,25 @@ class SocketSuite extends munit.FunSuite with LogCapturing:
   private final class Sockets extends HttpEndpoint("/s"):
     val acl: Acl = Acl.AllowAll
 
-    socket("/echo") { socket =>
+    socket("/echo") { (socket: Socket) =>
       started("echo")
       Iterator.continually(socket.receive()).takeWhile(_.isDefined).flatten.foreach(socket.send)
       seen.add("echo: told closed"): Unit
     }
-    socket("/once") { socket =>
+    socket("/once") { (socket: Socket) =>
       started("once")
       socket.receive(): Unit
     }
-    socket("/fail") { socket =>
+    socket("/fail") { (socket: Socket) =>
       started("fail")
       socket.receive(): Unit
       throw IllegalStateException("the handler broke")
     }
-    socket("/never") { _ =>
+    socket("/never") { (_: Socket) =>
       started("never")
       release.await(60, TimeUnit.SECONDS): Unit
     }
-    socket("/after-close") { socket =>
+    socket("/after-close") { (socket: Socket) =>
       started("after-close")
       while socket.receive().isDefined do ()
       try
@@ -77,12 +77,12 @@ class SocketSuite extends munit.FunSuite with LogCapturing:
         seen.add("after-close: sent"): Unit
       catch case _: SocketClosed => seen.add("after-close: SocketClosed"): Unit
     }
-    socket("/escape") { socket =>
+    socket("/escape") { (socket: Socket) =>
       started("escape")
       while socket.receive().isDefined do ()
       socket.send("too late") // throws SocketClosed, which ends the handler as a return does
     }
-    socket("/headers") { socket =>
+    socket("/headers") { (socket: Socket) =>
       started("headers")
       socket.send(request.header("Authorization").getOrElse("none"))
       socket.send(request.header("Sec-WebSocket-Protocol").getOrElse("none"))
@@ -90,7 +90,7 @@ class SocketSuite extends munit.FunSuite with LogCapturing:
     }
 
     withAcl(Acl.Authenticate(decide)) {
-      socket("/me") { socket =>
+      socket("/me") { (socket: Socket) =>
         started("me")
         socket.send(principal.subject)
         socket.receive(): Unit

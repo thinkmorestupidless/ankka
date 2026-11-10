@@ -26,16 +26,16 @@ class RevokedStreamsSuite extends munit.FunSuite with LogCapturing:
   private final class Wallets extends HttpEndpoint("/v1/wallets"):
     val acl: Acl = Acl.allowCallers(Callers.granted)
 
-    socket[String]("/{player}/events") { (_, socket) =>
+    socket("/{player}/events") { (_: String, socket: Socket) =>
       Iterator.continually(socket.receive()).takeWhile(_.isDefined).flatten.foreach(socket.send)
     }
 
-    sse[String]("/{player}/ledger")(player =>
+    sse("/{player}/ledger")((player: String) =>
       Source.tick(0.millis, 100.millis, s"entry for $player").mapMaterializedValue(_ => ())
     )
 
     withAcl(Acl.AllowAll) {
-      socket[String]("/{player}/public")((_, socket) =>
+      socket("/{player}/public")((_: String, socket: Socket) =>
         Iterator.continually(socket.receive()).takeWhile(_.isDefined).flatten.foreach(socket.send)
       )
     }

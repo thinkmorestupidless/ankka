@@ -21,7 +21,7 @@ final class CallersEndpoint(services: ServiceClients) extends HttpEndpoint("/cal
 
   // Who opened the socket, in the same words, once for every frame: the caller is decided when the
   // socket is opened and holds for as long as it is open.
-  socket("/socket") { socket =>
+  socket("/socket") { (socket: Socket) =>
     while socket.receive().isDefined do socket.send(whoIsCalling)
   }
 

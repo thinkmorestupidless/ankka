@@ -43,6 +43,7 @@ unchanged: a sealed event whose subject was erased has nothing to compact.
 - Q: Do the two glossary terms the scenarios needed, "summary" and "compaction size", stand? → A: Both are accepted as defined, with no refused synonyms.
 - Q: Should a compaction failure be logged, beside `SessionCompactor.failures`? → A: Yes. Every compaction failure, of a session with a data subject or without, logs one warning naming the session and the kind of failure, never the conversation or a provider's message body.
 - Q: How far does the feature go on the summariser's model being sent a data subject's conversation? → A: It is documented. The guide says the summariser's model is sent the conversation, and that this is beyond an erasure. Behaviour does not change and nothing is opt-in.
+- Q: Planning found a keyring outage fails a sealed event in the projection, before the compactor's handler. Skip and record as first specified, or wait? → A: Wait, as every consumer of personal fields does: the event is retried until the keyring answers, nothing is recorded as failed and no compaction is lost.
 - Read from the code, not asked: the sidecar never turns compaction on (`withCompaction` is called only by the Scala, Java and Kotlin agent modules), so a Python, TypeScript, Go or Rust service's sessions are outside this feature.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -88,9 +89,13 @@ encrypted.
 - **Sealed events already in the journal.** A deployment that upgrades has sealed sessions that are
   already past the limit. They are compacted after their next turn, not by replaying the journal.
   The consumer's offset is not reset.
-- **The subject key cannot be read** (keyring unreachable). The event cannot be opened. This is a
-  failure of that one session's compaction: it is recorded in `SessionCompactor.failures` and the
-  consumer moves on, as any other compaction failure does. It never stalls the consumer.
+- **The subject key cannot be read** (keyring unreachable, past the 60 seconds a held key keeps
+  serving). The event cannot be opened. The compactor waits as every consumer of personal fields
+  does: the event is retried until the keyring answers, and the session is then compacted. Nothing
+  is recorded as failed. Compaction of other sessions waits behind it for the length of the outage.
+- **The session cannot be read or written after its event was opened** (the keyring went out in
+  between). This is a failure of that one session's compaction: it is recorded in
+  `SessionCompactor.failures`, logged, and the consumer moves on, as for any other failure.
 
 ## Requirements *(mandatory)*
 
@@ -110,13 +115,18 @@ encrypted.
   a write, and MUST NOT be recorded as a failure.
 - **FR-005**: A sealed event that holds the compactor's own `HistoryCompacted` MUST NOT lead to
   another compaction.
-- **FR-006**: A sealed event that cannot be opened for any reason other than erasure MUST be
-  recorded in `SessionCompactor.failures`, naming the session, and MUST NOT stop the consumer.
+- **FR-006**: A sealed event that cannot be opened because the keyring cannot be reached MUST be
+  retried until the keyring answers, as every consumer of personal fields retries, and the session
+  MUST then be considered. It MUST NOT be recorded as a failure, and no compaction may be lost to
+  the outage. A failure after the event was opened (reading the session, summarising, writing the
+  summary) MUST be recorded in `SessionCompactor.failures`, naming the session, and MUST NOT stop
+  the consumer.
 - **FR-007**: The text sent to the summariser for a session started with a data subject MUST be
   sent the way an agent's turns are: to the model provider only. It MUST NOT be logged.
 - **FR-008**: The agents guide's *Compaction* section MUST say that compaction applies to a session
   started with a data subject, that its summary is kept sealed, and that the summariser's model is
-  sent the conversation, which is beyond an erasure as what a session sent to its own model is.
+  sent the conversation, which is beyond an erasure as what a session sent to its own model is. It
+  MUST also say that a failed compaction logs a warning naming the session.
 - **FR-009**: Every compaction failure, of a session started with a data subject or with none, MUST
   log one warning that names the session and the kind of failure. The warning MUST NOT carry any
   text of the conversation, the summary, or a model provider's message body.
@@ -154,6 +164,9 @@ encrypted.
   042 settled.
 - The consumer can open a sealed event the way the session memory entity does when it replays one,
   since both run in the service that holds the subject key.
+- A session is started with a data subject from Scala, and compaction is turned on from Scala, Java
+  and Kotlin, so the feature is visible in a Scala service only. Java and Kotlin services start no
+  session with a data subject.
 - This is a fix to 0.16.0's behaviour, released in the next patch release. Services that need it
   (eitheror's support agent, ankka-modules spec 017) move to that release; nothing changes in their
   code.

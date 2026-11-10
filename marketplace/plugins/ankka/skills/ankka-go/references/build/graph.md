@@ -1006,12 +1006,12 @@ func TestTheCartGraphFollowsTheCart(t *testing.T) {
 }
 ```
 
-| | Scala | Python | TypeScript | Rust |
-|---|---|---|---|---|
-| The kit | `ConsumerTestKit.graph(Companion)` | `GraphConsumerTestKit.of(Cls)` | `GraphConsumerTestKit.of(Cls)` | `GraphConsumerTestKit::<G>::new()` |
-| A change | `onMessage(message, subject, sequenceNumber)` | `on_message(message, subject, sequence=…)` | `onMessage(message, { subject, sequence })` | `on_message(subject, sequence, message)` |
-| The deletion | `onDelete(subject, sequenceNumber)` | `on_delete(subject, sequence=…)` | `onDelete({ subject, sequence })` | `on_deleted(subject, sequence)` |
-| A client that answers | a `TestTransport` with stubs, passed to the kit | a client double, passed to `of` | a client double, passed to `of` | `.with_service(build())`, which answers from in-memory entities |
+| | Scala | Java and Kotlin | Python | TypeScript | Rust |
+|---|---|---|---|---|---|
+| The kit | `ConsumerTestKit.graph(Companion)` | `ConsumerTestKit.graph(Cls.class)` | `GraphConsumerTestKit.of(Cls)` | `GraphConsumerTestKit.of(Cls)` | `GraphConsumerTestKit::<G>::new()` |
+| A change | `onMessage(message, subject, sequenceNumber)` | `onMessage(message, subject, sequenceNumber)` | `on_message(message, subject, sequence=…)` | `onMessage(message, { subject, sequence })` | `on_message(subject, sequence, message)` |
+| The deletion | `onDelete(subject, sequenceNumber)` | `onDelete(subject, sequenceNumber)` | `on_delete(subject, sequence=…)` | `onDelete({ subject, sequence })` | `on_deleted(subject, sequence)` |
+| A client that answers | a `TestTransport` with stubs, passed to the kit | a `TestClient` with stubs, passed to `graph` | a client double, passed to `of` | a client double, passed to `of` | `.with_service(build())`, which answers from in-memory entities |
 
 To read a delta topic in a test or in another component, each SDK has the reader the kits use:
 `GraphDelta.read(key, value)` in Scala, `graph.read(value, key)` in Python, `readDelta(value, key)` in

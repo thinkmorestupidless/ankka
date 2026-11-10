@@ -25,8 +25,16 @@ public final class GraphConsumerTestKit<Src> {
     return kit.onMessage(message, subject, sequenceNumber);
   }
 
-  /** Tells the consumer that {@code subject}, its source entity, was deleted. */
+  /** Tells the consumer that {@code subject}, its source entity, was deleted at sequence one. */
   public List<GraphDelta> onDelete(String subject) {
-    return kit.onDelete(subject);
+    return onDelete(subject, 1);
+  }
+
+  /**
+   * Tells the consumer that {@code subject}, its source entity, was deleted at {@code
+   * sequenceNumber}: the version its tombstones are written at.
+   */
+  public List<GraphDelta> onDelete(String subject, long sequenceNumber) {
+    return kit.onDelete(subject, sequenceNumber);
   }
 }

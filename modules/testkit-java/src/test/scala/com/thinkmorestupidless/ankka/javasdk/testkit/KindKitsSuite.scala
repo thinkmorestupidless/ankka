@@ -164,6 +164,9 @@ class KindKitsSuite extends munit.FunSuite with LogCapturing:
     assertEquals(deltas(1).from.toScala, Some("n2"))
     val tombstone = kit.onDelete("n2").get(0)
     assert(tombstone.isTombstone)
+    assertEquals(tombstone.version, 1L)
+    // A deletion at a later sequence number writes its tombstone at that version.
+    assertEquals(kit.onDelete("n2", 7).get(0).version, 7L)
     // The serializer writes what the reader reads back, under the key the sink checks.
     val bytes = GraphDelta.serializer().toBytes(deltas(0))
     assertEquals(GraphDelta.read(deltas(0).key, bytes), deltas(0))

@@ -32,8 +32,10 @@ class GuideSamplesTest {
             val registered = blueprints.register(GuideSamples.brief) // Registered(name, version, isNew, notes)
             blueprints.register(GuideSamples.brief.json()) // the same, from a blueprint written as JSON
             val versions = blueprints.versions("brief") // every version, oldest first
-            val current = blueprints.current("brief") // the current one, as it was registered
+            val current = blueprints.current("brief") // the version a run started now would use
+            val first = blueprints.version("brief", 1) // one, as it was registered
             // docs:end register
+            assertEquals(GuideSamples.brief.digest(), first.digest())
             assertEquals("brief", registered.name())
             assertEquals(1, registered.version())
             assertFalse(registered.isNew(), "the blueprint carried at start was registered again as new")

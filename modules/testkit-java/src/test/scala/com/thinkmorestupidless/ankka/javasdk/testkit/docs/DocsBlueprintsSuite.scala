@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.testkit.docs
 import com.thinkmorestupidless.ankka.agent.javasdk.AgentClients
 import com.thinkmorestupidless.ankka.agent.javasdk.bridge.AgentBridge
 import com.thinkmorestupidless.ankka.agent.judgment.{Answers, TestJudgmentProvider, YesNoQuestion}
+import com.thinkmorestupidless.ankka.javasdk.client.CommandException
 import com.thinkmorestupidless.ankka.javasdk.testkit.{AnkkaTestKit, TestModelProvider}
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 
@@ -48,6 +49,16 @@ class DocsBlueprintsSuite extends munit.FunSuite with LogCapturing:
     assertEquals(registered.isNew, false)
     assertEquals(AgentClients.blueprints(client).versions("brief").size, 1)
     assertEquals(AgentClients.blueprints(client).current("brief").get.name, "brief")
+  }
+
+  test(
+    "one version of a blueprint is read back as it was registered; one never registered is not found"
+  ) {
+    val blueprints = AgentClients.blueprints(client)
+    assertEquals(blueprints.version("brief", 1).digest, GuideBlueprints.BRIEF.digest)
+    val missing = intercept[CommandException](blueprints.version("brief", 9))
+    assertEquals(missing.problem.status, 404, missing.problem.toString)
+    assertEquals(intercept[CommandException](blueprints.version("never", 1)).problem.status, 404)
   }
 
   test("a scheduled blueprint registers, its input admitting a period") {

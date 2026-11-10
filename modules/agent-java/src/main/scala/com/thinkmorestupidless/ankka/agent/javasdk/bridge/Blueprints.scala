@@ -259,6 +259,8 @@ private[bridge] final class JavaBlueprintsRef(calls: blueprint.BlueprintCalls)
       .asJava
   def current(name: String): java.util.Optional[javasdk.Blueprint] =
     Outcomes.answering(calls.current(name)).map(b => JavaBlueprint(b): javasdk.Blueprint).toJava
+  def version(name: String, number: Int): javasdk.Blueprint =
+    JavaBlueprint(Outcomes.answering(calls.version(name, number)))
 
 private[bridge] final class JavaRunsRef(calls: blueprint.RunCalls) extends javasdk.RunsRef:
   def start(name: String, inputJson: String, runId: String): javasdk.RunsRef.RunSnapshot =

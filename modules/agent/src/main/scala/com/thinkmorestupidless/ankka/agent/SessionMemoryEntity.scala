@@ -135,9 +135,27 @@ enum SessionMemoryEvent:
 
   /**
    * An event of a session with a data subject: the event's own JSON, sealed under the subject's
-   * key. Read once the key is destroyed it is erased, and the conversation reads as empty.
+   * key. Read once the key is destroyed it is erased, and the conversation reads as empty. Anything
+   * that reads these events, the entity and a consumer alike, reads a sealed one through
+   * `SessionMemoryEvent.opened`.
    */
   case Sealed(body: Personal[String])
+
+object SessionMemoryEvent:
+
+  /**
+   * The event a session memory event stands for: a plain event as it is, a sealed one as the event
+   * its body holds, and `None` for a sealed one whose data subject was erased, which holds nothing.
+   *
+   * The one reading of a sealed event, so the entity's replay and a consumer of its events (the
+   * compactor) cannot disagree about what one holds. It asks for no key: whoever decoded the event
+   * opened its body then. A body never holds another `Sealed`, since only plain events are sealed.
+   */
+  private[agent] def opened(event: SessionMemoryEvent): Option[SessionMemoryEvent] = event match
+    case Sealed(Personal.Present(_, json)) =>
+      Some(readFromStringReentrant(json)(using SessionMemoryCodecs.event))
+    case Sealed(Personal.Erased(_)) => None
+    case plain                      => Some(plain)
 
 /**
  * A conversation, as an event sourced entity.
@@ -200,11 +218,10 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
       held(subject)
       currentState.copy(subject = Some(subject))
 
-    case SessionMemoryEvent.Sealed(body) =>
-      body match
-        case Personal.Present(_, json) =>
-          applyEvent(readFromStringReentrant(json)(using SessionMemoryCodecs.event))
-        case Personal.Erased(_) => SessionHistory.erasedFrom(currentState)
+    case sealedEvent: SessionMemoryEvent.Sealed =>
+      SessionMemoryEvent.opened(sealedEvent) match
+        case Some(event) => applyEvent(event)
+        case None        => SessionHistory.erasedFrom(currentState)
 
   /**
    * Fixes the session's data subject at its first call (feature 042). A call naming the subject it

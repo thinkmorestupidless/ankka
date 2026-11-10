@@ -20,6 +20,7 @@ import { join } from "node:path"
 import type { StartedNetwork, StartedTestContainer } from "testcontainers"
 import type { StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import type { ComponentClient } from "../client.ts"
+import type { SseFrame } from "./unit.ts"
 import type { ServiceBuilder } from "../service.ts"
 import type { Server } from "../server/server.ts"
 import { chooseStorage, type Buckets } from "../storage.ts"
@@ -190,14 +191,28 @@ export class Http {
     return this.request("DELETE", path, undefined, headers)
   }
 
-  /** The frames of an SSE response, each `data:` line decoded from its JSON. */
+  /** The text frames of an SSE response, each `data:` line decoded from its JSON. A named event is left out: `sseEvents` has it. */
   async sse(path: string, headers?: Record<string, string>): Promise<string[]> {
+    return (await this.sseEvents(path, headers)).filter((f) => f.event === undefined).map((f) => JSON.parse(f.data) as string)
+  }
+
+  /**
+   * Every frame of an SSE response, in order, as sent: its `event:` name when it has one, and its `data:`
+   * text undecoded (a text frame's is a JSON string; a named event's, the JSON of its value).
+   */
+  async sseEvents(path: string, headers?: Record<string, string>): Promise<SseFrame[]> {
     const r = await this.get(path, headers)
-    return r
-      .text()
-      .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => JSON.parse(line.slice(5).trim()) as string)
+    const frames: SseFrame[] = []
+    for (const block of r.text().split("\n\n")) {
+      let event: string | undefined
+      const data: string[] = []
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim()
+        else if (line.startsWith("data:")) data.push(line.slice(5).trim())
+      }
+      if (data.length > 0) frames.push(event === undefined ? { data: data.join("\n") } : { event, data: data.join("\n") })
+    }
+    return frames
   }
 }
 

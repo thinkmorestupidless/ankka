@@ -1865,4 +1865,6 @@ agents in parallel and combines their answers. Two properties make that safe:
 
 A workflow's commands and steps are driven by hand with `WorkflowTestKit`, with no runtime. Its
 transitions, recovery and timeouts are the runtime's behaviour, tested through the integration test kit,
-which starts the whole service against a throwaway Postgres. [Testing](testing.md) shows both.
+which starts the whole service against a throwaway Postgres. [Testing](testing.md) shows both. A pause's
+deadline is read by the service's timer runtime's clock, so in the Scala kit a pause of a day ends when
+the test moves a `MovableClock` past it (see [Timers](timers.md#testing-timers)).

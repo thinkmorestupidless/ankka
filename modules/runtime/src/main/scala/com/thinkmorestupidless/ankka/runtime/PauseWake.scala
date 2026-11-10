@@ -68,7 +68,9 @@ private[ankka] object PauseWake:
 private[ankka] final class PauseWakes(
     componentId: ComponentId,
     workflowId: EntityId,
-    scheduler: () => TimerScheduler
+    scheduler: () => TimerScheduler,
+    /** The clock the deadline was set by, and the scheduler's: the delay is read against it. */
+    clock: java.time.Clock
 ):
   private val log: Logger = LoggerFactory.getLogger("ankka.workflows")
   private val name        = PauseWake.timerName(componentId, workflowId)
@@ -97,7 +99,7 @@ private[ankka] final class PauseWakes(
     write(s"set the wake of '$name'")(set(deadline))
 
   private def set(deadline: Long): Unit =
-    val delay = (deadline - System.currentTimeMillis()).max(0L)
+    val delay = (deadline - clock.millis()).max(0L)
     scheduler().createSingleTimer(
       name,
       delay.millis,

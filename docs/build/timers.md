@@ -670,7 +670,9 @@ AnkkaTestKit.start(service).use { kit ->
 ///
 
 A timer a week away need not take a week: give the runtime a clock the test moves, and the sweeper, the
-timers it sets and every handler's `clock` move with it. The clock moves forward only.
+timers it sets and every handler's `clock` move with it. So does every workflow's pause: its deadline is
+set by that clock, and the pause ends when the test moves the clock past it, whether the workflow is
+awake, passivated or restarted. The clock moves forward only.
 
 <!-- languages: scala; `MovableClock` is the Scala kit's: in every other kit a timer fires when its due time arrives on the wall clock -->
 /// tab | Scala

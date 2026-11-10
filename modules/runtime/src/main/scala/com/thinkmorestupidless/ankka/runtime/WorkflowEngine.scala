@@ -30,7 +30,12 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     /** The longest one ask for the workflow's end is held before it is told "not yet". */
     holdBound: FiniteDuration,
     /** The durable wake of a pause with a deadline; none where the service keeps no timers. */
-    wakes: Option[PauseWakes]
+    wakes: Option[PauseWakes],
+    /**
+     * What a pause's deadline is set and read against: the service's timer runtime's clock, which
+     * its wake row is due by, so a test that moves that clock moves the pause with it.
+     */
+    clock: java.time.Clock
 ):
   import EntityProtocol.*
 
@@ -144,7 +149,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           armPauseTimeout(state)
           // A deadline already passed is ended now, by the timer just armed; one still to come is
           // written again, in case the process stopped before its row was.
-          if state.pauseDeadlineMillis > System.currentTimeMillis() then
+          if state.pauseDeadlineMillis > clock.millis() then
             wakes.foreach(_.recovered(state.pauseDeadlineMillis))
         case _ => ()
 
@@ -411,7 +416,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
             .thenRun(_ => ctx.self ! RunPendingStep)
 
         case StepOutcome.Pause(after, onTimeout) =>
-          val deadline = after.map(d => System.currentTimeMillis() + d.toMillis).getOrElse(0L)
+          val deadline = after.map(d => clock.millis() + d.toMillis).getOrElse(0L)
           PekkoEffect
             .persist(
               stamped(
@@ -546,7 +551,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 
   private def armPauseTimeout(state: Run[S]): Unit =
     if state.pauseDeadlineMillis > 0L then
-      val remaining = state.pauseDeadlineMillis - System.currentTimeMillis()
+      val remaining = state.pauseDeadlineMillis - clock.millis()
       if remaining <= 0L then ctx.self ! PauseTimedOut
       else timers.startSingleTimer(PauseTimerKey, PauseTimedOut, remaining.millis)
 

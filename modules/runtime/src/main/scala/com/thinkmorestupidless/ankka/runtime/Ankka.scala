@@ -399,6 +399,10 @@ final class ServiceBuilder private[ankka] (
     val extensions =
       replicating.map(replication.ReplicationRuntime(_)).toVector ++ declaredExtensions ++ timers
     val sharding = ClusterSharding(system)
+    // A workflow's pauses are woken by the timer runtime's sweeper, so they keep its clock.
+    val clock = extensions
+      .collectFirst { case t: TimerRuntime => t.clock }
+      .getOrElse(java.time.Clock.systemUTC())
 
     // What the service declared, before anything can call anything: a name in a call's metadata is
     // believed only when it is one of these. The routes are added once the endpoints have started.
@@ -594,7 +598,15 @@ final class ServiceBuilder private[ankka] (
       case descriptor: KeyValueEntityDescriptor[?, ?] =>
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
-        initWorkflow(sharding, descriptor, componentClient, secrets, services, builtStorage.storage)
+        initWorkflow(
+          sharding,
+          descriptor,
+          componentClient,
+          secrets,
+          services,
+          builtStorage.storage,
+          clock
+        )
       case descriptor: remote.RemoteKeyValueDescriptor =>
         val _ = sharding.init(
           Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
@@ -609,7 +621,8 @@ final class ServiceBuilder private[ankka] (
           componentClient,
           secrets,
           services,
-          builtStorage.storage
+          builtStorage.storage,
+          clock
         )
       case descriptor: remote.RemoteEventSourcedDescriptor =>
         // `conversation.get` is safe: `validate` refused the registry without one.
@@ -781,7 +794,8 @@ final class ServiceBuilder private[ankka] (
       componentClient: ComponentClient,
       secrets: SecretStore,
       services: ServiceClients,
-      storage: ObjectStorage
+      storage: ObjectStorage,
+      clock: java.time.Clock
   ): Unit =
     type AnyWorkflow = Workflow[Any]
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
@@ -794,7 +808,8 @@ final class ServiceBuilder private[ankka] (
             componentClient,
             secrets,
             services,
-            storage
+            storage,
+            clock
           )
         )
       }

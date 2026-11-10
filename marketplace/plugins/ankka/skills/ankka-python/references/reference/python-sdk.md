@@ -320,7 +320,7 @@ Locally, run the sidecar with `docker compose --profile polyglot up -d` from the
 | `TimedActionTestKit.of(Cls)` | `ankka.testkit` | A timed action's handlers. |
 | `AgentTestKit.of(Cls, session_id, model=ScriptedModel())` | `ankka.testkit` | An agent's plan, tools and guardrails, against a scripted model. |
 | `EndpointTestKit.of(Cls, …)` | `ankka.testkit` | An endpoint's routes, with no sidecar. |
-| `AnkkaTestKit.start(builder)` | `ankka.testkit.integration` | The whole service through the real sidecar image and a throwaway Postgres. `restart()` starts a new sidecar on the same database. |
+| `AnkkaTestKit.start(builder)` | `ankka.testkit.integration` | The whole service through the real sidecar image and a throwaway Postgres. `restart()` starts a new sidecar on the same database; `kit.caller_headers(caller)` makes a request to `kit.http` arrive as that caller, so a route's caller rules apply. |
 
 Unit testkits need nothing running and still round-trip every value through its codec. See
 [Testing](../build/testing.md).

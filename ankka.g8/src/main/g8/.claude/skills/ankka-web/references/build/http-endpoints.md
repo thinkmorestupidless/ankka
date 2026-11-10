@@ -1628,7 +1628,8 @@ def test_the_handler_reads_the_caller_the_platform_established() -> None:
 ```
 
 where the request carries the header `testKit.asCaller(caller)` returns. A service running locally is in
-project `local` and is itself `local/local`.
+project `local` and is itself `local/local`. In Python, the integration kit does the same through the real
+sidecar, which applies the route's caller rules: `kit.http.get(path, headers=kit.caller_headers(caller))`.
 
 ### A route with its own ACL
 

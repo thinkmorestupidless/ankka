@@ -24,7 +24,7 @@ def cites_sources(answer: Answer) -> Accepted | Rejected:
 
 
 # "answer" is the wire name, written into every task of this type.
-ANSWER = TaskType(
+ANSWER: TaskType[Answer] = TaskType(
     "answer",
     "Answer a question about a shopping cart, citing what you looked at",
     result=Answer,

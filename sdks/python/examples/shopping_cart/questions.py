@@ -40,7 +40,7 @@ class QuestionsEndpoint(Endpoint):
         """Starts the work and answers at once, with where to look for the answer."""
         client = self.client.with_metadata(self.request.metadata)
         task_id = await client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, question)
-        task = await client.for_task(task_id).get()
+        task = await client.for_task(task_id).get(ANSWER)
         return Asked(task_id, task.assignee[1] if task.assignee else "")
     # docs:end run-task
 

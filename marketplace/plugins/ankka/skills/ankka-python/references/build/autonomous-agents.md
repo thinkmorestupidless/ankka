@@ -111,7 +111,7 @@ def cites_sources(answer: Answer) -> Accepted | Rejected:
 
 
 # "answer" is the wire name, written into every task of this type.
-ANSWER = TaskType(
+ANSWER: TaskType[Answer] = TaskType(
     "answer",
     "Answer a question about a shopping cart, citing what you looked at",
     result=Answer,
@@ -798,7 +798,7 @@ async def ask(self, question: str) -> Asked:
     """Starts the work and answers at once, with where to look for the answer."""
     client = self.client.with_metadata(self.request.metadata)
     task_id = await client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, question)
-    task = await client.for_task(task_id).get()
+    task = await client.for_task(task_id).get(ANSWER)
     return Asked(task_id, task.assignee[1] if task.assignee else "")
 ```
 

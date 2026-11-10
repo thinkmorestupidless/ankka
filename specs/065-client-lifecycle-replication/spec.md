@@ -178,7 +178,7 @@ check passes with no exclusion comment on them, and the limitation line is gone.
   that installation last held, as the Scala client reads it.
 - A read of a standing or a replication status of a component the service does not have, or of a
   component of the wrong kind (a standing of an entity, a replication status of a workflow): refused
-  before any call is made where the SDK can tell, otherwise refused by the platform as Scala's is.
+  by the platform with the error the Scala client is refused with for the same read.
 - A replicated entity in conflict: the read is still answered; reads are not refused by a conflict.
 - An integration test kit or a unit test kit told nothing about a read: it refuses with an error that
   says the read was not stubbed, as each kit does for any unstubbed call.
@@ -238,9 +238,11 @@ check passes with no exclusion comment on them, and the limitation line is gone.
 
 ### Measurable Outcomes
 
-- **SC-001**: In each of the four languages, every standing scenario of User Story 1, and the read
-  and the refusal of User Story 2, read the same values as the Scala client for the same workflow or
-  copy: all equal, none skipped.
+- **SC-001**: In each of the four languages, a running and a failed workflow's standing, a
+  replicated copy's home, set and position, and the refusal of a copy that is not replicated read the
+  same values as the Scala client end to end; and every other standing (paused, completed, not
+  started), a handover waiting and a conflict decode to the values the runtime sent, with the rpc's
+  answer equal to the Scala client's: all equal, none skipped.
 - **SC-002**: The three documentation sections show 7 language tabs each, every one from a sample a
   test compiles and runs, and the documentation check passes.
 - **SC-003**: A read against a runtime older than 1.24 fails in Python, TypeScript and Go with an

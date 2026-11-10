@@ -15,7 +15,7 @@ Nothing is stored. Both answers are read from what the runtime already holds; th
 Transitions are the engine's (`WorkflowHost.Status`): not started → running → (paused ↔ running)* →
 completed or failed. The read observes them; it never causes one.
 
-## Copy status (`ReplicationStatus`)
+## Replication status (`ReplicationStatus`): how a copy stands
 
 | Field | Meaning | Rule |
 |---|---|---|

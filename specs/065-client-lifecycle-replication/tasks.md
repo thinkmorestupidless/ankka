@@ -29,7 +29,7 @@
 
 ## Phase 2: Foundational (the sidecar answers both reads)
 
-- [ ] T007 Write `sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/ClientReadsSuite.scala` (pattern of `ClientAwaitSuite.scala`): through `ClientLogic`, the `Lifecycle` rpc answers a never-started, running (with its pending step), paused, completed and failed workflow (failure and retries), each equal to the Scala client's `lifecycle` of the same id, mapped as the contract's table says; the `Replication` rpc answers a replicated copy's home, sorted set and position equal to the Scala client's `replication`; a copy read of an unreplicated entity and a standing of an entity are refused with the same `ErrorCode` the Scala client is refused with; an unparseable id is `BAD_REQUEST`
+- [ ] T007 Write `sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/ClientReadsSuite.scala` (pattern of `ClientAwaitSuite.scala`): through `ClientLogic`, the `Lifecycle` rpc answers a never-started, running (with its pending step), paused, completed and failed workflow (failure and retries), each equal to the Scala client's `lifecycle` of the same id, mapped as the contract's table says; the `Replication` rpc answers a replicated copy's home, sorted set and position equal to the Scala client's `replication`; a copy read of an unreplicated entity and a standing of an entity are refused with the same `ErrorCode` the Scala client is refused with; an unparseable id is `BAD_REQUEST`; a workflow deleted after it ended answers as the Scala client's read does; after both reads the target's journal holds no record it did not hold before and no handler of it ran (FR-005)
 - [ ] T008 Implement `lifecycle` and `replication` in `sidecar/src/main/scala/com/thinkmorestupidless/ankka/sidecar/ClientLogic.scala` (beside `awaitEnd`, through `transport.askQuery` with `WorkflowLifecycle.Method` and `ReplicationStatus.Method`, decoding with their serializers, mapping `CommandError` as `invoke` does, and an unexpected status to `INTERNAL` naming it) and serve them from `ClientService.scala`; T007 passes
 - [ ] T009 Add `lifecycle` and `replication` to `sidecar/src/main/scala/com/thinkmorestupidless/ankka/sidecar/wasm/HostImports.scala` (`bytes(...)` over the two `ClientLogic` calls, beside `await_end`) and to `ModuleLoader.Imports` with its comment ("arrived with 1.24"); update the set `WasmHostSuite.scala:446` holds
 
@@ -122,13 +122,13 @@ Samples, each a `docs:start`/`docs:end` (or the language's region marker) region
 - [ ] T040 [P] [US5] workflows.md, TypeScript: a `#lifecycle` region in `sdks/typescript/examples/shopping-cart/endpoint.ts`, with a test
 - [ ] T041 [P] [US5] workflows.md, Rust: a `#lifecycle` region in `sdks/rust/examples/shopping-cart/src/transfer.rs`, with a test
 - [ ] T042 [P] [US5] workflows.md, Go: a `#lifecycle` region in `sdks/go/examples/shopping-cart/samples/awaiting.go`, with a test
-- [ ] T043 [P] [US5] multi-agent-orchestration.md, Python: an `#observe` region in the file its other Python tabs include from, with a test
-- [ ] T044 [P] [US5] multi-agent-orchestration.md, TypeScript: an `#observe` region in the file its other TypeScript tabs include from, with a test
+- [ ] T043 [P] [US5] multi-agent-orchestration.md, Python: an `#observe` region in `sdks/python/examples/planner/test_planner.py`, beside the page's other Python test tabs
+- [ ] T044 [P] [US5] multi-agent-orchestration.md, TypeScript: an `#observe` region in `sdks/typescript/examples/shopping-cart/planner.test.ts`, beside the page's other TypeScript test tabs
 - [ ] T045 [P] [US5] multi-agent-orchestration.md, Rust: an `#observe` region in `sdks/rust/examples/shopping-cart/src/planner.rs`, with a test
 - [ ] T046 [P] [US5] multi-agent-orchestration.md, Go: an `#observe` region in `sdks/go/examples/shopping-cart/samples/planner.go`, with a test
-- [ ] T047 [P] [US5] event-sourced-entities.md, Python: a `#replication-status` region beside its replicated-vehicle sample, with a test
-- [ ] T048 [P] [US5] event-sourced-entities.md, TypeScript: a `#replication-status` region beside its replicated-vehicle sample, with a test
-- [ ] T049 [P] [US5] event-sourced-entities.md, Rust: a `#replication-status` region beside its replicated-vehicle sample, with a test
+- [ ] T047 [P] [US5] event-sourced-entities.md, Python: a `#replication-status` region in `sdks/python/examples/shopping_cart/conformance.py`, where the `replicated-vehicle` entity is, read by the conformance case of T028
+- [ ] T048 [P] [US5] event-sourced-entities.md, TypeScript: a `#replication-status` region in `sdks/typescript/examples/shopping-cart/conformance.ts`, read by the conformance case of T029
+- [ ] T049 [P] [US5] event-sourced-entities.md, Rust: a `#replication-status` region in `sdks/rust/examples/shopping-cart/src/conformance.rs`, read by the conformance case of T030
 - [ ] T050 [P] [US5] event-sourced-entities.md, Go: a `#replication-status` region in `sdks/go/examples/shopping-cart/conformance/components.go` or a sample beside it, with a test
 
 Pages:
@@ -147,7 +147,7 @@ Pages:
 ## Phase 8: Polish & cross-cutting
 
 - [ ] T057 Write any trap this work cost time on, dated, in the `.claude/rules/` file for its area (`sidecar.md`, `wasm.md`, `sdk-go.md`, `sdk-typescript.md`, …)
-- [ ] T058 Run `quickstart.md` end to end and `just features` (0 findings)
+- [ ] T058 Run `quickstart.md` end to end and `just features` (0 findings); `git diff main --stat -- modules/sdk/src/main modules/sdk-java/src/main sdks/kotlin/ankka-kotlin*/src/main` prints nothing (FR-014)
 
 ---
 

@@ -1340,10 +1340,11 @@ AnkkaTestKit.installations("leipzig", "vienna").use { group ->
         assertEquals("leipzig", status.home().orNull())
         assertEquals(setOf("leipzig", "vienna"), status.replicationSet())
         assertTrue(status.position() > 0) // how many records this copy holds
+        // The creation alone moves the position; the step may still be on its way.
+        val mirrored = vienna.componentClient().forEventSourcedEntity("v1").call(VehicleEntity::get).invoke()
+        assertEquals(listOf("frame"), mirrored.steps)
+        assertEquals(listOf(false, false), mirrored.local)
     }
-    val mirrored = vienna.componentClient().forEventSourcedEntity("v1").call(VehicleEntity::get).invoke()
-    assertEquals(listOf("frame"), mirrored.steps)
-    assertEquals(listOf(false, false), mirrored.local)
 
     // The consumer publishes, so it is given the local change only, at the home.
     leipzig.eventually(Duration.ofSeconds(30)) {

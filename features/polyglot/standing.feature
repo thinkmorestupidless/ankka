@@ -99,7 +99,7 @@ Feature: Reading a workflow's standing in every language
   Scenario Outline: the test kit reads a workflow's standing from the running service
     Given a test of a service "planner" written in "<language>" with a workflow "plan"
     And the workflow "p4" of "plan" ended
-    When the test reads the standing of "p4" through the test kit's client
+    When the test reads the standing of "p4" through the running service
     Then the test is told the standing completed
 
     Examples:
@@ -108,6 +108,12 @@ Feature: Reading a workflow's standing in every language
       | TypeScript |
       | Rust       |
       | Go         |
+
+  Scenario: a runtime from before the read refuses a module that reads a workflow's standing
+    Given a service "planner" written in "Rust" whose handler reads the standing of a workflow
+    When "planner" is started beside a runtime at a protocol version before the standing read
+    Then "planner" does not start
+    And the developer is told the module imports the standing read, which the runtime does not provide
 
   Scenario: a runtime from before the read refuses a workflow's standing, naming the protocol version
     Given a service "planner" written in "Python" whose handler reads the standing of a workflow

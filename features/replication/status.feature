@@ -5,14 +5,11 @@ Feature: Reading how a copy stands in every language
   reaches. The read runs no handler of the entity's and records nothing. A runtime from before the
   read refuses it, and the handler is told which protocol version the read needs.
 
-  Background:
-    Given a replicated entity "vehicle" at the installations "leipzig" and "vienna"
-
   Scenario Outline: a handler reads the home, the replication set and the position of a copy in every language
-    Given a service "fleet" written in "<language>"
-    And the vehicle "v1" was created at "leipzig" with "vienna" in its replication set and holds 3 events
-    When a handler of "fleet" at "vienna" reads how "v1" stands
-    Then the handler is told the home "leipzig", the replication set "leipzig" and "vienna", and the position 3
+    Given a service "fleet" written in "<language>" with a replicated entity "vehicle" at the installation "leipzig"
+    And the vehicle "v1" was created at "leipzig" and holds 3 events
+    When a handler of "fleet" at "leipzig" reads how "v1" stands
+    Then the handler is told the home "leipzig", the replication set "leipzig", and the position 3
 
     Examples:
       | language   |
@@ -25,13 +22,13 @@ Feature: Reading how a copy stands in every language
       | Go         |
 
   Scenario: a handler reads a handover waiting
-    Given a service "fleet" written in "Scala"
+    Given a service "fleet" written in "Scala" with a replicated entity "vehicle" at the installations "leipzig" and "vienna"
     And a handover of the home of "v1" to "vienna" was asked for and has not completed
     When a handler of "fleet" at "leipzig" reads how "v1" stands
     Then the handler is told the handover waiting goes to "vienna"
 
   Scenario: a handler reads a conflict
-    Given a service "fleet" written in "Scala"
+    Given a service "fleet" written in "Scala" with a replicated entity "vehicle" at the installations "leipzig" and "vienna"
     And "v2" was created at "leipzig" and at "vienna", and the two histories met
     When a handler of "fleet" at "leipzig" reads how "v2" stands
     Then the handler is told "v2" is in conflict with the home "vienna"
@@ -49,7 +46,7 @@ Feature: Reading how a copy stands in every language
       | Go         |
 
   Scenario: an installation outside the replication set answers with the copy it last held
-    Given a service "fleet" written in "Scala" at the installations "leipzig", "vienna" and "graz"
+    Given a service "fleet" written in "Scala" with a replicated entity "vehicle" at the installations "leipzig", "vienna" and "graz"
     And "graz" was removed from the replication set of "v1" after it held 2 events
     When a handler of "fleet" at "graz" reads how "v1" stands
     Then the handler is told the position 2 and a replication set without "graz"
@@ -89,7 +86,7 @@ Feature: Reading how a copy stands in every language
   Scenario Outline: the test kit reads how a copy stands from the running service
     Given a test of a service "fleet" written in "<language>"
     And the vehicle "v1" was created and holds 1 event
-    When the test reads how "v1" stands through the test kit's client
+    When the test reads how "v1" stands through the running service
     Then the test is told the position 1 and the home the test kit's installation
 
     Examples:
@@ -98,6 +95,12 @@ Feature: Reading how a copy stands in every language
       | TypeScript |
       | Rust       |
       | Go         |
+
+  Scenario: a runtime from before the read refuses a module that reads how a copy stands
+    Given a service "fleet" written in "Rust" whose handler reads how a copy stands
+    When "fleet" is started beside a runtime at a protocol version before the copy read
+    Then "fleet" does not start
+    And the developer is told the module imports the copy read, which the runtime does not provide
 
   Scenario: a runtime from before the read refuses how a copy stands, naming the protocol version
     Given a service "fleet" written in "Python" whose handler reads how a copy stands

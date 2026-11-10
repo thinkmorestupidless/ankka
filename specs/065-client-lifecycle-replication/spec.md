@@ -50,6 +50,14 @@ answered by the same platform, so a page shows all seven and the limitation goes
 - Q: How does Rust's component test kit answer the two reads, since it runs entities and workflows in
   memory? → A: Both ways: from the workflow or the entity it runs, and from an answer a test sets for
   an id, which wins over what it runs.
+- Q (at planning): A runtime older than 1.24 cannot name a protocol it predates, and it refuses to
+  load a module that imports a function it does not provide before any of the module's code runs.
+  What does a Rust service see? → A: Its module does not start, and the developer is told it imports
+  the read, which the runtime does not provide, as for every import since 1.6. A Python, TypeScript or
+  Go service is told at the call which protocol the read needs.
+- Q (at planning): No conformance target runs a process or a module at two installations. Where is
+  each language's copy read made? → A: At the copy's own installation, which is its home: the home,
+  the replication set and the position end to end. Reads across installations are Scala's.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -139,7 +147,9 @@ error names protocol 1.24.
 **Acceptance Scenarios**:
 
 - added `features/polyglot/standing.feature`: a runtime from before the read refuses a workflow's standing, naming the protocol version
+- added `features/polyglot/standing.feature`: a runtime from before the read refuses a module that reads a workflow's standing
 - added `features/replication/status.feature`: a runtime from before the read refuses how a copy stands, naming the protocol version
+- added `features/replication/status.feature`: a runtime from before the read refuses a module that reads how a copy stands
 
 ---
 
@@ -192,8 +202,10 @@ check passes with no exclusion comment on them, and the limitation line is gone.
   journal nothing.
 - **FR-006**: The process protocol MUST carry both reads from protocol 1.24, and the runtime MUST
   declare 1.24.
-- **FR-007**: A read against a runtime older than 1.24 MUST fail with an error that names protocol
-  1.24 as the one it needs.
+- **FR-007**: A read by a Python, TypeScript or Go service against a runtime older than 1.24 MUST
+  fail with an error that names protocol 1.24 as the one it needs. A Rust module that makes either
+  read MUST be refused at start by such a runtime, naming the import, and a module that makes
+  neither MUST still start there.
 - **FR-008**: A Rust module MUST make both reads through the module's host calls, with the same
   answers and refusals as a process.
 - **FR-009**: Each of the four SDKs' component test kits MUST let a test say what each read answers
@@ -231,8 +243,8 @@ check passes with no exclusion comment on them, and the limitation line is gone.
   copy: all equal, none skipped.
 - **SC-002**: The three documentation sections show 7 language tabs each, every one from a sample a
   test compiles and runs, and the documentation check passes.
-- **SC-003**: A read against a runtime older than 1.24 fails, in each of the four languages, with an
-  error naming protocol 1.24.
+- **SC-003**: A read against a runtime older than 1.24 fails in Python, TypeScript and Go with an
+  error naming protocol 1.24, and a Rust module that reads is refused at start naming the read.
 - **SC-004**: No test of the Scala, Java or Kotlin standing or replication reads changes.
 - **SC-005**: The limitations page names no language that cannot read a standing or a replication
   status.

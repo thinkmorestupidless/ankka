@@ -1,0 +1,36 @@
+# Restores the keyring's own database to a moment (#213). Applied by hand by a platform
+# administrator, as docs/operate/recovery.md says: the two values below are the only ones to set.
+#
+#   restoreName  the restored cluster's name, keyring-db-r<yyyyMMddHHmm> by convention
+#   targetTime   the moment, RFC 3339 with a zone
+#
+# It makes the restored cluster beside the current one, which is kept. No marker: a keyring started
+# on any database reads both copies of the erasure log and applies what it lacks before it answers,
+# so a restore to before an erasure destroys the key again. Pointing the keyring at the restored
+# cluster is deployment-patch.yaml, for an installation's own overlay, or the documented
+# `kubectl set env` for one deployed by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ankka-keyring
+
+resources:
+  - cluster.yaml
+
+configMapGenerator:
+  - name: ankka-keyring-restore
+    literals:
+      - restoreName=SET
+      - targetTime=SET
+    options:
+      disableNameSuffixHash: true
+
+replacements:
+  # The moment first, then the name: the cluster is selected by its name before it is renamed.
+  - source: { kind: ConfigMap, name: ankka-keyring-restore, fieldPath: data.targetTime }
+    targets:
+      - select: { kind: Cluster, name: keyring-db-restored }
+        fieldPaths: [spec.bootstrap.recovery.recoveryTarget.targetTime]
+  - source: { kind: ConfigMap, name: ankka-keyring-restore, fieldPath: data.restoreName }
+    targets:
+      - select: { kind: Cluster, name: keyring-db-restored }
+        fieldPaths: [metadata.name]

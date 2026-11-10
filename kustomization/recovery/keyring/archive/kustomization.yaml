@@ -1,0 +1,30 @@
+# Once the keyring answers on the restored database: it archives as a line of history of its own,
+# and takes a base backup every day. Applied with `kubectl apply --server-side -k`, so the partial
+# Cluster below adds the archiver to the restored cluster and changes nothing else of it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ankka-keyring
+
+resources:
+  - archiving.yaml
+
+configMapGenerator:
+  - name: ankka-keyring-restore-archive
+    literals:
+      - restoreName=SET
+    options:
+      disableNameSuffixHash: true
+
+replacements:
+  - source: { kind: ConfigMap, name: ankka-keyring-restore-archive, fieldPath: data.restoreName }
+    targets:
+      - select: { kind: Cluster, name: keyring-db-restored }
+        fieldPaths:
+          - spec.plugins.[name=barman-cloud.cloudnative-pg.io].parameters.serverName
+      - select: { kind: ScheduledBackup, name: keyring-db-restored-base }
+        fieldPaths: [spec.cluster.name]
+      - select: { kind: ScheduledBackup, name: keyring-db-restored-base }
+        fieldPaths: [metadata.name]
+        options: { delimiter: "-base", index: 0 }
+      - select: { kind: Cluster, name: keyring-db-restored }
+        fieldPaths: [metadata.name]

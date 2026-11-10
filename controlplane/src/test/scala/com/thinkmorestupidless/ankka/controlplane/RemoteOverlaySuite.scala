@@ -76,8 +76,12 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       .filter(_.linesIterator.exists(_ == s"kind: $kind"))
 
   /** The recovery kustomization with its two values set, as the procedure says to set them. */
-  private def renderRecovery(step: String, values: Map[String, String]): String =
-    val source = repoRoot.resolve(s"kustomization/recovery/controlplane/$step")
+  private def renderRecovery(
+      step: String,
+      values: Map[String, String],
+      kit: String = "controlplane"
+  ): String =
+    val source = repoRoot.resolve(s"kustomization/recovery/$kit/$step")
     val copy   = Files.createTempDirectory("ankka-recovery")
     Files.list(source).iterator.asScala.filter(Files.isRegularFile(_)).foreach { file =>
       val text = Files.readString(file)
@@ -113,6 +117,28 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     assert(job.contains("insert into ankka_restore_marker"), job)
     assert(!rendered.contains("SET"), "every value set")
     val archive = renderRecovery("archive", Map("restoreName" -> name))
+    assert(archive.contains(s"serverName: $name"), archive)
+    assert(archive.contains(s"name: $name-base"), archive)
+    assert(!archive.contains("SET"), archive)
+  }
+
+  test(
+    "the keyring's restore makes its cluster from its own line, as set, and archives it (#213)"
+  ) {
+    val name     = "keyring-db-r202611100930"
+    val rendered = renderRecovery(
+      "",
+      Map("restoreName" -> name, "targetTime" -> "2026-11-10T09:00:00Z"),
+      kit = "keyring"
+    )
+    val cluster = documentsOfKind(rendered, "Cluster").head
+    assert(cluster.contains(s"name: $name"), cluster)
+    assert(cluster.contains("namespace: ankka-keyring"), cluster)
+    assert(cluster.contains("2026-11-10T09:00:00Z"), cluster)
+    assert(cluster.contains("serverName: keyring-db"), cluster)
+    assert(cluster.linesIterator.exists(_.trim == "name: keyring-db-app"), "the owner's credential")
+    assert(!rendered.contains("SET"), "every value set")
+    val archive = renderRecovery("archive", Map("restoreName" -> name), kit = "keyring")
     assert(archive.contains(s"serverName: $name"), archive)
     assert(archive.contains(s"name: $name-base"), archive)
     assert(!archive.contains("SET"), archive)

@@ -1827,7 +1827,7 @@ without ankka, reads an ordinary JSON body and finds the metadata in the headers
 | `ce-specversion` | `1.0` |
 | `ce-id` | a new random UUID for each publication |
 | `ce-type` | `message` |
-| `ce-subject` | the source entity's id |
+| `ce-subject` | the source entity's id; for a consumer reading a topic, the incoming message's subject, empty when it had none |
 | `content-type` | `application/json` |
 
 A header set through the metadata passed to `effects.produce(message, metadata)` replaces the default of
@@ -1835,6 +1835,9 @@ the same name, and any other metadata is sent as additional headers. Each messag
 [publishes several for one change](consumers.md#publishing-several-messages-for-one-change) is framed the
 same way, with a `ce-id` of its own. A [graph consumer](graph.md)'s records carry
 `ce-type: ankka.graph-delta.v1`.
+
+Every reader of the topic sees `ce-subject`, including readers outside the project. Set it explicitly on a
+topic another project or a machine reads, so it carries no id the payload was written to keep out.
 
 ## The record key and the subject
 

@@ -349,7 +349,7 @@ this page. The others, the spokes, run the control plane and the operator with n
 their own, and trust the hub's realm. A person registered once at the hub logs in to every spoke with the
 same account.
 
-A spoke's overlay is a copy of the production overlay with three differences:
+A spoke's overlay is a copy of the production overlay with these differences:
 
 - It leaves out the `keycloak-operator` and `keycloak` components, and the patch that deletes the Keycloak
   administrator Secret, since there is no Keycloak to administer.
@@ -363,8 +363,33 @@ A spoke's overlay is a copy of the production overlay with three differences:
     value: https://auth.example.com/realms/ankka/protocol/openid-connect/certs
   ```
 
+- It empties `ANKKA_AUTH_JWKS_CA` on the same Deployment. The `controlplane` component sets it to the
+  cluster's own service authority, which verifies the in-cluster Keycloak of a hub. The hub's public
+  address has a certificate from a public issuer, so a spoke that keeps that setting refuses every token.
+  Empty means the JVM's trust store:
+
+  ```yaml
+  - name: ANKKA_AUTH_JWKS_CA
+    value: ""
+  ```
+
 - It keeps its own base domain, for example `caladan.example.com`, so its control plane answers at
   `api.caladan.example.com` and its exposed services have hostnames under that domain.
+- Its console, at `console.caladan.example.com`, signs in at the hub. It reads the issuer from its own
+  control plane, which names the hub's realm. Empty the two settings that point the console at an
+  in-cluster Keycloak, so it calls the hub at its public address and verifies it by the system's trust
+  store:
+
+  ```yaml
+  - name: ANKKA_CONSOLE_AUTH_BACKCHANNEL_URL
+    value: ""
+  - name: ANKKA_CONSOLE_AUTH_CA
+    value: ""
+  ```
+
+  In the hub's realm, add `https://console.caladan.example.com/*` to the `ankka-console` client's valid
+  redirect URIs. Give the spoke's `ankka-console-secrets` Secret that client's secret and a session secret
+  of the spoke's own; see [Install and configure the console](console.md#the-realm-client-and-the-secrets).
 
 The spoke accepts only tokens whose issuer is the hub's; a token issued anywhere else is refused with
 `401`. Its login discovery advertises the hub's issuer, so `ankka login` against the spoke's address opens

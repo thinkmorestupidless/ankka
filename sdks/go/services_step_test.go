@@ -73,3 +73,37 @@ func TestAUnitKitRefusesAServiceItWasNotToldToAnswer(t *testing.T) {
 		t.Fatalf("an unanswered call failed with %v", err)
 	}
 }
+
+// An agent's tool calls another service, and the agent kit answers the call in its place.
+var stockAgent = ankka.Agent("stock",
+	ankka.Ask("ask", func(ctx context.Context, q string) (ankka.AgentEffect, error) {
+		return ankka.UserMessage(q).Tools("stock").ThenReply(), nil
+	}),
+	ankka.Tools(ankka.Tool("stock", "How many of a product are in stock", func(ctx context.Context, in struct {
+		Sku string `json:"sku"`
+	}) (string, error) {
+		res, err := ankka.CallService(ctx, "inventory", ankka.ServiceRequest{Method: "GET", Path: "/stock/" + in.Sku})
+		if err != nil {
+			return "", err
+		}
+		return string(res.Body), nil
+	})),
+)
+
+func TestTheAgentKitAnswersAToolsCallToAnotherService(t *testing.T) {
+	model := testkit.NewScriptedModel().
+		ExpectToolCall("stock", map[string]string{"sku": "mug"}).
+		ExpectText("3 mugs")
+	k := testkit.Agent(stockAgent, "s1", model, testkit.AgentAnswering("inventory",
+		func(r ankka.ServiceRequest) (*ankka.ServiceResponse, error) {
+			return &ankka.ServiceResponse{Status: 200, ContentType: "text/plain", Body: []byte("3 at " + r.Path)}, nil
+		}))
+	defer k.Close()
+	text, err := k.Ask(context.Background(), "ask", "how many mugs?")
+	if err != nil || text != "3 mugs" {
+		t.Fatalf("the turn answered %q, %v", text, err)
+	}
+	if got := model.Calls[1].Messages[2].Text; got != "3 at /stock/mug" {
+		t.Fatalf("the model was told %q", got)
+	}
+}

@@ -145,7 +145,10 @@ answering `Forbidden` naming both installations, which the forwarder returns unc
   way removes the row (`syncWake`). `Ankka.host` adds a `TimerRuntime` to a service with a workflow
   that declared none, since only its sweeper runs the row. `WorkflowPauseWakeSuite` (testkit) runs at
   a one-second idle timeout and reads a side channel rather than the workflow: a query would start
-  the stopped entity and hide the fault.
+  the stopped entity and hide the fault. A workflow hosted for a process or a module is a
+  `remote.RemoteWorkflowDescriptor` in the registry, not a `WorkflowDescriptor`, though it runs on
+  the same engine and writes the same row: `TimerRuntime.workflowsOf` names both (#255), or its row
+  is retried as a timed action that does not exist and the pause never ends after passivation.
 - **A pause's deadline and its wake row read one clock: the timer runtime's** (2026-11-10, #201).
   The engine set deadlines by `System.currentTimeMillis()` and wrote the row through a scheduler on
   `Clock.systemUTC()`, while the sweeper compared due times with the `TimerRuntime`'s clock, so a test

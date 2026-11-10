@@ -89,6 +89,12 @@ trait LogCapturing extends FunSuite:
   /** Whether lines are being captured at all; a search of an empty log proves nothing. */
   protected def capturingLogs: Boolean = LogCapture.capturing
 
+  /**
+   * The lines captured so far in the running test at `WARN` or above, each as its logger's name, a
+   * space and its message: what a suite reads to show something was warned of, and by whom.
+   */
+  protected def capturedWarnings: Vector[String] = LogCapture.capturedWarnings
+
 /**
  * The capture itself: one per JVM, because logback's root logger is. `start` moves the root
  * logger's appenders aside and puts a buffer in their place; `stop` puts them back.
@@ -164,6 +170,13 @@ private[testkit] object LogCapture:
         e.getFormattedMessage + Option(e.getThrowableProxy).fold("")(t => " " + t.getMessage)
       )
       .mkString("\n")
+  }
+
+  def capturedWarnings: Vector[String] = lock.synchronized {
+    events.asScala
+      .filter(_.getLevel.isGreaterOrEqual(ch.qos.logback.classic.Level.WARN))
+      .map(e => s"${e.getLoggerName} ${e.getFormattedMessage}")
+      .toVector
   }
 
   /** Replays what was captured to the appenders it was taken from, under a header. */

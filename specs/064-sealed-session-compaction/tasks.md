@@ -29,7 +29,7 @@ TypeScript, Rust or Go service can write to see this feature.
 
 ## Phase 1: Setup
 
-- [ ] T001 Confirm the starting point: `just features` reports 0 findings, and `sbt 'testkit/testOnly *CompactionIntegrationSuite'` is green with its seven cases, on JDK 21 with Docker running. Record the seven case names in the commit message; SC-004 holds them unchanged to the end.
+- [X] T001 Confirm the starting point: `just features` reports 0 findings, and `sbt 'testkit/testOnly *CompactionIntegrationSuite'` is green with its seven cases, on JDK 21 with Docker running. Record the seven case names in the commit message; SC-004 holds them unchanged to the end.
 
 ## Phase 2: Foundational
 

@@ -729,9 +729,8 @@ class InstallationModelsClusterFeatures
     podsBefore = pods(name).map(_.getMetadata.getName).toSet
 
   /** A question to the stock helper, from the prober holding the service's own certificate. */
-  private def ask(question: String): Future[(Int, String)] =
-    val name = helperService
-    val q    = URLEncoder.encode(question, StandardCharsets.UTF_8)
+  private def ask(question: String, name: String = helperService): Future[(Int, String)] =
+    val q = URLEncoder.encode(question, StandardCharsets.UTF_8)
     Future(
       blocking(
         InPod.curl(
@@ -870,7 +869,17 @@ class InstallationModelsClusterFeatures
     "an agent on the installation model {string} whose message the model server is answering slowly"
   ) { (model: String) =>
     deployHelper("support", model)
-    answers = Vector(ask(LongQuestion))
+    // The slow agent is a service of its own that waits longer than the second caller: the model
+    // server ends a call when its caller stops waiting (#183), so a slow call made with the same 10
+    // seconds would free the slot in time for the second. Two minutes holds it past that, and still
+    // ends it before the scenarios after this one.
+    val second = helperService
+    val wait   = modelTimeout
+    modelTimeout = Some(120)
+    deployHelper("slow", model)
+    modelTimeout = wait
+    answers = Vector(ask(LongQuestion, real("slow")))
+    helperService = second
     Thread.sleep(2000)
   }
 

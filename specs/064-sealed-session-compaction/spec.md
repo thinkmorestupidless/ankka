@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-10
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "The session compactor never compacts a session started with a data
 subject. Once a session's first call names a data subject (feature 042), every session memory event

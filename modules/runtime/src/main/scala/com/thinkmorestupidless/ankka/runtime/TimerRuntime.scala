@@ -98,9 +98,16 @@ object TimerRuntime:
   ): TimerRuntime =
     new TimerRuntime(pollInterval, clock, observer)
 
-  /** The workflows among `components`, whose pauses this runtime's sweeper wakes. */
+  /**
+   * The workflows among `components`, whose pauses this runtime's sweeper wakes: those written in
+   * Scala and those a process or a module hosts, which run on the same engine and pause the same
+   * way.
+   */
   private[ankka] def workflowsOf(components: Seq[ComponentDescriptor]): Set[ComponentId] =
-    components.collect { case w: WorkflowDescriptor[?, ?] => w.componentId }.toSet
+    components.collect {
+      case w: WorkflowDescriptor[?, ?]        => w.componentId
+      case r: remote.RemoteWorkflowDescriptor => r.componentId
+    }.toSet
 
   /**
    * Whether a service of `components` needs a timer runtime it did not declare: one with a

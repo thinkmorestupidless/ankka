@@ -36,6 +36,15 @@ past the model's context window, and every turn costs more than the last.
 This feature makes the compactor treat a sealed AI message as the AI message it holds. Erasure is
 unchanged: a sealed event whose subject was erased has nothing to compact.
 
+## Clarifications
+
+### Session 2026-11-10
+
+- Q: Do the two glossary terms the scenarios needed, "summary" and "compaction size", stand? → A: Both are accepted as defined, with no refused synonyms.
+- Q: Should a compaction failure be logged, beside `SessionCompactor.failures`? → A: Yes. Every compaction failure, of a session with a data subject or without, logs one warning naming the session and the kind of failure, never the conversation or a provider's message body.
+- Q: How far does the feature go on the summariser's model being sent a data subject's conversation? → A: It is documented. The guide says the summariser's model is sent the conversation, and that this is beyond an erasure. Behaviour does not change and nothing is opt-in.
+- Read from the code, not asked: the sidecar never turns compaction on (`withCompaction` is called only by the Scala, Java and Kotlin agent modules), so a Python, TypeScript, Go or Rust service's sessions are outside this feature.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A long conversation about a person is compacted (Priority: P1)
@@ -62,6 +71,7 @@ encrypted.
 - added `features/agents/compaction.feature`: a session with too few messages beyond those kept is not compacted
 - added `features/erasure/agents.feature`: the summary of a session started with a data subject is kept encrypted under the subject key
 - added `features/erasure/agents.feature`: a session of an erased data subject is not compacted
+- added `features/agents/compaction.feature`: a compaction that fails is reported in the log of the service by its session and never by its conversation
 
 ---
 
@@ -105,14 +115,20 @@ encrypted.
 - **FR-007**: The text sent to the summariser for a session started with a data subject MUST be
   sent the way an agent's turns are: to the model provider only. It MUST NOT be logged.
 - **FR-008**: The agents guide's *Compaction* section MUST say that compaction applies to a session
-  started with a data subject, and that its summary is kept sealed.
+  started with a data subject, that its summary is kept sealed, and that the summariser's model is
+  sent the conversation, which is beyond an erasure as what a session sent to its own model is.
+- **FR-009**: Every compaction failure, of a session started with a data subject or with none, MUST
+  log one warning that names the session and the kind of failure. The warning MUST NOT carry any
+  text of the conversation, the summary, or a model provider's message body.
 
 ### Key Entities
 
 - **Sealed session event**: a session memory event of a session started with a data subject. It
   holds the plain event's JSON under the subject's key, or reads as erased once the key is
   destroyed.
-- **Compaction**: as the glossary defines it. This feature adds no term.
+- **Compaction**: as the glossary defines it.
+- **Summary**, **compaction size**: the two terms this feature adds to the glossary, for what
+  compaction writes and for the size past which it runs.
 
 ## Success Criteria *(mandatory)*
 
@@ -127,7 +143,10 @@ encrypted.
   `keepRecentMessages = 10`. On 0.16.0 it drew no summariser call; after the fix, the history reads
   as one summary and 10 kept messages.
 - **SC-004**: No session with no data subject compacts differently than before. The existing
-  compaction tests pass unchanged.
+  compaction tests pass unchanged. The one addition such a session sees is the warning a failed
+  compaction now logs (FR-009).
+- **SC-005**: A compaction made to fail in the kit leaves one warning in the service's log that
+  names the session, and no line of the log holds any text of the session.
 
 ## Assumptions
 
@@ -138,7 +157,7 @@ encrypted.
 - This is a fix to 0.16.0's behaviour, released in the next patch release. Services that need it
   (eitheror's support agent, ankka-modules spec 017) move to that release; nothing changes in their
   code.
-- Scala, Java and Kotlin agents use this compactor in the service's own JVM. Planning confirms
-  whether the sidecar's agents (Python, TypeScript, Go) share it. Making compaction configurable
-  where an SDK has no setting for it yet ("compaction is not yet configurable" in Python, per the
-  agents guide) is out of scope.
+- Scala, Java and Kotlin agents use this compactor in the service's own JVM. The sidecar never
+  turns compaction on, so its agents (Python, TypeScript, Go, Rust) are untouched. Making compaction
+  configurable where an SDK has no setting for it yet ("compaction is not yet configurable" for a
+  Python or TypeScript service, per the agents guide) is out of scope.

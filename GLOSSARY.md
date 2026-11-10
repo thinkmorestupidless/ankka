@@ -1484,6 +1484,15 @@ One who is told what an autonomous agent does as it does it.
 Replacing the older part of a session with a shorter account of it, so the model is
 sent less.
 
+### summary
+The shorter account compaction puts in place of a session's oldest messages, written by
+a model the developer names. It is part of the session: the model is sent it first on every later
+turn, and it is kept as the session's other messages are.
+
+### compaction size
+How long a session's conversation may grow, counted in characters, before compaction
+replaces its oldest messages. A developer sets it per agent. It is not the size of the summary.
+
 ### result guardrail
 A guardrail an agent declares for the results of tool calls to an MCP server's tools. It runs
 before the model is told the result; a result it refuses is never told to the model, which is
@@ -3193,7 +3202,7 @@ releases that service alone. Avoid: release tag.
 
 ## Everyday words
 
-exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords, terminal
+verbatim, exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords, terminal
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

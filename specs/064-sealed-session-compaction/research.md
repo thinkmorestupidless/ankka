@@ -163,3 +163,19 @@ patch release by tag, which is not this feature's work.
 ## Design finished
 
 2026-11-10: analyze reported nothing above LOW.
+
+## Found during implementation
+
+- **The compactor reads behind the turns** (2026-11-10, T011). It is handed a session's events in
+  a burst, after several turns have been written, and each AI message reads the session as it is
+  now. So the first AI message of the burst already finds the session past the size, and when
+  that summary fails, the next AI message of the same burst asks again and usually succeeds. This
+  is how compaction behaves for any session, not something sealing brought, and nothing here
+  changes it. The failure scenario's model therefore fails every time it is asked about that
+  session (`CompactionSteps`), as its words say; a model that failed once would be retried.
+  Not a decision: no question was needed.
+- **The keyring staging is deterministic** (T013). With both keyring bounds at two seconds the kit
+  drops its held key once the outage passes the notice bound (logged by `KeyringClient`); the
+  compactor's next sealed event then fails in the projection with `KeyringUnavailable` and Pekko
+  restarts the stream with backoff (`RestartWithBackoffSource`), as R4 said. Both are waited for
+  by their log lines, never by time.

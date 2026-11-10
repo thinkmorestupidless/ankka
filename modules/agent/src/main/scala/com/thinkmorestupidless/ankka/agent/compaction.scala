@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.sdk.*
 import scala.concurrent.Await
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.util.control.NonFatal
+import org.slf4j.LoggerFactory
 
 /** When and how aggressively to compact a session. */
 final case class CompactionSettings(
@@ -95,6 +96,10 @@ object ModelSummariser:
  *
  * A consumer over session memory's own events, so compaction runs off the request path: the turn
  * that pushed a session over the limit is not the one that waits for a summarisation call.
+ *
+ * A session started with a data subject has every event after `Started` sealed under the subject's
+ * key; the compactor reads each through `SessionMemoryEvent.opened`, so such a session is compacted
+ * as any other, and the summary it writes is sealed by the entity like the session's other events.
  */
 final class SessionCompactor(
     context: ConsumerContext,
@@ -105,11 +110,12 @@ final class SessionCompactor(
   private val client = context.componentClient
 
   def onMessage(event: SessionMemoryEvent): Effect =
-    event match
-      // Every completed turn ends with an AI message, so this fires once per turn.
-      // `HistoryCompacted` deliberately does not: reacting to our own write would loop.
-      case _: SessionMemoryEvent.AiMessageAdded => considerCompacting()
-      case _                                    => effects.ignore()
+    SessionMemoryEvent.opened(event) match
+      // Every completed turn ends with an AI message, plain or sealed, so this fires once per turn.
+      // `HistoryCompacted` deliberately does not, sealed or not: reacting to our own write would
+      // loop. A sealed event of an erased data subject opens as nothing: there is nothing to compact.
+      case Some(_: SessionMemoryEvent.AiMessageAdded) => considerCompacting()
+      case _                                          => effects.ignore()
 
   private def considerCompacting(): Effect =
     val sessionId = messageContext.subject
@@ -147,6 +153,13 @@ final class SessionCompactor(
         // would stall compaction for *every* session because one session's
         // summarisation is failing. Losing a compaction is far cheaper than that.
         SessionCompactor.failures.add(s"$sessionId: ${failure.getMessage}"): Unit
+        // The kind only, never the message: a model's refusal or a refused call may quote the
+        // conversation, and the session may be about a person. No throwable, for the same reason.
+        SessionCompactor.log.warn(
+          "compaction of session '{}' failed: {}",
+          sessionId,
+          SessionCompactor.kind(failure)
+        )
         effects.done()
 
 object SessionCompactor:
@@ -156,6 +169,17 @@ object SessionCompactor:
 
   /** Attributed to the compactor, so a memory filter can include or exclude summaries. */
   val AgentId: String = "ankka-compactor"
+
+  private[agent] val log = LoggerFactory.getLogger(classOf[SessionCompactor])
+
+  /**
+   * What a compaction's warning says of its failure: the failure's class, and a `CommandError`'s
+   * code beside it. Never its message, which may hold text of the conversation.
+   */
+  private[agent] def kind(failure: Throwable): String = failure match
+    case e: com.thinkmorestupidless.ankka.core.CommandError =>
+      s"${e.getClass.getSimpleName}(${e.code})"
+    case other => other.getClass.getSimpleName
 
   /** Sessions compacted, and failures, for tests and diagnostics. */
   val compacted: java.util.concurrent.ConcurrentLinkedQueue[String] =

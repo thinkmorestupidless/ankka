@@ -67,8 +67,12 @@ abstract class CompactionSteps(file: String) extends GherkinSuite(file) with Log
   private var kit: AnkkaTestKit = null
 
   override def beforeAll(): Unit =
-    // Every summary not scripted otherwise is this one, so a fence session always compacts.
-    summaryModel.respondWhen(_ => true)(_ => ModelResponse(Summary)): Unit
+    // Every summary is this one, so a fence session always compacts, except a summary of a
+    // session whose summary model fails, which is refused every time it is asked.
+    summaryModel.respondWhen(!refused(_))(_ => ModelResponse(Summary)): Unit
+    summaryModel.respondWhen(refused)(_ =>
+      ModelResponse("", Vector.empty, StopReason.Refusal, TokenUsage.zero, refusal)
+    ): Unit
     val agents = AgentRuntime
       .withDefaultModel(model)
       .withCompaction(
@@ -95,6 +99,8 @@ abstract class CompactionSteps(file: String) extends GherkinSuite(file) with Log
     SessionCompactor.compacted.clear()
     SessionCompactor.failures.clear()
     session = None
+    refusal = None
+    refusing = Vector.empty
 
   /**
    * The session a scenario is about: its id, its data subject, what was sent and what is to come.
@@ -233,12 +239,19 @@ abstract class CompactionSteps(file: String) extends GherkinSuite(file) with Log
 
   // A failure, and what the log says of it.
 
-  private var refusal: Option[String] = None
+  @volatile private var refusal: Option[String]  = None
+  @volatile private var refusing: Vector[String] = Vector.empty
 
+  /** Whether `request` asks for a summary of a session whose summary model fails. */
+  private def refused(request: ModelRequest): Boolean =
+    val asked = request.messages.mkString
+    refusing.exists(asked.contains)
+
+  // Every time it is asked: the compactor reads behind the turns and considers the session at each
+  // of its answers, so a model that failed only once would be asked again and succeed.
   Given("the model that writes the summary fails") { () =>
-    val reason = s"I will not summarise ${marker()}"
-    refusal = Some(reason)
-    summaryModel.expectRefusal(reason): Unit
+    refusal = Some(s"I will not summarise ${marker()}")
+    refusing = current.sent.map(_.takeWhile(_ != 'x'))
   }
 
   Then("the log of {string} holds a warning that names the session and the failure") {

@@ -483,6 +483,8 @@ public static BlueprintsRef.Registered register(ComponentClient client, String j
   List<BlueprintsRef.Version> versions = blueprints.versions("brief");
   // the version a run started now would use
   Optional<Blueprint> current = blueprints.current("brief");
+// one, as it was registered
+Blueprint first = blueprints.version("brief", 1);
   return registered;
 }
 ```
@@ -497,7 +499,8 @@ val blueprints = AgentClients.blueprints(kit.componentClient())
 val registered = blueprints.register(GuideSamples.brief) // Registered(name, version, isNew, notes)
 blueprints.register(GuideSamples.brief.json()) // the same, from a blueprint written as JSON
 val versions = blueprints.versions("brief") // every version, oldest first
-val current = blueprints.current("brief") // the current one, as it was registered
+val current = blueprints.current("brief") // the version a run started now would use
+val first = blueprints.version("brief", 1) // one, as it was registered
 ```
 
 ///

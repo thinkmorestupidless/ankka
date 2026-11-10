@@ -25,6 +25,8 @@ public final class BlueprintCalls {
     List<BlueprintsRef.Version> versions = blueprints.versions("brief");
     // the version a run started now would use
     Optional<Blueprint> current = blueprints.current("brief");
+  // one, as it was registered
+  Blueprint first = blueprints.version("brief", 1);
     return registered;
   }
   // docs:end registering

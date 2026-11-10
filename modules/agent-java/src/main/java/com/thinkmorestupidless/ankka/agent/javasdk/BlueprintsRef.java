@@ -16,9 +16,17 @@ public interface BlueprintsRef {
   /** As {@link #register(Blueprint)}, from the blueprint's JSON form. */
   Registered register(String json);
 
+  /** Every version of {@code name}, oldest first; none for a name never registered. */
   List<Version> versions(String name);
 
+  /** The version a run started now would use; empty for a name never registered. */
   Optional<Blueprint> current(String name);
+
+  /**
+   * Version {@code number} of {@code name}, as it was registered. A name or a number never
+   * registered is refused as a {@code CommandException} with status 404.
+   */
+  Blueprint version(String name, int number);
 
   /** A registration: the version it is, whether it was new, and what the check noted. */
   record Registered(String name, int version, boolean isNew, List<String> notes) {}

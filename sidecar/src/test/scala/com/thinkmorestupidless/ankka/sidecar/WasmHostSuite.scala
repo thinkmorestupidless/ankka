@@ -733,10 +733,55 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   private def stepped(id: String, path: String): String =
     val asked = s"""{"service":"scripted","path":"$path"}"""
     assertEquals(http("POST", s"${calls.baseUrl}/service-calls/steps/$id", Some(asked))._1, 204)
-    eventually("the step ran")(
-      Some(http("GET", s"${calls.baseUrl}/service-calls/steps/$id")._2)
-        .filter(_.contains(""""done":true"""))
-    )
+    var last = ""
+    try
+      eventually("the step ran")(
+        Some(http("GET", s"${calls.baseUrl}/service-calls/steps/$id")._2)
+          .map { body => last = body; body }
+          .filter(_.contains(""""done":true"""))
+      )
+    catch
+      case e: munit.FailException =>
+        fail(s"${e.getMessage}\n${whereTheStepIs(id, path, last)}")
+
+  /**
+   * What a step that did not finish left behind (#156): the workflow's own account of where it
+   * stands, what its status query last answered, whether the step's call reached the service it
+   * names, and the spans recorded for the workflow.
+   */
+  private def whereTheStepIs(id: String, path: String, last: String): String =
+    import com.thinkmorestupidless.ankka.runtime.{EntityKeys, EntityProtocol}
+    import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
+    val lifecycle =
+      try
+        Await.result(
+          ClusterSharding(calls.system)
+            .entityRefFor(EntityKeys.forComponent(ComponentId("service-steps")), id)
+            .ask[EntityProtocol.Reply](replyTo =>
+              EntityProtocol.Invoke(
+                com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle.Method,
+                Array.emptyByteArray,
+                Vector.empty,
+                replyTo
+              )
+            )(using org.apache.pekko.util.Timeout(5.seconds)),
+          10.seconds
+        ) match
+          case EntityProtocol.Succeeded(bytes, _) => String(bytes, "UTF-8")
+          case other                              => other.toString
+      catch case scala.util.control.NonFatal(e) => s"not answered: $e"
+    val observability  = com.thinkmorestupidless.ankka.runtime.Observability(calls.system)
+    def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
+    val spans          = observability.recorder
+      .snapshot()
+      .filter(s => Set("service-steps", "service:local/scripted")(name(s.componentRef)))
+      .map(s =>
+        s"${name(s.componentRef)}/${name(s.handlerRef)} ${s.outcome} ${s.durationNanos / 1_000_000}ms"
+      )
+    s"""|lifecycle: $lifecycle
+        |last status: $last
+        |requests to $path: ${requestsTo(path).size}
+        |spans of the workflow and the service it calls: ${spans.mkString(", ")}""".stripMargin
 
   test("a call made from a module's step is nested under the step in the trace") {
     assume(rustReference.isDefined, "cargo is not on PATH")

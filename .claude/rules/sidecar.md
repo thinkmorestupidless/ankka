@@ -181,3 +181,12 @@ records (kinds 3–7) never reach a process as events. A module is told the even
   service `ObjectStorage.unavailable`; a module's store is the runtime's, and the image sets
   `ANKKA_STORAGE_DIR=/tmp/ankka-storage` for it. The Python and TypeScript kits' slow storage tests
   fail against an image without the change.
+- **A conversation's request stream is written from several threads, and grpc-java's
+  `StreamObserver` is not thread-safe** (2026-11-09, #87). A workflow's command goes out on the
+  actor's thread while its step goes out on the step's virtual thread, and a timeout's close comes
+  from the scheduler. Two `onNext` at once corrupted the framer (`INTERNAL: Failed to frame message`,
+  then `CANCELLED: Failed to stream message` on the sidecar's own side), and the step's stream closed
+  with nothing wrong in the process: `wf.runs-steps-in-order` flaked for months across Python and Go.
+  Every stateful conversation's `out` is `GrpcConversation.Serialised`, a `ReentrantLock` (not a
+  monitor, which pins a virtual thread). `ConversationWritesSuite` holds each send in an interceptor
+  so an overlap is seen every run.

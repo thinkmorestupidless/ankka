@@ -61,7 +61,15 @@ final class ServiceKit private (
 
   private lazy val client = HttpClient.newHttpClient()
 
-  def componentClient(): ComponentClient = Clients.of(kit.componentClient, read.refs)
+  /**
+   * A client of whichever service is running when it is used: one taken before `restartService`
+   * goes on working after it, as the kit's other clients do. A reference it made is of the service
+   * running when it was made.
+   */
+  def componentClient(): ComponentClient = following
+
+  private object following extends Clients.Following:
+    def current: ComponentClient = Clients.of(kit.componentClient, read.refs)
 
   // Read from the running service each time: restartService replaces it.
   def viewClient(): ViewClient = read.viewClient(kit.service.viewClient)

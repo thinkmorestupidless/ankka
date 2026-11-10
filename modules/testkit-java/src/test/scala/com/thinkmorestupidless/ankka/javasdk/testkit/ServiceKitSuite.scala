@@ -38,6 +38,17 @@ class ServiceKitSuite extends munit.FunSuite with LogCapturing:
     finally kit.close()
   }
 
+  test("a component client taken before restartService goes on working after it (#231)") {
+    val kit = AnkkaTestKit.start(cart)
+    try
+      val client = kit.componentClient
+      client.forEventSourcedEntity("r2").call(CartRefs.addItem).invoke(LineItem("p2", "Ink", 1))
+      kit.restartService()
+      val state = client.forEventSourcedEntity("r2").call(CartRefs.getCart).invoke()
+      assertEquals(state.items.asScala.map(_.productId).toList, List("p2"))
+    finally kit.close()
+  }
+
   test("eventually retries on the value and fails with the last failure past its deadline") {
     val kit = AnkkaTestKit.start(cart)
     try

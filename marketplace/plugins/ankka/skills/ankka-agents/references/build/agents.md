@@ -2230,7 +2230,8 @@ summary is kept encrypted under the data subject's key, as the rest of the sessi
 it; a session whose data subject has been erased is not compacted, since nothing of its conversation can
 be read. To write the summary, the compactor sends the oldest messages to the model that writes the
 summary: like what a session sent to its own model, that is beyond an erasure. While the keyring cannot
-be reached, compaction of such a session waits, and is made once the keyring answers again.
+be reached, compaction of such a session waits, and is made once the keyring answers again. The compactor
+is one consumer, so compaction of every other session waits behind it for the length of the outage.
 
 ## Calling an agent
 

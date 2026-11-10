@@ -56,7 +56,8 @@ final class ModelSummariser(
         ModelRequest(
           settings = ModelSettings(provider.modelName),
           systemMessage = Some(ModelSummariser.SystemMessage),
-          messages = Vector(ChatMessage.User.text(ModelSummariser.transcript(messages)))
+          messages = Vector(ChatMessage.User.text(ModelSummariser.transcript(messages))),
+          timeout = Some(timeout)
         )
       ),
       timeout

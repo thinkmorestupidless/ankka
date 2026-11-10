@@ -491,7 +491,8 @@ private[ankka] final class AgentLoop(
         settings = ModelSettings(provider.modelName),
         systemMessage = effect.system,
         messages = progress.messages,
-        tools = effect.functionTools.map(_.spec)
+        tools = effect.functionTools.map(_.spec),
+        timeout = Some(modelTimeout)
       )
 
       val response =
@@ -537,7 +538,8 @@ private[ankka] final class AgentLoop(
         settings = ModelSettings(provider.modelName),
         systemMessage = effect.system,
         messages = progress.messages,
-        tools = effect.functionTools.map(_.spec)
+        tools = effect.functionTools.map(_.spec),
+        timeout = Some(modelTimeout)
       )
 
       val completed =

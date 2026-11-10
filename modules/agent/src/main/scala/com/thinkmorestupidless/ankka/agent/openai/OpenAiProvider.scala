@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.agent.openai
 
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
-import com.openai.core.{JsonValue, ObjectMappers}
+import com.openai.core.{JsonValue, ObjectMappers, RequestOptions, Timeout}
 import com.openai.errors.OpenAIServiceException
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.providers.{ModelProviders, Quirks, Shape, ToolCallIds}
@@ -37,7 +37,8 @@ final class OpenAiProvider private (
     val modelName: String,
     val shape: Shape,
     defaults: OpenAiProvider.Defaults,
-    quirks: Quirks
+    quirks: Quirks,
+    timeoutHeader: Option[String] = None
 ) extends ModelProvider:
 
   ModelProviders.validName(name).left.foreach(problem => throw IllegalArgumentException(problem))
@@ -52,8 +53,9 @@ final class OpenAiProvider private (
     connection match
       case Left(reason)  => Future.failed(ModelCallFailed(name, reason))
       case Right(client) =>
-        val outgoing    = idsFor(request)
-        val traceparent = OpenAiProvider.traceparent
+        val outgoing = idsFor(request)
+        val headers  = headersFor(request)
+        val options  = OpenAiProvider.options(request)
         Future {
           try
             shape match
@@ -63,7 +65,7 @@ final class OpenAiProvider private (
                   OpenAiProvider.json(
                     client
                       .responses()
-                      .create(ResponsesShape.build(name, outgoing, settings, traceparent))
+                      .create(ResponsesShape.build(name, outgoing, settings, headers), options)
                   )
                 )
               case Shape.ChatCompletions =>
@@ -73,7 +75,8 @@ final class OpenAiProvider private (
                       .chat()
                       .completions()
                       .create(
-                        ChatCompletionsShape.build(outgoing, settings, stream = false, traceparent)
+                        ChatCompletionsShape.build(outgoing, settings, stream = false, headers),
+                        options
                       )
                   )
                 )
@@ -88,8 +91,9 @@ final class OpenAiProvider private (
     connection match
       case Left(reason)  => Source.failed(ModelCallFailed(name, reason))
       case Right(client) =>
-        val outgoing    = idsFor(request)
-        val traceparent = OpenAiProvider.traceparent
+        val outgoing = idsFor(request)
+        val headers  = headersFor(request)
+        val options  = OpenAiProvider.options(request)
         Source
           .unfoldResource[Option[ModelChunk], OpenAiStreaming](
             () =>
@@ -101,7 +105,8 @@ final class OpenAiProvider private (
                       client
                         .responses()
                         .createStreaming(
-                          ResponsesShape.build(name, outgoing, settings, traceparent)
+                          ResponsesShape.build(name, outgoing, settings, headers),
+                          options
                         )
                     )
                   case Shape.ChatCompletions =>
@@ -110,7 +115,8 @@ final class OpenAiProvider private (
                         .chat()
                         .completions()
                         .createStreaming(
-                          ChatCompletionsShape.build(outgoing, settings, stream = true, traceparent)
+                          ChatCompletionsShape.build(outgoing, settings, stream = true, headers),
+                          options
                         )
                     )
               catch case NonFatal(failure) => throw OpenAiProvider.failed(name, failure),
@@ -123,6 +129,14 @@ final class OpenAiProvider private (
           .collect { case Some(chunk) => chunk }
           .mapMaterializedValue(_ => NotUsed)
 
+  /**
+   * The call's headers: the calling thread's trace, read before the call moves to the SDK's thread,
+   * and the caller's wait where this endpoint is told it (the installation's model server is).
+   */
+  private def headersFor(request: ModelRequest): Seq[(String, String)] =
+    OpenAiProvider.traceparent.map("traceparent" -> _).toSeq ++
+      timeoutHeader.zip(request.timeout).map((header, wait) => header -> wait.toMillis.toString)
+
   /** The request as this endpoint takes it: ids rewritten where it constrains them. */
   private def idsFor(request: ModelRequest): ModelRequest =
     quirks.toolCallIds match
@@ -130,6 +144,16 @@ final class OpenAiProvider private (
       case None       => request
 
 object OpenAiProvider:
+
+  /**
+   * The SDK's options for one call: the caller's wait as the call's own, whole and between reads,
+   * so the SDK drops the connection when the caller stops waiting rather than at its own default.
+   */
+  private def options(request: ModelRequest): RequestOptions =
+    request.timeout.fold(RequestOptions.none()) { wait =>
+      val d = java.time.Duration.ofMillis(wait.toMillis)
+      RequestOptions.builder().timeout(Timeout.builder().read(d).request(d).build()).build()
+    }
 
   /**
    * The calling thread's trace, as the header that carries it to the endpoint: read before the call
@@ -254,9 +278,18 @@ object OpenAiProvider:
       shape: Shape = Shape.ChatCompletions,
       defaults: Defaults = Defaults(),
       quirks: Quirks = Quirks.compatibleOpenAi,
-      tls: Option[ClientTls] = None
+      tls: Option[ClientTls] = None,
+      timeoutHeader: Option[String] = None
   ): OpenAiProvider =
-    new OpenAiProvider(Right(client(address, key, tls)), name, modelName, shape, defaults, quirks)
+    new OpenAiProvider(
+      Right(client(address, key, tls)),
+      name,
+      modelName,
+      shape,
+      defaults,
+      quirks,
+      timeoutHeader
+    )
 
   /**
    * The certificate a call presents and the servers it accepts, for an address that asks for one.

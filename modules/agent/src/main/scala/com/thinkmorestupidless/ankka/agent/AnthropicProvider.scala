@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.agent
 
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
-import com.anthropic.core.JsonValue
+import com.anthropic.core.{JsonValue, RequestOptions, Timeout}
 import com.anthropic.core.http.StreamResponse
 import com.anthropic.helpers.MessageAccumulator
 import com.anthropic.models.messages.{
@@ -60,12 +60,22 @@ final class AnthropicProvider private (
   private given ExecutionContext =
     ExecutionContext.fromExecutorService(Executors.newVirtualThreadPerTaskExecutor())
 
+  /**
+   * The caller's wait as the call's own, whole and between reads: the SDK drops the connection when
+   * the caller stops waiting, so the generation is not left running and billed.
+   */
+  private def options(request: ModelRequest): RequestOptions =
+    request.timeout.fold(RequestOptions.none()) { wait =>
+      val d = java.time.Duration.ofMillis(wait.toMillis)
+      RequestOptions.builder().timeout(Timeout.builder().read(d).request(d).build()).build()
+    }
+
   def complete(request: ModelRequest): Future[ModelResponse] =
     connection match
       case Left(reason)  => Future.failed(ModelCallFailed(name, reason))
       case Right(client) =>
         Future(
-          try translate(client.messages().create(build(request)))
+          try translate(client.messages().create(build(request), options(request)))
           catch case NonFatal(failure) => throw AnthropicProvider.failed(name, failure)
         )
 
@@ -89,7 +99,7 @@ final class AnthropicProvider private (
     Source
       .unfoldResource[Option[ModelChunk], Streaming](
         () =>
-          try new Streaming(client.messages().createStreaming(build(request)))
+          try new Streaming(client.messages().createStreaming(build(request), options(request)))
           catch case NonFatal(failure) => throw AnthropicProvider.failed(name, failure),
         state =>
           try state.next()

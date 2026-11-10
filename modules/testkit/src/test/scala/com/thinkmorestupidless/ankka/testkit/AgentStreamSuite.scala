@@ -110,6 +110,8 @@ class AgentStreamSuite extends munit.FunSuite with LogCapturing:
     }
     assert(replayed.exists(_.contains("First question")), replayed.toString)
     assert(replayed.exists(_.contains("First answer")), replayed.toString)
+    // A streamed turn tells the provider its wait as a completed one does (#183).
+    assert(model.requests(1).timeout.isDefined, model.requests(1).toString)
   }
 
   test("a rejected stream fails the Source rather than hanging it") {

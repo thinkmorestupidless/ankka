@@ -2,6 +2,8 @@ package com.thinkmorestupidless.ankka.agent
 
 import com.thinkmorestupidless.ankka.core.{Codecs, Serializer}
 
+import scala.concurrent.duration.FiniteDuration
+
 /** A piece of content in a message. */
 sealed trait MessageContent
 
@@ -83,12 +85,18 @@ final case class ModelSettings(
     thinking: Boolean = true
 )
 
-/** Everything a provider needs for one call. */
+/**
+ * Everything a provider needs for one call.
+ *
+ * `timeout` is how long the caller waits for the answer. A provider ends its call when it passes,
+ * so a call the caller gave up on does not run on at the model, still generating and still billed.
+ */
 final case class ModelRequest(
     settings: ModelSettings,
     systemMessage: Option[String],
     messages: Vector[ChatMessage],
-    tools: Vector[ToolSpec] = Vector.empty
+    tools: Vector[ToolSpec] = Vector.empty,
+    timeout: Option[FiniteDuration] = None
 )
 
 /** Why the model stopped. */

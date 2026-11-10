@@ -160,6 +160,8 @@ calls from an endpoint or a workflow step.
 Every interaction's model call waits at most the runtime's model timeout, two minutes by default, and
 that limit applies to *each* round trip, so a request that makes many tool calls can take many times
 that. Set the timeout for the slowest single model call, and bound the whole with `maxToolCallSteps`.
+A call that runs past the timeout is ended at the provider as well as abandoned by the loop, so the
+model stops generating an answer nobody will read and is not billed for the rest of it.
 
 ## Failure and cost
 

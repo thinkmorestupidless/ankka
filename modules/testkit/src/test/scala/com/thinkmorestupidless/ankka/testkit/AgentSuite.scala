@@ -66,6 +66,8 @@ class AgentSuite extends munit.FunSuite with LogCapturing:
     val request = model.lastRequest
     assertEquals(request.systemMessage, Some(WeatherAgent.SystemMessage))
     assertEquals(request.tools.map(_.name).sorted, Vector("current_date", "get_weather"))
+    // How long the loop waits, so the provider ends a call the loop gave up on (#183).
+    assert(request.timeout.isDefined, request.toString)
     assert(
       request.messages.exists {
         case ChatMessage.User(content) =>

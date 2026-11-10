@@ -7,7 +7,7 @@ import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.stream.scaladsl.Sink
 
 import scala.concurrent.Await
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, DurationLong}
 
 /**
  * The OpenAI provider against a stand-in on loopback, in both of its shapes: what it sends, and
@@ -225,6 +225,38 @@ class OpenAiProviderSuite extends munit.FunSuite:
     standIn.test(s"$s: a provider reports the name it was given") { at =>
       assertEquals(provider(at, shape, name = "fast").name, "fast")
       assertEquals(provider(at, shape).modelName, "test-model")
+    }
+
+    // #183: a call the caller gave up on ran on at the model, holding its slot.
+    standIn.test(s"$s: a call ends when its caller stops waiting, completed or streamed") { at =>
+      at.hang()
+      try
+        val waits   = ask("hi").copy(timeout = Some(500.millis))
+        val started = System.nanoTime()
+        assertEquals(failure(provider(at, shape), waits).provider, "local")
+        intercept[ModelCallFailed](streamed(provider(at, shape), waits))
+        val took = (System.nanoTime() - started).nanos
+        assert(took < 15.seconds, s"two calls that wait 500 ms each took $took")
+      finally at.release()
+    }
+
+    standIn.test(s"$s: the caller's wait is told to an endpoint that asks for it, and no other") {
+      at =>
+        at.answer(ModelResponse("a")).answer(ModelResponse("b")).answer(ModelResponse("c"))
+        val waits  = ask("hi").copy(timeout = Some(90.seconds))
+        val asking = OpenAiProvider.at(
+          "local",
+          s"${at.address}/v1",
+          "test-model",
+          shape = shape,
+          timeoutHeader = Some("X-Wait")
+        )
+        complete(asking, waits)
+        assertEquals(at.lastRequest.header("x-wait"), Some("90000"))
+        complete(asking, ask("hi"))
+        assertEquals(at.lastRequest.header("x-wait"), None, "no wait, no header")
+        complete(provider(at, shape), waits)
+        assertEquals(at.lastRequest.header("x-wait"), None, "an endpoint that did not ask")
     }
 
   // ── Settings ───────────────────────────────────────────────────────────────

@@ -73,3 +73,13 @@ object ModelState:
   val Removing: String = "removing"
 
   val All: Vector[String] = Vector(Fetching, Served, Failed, Removing)
+
+/** What a service's call tells the model server's door, beyond the call itself. */
+object ModelServerDoor:
+
+  /**
+   * How long the caller waits for its answer, in milliseconds. The door ends its call to Ollama
+   * when this passes, which ends the generation: a caller that gave up would otherwise leave the
+   * model writing an answer nobody reads, in a slot the next call waits for.
+   */
+  val TimeoutHeader: String = "X-Ankka-Model-Timeout"

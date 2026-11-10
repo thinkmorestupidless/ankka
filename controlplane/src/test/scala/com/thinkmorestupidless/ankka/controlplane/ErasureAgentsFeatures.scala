@@ -93,10 +93,22 @@ class ErasureAgentsFeatures
     com.thinkmorestupidless.ankka.sdk.ErasureReport(0L)
   }
 
+  // Compaction (feature 064), with a summariser of its own: the compactor runs on its own, so one
+  // scripted model would answer whichever asked first. A session is over the size at three turns,
+  // and compacted only at its fourth, when four messages lie beyond the four it keeps; every other
+  // scenario's sessions stay under the size, so this changes nothing for them.
+  private val compaction            = CompactionSettings(400, 4, 4)
+  private val summaryModel          = TestModelProvider()
+  @volatile private var summaryText = "the earlier conversation, in a few words"
+  summaryModel.respondWhen(_ => true)(_ => ModelResponse(summaryText)): Unit
+
   private def startKit(name: String): Unit =
+    val agents = AgentRuntime
+      .withDefaultModel(model)
+      .withCompaction(compaction, Some(ModelSummariser(summaryModel, 30.seconds)))
     kit = AnkkaTestKit.start(
-      Seq(SupportHelper.descriptor, SupportResolver.descriptor) ++ AgentRuntime.descriptors,
-      Seq(AgentRuntime.withDefaultModel(model), ProjectionRuntime()),
+      Seq(SupportHelper.descriptor, SupportResolver.descriptor) ++ agents.descriptors,
+      Seq(agents, ProjectionRuntime()),
       configure = _.withErasureHandler(handler),
       serviceIdentity = ServiceIdentity.deployed(project, name),
       keyring = keyring
@@ -113,6 +125,8 @@ class ErasureAgentsFeatures
     keyring = InMemoryKeyring()
     admin = TestKeyringAdmin(keyring, () => names)
     model.reset()
+    SessionCompactor.compacted.clear()
+    long = Vector.empty
     asked = Map.empty
     session = None
     before = None
@@ -362,6 +376,89 @@ class ErasureAgentsFeatures
     assert(now.messages.exists(_.toString.contains("my card was declined")))
   }
 
+  // ── compaction ─────────────────────────────────────────────────────────────
+
+  /** The texts the long session was sent, each beginning with a word no other text holds. */
+  private var long: Vector[String] = Vector.empty
+
+  private def longText(): String =
+    val start = "said" + java.util.UUID.randomUUID().toString.replace("-", "")
+    start + "x" * (150 - start.length)
+
+  private def marks(texts: Vector[String]) = texts.map(_.takeWhile(_ != 'x'))
+
+  /** A turn whose question and answer are both long texts, recorded in `long`. */
+  private def longTurn(): Unit =
+    val (q, a) = (longText(), longText())
+    long = long ++ Vector(q, a)
+    turn(q, a): Unit
+
+  Given(
+    "a session of {string} started with the data subject {string}, past the compaction size of {string}"
+  ) { (_: String, subject: String, _: String) =>
+    session = Some(s"support-session-$scenarios" -> Some(subject))
+    (1 to 3).foreach(_ => longTurn())
+    val h = history()
+    assertEquals(h.messages.size, 6)
+    assert(long.map(_.length).sum > compaction.maxHistoryBytes, "the session is not past the size")
+  }
+
+  When("compaction replaces the oldest messages of the session with the summary {string}") {
+    (summary: String) =>
+      summaryText = summary
+      longTurn()
+      val compacted = eventually("the session's summary") {
+        Some(history()).filter(
+          _.messages.headOption.exists(_.isInstanceOf[SessionMessage.SummaryMessage])
+        )
+      }
+      compacted.messages.head match
+        case m: SessionMessage.SummaryMessage => assertEquals(m.text, summary)
+        case other                            => fail(s"not a summary: $other")
+      assertEquals(compacted.messages.size, 1 + compaction.keepRecentMessages)
+  }
+
+  Then("the database of {string} holds the summary encrypted under the subject key of {string}") {
+    (_: String, subject: String) =>
+      val journal = rows(
+        "event_journal",
+        "event_payload",
+        s"persistence_id = 'ankka-session-memory|$sessionId'"
+      )
+      val opened = journal.flatMap(openedUnder(_, subject, "session-memory-event"))
+      assert(
+        opened.exists(e => e.contains("HistoryCompacted") && e.contains(summaryText)),
+        s"no sealed summary among the session's events: ${opened.map(_.take(80))}"
+      )
+  }
+
+  When("compaction runs on the session") { () =>
+    // The turn that would compact the session were it not erased: its fourth.
+    longTurn()
+    // Then the compactor is known to have read past it: a plain session written after it, past
+    // the size, is compacted.
+    val fence = s"fence-support-session-$scenarios"
+    session = Some(fence -> None)
+    (1 to 4).foreach(_ => turn(longText(), longText()))
+    eventually("the fence session's compaction") {
+      Option.when(SessionCompactor.compacted.contains(fence))(())
+    }
+    session = Some(s"support-session-$scenarios" -> Some("player/8c1f"))
+  }
+
+  Then("no summary is asked of the model") { () =>
+    val words = marks(long)
+    val asked = summaryModel.requests.filter(r => words.exists(r.messages.mkString.contains))
+    assertEquals(asked.size, 0, "a summary of the erased session was asked of the model")
+    assert(!SessionCompactor.compacted.contains(sessionId), s"$sessionId was compacted")
+  }
+
+  Then("the conversation of the session is erased") { () =>
+    val h    = eventually("the session reads as erased")(Some(history()).filter(_.erased))
+    val held = h.messages.mkString
+    assert(!marks(long).exists(held.contains), s"the session holds its conversation: $held")
+  }
+
   // ── autonomous agents ──────────────────────────────────────────────────────
 
   private def task(subject: String) =
@@ -438,6 +535,8 @@ class ErasureAgentsFeatures
             .toArray
             .toVector
             .map(p => java.nio.file.Files.readString(p.asInstanceOf[java.nio.file.Path]))
+            // A phrase may be wrapped across lines of the page.
+            .map(_.replaceAll("\\s+", " "))
             .filter(t => t.contains("data subject") && t.contains("session"))
         finally walk.close()
     if pages.nonEmpty then
@@ -452,4 +551,10 @@ class ErasureAgentsFeatures
 
   Then("the documentation says that what a session sent to its model is beyond an erasure") { () =>
     documentationSays("sent to its model", "erasure")
+  }
+
+  Then(
+    "the documentation says that what compaction sent to the model that writes the summary is beyond an erasure"
+  ) { () =>
+    documentationSays("model that writes the summary", "beyond an erasure")
   }

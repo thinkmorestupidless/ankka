@@ -118,3 +118,7 @@ appenders.
   streamed response loses its last chunk) and `CallingAddressEngineSuite`, `ServiceClientSuite`'s
   at-most-once case and `ServingFeatures`' idle timeout. A machine whose `java` is newer runs sbt with
   `sbt -java-home <a JDK 21 home>`; read a red there as the JDK's before the branch's.
+- **A recurring timer's row advances after its handler returns** (2026-11-10). The sweeper writes the
+  next `due_for` only once the handler succeeded, so a test that sees the handler's effect and then
+  reads `ankka_timers` can still find the due time just run. Wait for the row to move past it (the
+  conformance case `timer.recurring.due-time` read it once and failed on `conformance-java`).

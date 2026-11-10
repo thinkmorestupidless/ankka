@@ -68,7 +68,9 @@ private[ankka] object WorkflowHost:
       componentClient: ComponentClient,
       secrets: SecretStore,
       services: ServiceClients,
-      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage
+      storage: com.thinkmorestupidless.ankka.sdk.ObjectStorage,
+      /** The service's timer runtime's clock, which a pause's deadline and its wake are read by. */
+      clock: java.time.Clock
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       // The service's keyring, bound around every encode and decode of the state (feature 042).
@@ -114,8 +116,8 @@ private[ankka] object WorkflowHost:
         val wakes  =
           if NoDatabase.declared(system.settings.config) then None
           else
-            lazy val scheduler = DatabaseTimerScheduler(Database()(using system))
-            Some(PauseWakes(descriptor.componentId, workflowId, () => scheduler))
+            lazy val scheduler = DatabaseTimerScheduler(Database()(using system), clock)
+            Some(PauseWakes(descriptor.componentId, workflowId, () => scheduler, clock))
 
         val engine = WorkflowEngine(
           descriptor,
@@ -126,7 +128,8 @@ private[ankka] object WorkflowHost:
           timers,
           (state, event) => applyEvent(empty, state, event),
           holdBound,
-          wakes
+          wakes,
+          clock
         )
 
         EventSourcedBehavior[EntityProtocol.Command, Event[S], Run[S]](

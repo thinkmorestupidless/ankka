@@ -2,12 +2,13 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
-import com.thinkmorestupidless.ankka.runtime.{EntityKeys, EntityProtocol, PauseWake}
+import com.thinkmorestupidless.ankka.runtime.{EntityKeys, EntityProtocol, PauseWake, TimerRuntime}
 import com.thinkmorestupidless.ankka.sdk.*
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
 import org.apache.pekko.util.Timeout
 
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.Await
 import scala.concurrent.duration.*
@@ -89,9 +90,11 @@ object NapWorkflow
   val get    = query("get")(_.get)
 
 /**
- * A paused workflow ends its pause on time when nothing else reaches it: after sharding passivated
- * its entity, and after the service restarted. Sharding's idle timeout is a second here, so a pause
- * of a few seconds outlives the entity, as a pause of minutes does under the default two.
+ * A paused workflow ends its pause when the clock reaches its deadline, whether or not anything
+ * else reaches it: while it is awake, after sharding passivated its entity, and after the service
+ * restarted. The clock is the timer runtime's, which the test moves, so a pause of an hour takes as
+ * long as the test says. Sharding's idle timeout is a second here, so a short wait outlives the
+ * entity, as a pause of minutes does under the default two.
  */
 class WorkflowPauseWakeSuite extends munit.FunSuite with LogCapturing:
 
@@ -99,10 +102,13 @@ class WorkflowPauseWakeSuite extends munit.FunSuite with LogCapturing:
 
   private var kit: AnkkaTestKit = scala.compiletime.uninitialized
   private val rows              = TimerProbe()
+  // Years behind the wall clock, so nothing read by the wall clock is due by this one.
+  private val clock = MovableClock.at(Instant.parse("2020-01-01T09:00:00Z"))
 
   override def beforeAll(): Unit =
     kit = AnkkaTestKit.start(
       Seq(NapWorkflow.descriptor),
+      Seq(TimerRuntime(pollInterval = 200.millis, clock = clock)),
       settings = ConfigFactory.parseString(
         "pekko.cluster.sharding.passivation.default-idle-strategy.idle-entity.timeout = 1s"
       )
@@ -110,6 +116,8 @@ class WorkflowPauseWakeSuite extends munit.FunSuite with LogCapturing:
     rows.bind(kit): Unit
 
   override def afterAll(): Unit = if kit != null then kit.stop()
+
+  private val anHour = 1.hour.toMillis
 
   private def nap(id: String) = kit.componentClient.forWorkflow(EntityId(id))
 
@@ -129,9 +137,31 @@ class WorkflowPauseWakeSuite extends munit.FunSuite with LogCapturing:
     while !check && deadline.hasTimeLeft() do Thread.sleep(100)
     assert(check, what)
 
-  test("a pause longer than the idle timeout ends on time after its entity was passivated") {
-    nap("passivated").call(NapWorkflow.start).invoke(NapRequest(4_000L)): Unit
-    // The pause, the idle timeout, a sweep and a margin: at main this stays empty for ever.
+  test("a pause ends when the clock reaches its deadline while the workflow is awake, not before") {
+    nap("awake").call(NapWorkflow.start).invoke(NapRequest(anHour)): Unit
+    eventually("the pause has its wake row")(row("awake").isDefined)
+    assertEquals(row("awake").get.dueTime, clock.instant().plusMillis(anHour))
+
+    // Asked every 100ms, so the entity never idles long enough to be passivated.
+    clock.moveBy(59.minutes)
+    val before = 1.second.fromNow
+    while before.hasTimeLeft() do
+      assertEquals(nap("awake").lifecycle(NapWorkflow).invoke().status, "Paused")
+      Thread.sleep(100)
+
+    clock.moveBy(2.minutes)
+    eventually("the nap ended")(nap("awake").lifecycle(NapWorkflow).invoke().isTerminal)
+    assertEquals(Naps.how("awake"), Some("timeout"))
+    assert(!Naps.restartedBetween("awake"), "the entity was passivated: this did not test awake")
+    assertEquals(nap("awake").call(NapWorkflow.get).invoke().steps, Vector("nap", "woke"))
+  }
+
+  test("a pause ends when the clock reaches its deadline after its entity was passivated") {
+    nap("passivated").call(NapWorkflow.start).invoke(NapRequest(anHour)): Unit
+    eventually("the pause has its wake row")(row("passivated").isDefined)
+    // The idle timeout and a margin, with nothing sent to the workflow.
+    Thread.sleep(4_000)
+    clock.moveBy(61.minutes)
     assertEquals(endedWithin("passivated", 15.seconds), Some("timeout"))
     assert(
       Naps.restartedBetween("passivated"),
@@ -143,34 +173,35 @@ class WorkflowPauseWakeSuite extends munit.FunSuite with LogCapturing:
     eventually("the wake row is gone")(row("passivated").isEmpty)
   }
 
-  test("a pause ends on time after the service restarted during it") {
-    nap("restarted").call(NapWorkflow.start).invoke(NapRequest(6_000L)): Unit
+  test("a pause whose deadline passed while the service was down ends when it starts again") {
+    nap("restarted").call(NapWorkflow.start).invoke(NapRequest(anHour)): Unit
     eventually("the pause has its wake row")(row("restarted").isDefined)
-    kit.restartService()
+    kit.restartService(whileStopped = clock.moveBy(61.minutes))
     assertEquals(endedWithin("restarted", 20.seconds), Some("timeout"))
     eventually("the nap ended")(nap("restarted").lifecycle(NapWorkflow).invoke().isTerminal)
     assertEquals(nap("restarted").call(NapWorkflow.get).invoke().steps, Vector("nap", "woke"))
   }
 
   test("a pause ended early by a command removes its wake row, and the deadline does nothing") {
-    nap("resumed").call(NapWorkflow.start).invoke(NapRequest(8_000L)): Unit
+    nap("resumed").call(NapWorkflow.start).invoke(NapRequest(anHour)): Unit
     eventually("the pause has its wake row")(row("resumed").isDefined)
     val target = row("resumed").get.target
     assertEquals(target.componentId, NapWorkflow.componentId)
     assertEquals(target.method, PauseWake.Method)
 
     nap("resumed").call(NapWorkflow.resume).invoke(): Unit
-    // Well before the deadline, so the row is gone because the command removed it, not because
-    // the sweeper ran it.
+    // The clock has not moved, so the row is gone because the command removed it, not because the
+    // sweeper ran it.
     eventually("the wake row is gone", 3.seconds)(row("resumed").isEmpty)
-    // Past the deadline: the timeout step never runs.
-    Thread.sleep(8_000)
+    // Past the deadline, and several sweeps: the timeout step never runs.
+    clock.moveBy(61.minutes)
+    Thread.sleep(1_500)
     assertEquals(Naps.how("resumed"), Some("resume"))
     assertEquals(nap("resumed").call(NapWorkflow.get).invoke().steps, Vector("nap", "resumed"))
   }
 
   test("a wake for another deadline than the workflow's pause is answered and changes nothing") {
-    nap("stale").call(NapWorkflow.start).invoke(NapRequest(60_000L)): Unit
+    nap("stale").call(NapWorkflow.start).invoke(NapRequest(24.hours.toMillis)): Unit
     eventually("the pause has its wake row")(row("stale").isDefined)
     val reply = Await.result(
       ClusterSharding(kit.service.system)
@@ -178,7 +209,7 @@ class WorkflowPauseWakeSuite extends munit.FunSuite with LogCapturing:
         .ask[EntityProtocol.Reply](replyTo =>
           EntityProtocol.Invoke(
             PauseWake.Method,
-            PauseWake.callPayload(System.currentTimeMillis() - 1_000L),
+            PauseWake.callPayload(clock.millis() - 1_000L),
             Vector.empty,
             replyTo
           )

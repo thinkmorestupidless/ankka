@@ -146,6 +146,15 @@ answering `Forbidden` naming both installations, which the forwarder returns unc
   that declared none, since only its sweeper runs the row. `WorkflowPauseWakeSuite` (testkit) runs at
   a one-second idle timeout and reads a side channel rather than the workflow: a query would start
   the stopped entity and hide the fault.
+- **A pause's deadline and its wake row read one clock: the timer runtime's** (2026-11-10, #201).
+  The engine set deadlines by `System.currentTimeMillis()` and wrote the row through a scheduler on
+  `Clock.systemUTC()`, while the sweeper compared due times with the `TimerRuntime`'s clock, so a test
+  could not move a pause and a `MovableClock` near the wall clock ended one by accident. `Ankka.host`
+  passes the declared `TimerRuntime`'s clock (else `systemUTC`) to `WorkflowHost.behavior`, and the
+  engine, `PauseWakes` and its `DatabaseTimerScheduler` all read it. The actor timer stays on real
+  time as the backstop while awake; under a moved clock the row ends the pause, awake or not. A test
+  of this starts its `MovableClock` years from the wall clock, or the old mix passes it. The workflow's
+  own `timeout` (`startedAtMillis`, stamped in the fold) is still on the wall clock.
 - **A recurring timer's `due_at` is `'infinity'` on purpose.** A runtime from before recurring timers
   selects `due_at <= now` and deletes by name after a run, so a finite `due_at` is fired once and deleted
   by the old sweeper — which during a rolling update is the one running, on the oldest pod. Never "tidy" it

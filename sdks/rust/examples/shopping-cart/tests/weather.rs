@@ -106,7 +106,7 @@ fn a_tool_calls_the_wallet_service_as_this_service() {
 
 #[test]
 fn the_route_passes_the_agents_refusal_on() {
-    // The unit kit answers event sourced entities only: an agent behind a route needs the runtime,
+    // The unit kit answers event sourced and key value entities only: an agent behind a route needs the runtime,
     // and the route answers its refusal rather than inventing a reply.
     let kit = EndpointTestKit::<WeatherApi>::with_service(shopping_cart::weather::build());
     let answered = kit.post("/weather/s1", &"Lisbon?".to_string());

@@ -330,3 +330,104 @@ fn a_test_sets_the_variables_a_service_reads_from_its_descriptor() {
     assert_eq!(read, (Some("hello".to_string()), None));
     assert_eq!(ankka::config("GREETING"), None);
 }
+
+// ── A key value entity behind a route (#236) ─────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+struct Nickname {
+    name: String,
+}
+
+struct Nicknames;
+
+impl KeyValueEntity for Nicknames {
+    type State = Nickname;
+    const COMPONENT_ID: &'static str = "nicknames";
+
+    fn empty_state(_: &str) -> Nickname {
+        Nickname::default()
+    }
+
+    fn handlers() -> KeyValueHandlers<Nicknames> {
+        KeyValueHandlers::new()
+            .command("set", |_: &Nickname, name: String, _: &Context| {
+                if name == "nobody" {
+                    return effects::error(ErrorCode::BadRequest, "a name is needed").into();
+                }
+                effects::update_state(Nickname { name }).then_reply(|n: &Nickname| n.name.clone())
+            })
+            .query("get", |n: &Nickname, _: (), _: &Context| {
+                effects::reply(n.name.clone())
+            })
+            .command("forget", |_: &Nickname, _: (), _: &Context| {
+                effects::delete_state().then_reply_value(Done)
+            })
+    }
+}
+
+struct NicknameApi;
+
+impl NicknameApi {
+    fn get(request: &Request) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Nicknames, request.path("id"), "get", ())?)
+    }
+
+    fn set(request: &Request, body: Nickname) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Nicknames, request.path("id"), "set", body.name)?)
+    }
+
+    fn forget(request: &Request) -> Result<Done, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Nicknames, request.path("id"), "forget", ())?)
+    }
+}
+
+impl Endpoint for NicknameApi {
+    const ENDPOINT_ID: &'static str = "NicknameApi";
+    const PREFIX: &'static str = "/nicknames";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<NicknameApi> {
+        Routes::new()
+            .get("/{id}", NicknameApi::get)
+            .post("/{id}", NicknameApi::set)
+            .delete("/{id}", NicknameApi::forget)
+    }
+}
+
+#[test]
+fn an_endpoint_answers_from_a_key_value_entity_in_memory() {
+    let service = Service::new("test").register(Nicknames);
+    let kit = EndpointTestKit::<NicknameApi>::with_service(service);
+    let name = |r: ankka::testkit::TestResponse| r.text();
+    assert_eq!(
+        name(kit.post("/nicknames/u1", &Nickname { name: "Pip".into() })),
+        "Pip"
+    );
+    // The state is kept between calls, per entity.
+    assert_eq!(name(kit.get("/nicknames/u1")), "Pip");
+    assert_eq!(name(kit.get("/nicknames/u2")), "");
+    // A refusal from the entity is its status.
+    assert_eq!(
+        kit.post(
+            "/nicknames/u1",
+            &Nickname {
+                name: "nobody".into()
+            }
+        )
+        .status,
+        400
+    );
+    assert_eq!(name(kit.get("/nicknames/u1")), "Pip");
+    // A deleted entity starts again from its empty state.
+    assert_eq!(kit.delete("/nicknames/u1").status, 204);
+    assert_eq!(name(kit.get("/nicknames/u1")), "");
+}

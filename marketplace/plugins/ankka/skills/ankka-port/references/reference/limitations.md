@@ -626,7 +626,8 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   declares no bucket; the TypeScript and Go kits cannot name a caller, so an ACL that names callers is
   proved where a cluster issues certificates; the Go integration kit captures no consumer publications
   and reads no store, and the Go unit kits have no secret store. A module has no integration kit: its
-  end-to-end behaviour is the conformance suite's.
+  end-to-end behaviour is the conformance suite's, and its unit kit answers a route's calls to its
+  entities alone, so a workflow or an agent behind a route tests as unavailable.
 - **The Java SDK cannot script a judgment.** Its test kits script a model (`TestModelProvider`) but not a
   judgment provider, and a `JudgmentProvider` is only one `JudgmentProviders` builds, so a Java test of a
   judgment or a judged guardrail needs Jev itself; nor do they hold an MCP server of their own, so a test of

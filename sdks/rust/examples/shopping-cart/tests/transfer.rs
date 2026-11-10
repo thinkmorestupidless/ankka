@@ -45,10 +45,11 @@ fn a_transfer_starts_at_the_withdrawal_and_refuses_what_it_should() {
         kit.command("start", transfer(5)).error().map(|e| e.code),
         Some(ErrorCode::Conflict)
     );
-    // The wallets are key value entities, which the unit kit does not answer: the withdrawal's
-    // call fails and the step fails with it. The runtime then applies the settings' recovery.
+    // The wallets answer from memory, and the one the transfer draws on holds nothing: the
+    // withdrawal is refused and the step fails with it. The runtime then applies the settings'
+    // recovery.
     match kit.run_step() {
-        StepNext::Fail(e) => assert_eq!(e.code, ErrorCode::Unavailable),
+        StepNext::Fail(e) => assert_eq!(e.code, ErrorCode::Conflict),
         other => panic!("the step ran without its wallet: {other:?}"),
     }
 }
@@ -69,7 +70,7 @@ fn a_quote_runs_its_two_steps_to_the_end() {
 
 #[test]
 fn a_start_the_kit_refuses_begins_no_wait() {
-    // The unit kit answers event sourced entities only: the start is refused, the route answers
+    // The unit kit answers event sourced and key value entities only: the start is refused, the route answers
     // that refusal, and no wait begins.
     let kit = EndpointTestKit::<QuoteEndpoint>::with_service(shopping_cart::transfer::build());
     let answered = kit.post("/quotes/q-1", &QuoteRequest { amount: 200 });

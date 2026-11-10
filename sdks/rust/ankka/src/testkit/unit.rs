@@ -392,33 +392,43 @@ impl InMemory {
                 CommandError::new(code, message).to_proto(),
             )),
         };
-        if request.kind != Kind::EventSourcedEntity as i32 {
+        let event_sourced = request.kind == Kind::EventSourcedEntity as i32;
+        if !event_sourced && request.kind != Kind::KeyValueEntity as i32 {
             return refuse(
                 ErrorCode::Unavailable,
                 format!(
-                    "the unit testkit answers event sourced entities, not '{}'",
+                    "the unit testkit answers event sourced and key value entities, not '{}'",
                     request.component_id
                 ),
             );
         }
         self.commands.set(self.commands.get() + 1);
+        let id = self.commands.get();
         let key = (request.component_id.clone(), request.entity_id.clone());
         let state = self.states.borrow().get(&key).cloned();
+        let command = if event_sourced {
+            proto::handle_request::Command::EventSourced(proto::event_sourced_in::Command {
+                id,
+                name: request.name,
+                payload: request.payload,
+                metadata: request.metadata,
+                snapshot_requested: false,
+                ..Default::default()
+            })
+        } else {
+            proto::handle_request::Command::KeyValue(proto::key_value_in::Command {
+                id,
+                name: request.name,
+                payload: request.payload,
+                metadata: request.metadata,
+            })
+        };
         let reply = self.service.handle(proto::HandleRequest {
             kind: request.kind,
             component_id: request.component_id,
             entity_id: request.entity_id,
             state,
-            command: Some(proto::handle_request::Command::EventSourced(
-                proto::event_sourced_in::Command {
-                    id: self.commands.get(),
-                    name: request.name,
-                    payload: request.payload,
-                    metadata: request.metadata,
-                    snapshot_requested: false,
-                    ..Default::default()
-                },
-            )),
+            command: Some(command),
         });
         if let Some(failure) = reply.failure {
             let error = failure.error.unwrap_or_default();
@@ -426,11 +436,14 @@ impl InMemory {
                 result: Some(proto::invoke_reply::Result::Error(error)),
             };
         }
-        let Some(proto::handle_reply::Reply::EventSourced(out)) = reply.reply else {
-            return refuse(ErrorCode::Internal, "no reply".to_string());
+        // What each kind answers that the store needs: whether it deleted itself, and its outcome.
+        let (retention, outcome) = match reply.reply {
+            Some(proto::handle_reply::Reply::EventSourced(out)) => (out.retention, out.outcome),
+            Some(proto::handle_reply::Reply::KeyValue(out)) => (out.retention, out.outcome),
+            _ => return refuse(ErrorCode::Internal, "no reply".to_string()),
         };
         let deleted = matches!(
-            out.retention.as_ref().and_then(|r| r.retention.as_ref()),
+            retention.as_ref().and_then(|r| r.retention.as_ref()),
             Some(proto::retention::Retention::DeleteNow(_))
         );
         match (deleted, reply.state) {
@@ -441,7 +454,7 @@ impl InMemory {
                 self.states.borrow_mut().remove(&key);
             }
         }
-        match out.outcome.and_then(|o| o.outcome) {
+        match outcome.and_then(|o| o.outcome) {
             Some(proto::outcome::Outcome::Error(e)) => proto::InvokeReply {
                 result: Some(proto::invoke_reply::Result::Error(e)),
             },
@@ -460,7 +473,7 @@ impl InMemory {
 
 struct Shared(Rc<InMemory>);
 
-/// A service's event sourced entities in memory, for the kits whose components call them.
+/// A service's event sourced and key value entities in memory, for the kits whose components call them.
 pub(crate) fn in_memory(service: Service) -> Rc<InMemory> {
     Rc::new(InMemory {
         service,

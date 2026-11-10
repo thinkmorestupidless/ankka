@@ -620,9 +620,10 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   its tools, guardrails and task type rules with no loop; the TypeScript and Go kits have no autonomous
   agent kit at all. Test the loop through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's
   integration test kit does. The Java SDK's `TestModelProvider` scripts one for Java and Kotlin.
-- **The Scala test kit has the most.** `MovableClock`, `TimerProbe`, `GherkinSuite`, `LogCapturing`,
-  `FakeSecretManager`, `InMemoryBroker` and `InMemoryPublisher` are its alone: in every other kit a timer
-  fires when its due time arrives on the wall clock, a scenario is a test of the language's own runner,
+- **The Scala test kit has the most.** `TimerProbe`, `GherkinSuite`, `LogCapturing`,
+  `FakeSecretManager`, `InMemoryBroker` and `InMemoryPublisher` are its alone, and `MovableClock` is its
+  and the Java and Kotlin kit's: in every other kit a timer fires when its due time arrives on the wall
+  clock, a scenario is a test of the language's own runner,
   and what a consumer publishes is read from the unit kit or from a real broker. Every other integration
   kit starts one installation, so replication between installations is tested in Scala. The Java and
   Kotlin unit kits hold no secret store (`AnkkaTestKit.secrets()` reads one) and their integration kit

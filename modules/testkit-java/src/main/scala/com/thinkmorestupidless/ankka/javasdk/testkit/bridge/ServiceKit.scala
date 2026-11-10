@@ -45,7 +45,9 @@ final class ServiceKit private (
     private var read: JavaServiceBuilder.Read,
     scripted: Map[String, stk.ScriptedService],
     private var probe: stk.TimerProbe,
-    private var broker: runtime.InMemoryBroker
+    private var broker: runtime.InMemoryBroker,
+    /** The settings' clock, which a service started again keeps. */
+    clock: java.time.Clock
 ):
   def timerRuns(): TimerRunsKit = TimerRunsKit(probe.bind(kit))
 
@@ -93,7 +95,7 @@ final class ServiceKit private (
 
   /** Stops the service and starts `service` on the same database. */
   def restartService(service: ServiceBuilder): Unit =
-    val next = ServiceKit.prepare(service)
+    val next = ServiceKit.prepare(service, clock)
     kit.stopService()
     kit.startService(next.extensions, descriptors = next.read.descriptors)
     JavaServiceBuilder.problemsAtStart(kit): Unit
@@ -211,7 +213,7 @@ object ServiceKit:
   )
 
   /** The service read, and the extensions it is started with. */
-  private def prepare(service: ServiceBuilder): Prepared =
+  private def prepare(service: ServiceBuilder, clock: java.time.Clock): Prepared =
     val builder = service match
       case b: JavaServiceBuilder => b
       case other => throw IllegalArgumentException(s"$other is not a service from Ankka.service")
@@ -225,8 +227,9 @@ object ServiceKit:
     )
     val probe        = stk.TimerProbe()
     val broker       = runtime.InMemoryBroker()
-    val timerRuntime = runtime.TimerRuntime(pollInterval = 200.millis, observer = probe)
-    val extensions   = read.platformExtensionsWith(
+    val timerRuntime =
+      runtime.TimerRuntime(pollInterval = 200.millis, observer = probe, clock = clock)
+    val extensions = read.platformExtensionsWith(
       runtime.ProjectionRuntime.withBroker(broker, broker),
       timerRuntime
     ) ++
@@ -246,7 +249,7 @@ object ServiceKit:
           runtime.ServiceBuilder => runtime.ServiceBuilder
       ) => stk.AnkkaTestKit
   ): ServiceKit =
-    val Prepared(read, probe, broker, http, configure) = prepare(service)
+    val Prepared(read, probe, broker, http, configure) = prepare(service, settings.clock)
     val scripted                                       =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
@@ -266,7 +269,7 @@ object ServiceKit:
         case e: Throwable =>
           scripted.values.foreach(_.stop())
           throw e
-    ServiceKit(kit, read, scripted, probe, broker)
+    ServiceKit(kit, read, scripted, probe, broker, settings.clock)
 
 private final class JavaScripted(scala: stk.ScriptedService) extends ScriptedService:
   def answer(answer: Function[ScriptedService.Request, ServiceResponse]): Unit =

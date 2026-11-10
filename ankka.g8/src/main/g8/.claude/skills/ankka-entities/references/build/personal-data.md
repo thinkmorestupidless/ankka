@@ -304,7 +304,8 @@ seconds of the erasure.
 A person's own words are in a conversation, and no field can mark them. A session, an autonomous
 agent's instance or a task can instead be started with a data subject, and then everything the platform
 keeps of it (every message, tool call, tool result, instruction, attachment and result) is kept sealed
-under that data subject's key.
+under that data subject's key. With [compaction](agents.md#compaction) on, so is the summary that
+replaces a session's oldest messages.
 
 **Scala**
 

@@ -192,3 +192,14 @@ is the Scala form; the sidecar reads the certificate only when an installation m
   for a 10 s caller, and the next scenario's tool question waited past 840 s. `ModelRequest.timeout` carries the wait to the
   providers (the SDKs' `RequestOptions` timeout) and, for the installation, to the door as `X-Ankka-Model-Timeout`; the door
   cannot see its caller leave (JDK `HttpServer` has no disconnect notice), so it needs the header. (2026-11-10)
+- **A consumer of session memory's events sees `Sealed` for every event of a session started with a
+  data subject after `Started`** (2026-11-10, feature 064). Match on `SessionMemoryEvent.opened(event)`,
+  which opens a sealed event as the one it holds and an erased one as `None`, never on a plain case
+  alone. The compactor matched `AiMessageAdded` and silently never compacted such a session, from 042
+  until 064, while its sessions grew without bound.
+- **The compactor reads behind the turns** (2026-11-10, feature 064). It is handed a session's events in
+  a burst, and each AI message it considers reads the session's history as it is now, not as it was at
+  that event. A summary that failed is asked again at the next AI message of the same burst, so a test
+  of a failure refuses every summary of that session; and a check that something was *not* compacted
+  first waits for a plain session written after it to be compacted (`compactorPassed` in
+  `CompactionSteps`, the fence in `ErasureAgentsFeatures`).

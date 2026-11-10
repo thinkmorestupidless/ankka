@@ -147,7 +147,8 @@ The summariser calls the model provider directly rather than through an agent. A
 session, and the only sensible session is the one being summarised, so it would append its own turns to
 the history it is trying to shorten. Compaction is best effort: a summarisation that fails is skipped
 and the consumer moves on, because a consumer that kept retrying one session would stall compaction for
-every session.
+every session. A session started with a data subject is compacted as any other, and its summary is kept
+sealed under the data subject's key with the rest of the session.
 
 ## Agents in Python
 

@@ -307,13 +307,22 @@ export class EndpointTestKit<C extends Endpoint> {
     return { sent, ended: "finished" }
   }
 
-  /** The frames of an SSE route, each string one frame. */
+  /** The text frames of an SSE route, each string one frame. A named event is left out: `sseEvents` has it. */
   async sse(path: string, options: RequestOptions = {}): Promise<string[]> {
+    return (await this.sseEvents(path, options)).filter((f) => f.event === undefined).map((f) => f.data)
+  }
+
+  /**
+   * Every frame of an SSE route, in order: a text frame with no `event`, and a named event (`sseEvent`) with
+   * its name and its value as the JSON text it is sent as.
+   */
+  async sseEvents(path: string, options: RequestOptions = {}): Promise<SseFrame[]> {
     const prepared = this.#request("GET", path, undefined, options)
     if (!prepared) throw new Error(`no route GET ${path}`)
-    const frames: string[] = []
+    const frames: SseFrame[] = []
     for await (const f of this.#dispatcher.handleStream(prepared.req)) {
-      if (f.frame.case === "text") frames.push(f.frame.value)
+      if (f.frame.case === "text") frames.push({ data: f.frame.value })
+      if (f.frame.case === "event") frames.push({ event: f.frame.value.name, data: f.frame.value.data })
       if (f.frame.case === "failed") throw new Error(f.frame.value.message)
     }
     return frames
@@ -334,6 +343,12 @@ export class EndpointTestKit<C extends Endpoint> {
   delete(path: string, body?: unknown, options?: RequestOptions): Promise<Response> {
     return this.request("DELETE", path, body, options)
   }
+}
+
+/** One frame of an SSE response: `event` names a named event, and is absent for a frame of text. */
+export interface SseFrame {
+  readonly event?: string
+  readonly data: string
 }
 
 export type { ErrorDetail, Retention }

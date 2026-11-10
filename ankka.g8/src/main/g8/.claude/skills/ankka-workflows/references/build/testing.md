@@ -705,10 +705,11 @@ func TestTheWeatherAgentsToolsAnswerTheModel(t *testing.T) {
 | `GraphConsumerTestKit.of(GraphConsumer, client)` | `onMessage(message, { subject, sequence })`, `onDelete({ subject, sequence })`, each returning the deltas published |
 | `TimedActionTestKit.of(Action)` | `invoke(action, input, metadata)`, the metadata being what the handler reads, such as `ankka.due` |
 | `AgentTestKit.of(Agent, session, model)` | a handler plus the loop the sidecar would run, against a `ScriptedModel` |
-| `EndpointTestKit.of(Endpoint)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response` |
+| `EndpointTestKit.of(Endpoint)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response`; `sse(path)` an SSE route's text frames, and `sseEvents(path)` every frame, a named event with its `event` |
 
 `ScriptedModel` scripts turns with `expectText`, `expectToolCall` and `expectRefusal`, and fails loudly
-when the script runs out.
+when the script runs out. A kit given no client hands its handler `noClient()`, which refuses every call;
+`noClient`, `noSecrets` and `noServices` are exported from `ankka/testkit` for a test that builds its own.
 
 ### What a Rust kit gives you
 

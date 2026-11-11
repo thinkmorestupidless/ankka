@@ -5,8 +5,10 @@ import { LineItem, ShoppingCart, ShoppingCartEvent, addItem, contains, emptyCart
 // docs:start handlers
 export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
   static readonly componentId = "shopping-cart"
+  // docs:start codecs
   static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
   static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+  // docs:end codecs
   static readonly snapshotEvery = 100
 
   static readonly handlers = {

@@ -5,11 +5,16 @@ from ankka import DONE, Done, ErrorCode, EventSourcedEffect, EventSourcedEntity,
 from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
 
 
+# docs:start entity
 # docs:start declaration
+# docs:start handlers
 class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     component_id = "shopping-cart"
+    # docs:start codecs
     state_codec = json_codec(ShoppingCart, "shopping-cart")
     event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
+    # docs:end codecs
+    # docs:end handlers
     snapshot_every = 100
 
     def empty_state(self) -> ShoppingCart:
@@ -28,6 +33,7 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
                 return state
         raise AssertionError(event)
     # docs:end declaration
+    # docs:start handlers
 
     # docs:start add-item
     @command("add-item")
@@ -40,6 +46,7 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
             return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
         return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
     # docs:end add-item
+    # docs:end handlers
 
     @command("remove-item")
     def remove_item(self, product_id: str) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
@@ -68,11 +75,14 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
         # discard rather than a cart that vanished; the same id then starts again empty.
         return self.effects.persist(Discarded()).delete_entity().then_reply(lambda _: DONE)
     # docs:end discard
+    # docs:start handlers
 
     @query("get-cart")
     def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]:
         return self.effects.reply(self.state)
+    # docs:end handlers
 
     @query("total-quantity")
     def total_quantity(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, int]:
         return self.effects.reply(self.state.total_quantity)
+# docs:end entity

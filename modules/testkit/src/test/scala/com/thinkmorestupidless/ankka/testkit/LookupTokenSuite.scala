@@ -44,6 +44,7 @@ final class MembersView extends View[Joined, MemberRow]:
   def onChange(event: Joined): Effect =
     effects.updateRow(MemberRow(event.memberId, event.email, event.city))
 
+// docs:start lookup-view
 object Members
     extends View.Companion[MembersView, Joined, MemberRow](
       componentId = ComponentId("members"),
@@ -55,6 +56,7 @@ object Members
   val byEmail =
     query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
   val byCity = query("by-city")(s"SELECT payload FROM $table WHERE payload::jsonb->>'city' = :city")
+// docs:end lookup-view
 
 final class LookupTokenSuite extends munit.FunSuite with LogCapturing:
 

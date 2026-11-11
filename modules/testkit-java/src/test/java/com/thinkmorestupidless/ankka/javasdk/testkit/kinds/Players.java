@@ -18,8 +18,10 @@ public class Players extends EventSourcedEntity<Players.Player, Players.PlayerRe
 
   public record Player(Optional<Personal<String>> email) {}
 
+  // docs:start marking
   @Manifest("player-registered")
   public record PlayerRegistered(String playerId, Personal<String> email, String currency) {}
+  // docs:end marking
 
   @Override
   protected Player emptyState() {
@@ -31,12 +33,15 @@ public class Players extends EventSourcedEntity<Players.Player, Players.PlayerRe
     return new Player(Optional.of(event.email()));
   }
 
+  // docs:start marking
+
   @Command("register")
   public Effect<Done> register(String email) {
     var id = context().entityId();
     var subject = DataSubject.of("player/" + id);
     return effects().persist(new PlayerRegistered(id, Personal.of(subject, email), "EUR")).thenDone();
   }
+  // docs:end marking
 
   /** The email, {@code erased} once the player is, or {@code none}. */
   @Query("email")

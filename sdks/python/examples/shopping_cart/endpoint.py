@@ -24,8 +24,10 @@ class ShoppingCartEndpoint(Endpoint):
     def __init__(self, client: ComponentClient) -> None:
         self.client = client
 
+    # docs:start call-site
     def _cart(self, cart_id: str) -> Calls:
         return self.client.with_metadata(self.request.metadata).for_event_sourced_entity("shopping-cart", cart_id)
+    # docs:end call-site
 
     @get("/{cartId}")
     async def get_cart(self, cartId: str) -> ShoppingCart:
@@ -34,10 +36,12 @@ class ShoppingCartEndpoint(Endpoint):
     @get("/{cartId}/total")
     async def total(self, cartId: str) -> int:
         return await self._cart(cartId).call("total-quantity").invoke(reply=int)
+    # docs:start call-site
 
     @post("/{cartId}/items")
     async def add_item(self, cartId: str, item: LineItem) -> Done:
         return await self._cart(cartId).call("add-item").invoke(item, reply=Done)
+    # docs:end call-site
 
     @delete("/{cartId}/items/{productId}")
     async def remove_item(self, cartId: str, productId: str) -> Done:

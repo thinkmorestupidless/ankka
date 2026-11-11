@@ -2,8 +2,8 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.keyring.HandlerReport
-import com.thinkmorestupidless.ankka.runtime.{ProjectionRuntime, ServiceIdentity}
-import com.thinkmorestupidless.ankka.sdk.{ErasureHandler, ErasureReport, Finality}
+import com.thinkmorestupidless.ankka.runtime.{ProjectionRuntime, ServiceBuilder, ServiceIdentity}
+import com.thinkmorestupidless.ankka.sdk.{BucketExposure, ErasureHandler, ErasureReport, Finality}
 
 import java.util.concurrent.ConcurrentLinkedQueue
 import scala.concurrent.duration.*
@@ -49,6 +49,39 @@ final class ErasureHandlerSuite extends munit.FunSuite with LogCapturing:
       assertEquals(
         runs.asScala.toVector,
         Vector(("member/8c1f", seq, false), ("member/8c1f", again, true))
+      )
+    finally kit.stop()
+  }
+
+  // docs:start erasure-handler
+  /** The service's part of an erasure: the subject's objects in its `kyc` bucket. */
+  def withKycErasure(service: ServiceBuilder): ServiceBuilder =
+    service.withErasureHandler(ErasureHandler { ctx => subject =>
+      val removed = ctx.storage.bucket("kyc").erase(subject)
+      ErasureReport(removed.count, removed.finality)
+    })
+  // docs:end erasure-handler
+
+  test("a handler erases the subject's objects in a named bucket, and keeps everyone else's") {
+    val keyring = InMemoryKeyring()
+    val kit     = AnkkaTestKit.start(
+      Seq(MemberEntity.descriptor, Members.descriptor),
+      Seq(ProjectionRuntime()),
+      configure = withKycErasure,
+      serviceIdentity = ServiceIdentity.deployed("brand", "members"),
+      keyring = keyring,
+      storage = StorageBackendChoice.Memory(buckets = Map("kyc" -> BucketExposure.Private))
+    )
+    try
+      val kyc = kit.storage.bucket("kyc")
+      kyc.putBytes("subjects/member%2F8c1f/passport.png", Array[Byte](1), "image/png")
+      kyc.putBytes("subjects/member%2F77a0/passport.png", Array[Byte](2), "image/png")
+      val seq = kit.erase(DataSubject("member/8c1f"))
+      val ack = eventually("the acknowledgement")(keyring.acks.find(_.seq == seq))
+      assertEquals(ack.completion.handler, Some(HandlerReport(1, HandlerReport.Immediate)))
+      assertEquals(
+        kyc.list("subjects/").map(_.name).toVector,
+        Vector("subjects/member%2F77a0/passport.png")
       )
     finally kit.stop()
   }

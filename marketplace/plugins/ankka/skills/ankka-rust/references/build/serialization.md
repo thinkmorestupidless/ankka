@@ -20,8 +20,6 @@ refused where the code is written, not at the first replay.
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.core.{Codecs, Serializer}
-
 given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
 ```
 
@@ -48,8 +46,6 @@ data class LineItem(val productId: String, val name: String, val quantity: Int)
 **Python**
 
 ```python
-from ankka import json_codec
-
 state_codec = json_codec(ShoppingCart, "shopping-cart")
 event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
 ```
@@ -57,11 +53,11 @@ event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
 **TypeScript**
 
 ```ts
-import { jsonCodec, s, type Infer } from "ankka"
-
 export const LineItem = s.record("LineItem", { productId: s.string, name: s.string, quantity: s.int })
 export type LineItem = Infer<typeof LineItem>
+```
 
+```ts
 static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
 static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
 ```

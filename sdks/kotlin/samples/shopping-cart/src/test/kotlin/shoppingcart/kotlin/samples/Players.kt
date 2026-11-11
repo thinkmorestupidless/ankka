@@ -10,16 +10,20 @@ import com.thinkmorestupidless.ankka.javasdk.component.EventSourcedEntity
 import com.thinkmorestupidless.ankka.javasdk.effect.Effect
 import com.thinkmorestupidless.ankka.javasdk.effect.ReadOnlyEffect
 import com.thinkmorestupidless.ankka.kotlin.dsl.effects
+// docs:start marking
 import com.thinkmorestupidless.ankka.kotlin.personal
 import com.thinkmorestupidless.ankka.kotlin.subject
 
+// docs:end marking
 // docs:start personal-entity
 /** A player, whose email is a personal field: sealed under the player's key wherever it is kept. */
 @Manifest("player")
 data class Player(val email: Personal<String>? = null)
 
+// docs:start marking
 @Manifest("player-registered")
 data class PlayerRegistered(val playerId: String, val email: Personal<String>, val currency: String)
+// docs:end marking
 
 @ComponentId("player")
 class PlayerEntity : EventSourcedEntity<Player, PlayerRegistered>() {
@@ -27,11 +31,14 @@ class PlayerEntity : EventSourcedEntity<Player, PlayerRegistered>() {
 
     override fun applyEvent(state: Player, event: PlayerRegistered) = Player(event.email)
 
+    // docs:start marking
+
     @Command("register")
     fun register(email: String): Effect<Done> = effects {
         val id = context().entityId()
         persist(PlayerRegistered(id, personal(subject("player/$id"), email), "EUR")).thenDone()
     }
+    // docs:end marking
 
     /** The email as it reads now: its value, `erased` once the player is erased, or `none`. */
     @Query("email")

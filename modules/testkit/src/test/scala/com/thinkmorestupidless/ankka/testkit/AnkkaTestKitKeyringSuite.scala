@@ -33,8 +33,11 @@ final class AnkkaTestKitKeyringSuite extends munit.FunSuite with LogCapturing:
 
   test("an erased player's email reads as erased, from the database") {
     assertEquals(card("77a0").call(ContactCardEntity.setEmail).invoke("ida@example.com"), Done)
-    kit.erase(DataSubject("player/77a0"))
-    // From the database, not memory: what was kept is all that can be read.
-    kit.restartService()
+    // docs:start erase
+    kit.erase(DataSubject("player/77a0")) // destroys the key now and sends the notice
+    kit.restartService()                  // read from the database, not from memory
     assertEquals(card("77a0").call(ContactCardEntity.email).invoke(), "erased")
+
+    kit.assertNoPersonalValue("ida@example.com") // fails naming the table and column holding it
+    // docs:end erase
   }

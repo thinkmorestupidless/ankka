@@ -57,6 +57,24 @@ class ControlPlaneErasuresSuite extends munit.FunSuite:
       )
   }
 
+  server.test("an ask held until a date carries its reason and its correlation id") { erasures =>
+    answer.set((201, """{"id":"03L","state":"held"}"""))
+    // docs:start ask
+    val asked = erasures.ask(
+      DataSubject("player/8c1f"),
+      notBefore = Some(LocalDate.parse("2031-10-08")),
+      reason = Some("aml-retention"),
+      correlation = Some("closure-4411")
+    )
+    // asked.id, asked.state: "held", "applying" or "applied"
+    // docs:end ask
+    assertEquals((asked.id, asked.state), ("03L", "held"))
+    assertEquals(
+      this.asked.get._2,
+      """{"subject":"player/8c1f","notBefore":"2031-10-08T00:00:00Z","reason":"aml-retention","correlation":"closure-4411"}"""
+    )
+  }
+
   server.test("an ask names another project when told to") { erasures =>
     answer.set((201, """{"id":"02K","state":"held"}"""))
     erasures.ask(DataSubject("cardholder/77a0"), project = Some("payments")): Unit

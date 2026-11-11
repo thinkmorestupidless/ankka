@@ -220,6 +220,21 @@ class ErasureJavaSuite extends munit.FunSuite with LogCapturing:
       plane.server.stop(0)
   }
 
+  test("a Java endpoint asks for an erasure held until a date, with a reason and a correlation") {
+    val plane = FakePlane()
+    val kit   = askingKit(plane)
+    try
+      assertEquals(post(kit, "/forget-later/8c1f").statusCode, 200)
+      val (path, body) = plane.asked.asScala.head
+      assertEquals(path, "/projects/brand/erasures")
+      assert(body.contains("\"notBefore\":\"2031-10-08T00:00:00Z\""), body)
+      assert(body.contains("\"reason\":\"aml-retention\""), body)
+      assert(body.contains("\"correlation\":\"closure-4411\""), body)
+    finally
+      kit.close()
+      plane.server.stop(0)
+  }
+
   test("the control plane's refusal of a Java ask is the route's refusal, in its words") {
     val plane = FakePlane(refuse = true)
     val kit   = askingKit(plane)

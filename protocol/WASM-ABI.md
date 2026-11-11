@@ -92,6 +92,8 @@ declared.
 | `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | cancels a timer of either kind |
 | `schedule_recurring(ptr, len) -> i64` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `Client.ScheduleRecurring`: a recurring timer, since 1.12; blocks the calling instance. A refusal is the reply's `Error`, not a trap |
 | `await_end(ptr, len) -> i64` | `AwaitEndRequest` | `InvokeReply` | `Client.AwaitEnd`: waits for a workflow's end, since 1.18; blocks the calling instance for as long as the wait. A failed or deleted workflow is the reply's `Error`, `WORKFLOW_FAILED` with `details`, not a trap |
+| `lifecycle(ptr, len) -> i64` | `LifecycleRequest` | `LifecycleReply` | `Client.Lifecycle`: a workflow's standing, since 1.24; the runtime's own read, which runs no handler and journals nothing. A refusal is the reply's `Error`, with the code the runtime refuses the same read with, not a trap |
+| `replication(ptr, len) -> i64` | `ReplicationRequest` | `ReplicationReply` | `Client.Replication`: how the copy of a replicated entity at this installation stands, since 1.24; the runtime's own read. An entity that is not replicated is the reply's `Error` |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
 | `issue_client_key(ptr, len) -> i64` | `IssueClientKeyRequest` | `IssueClientKeyReply` | `Client.IssueClientKey`, since 1.20; the key is in the reply and nowhere else |
 | `list_client_keys(ptr, len) -> i64` | `ListClientKeysRequest` | `ListClientKeysReply` | `Client.ListClientKeys`, since 1.20 |
@@ -113,7 +115,9 @@ The three secret imports answer every refusal and fault in the reply's `Error`, 
 secret store imports none of them, and so runs on a runtime that predates them. `schedule_recurring`
 is the same: it answers in the reply and `Error(UNAVAILABLE)` before the service has started, and a
 module that never sets a recurring timer does not import it. `await_end` is the same: a module that never
-waits for a workflow's end does not import it, and so runs on a runtime from before 1.18. The
+waits for a workflow's end does not import it, and so runs on a runtime from before 1.18. `lifecycle` and
+`replication` are the same: a module that reads neither imports neither, and so runs on a runtime
+from before 1.24, which refuses to load one that imports either. The
 three client key imports are the same again: each answers in the reply, and a module that issues no
 key imports none of them. `storage` is the same: a module that never
 reaches a bucket does not import it, and so runs on a runtime from before 1.21. `keyring_seal` and

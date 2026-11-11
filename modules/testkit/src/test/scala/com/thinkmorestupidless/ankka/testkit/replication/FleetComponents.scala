@@ -98,10 +98,13 @@ final class VehicleEntity(ctx: EventSourcedEntityContext)
     effects.persist(Sold).thenReply(receipt("record-sale"))
 
   // docs:start replicated-effects
+  // docs:start hand-over
   /** Ships the vehicle: its home is the dealership's installation from now on. */
   def handOver(installation: String): Effect[Receipt] =
     effects.handOverTo(installation).thenReply(receipt("hand-over"))
+  // docs:end hand-over
 
+  // docs:start replication-set
   /** Allots the vehicle to a dealership, whose installation holds it from now on. */
   def replicateTo(installation: String): Effect[Receipt] =
     effects.replicateTo(installation).thenReply(receipt("replicate-to"))
@@ -109,6 +112,7 @@ final class VehicleEntity(ctx: EventSourcedEntityContext)
   /** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
   def stopReplicatingTo(installation: String): Effect[Receipt] =
     effects.stopReplicatingTo(installation).thenReply(receipt("stop-replicating-to"))
+  // docs:end replication-set
   // docs:end replicated-effects
 
   def get: ReadOnlyEffect[Vehicle] = effects.reply(currentState)

@@ -25,8 +25,10 @@ import scala.concurrent.duration.DurationInt
  */
 final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState]:
 
-  private val client  = context.componentClient
+  private val client = context.componentClient
+  // docs:start session
   private val session = SessionId(context.workflowId)
+  // docs:end session
 
   def emptyState: PlanState = PlanState.empty
 

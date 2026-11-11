@@ -59,3 +59,56 @@ Tests run:
 - TypeScript `node --conditions=ankka-source --test test/client-reads.test.ts test/testkit-reads.test.ts examples/shopping-cart/planner.test.ts`: 24 passed.
 
 Not run: `sidecar/testOnly *ClientReadsSuite *WasmHostSuite *ConformanceSuite`, each SDK's slow or integration suites, and the replication Gherkin bindings. All of them need Docker and take minutes. The size of this change also makes CI's full run the right evidence for them.
+
+## Second round
+
+# Review: the fixes to the first round (spec 065, 74e5a5327..HEAD)
+
+**Verdict:** Approve with comments. The one should-fix is expected before merge and is a two-cell docs edit.
+**What it does:** Five commits answer the first round. Go's endpoint kit takes options through `testkit.EndpointWith`. Rust's `WorkflowStatus` gets `Display`. The TypeScript "Observing a run" tab reads a real run through `AnkkaTestKit`. The four SDK reference pages name both reads and their kit stubs. `testing.md` gains "Testing a component that reads a standing" with Python, TypeScript, Rust and Go tabs, and `limitations.md` states why Scala, Java and Kotlin are left out. The workflows prose and the data model are corrected.
+**Should it exist:** yes. Each hunk answers a first-round finding, and nothing outside them was added.
+**Read:** the whole hand-written diff: `sdks/go/testkit/{kinds.go,reads_test.go}`, `sdks/go/examples/shopping-cart/samples/awaiting_test.go`, `sdks/rust/ankka/{src,tests}/reads.rs`, `sdks/rust/examples/shopping-cart/{src,tests}/transfer.rs`, `sdks/typescript/examples/shopping-cart/{planner,cart}.test.ts`, `sdks/python/examples/shopping_cart/test_cart.py`, `docs/build/{testing,workflows,multi-agent-orchestration}.md`, `docs/reference/{python,typescript,rust,go}-sdk.md`, `docs/reference/limitations.md`, and `data-model.md`. Skimmed: the 56 rendered skill copies under `marketplace/` and `ankka.g8/` (`docs check` holds them to the pages). Opened outside the diff: Go `settings` in `testkit/unit.go`; TypeScript `READS_SINCE`/`readsTooOld` in `src/client.ts` and `plannerService`/`PlanState`/the agents' prompts in `planner.ts`; the sidecar's `Models.scriptedFrom` (ordered turns, then `when` rules); the `sdk-typescript` CI job, which runs `npm run test:slow` on node 24; Go `reads.go`'s `ReadsSince`; Python `Lifecycle.is_terminal`; Scala `TestTransport` and `ComponentClient.lifecycle`/`replication`, to test the new limitation; the Rust planner test's `Ended` host.
+**Size:** 39 hand-written files, +299 -42 (76 files, +2667 -132 with the rendered copies). One pass covers it.
+
+## Resolutions from the first round
+
+- **Blocking, reference pages and testing.md: holds, with one gap.** All four reference tables now name `lifecycle` and `replication`, and all four kit tables name the stub. `testing.md` has the new section, its four tabs are included from tested code, and `docs check` is clean. The `<!-- languages: … -->` reason for leaving out Scala, Java and Kotlin is now stated in `limitations.md`, so REVIEW.md's rule holds. I checked that the limitation is true. Scala's `TestTransport` has `stubEnd`/`stubEndFailure` for a wait, but nothing public for `ankka:lifecycle` or `ReplicationStatus.Method`: `stubBytes` is `private[ankka]`, and the lifecycle handle is built inside `ComponentClient`. The gap: the first round asked for "since protocol 1.24 and the too-old behaviour" in each table, and the resolution line says it was done. It was done for Python, Rust and Go's `Lifecycle`, but not for TypeScript or for Go's `Replication` (below).
+- **Blocking, Go endpoint kit: holds.** `Endpoint` delegates to `EndpointWith(e, Calling(components...))`, so existing callers behave as before. The only difference from the old `options{}` is `entityID: "test-entity"`, which the endpoint kit does not read. `TestAnEndpointKitAnswersAStubbedStandingAndAStubbedCopy` covers both reads and the refusal of a read nobody stubbed. The docs sample route `/quotes/{id}/lifecycle` now has a unit test answering a failed standing (`TestTheLifecycleRouteSaysWhyAQuoteFailed`), which is US3's independent test in Go.
+- **Should fix, TypeScript observe tab: holds.** The tab now reads `plan` and `lifecycle()` from a real run, through `AnkkaTestKit.start(plannerService(), { env: { ANKKA_MODEL_SCRIPT } })` after `awaitEnd`, so its assertion can fail. The script fits the sidecar's semantics: one ordered turn for the selector, then `when` rules that match the budget and summary prompts as `planner.ts` writes them. CI runs the test (`test:slow` on node 24), and it is skipped without `ANKKA_SLOW`. I did not run it here because it needs Docker. **The Rust decline holds.** The Rust tab is the `observe` function itself, not a test, so it does not teach stubbing. Its test (`tests/planner.rs`, the `Ended` host) checks that the function composes the `plan` query with the `lifecycle` import, which is the part a unit test can see. The testing page's Rust tab shows the kit answering from a workflow it runs.
+- **Suggestion, workflows.md prose: holds.** It describes the fields in words, includes not started, and names each language's types. I checked them against the code: TypeScript `interface Lifecycle`, Python's `is_terminal` property, Rust's `is_terminal()`, Go's `IsTerminal()`.
+- **Nit, Rust `Debug` as user text: holds.** `Display` writes the platform's words, `a_status_is_shown_as_the_platform_names_it` pins all five, and the sample and its page use it.
+- **Nit, data model retries: holds.**
+- **Question, status words per SDK: answered.** The answer cites `contracts/client-reads.md`, and workflows.md now says it.
+
+## Should fix
+
+- `docs/reference/typescript-sdk.md:302-303` and `docs/reference/go-sdk.md:876`: issue (non-blocking): the reference does not say that the reads need protocol 1.24, or what an older sidecar answers. In TypeScript this is missing for both reads. In Go it is missing for `Replication`, though the `Lifecycle` row beside it says it. The code gates both reads: TypeScript's `readsTooOld` rejects with `CommandError` `UNAVAILABLE` naming `READS_SINCE`, and Go's `Replication` returns `*ankka.ProtocolTooOldError` as `Lifecycle` does. Someone reading the TypeScript page against a pinned older sidecar is not told why the call fails. Suggestion: end the TypeScript Workflow and replicated-copy cells with "Since protocol 1.24; an older sidecar rejects with `CommandError` `UNAVAILABLE` naming 1.24", and add "A sidecar before protocol 1.24 is a `*ankka.ProtocolTooOldError`" to Go's `Replication` row. Then `just docs-sync`.
+  Resolved: TypeScript's replicated-copy cell says both reads need protocol 1.24 and an older sidecar rejects with `CommandError` `UNAVAILABLE` naming 1.24; Go's `Replication` row names `*ankka.ProtocolTooOldError`, 4a36f5084
+
+## Questions
+
+- `sdks/go/testkit/agent.go:418` (`testkit.Mcp`): question: the Go MCP kit still takes components only, so an MCP tool that reads a standing cannot be answered in a Go unit test. The endpoint kit now can. The spec's US3 names endpoints, so this is outside it. Is an MCP tool reading either value something the other SDKs' MCP kits support? If they do, an `McpWith` like `EndpointWith` would close the gap. If they do not, nothing is needed.
+  Answered: yes, Python's and TypeScript's MCP kits take a client as every kit does, so `testkit.McpWith(e, opts...)` now takes the same options, with a test of a tool answering a stubbed standing, 332cf4407
+
+## Praise
+
+- `sdks/go/testkit/kinds.go:39-51`: praise: `Endpoint` became a one-line delegate to `EndpointWith`, so the endpoint kit now takes every option the other kits take (`AnswerService` as well), with no second way to build one and no change for existing callers.
+- `docs/build/testing.md` (new section): praise: each tab is the sample's own existing test marked with `docs:start`, not new code written for the page. The left-out languages carry a reason that is checked and true.
+
+## Checks applied
+
+General groups applied: Correctness, Design and scope, Error handling (the refusal of a read nobody stubbed, the too-old gates as documented against the code), Tests (each new test asked whether it could pass while false: the Go kit test and the sample test assert texts only a stub can produce, and the TypeScript tab now reads a run), API and compatibility (`Endpoint` unchanged for callers; `EndpointWith` and `Display` are additive), Documentation (REVIEW.md "every sample in every language": the new section's languages and their limitation), Commit hygiene (five Conventional Commits headers, scope `065`, the trailer present). Skipped: Concurrency, Security, Data and migrations, Performance, Observability, Dependencies. The fix diff touches none of them.
+
+Language checklists: the Go, Rust, TypeScript and Python hunks were read against this skill's summaries. They total under 150 lines, so the lighter procedure applied and the language skills were not loaded separately. Formatting is left to gofmt, rustfmt and the TypeScript and Python tooling.
+
+Project rules read: `CLAUDE.md`, `REVIEW.md`, `.claude/rules/{docs,testing}.md`.
+
+Tests run:
+- `docs check`: 112 pages, no problems.
+- `.github/features-check.sh`: 0 findings in 3306 scenarios and 65 specs.
+- Go `go test ./testkit` and, in `examples/shopping-cart`, `go test ./samples`: ok. `go vet ./testkit`: clean.
+- Rust `cargo test -p ankka --test reads` (9 passed) and `cargo test -p shopping-cart --test transfer` (6 passed).
+- TypeScript `npm run typecheck`: clean. `planner.test.ts` and `cart.test.ts`: 29 passed, the sidecar describe skipped without `ANKKA_SLOW`.
+- Python `pytest examples/shopping_cart/test_cart.py -k lifecycle`: 1 passed.
+
+Not run: the TypeScript observe test against the real sidecar (`ANKKA_SLOW=1`, Docker). CI's `sdk-typescript` job runs it.

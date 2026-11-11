@@ -24,7 +24,7 @@ GitHub workflows, and its README says how to run each. To follow this page, star
 mkdir cart && cd cart
 npm init -y
 npm pkg set type=module
-npm install ankka@0.16.0                                        # the version of the platform you will deploy to
+npm install ankka@0.16.2                                        # the version of the platform you will deploy to
 npm install -D typescript @types/node testcontainers @testcontainers/postgresql
 ```
 

@@ -44,6 +44,7 @@ A service is listed under the name it was started with. For a Scala service that
 <!-- languages: scala; `start(name = ...)` is the Scala runtime's; a service beside a sidecar is named by `ANKKA_SERVICE_NAME` on the sidecar, with nothing in code -->
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/LocalConsoleName.scala#named -->
 ```scala
 Ankka.service.register(ShoppingCartEntity.descriptor).start(name = "cart")
 ```

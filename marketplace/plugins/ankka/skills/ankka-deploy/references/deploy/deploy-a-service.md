@@ -20,7 +20,7 @@ Deploying needs a project to deploy into and a login. See
   "name": "orders",
   "service": {
     "image": "orders:latest",
-    "runtime": "0.16.0"
+    "runtime": "0.16.2"
   }
 }
 ```
@@ -110,7 +110,7 @@ naming a key in a Kubernetes Secret in the project's namespace:
   "name": "orders",
   "service": {
     "image": "registry.example.com/acme/orders:1.4.2",
-    "runtime": "0.16.0",
+    "runtime": "0.16.2",
     "env": [
       { "name": "LOG_LEVEL", "value": "info" },
       { "name": "ANTHROPIC_API_KEY", "secretKeyRef": { "name": "orders-secrets", "key": "anthropic-api-key" } }

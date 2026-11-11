@@ -339,6 +339,37 @@ def test_every_sample_is_shown_in_every_tongue_or_says_why(repo: Path) -> None:
     assert any("a 'Python' tab on a page whose tongues do not name python; add it to the frontmatter" in p for p in problems(repo))
 
 
+def test_with_tested_samples_every_tab_is_included_or_says_why(repo: Path) -> None:
+    hand = "code is written in the page, where nothing tests it"
+    assert not any(hand in p for p in problems(repo)), "off unless the project asks for it"
+
+    write(repo, "mkdocs.yml", MKDOCS.replace("fences: {python: [py]}", "fences: {python: [py]}\n      tested: true"))
+    found = problems(repo)
+    assert any(p.startswith("docs/build/make.md:") and f"the 'Scala' tab's {hand}" in p for p in found)
+    assert any(f"the 'Python' tab's {hand}" in p for p in found)
+
+    included = MAKE.replace("/// tab | Scala\n\n", "/// tab | Scala\n\n<!-- include: src/Widget.scala#recipe -->\n")
+    untested = included.replace("/// tab | Python\n\n", "/// tab | Python\n\n<!-- untested: Python reads no recipe -->\n")
+    write(repo, "docs/build/make.md", untested)
+    found = problems(repo)
+    assert not any(hand in p or "untested" in p for p in found), "an include, or a reason, is accepted"
+
+    write(repo, "docs/build/make.md", included.replace("/// tab | Python\n\n", "/// tab | Python\n\n<!-- untested: -->\n"))
+    assert any("the 'Python' tab's `untested:` comment gives no reason" in p for p in problems(repo))
+
+    write(repo, "docs/build/make.md", included.replace("/// tab | Scala\n\n", "/// tab | Scala\n\n<!-- untested: no reason needed -->\n"))
+    assert any("the 'Scala' tab is included from a tested file; remove its `untested:` comment" in p for p in problems(repo))
+
+    write(repo, "docs/build/make.md", untested + "\n````markdown\n/// tab | Scala\n\n```scala\nval shown = true\n```\n\n///\n````\n")
+    assert not any(hand in p for p in problems(repo)), "a tab inside a Markdown example is not a tab"
+
+
+def test_the_tested_setting_is_true_or_false(tmp_path: Path) -> None:
+    write(tmp_path, "mkdocs.yml", "site_name: x\nnav: []\nextra:\n  docs:\n    facets:\n      tongues: [scala]\n    samples:\n      facet: tongues\n      tested: sometimes\n")
+    with pytest.raises(ConfigError, match="samples.tested must be true or false"):
+        project(tmp_path)
+
+
 def test_a_repository_with_no_skills_and_no_generators_is_fine(tmp_path: Path) -> None:
     write(tmp_path, "mkdocs.yml", "site_name: plain\nsite_url: https://plain.example/\nnav:\n  - Home: index.md\n")
     write(tmp_path, "docs/index.md", INDEX.replace("Read [Make a widget](build/make.md#the-recipe) next.", "That is all.").replace("widget", "plain"))

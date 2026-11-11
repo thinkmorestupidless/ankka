@@ -23,7 +23,7 @@ descriptor and GitHub workflows, and its README says how to run each. To follow 
 ```bash
 mkdir cart && cd cart
 go mod init example.com/cart
-go get github.com/thinkmorestupidless/ankka-go@v0.16.0     # the version of the platform you will deploy to
+go get github.com/thinkmorestupidless/ankka-go@v0.16.2     # the version of the platform you will deploy to
 ```
 
 The module has two packages: `ankka`, which a service imports, and `ankka/testkit`, which only its tests

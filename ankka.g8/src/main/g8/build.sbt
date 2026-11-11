@@ -55,6 +55,7 @@ lazy val root = project
     // The image the descriptor names: <name>:<version> and <name>:latest, built into the local
     // Docker daemon by `sbt Docker/publishLocal`. No registry is assumed; `kind load docker-image`
     // puts it where a local cluster can see it.
+    // docs:start image
     Docker / packageName := serviceName,
     // Unset, the image is tagged unqualified, which is what `kind load docker-image` wants. Set,
     // the image is tagged for that registry and `sbt Docker/publish` pushes there — which is how
@@ -71,6 +72,7 @@ lazy val root = project
     dockerExposedPorts   := Seq(9000),
     // A Docker tag may not contain '+'; a git-derived snapshot version might.
     Docker / version     := version.value.replace('+', '-')
+    // docs:end image
   )
 
 // The platform's database schema, taken out of the ankka-runtime artifact into target/ddl, where

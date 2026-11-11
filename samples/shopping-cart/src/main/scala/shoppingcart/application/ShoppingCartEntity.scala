@@ -28,11 +28,13 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     // The cart is deleted straight after; the event is there for what reads the journal.
     case Discarded => currentState
 
+  // docs:start add-item
   def addItem(item: LineItem): Effect[Done] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else if item.quantity <= 0 then
       effects.error(s"quantity must be greater than zero, was ${item.quantity}")
     else effects.persist(ItemAdded(item)).thenReply(_ => Done)
+  // docs:end add-item
 
   def removeItem(productId: String): Effect[Done] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)

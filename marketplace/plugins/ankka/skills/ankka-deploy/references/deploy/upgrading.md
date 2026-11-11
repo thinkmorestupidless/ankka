@@ -29,7 +29,7 @@ In a service created from the template:
 
 ```scala
 // build.sbt
-val ankkaVersion = "0.16.0"
+val ankkaVersion = "0.16.2"
 ```
 
 ```json title="service.json"
@@ -37,7 +37,7 @@ val ankkaVersion = "0.16.0"
   "name": "orders",
   "service": {
     "image": "orders:latest",
-    "runtime": "0.16.0"
+    "runtime": "0.16.2"
   }
 }
 ```

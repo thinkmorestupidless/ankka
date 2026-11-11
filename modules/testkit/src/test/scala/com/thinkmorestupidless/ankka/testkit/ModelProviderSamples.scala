@@ -46,3 +46,8 @@ object ModelProviderSamples:
     def create(context: AgentContext) = new Triage
     val route                         = command("route")(_.route)
   // docs:end naming-a-provider
+
+  // docs:start installation-model
+  // The installation's own model server, by the model's tag; its address and credential are the platform's.
+  def installation: ModelProvider = ModelProviders.installation("qwen3:0.6b")
+  // docs:end installation-model

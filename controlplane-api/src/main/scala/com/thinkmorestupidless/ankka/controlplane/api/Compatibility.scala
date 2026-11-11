@@ -84,9 +84,11 @@ object Protocol:
    * event (spec 057). 1.23 added personal data: `GetSubjectKey`, `SubjectNotices`,
    * `AckSubjectNotice` and `AskErasure` on `Client`, `Spec.erasure_handler` and the `Erasure`
    * service the process serves, and the `keyring_seal` and `keyring_open` imports and the `erase`
-   * export and storage op for a module (feature 042).
+   * export and storage op for a module (feature 042). 1.24 added reading a workflow's standing and
+   * how a replicated entity's copy stands: `Lifecycle` and `Replication` on `Client`, and the
+   * `lifecycle` and `replication` module imports (spec 065).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 23)
+  val version: ProtocolVersion = ProtocolVersion(1, 24)
 
 object Compatibility:
 

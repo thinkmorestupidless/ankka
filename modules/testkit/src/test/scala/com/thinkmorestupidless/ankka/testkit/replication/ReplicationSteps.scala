@@ -1472,7 +1472,7 @@ final class LanguagesFeatures
   override protected def ranElsewhere: Map[String, String] = Map(
     "a process declaring replication beside an older runtime is refused naming the protocol version" ->
       ("the sidecar's ProtocolSuite (sidecar/src/test/scala/.../sidecar/ProtocolSuite.scala): " +
-        "replication refused under 1.19, and the version the runtime states, now 1.23; 1.22 " +
+        "replication refused under 1.19, and the version the runtime states, now 1.24; 1.22 " +
         "added who acted and where a write was forwarded from, and each language's es.attribution " +
         "conformance case holds those fields (" + LanguagesFeatures.commands.values.mkString("; ") +
         ")")

@@ -71,7 +71,8 @@ object Discovery:
    * command and event (spec 057); empty when there is nothing to say, so a process that ignores
    * them reads 1.22 as 1.21. 1.23: personal data, the keyring rpcs on `Client`, `AskErasure` and
    * `Spec.erasure_handler` (feature 042); a handler is refused from a process that declares an
-   * earlier minor.
+   * earlier minor. 1.24: a workflow's standing and how a copy stands, `Lifecycle` and `Replication`
+   * on `Client` (spec 065).
    */
   val ProtocolVersion: String = WireProtocol.Version
 

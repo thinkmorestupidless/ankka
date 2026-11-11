@@ -41,11 +41,28 @@ class ResponseSuite extends munit.FunSuite:
       (throw RuntimeException("NOT_FOUND: gone", CommandError("gone", ErrorCode.NotFound))): String
     )
 
-  private val router = Router(Vector(new Site), 5.seconds)
+  private val page       = "<h1>Your account</h1>"
+  private val cookie     = "session=s-1; HttpOnly; Secure"
+  private val stylesheet = "h1{color:teal}".getBytes("UTF-8")
 
-  private def call(path: String): (Int, String, Map[String, String], String) =
-    val response = Await.result(router.handle(HttpRequest(uri = path)), 10.seconds)
-    val body     = Await.result(response.entity.toStrict(5.seconds), 5.seconds).data.utf8String
+  /** A website's routes: a page that keeps a session, a redirect, and a stylesheet. */
+  private final class Website extends HttpEndpoint("/web"):
+    val acl: Acl = Acl.AllowAll
+    // docs:start pages
+    get("/account")(() => Respond(Html(page), headers = Vector("Set-Cookie" -> cookie)))
+    post("/logout")(() => Respond.redirect("/")) // 303 See Other, Location: /
+    get("/style.css")(() => Bytes("text/css", stylesheet))
+    // docs:end pages
+
+  private val router = Router(Vector(new Site, new Website), 5.seconds)
+
+  private def call(
+      path: String,
+      method: HttpMethod = HttpMethods.GET
+  ): (Int, String, Map[String, String], String) =
+    val response =
+      Await.result(router.handle(HttpRequest(method = method, uri = path)), 10.seconds)
+    val body = Await.result(response.entity.toStrict(5.seconds), 5.seconds).data.utf8String
     (
       response.status.intValue,
       body,
@@ -88,4 +105,18 @@ class ResponseSuite extends munit.FunSuite:
     val (status, body, _, _) = call("/site/relayed")
     assertEquals(status, 404)
     assert(body.contains("\"gone\""), body)
+  }
+
+  test("a website's page keeps a session, logging out redirects, and a stylesheet is its bytes") {
+    val (status, body, headers, contentType) = call("/web/account")
+    assertEquals(status, 200)
+    assertEquals(body, page)
+    assertEquals(contentType, "text/html; charset=UTF-8")
+    assertEquals(headers.get("set-cookie"), Some(cookie))
+    val (redirected, _, to, _) = call("/web/logout", HttpMethods.POST)
+    assertEquals(redirected, 303)
+    assertEquals(to.get("location"), Some("/"))
+    val (_, css, _, cssType) = call("/web/style.css")
+    assertEquals(css, "h1{color:teal}")
+    assertEquals(cssType, "text/css")
   }

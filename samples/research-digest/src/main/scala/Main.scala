@@ -16,6 +16,7 @@ import java.time.Clock
  * reads for the critique step's judgment.
  */
 @main def runResearchDigest(): Unit =
+  // docs:start judgments
   val agents = AgentRuntime
     .withDefaultModel(AnthropicProvider.fromEnv())
     .withJudgments(JevProvider.fromEnv())
@@ -30,6 +31,7 @@ import java.time.Clock
     .withExtension(ProjectionRuntime())
     .withExtension(HttpServer.of(clients => DigestEndpoint(clients.componentClient, agents)))
     .start()
+  // docs:end judgments
 
   sys.addShutdownHook(service.terminate())
   scala.concurrent.Await

@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.judgment.*
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
+import com.thinkmorestupidless.ankka.sdk.ComponentClient
 
 /** The team a ticket goes to. */
 enum Team:
@@ -180,3 +181,17 @@ object TriageAgent extends Agent.Companion[TriageAgent](ComponentId("triage")):
   val chat        = command("chat")(_.chat)
   val guarded     = command("guarded")(_.guarded)
   val guardedChat = stream("guarded-chat")(_.guardedChat)
+
+/** What a caller does with a triage: the judgments guide's sample of reading answers. */
+object TriageCalls:
+
+  // docs:start reading
+  /** Where a ticket goes: each answer is read through the question that asked it, typed. */
+  def dispatch(client: ComponentClient, ticket: Ticket): String =
+    val judgment = client.forAgent(SessionId(ticket.id)).call(TriageAgent.triage).invoke(ticket)
+    val team     = judgment(TriageAgent.route) // ChoiceAnswer[Team]
+    if team.confidence < 0.5 then "a person"
+    else
+      val refundAsked = judgment(TriageAgent.refund).probability >= 0.7
+      team.choice.toString.toLowerCase + (if refundAsked then ", refund asked" else "")
+  // docs:end reading

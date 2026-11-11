@@ -16,14 +16,17 @@ class JudgmentAgentSuite extends munit.FunSuite with LogCapturing:
   override val munitTimeout = 4.minutes
 
   private var testKit: AnkkaTestKit = null
-  private val model                 = TestModelProvider()
-  private val judge                 = TestJudgmentProvider()
+
+  // docs:start test-service
+  private val model = TestModelProvider()
+  private val judge = TestJudgmentProvider()
 
   override def beforeAll(): Unit =
     testKit = AnkkaTestKit.start(
       Seq(TriageAgent.descriptor) ++ AgentRuntime.descriptors,
       Seq(AgentRuntime.withDefaultModel(model).withJudgments(judge))
     )
+  // docs:end test-service
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
@@ -60,6 +63,11 @@ class JudgmentAgentSuite extends munit.FunSuite with LogCapturing:
     assertEquals(judge.callCount, 1)
     assertEquals(judge.lastRequest.state, JudgmentState.Text(ticket.text))
     assertEquals(judge.lastRequest.questions.map(_.id), Vector("route", "frustration", "refund"))
+  }
+
+  test("a caller dispatches a ticket by the answers it reads") {
+    scriptTriage()
+    assertEquals(TriageCalls.dispatch(testKit.componentClient, ticket), "billing, refund asked")
   }
 
   test("the caller reads each answer through its question, typed") {

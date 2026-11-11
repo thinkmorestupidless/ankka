@@ -45,24 +45,29 @@ class Placement:
     home: bool
 
 
+# docs:start replicated-declaration
 class VehicleEntity(EventSourcedEntity[Vehicle, StepAdded]):
     component_id = "vehicle"
     replicated = True
+    # docs:end replicated-declaration
     state_codec = json_codec(Vehicle, "vehicle")
     event_codec = json_codec(StepAdded, "step-added")
 
     def empty_state(self) -> Vehicle:
         return Vehicle()
 
+    # docs:start replicated-apply
     def apply_event(self, state: Vehicle, event: StepAdded) -> Vehicle:
         here = self.event_context
         return Vehicle(state.steps + [event.step], state.written_at + [here.installation], state.local + [here.is_local])
+    # docs:end replicated-apply
 
     @command("add-step")
     def add_step(self, step: str) -> EventSourcedEffect[Vehicle, StepAdded, Placement]:
         placement = Placement(self.context.installation, self.context.is_home)
         return self.effects.persist(StepAdded(step)).then_reply(lambda _: placement)
 
+    # docs:start replicated-effects
     @command("hand-over")
     def hand_over(self, target: str) -> EventSourcedEffect[Vehicle, StepAdded, str]:
         # docs:start hand-over
@@ -76,6 +81,7 @@ class VehicleEntity(EventSourcedEntity[Vehicle, StepAdded]):
             lambda _: target
         )
         # docs:end replicate-to
+    # docs:end replicated-effects
 
     @query("get")
     def get(self) -> ReadOnlyEffect[Vehicle, StepAdded, Vehicle]:
@@ -119,11 +125,13 @@ def test_at_the_home_a_command_is_told_it_is_at_the_home() -> None:
 
 def test_a_follower_refuses_a_persisting_command_naming_the_home_and_answers_a_query() -> None:
     # docs:start follower-kit
+    # docs:start follower-test
     kit = EventSourcedTestKit.of(VehicleEntity, "v1", mode="follower", home="leipzig", installation="bratislava")
     kit.replay(StepAdded("frame"), written_at="leipzig")
     # docs:end follower-kit
     refused = kit.call("add-step", "wheels")
     assert refused.error is not None and refused.error.code == ErrorCode.NOT_HOME
+    # docs:end follower-test
     assert "leipzig" in refused.error.message
     answered = kit.call("get").reply
     assert answered == Vehicle(["frame"], ["leipzig"], [False])

@@ -15,6 +15,7 @@ PEN = LineItem("p1", "Pen", 2)
 INK = LineItem("p2", "Ink", 1)
 
 
+# docs:start entity-test
 def test_add_merge_remove_and_checkout() -> None:
     kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
     assert kit.call("add-item", PEN).events == (ItemAdded(PEN),)
@@ -26,6 +27,7 @@ def test_add_merge_remove_and_checkout() -> None:
     checked = kit.call("checkout")
     assert checked.events == (CheckedOut(),)
     assert checked.reply == ShoppingCart("c1", [LineItem("p1", "Pen", 5)], True)
+# docs:end entity-test
 
 
 def _code(kit: EventSourcedTestKit[ShoppingCart, Any], name: str, input: object = None) -> ErrorCode:
@@ -87,6 +89,7 @@ from examples.shopping_cart.checkout_notifier import CheckoutNotifier
 from examples.shopping_cart.checkout_workflow import CheckoutWorkflow
 
 
+# docs:start view-test
 def test_cart_rows_follow_the_events_and_leave_with_a_discarded_cart() -> None:
     kit = ViewTestKit.of(CartRows)
     assert isinstance(kit.on_change("c1", ItemAdded(PEN)), UpdateRow)
@@ -101,6 +104,7 @@ def test_cart_rows_follow_the_events_and_leave_with_a_discarded_cart() -> None:
     assert kit.on_change("c2", Discarded()).__class__.__name__ == "Ignore"
     assert isinstance(kit.on_delete("c2"), DeleteRow)
     assert kit.get("c2") is None
+    # docs:end view-test
     assert CartRows.row_codec.encode(CartRow("c1", {"p1": 5}, True)) == b'{"cartId":"c1","quantities":{"p1":5},"checkedOut":true}'
 
 

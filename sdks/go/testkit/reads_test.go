@@ -122,3 +122,28 @@ func TestAnEndpointKitAnswersAStubbedStandingAndAStubbedCopy(t *testing.T) {
 		t.Fatalf("an unstubbed standing read %d %q", r.Status, r.Text())
 	}
 }
+
+type planID struct {
+	ID string `json:"id"`
+}
+
+// An MCP tool reads a standing through the kit's answer, as a route does.
+var readsMcp = ankka.NewMcpEndpoint("/mcp", ankka.AllowClientKeys(),
+	ankka.McpTool("plan_standing", "How a plan stands",
+		func(ctx context.Context, in planID) (string, error) {
+			l, err := ankka.Lifecycle(ctx, "plan", in.ID)
+			if err != nil {
+				return "", err
+			}
+			return string(l.Status), nil
+		}),
+)
+
+func TestAnMcpKitAnswersAStubbedStanding(t *testing.T) {
+	k := testkit.McpWith(readsMcp, testkit.AnswerLifecycle("plan", "p1", ankka.WorkflowLifecycle{Status: ankka.Paused}))
+	defer k.Close()
+	answer, err := k.Call(context.Background(), "plan_standing", map[string]any{"id": "p1"}, nil)
+	if err != nil || !strings.Contains(answer.Text, "Paused") {
+		t.Fatalf("the tool answered %+v, %v", answer, err)
+	}
+}

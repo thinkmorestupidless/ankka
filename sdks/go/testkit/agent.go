@@ -416,7 +416,14 @@ type McpKit struct {
 
 // Mcp is a kit for the MCP endpoint e and the components and endpoints its tools reach.
 func Mcp(e *ankka.McpEndpoint, components ...ankka.Declaration) *McpKit {
-	return &McpKit{hosted: host(e, options{calling: components}), path: e.Path()}
+	return McpWith(e, Calling(components...))
+}
+
+// McpWith is a kit for the MCP endpoint e given the options the other kits take: Calling, and what
+// a read of a standing or a copy (AnswerLifecycle, AnswerReplication) or a call to another service
+// (AnswerService) answers.
+func McpWith(e *ankka.McpEndpoint, opts ...Option) *McpKit {
+	return &McpKit{hosted: host(e, settings(opts)), path: e.Path()}
 }
 
 // Call runs tool with args (a value encoded as JSON; a string is taken as JSON already) as the

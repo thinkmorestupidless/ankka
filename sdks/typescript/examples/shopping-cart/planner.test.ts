@@ -3,8 +3,8 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { type ComponentClient } from "ankka"
-import { AgentTestKit, ScriptedModel, WorkflowTestKit, stubClient } from "ankka/testkit"
-import { ActivityAgent, ForecastAgent, PlannerWorkflow, SelectorAgent, Specialist, SummaryAgent } from "./planner.ts"
+import { AgentTestKit, AnkkaTestKit, ScriptedModel, WorkflowTestKit } from "ankka/testkit"
+import { ActivityAgent, ForecastAgent, type PlanState, PlannerWorkflow, SelectorAgent, Specialist, SummaryAgent, plannerService } from "./planner.ts"
 import { TicketAgent } from "./tickets.ts"
 
 describe("the agents of the plan", () => {
@@ -109,20 +109,6 @@ describe("the planner workflow, against agents played by a client double", () =>
   })
   // docs:end assert
 
-  // docs:start observe
-  test("a plan's own state and the engine's standing are read apart", async () => {
-    const { client } = scriptPlan([Specialist.Budget], "Cheap.")
-    const kit = WorkflowTestKit.of(PlannerWorkflow, "p-observe", client)
-    await kit.call(PlannerWorkflow.handlers.start, { userId: "u-1", destination: "Lisbon" })
-    await kit.runUntilEnd()
-    assert.equal(kit.state.status, "completed") // the domain state
-
-    // The engine's state is the runtime's to answer; a component test is told it.
-    const engine = stubClient({ lifecycle: [[PlannerWorkflow, "p-observe", { status: "completed", retries: {} }]] })
-    const lifecycle = await engine.of(PlannerWorkflow, "p-observe").lifecycle() // the engine's state
-    assert.equal(lifecycle.status, "completed")
-  })
-  // docs:end observe
 
   test("a selector that names nothing usable falls back to the activity specialist", async () => {
     const { client, asked } = scriptPlan(["astrology"], "A trip.")
@@ -131,5 +117,31 @@ describe("the planner workflow, against agents played by a client double", () =>
     await kit.runUntilEnd()
     assert.deepEqual(kit.state.selection?.specialists, [Specialist.Activity])
     assert.deepEqual(asked.map((a) => a.agent), ["selector-agent", "activity-agent", "summary-agent"])
+  })
+})
+
+const slow = process.env.ANKKA_SLOW ? false : "set ANKKA_SLOW=1 to run the tests that need Docker"
+
+describe("the planner through the real sidecar, its model scripted", { skip: slow }, () => {
+  test("a plan's own state and the engine's standing are read apart", async () => {
+    const script = [
+      { text: JSON.stringify({ specialists: [Specialist.Budget], reason: "cost" }) },
+      { when: "What does a day", text: "About 90 euros a day." },
+      { when: "Write a brief", text: "Cheap." },
+    ]
+    const kit = await AnkkaTestKit.start(plannerService(), { env: { ANKKA_MODEL_SCRIPT: JSON.stringify(script) } })
+    try {
+      const planner = kit.client.of(PlannerWorkflow, "p-observe")
+      await planner.call(PlannerWorkflow.handlers.start).invoke({ userId: "u-1", destination: "Lisbon" })
+      await planner.awaitEnd<PlanState>(60_000)
+      // docs:start observe
+      const state = await planner.call(PlannerWorkflow.handlers.plan).invoke() // the domain state
+      const lifecycle = await planner.lifecycle() // the engine's state
+      assert.equal(state.status, "completed")
+      assert.equal(lifecycle.status, "completed")
+      // docs:end observe
+    } finally {
+      await kit.stop()
+    }
   })
 })

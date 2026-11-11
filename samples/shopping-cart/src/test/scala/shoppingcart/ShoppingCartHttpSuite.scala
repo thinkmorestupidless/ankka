@@ -29,10 +29,12 @@ class ShoppingCartHttpSuite extends munit.FunSuite with LogCapturing:
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
   override def beforeAll(): Unit =
+    // docs:start http-server
     // Port 0 so concurrent test runs cannot collide.
     server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
     testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
+    // docs:end http-server
 
   override def afterAll(): Unit =
     if testKit != null then testKit.stop()

@@ -11,6 +11,7 @@ class KeyedViewTestKitSuite extends munit.FunSuite:
     Recorded.Ran(Scripts.add(Scripts.Script("noted", ops.toVector)))
 
   test("a change of either source writes the rows its handler names") {
+    // docs:start keyed-view-test
     val kit = KeyedViewTestKit(Shipments)
     kit.change(Shipments.shipments, "s1", script(Scripts.Op.Touch(Vector("s1"), Some("c1"))))
     kit.change(Shipments.shipments, "s2", script(Scripts.Op.Touch(Vector("s2"), Some("c1"))))
@@ -18,6 +19,7 @@ class KeyedViewTestKitSuite extends munit.FunSuite:
       kit.rows.values.filter(_.customer.contains(values("customer"))).toVector
     )
     kit.change(Shipments.customers, "c1", script(Scripts.Op.TouchHolding("c1")))
+    // docs:end keyed-view-test
     assertEquals(kit.row("s1").map(_.notes), Some(Vector("noted", "noted")))
     assertEquals(kit.row("s2").map(_.notes), Some(Vector("noted", "noted")))
   }

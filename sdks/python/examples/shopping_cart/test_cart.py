@@ -30,6 +30,14 @@ def test_add_merge_remove_and_checkout() -> None:
 # docs:end entity-test
 
 
+# docs:start entity-test
+def test_an_item_added_is_in_the_cart() -> None:
+    kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+    assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
+    assert kit.call("get-cart").reply.items[0].name == "Pen"
+# docs:end entity-test
+
+
 def _code(kit: EventSourcedTestKit[ShoppingCart, Any], name: str, input: object = None) -> ErrorCode:
     error = kit.call(name, input).error
     assert error is not None

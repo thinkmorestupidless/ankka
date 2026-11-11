@@ -30,13 +30,17 @@ sidecar. `call` runs a handler and returns what the effect it produced would hav
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/ShoppingCartEntitySuite.scala#unit-test -->
 ```scala
-val kit    = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
-val result = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 2))
+test("adding an item persists exactly one event and acknowledges") {
+  val kit    = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
+  val result = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 2))
 
-assertEquals(result.replyValue, Done)
-assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
-assertEquals(kit.currentState.totalQuantity, 2)
+  assertEquals(result.replyValue, Done)
+  assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
+  assertEquals(result.eventOfType[ItemAdded].item.quantity, 2)
+  assertEquals(kit.currentState.totalQuantity, 2)
+}
 ```
 
 ///
@@ -75,12 +79,12 @@ fun `an item added is in the cart`() {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/test_cart.py#entity-test -->
 ```python
-from ankka.testkit import EventSourcedTestKit
-
-kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
-assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
-assert kit.call("get-cart").reply.items[0].name == "Pen"
+def test_an_item_added_is_in_the_cart() -> None:
+    kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+    assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
+    assert kit.call("get-cart").reply.items[0].name == "Pen"
 ```
 
 ///
@@ -189,11 +193,17 @@ with `changed` on the result instead of `events`:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CheckoutLogSuite.scala#key-value-test -->
 ```scala
-val kit    = KeyValueEntityTestKit.of(ProfileEntity, "user-1")
-val result = kit.call(ProfileEntity.register)(Profile("Ada", "ada@example.com", 1))
-assert(result.changed)
-assertEquals(kit.currentState, Profile("Ada", "ada@example.com", 1))
+test("recording a checkout replaces the value and acknowledges") {
+  val kit    = KeyValueEntityTestKit.of(CheckoutLog, "c1")
+  val result = kit.call(CheckoutLog.record)(1_700_000_000_000L)
+
+  assertEquals(result.replyValue, Done)
+  assert(result.changed, "recording should write a new value")
+  assertEquals(result.state.at, 1_700_000_000_000L)
+  assertEquals(result.state.notified, true)
+}
 ```
 
 ///
@@ -303,10 +313,15 @@ test, naming it:
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/views/KeyedViewTestKitSuite.scala#keyed-view-test -->
 ```scala
 val kit = KeyedViewTestKit(Shipments)
-kit.answering(Shipments.ofCustomer)(values => kit.rows.values.filter(_.customer.contains(values("customer"))).toVector)
-kit.change(Shipments.customers, "c1", CustomerRenamed("Ada"))
+kit.change(Shipments.shipments, "s1", script(Scripts.Op.Touch(Vector("s1"), Some("c1"))))
+kit.change(Shipments.shipments, "s2", script(Scripts.Op.Touch(Vector("s2"), Some("c1"))))
+kit.answering(Shipments.ofCustomer)(values =>
+  kit.rows.values.filter(_.customer.contains(values("customer"))).toVector
+)
+kit.change(Shipments.customers, "c1", script(Scripts.Op.TouchHolding("c1")))
 ```
 
 ///
@@ -1072,22 +1087,39 @@ across a restart has proved durability rather than caching:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/ShoppingCartIntegrationSuite.scala#integration-test -->
 ```scala
-class ShoppingCartIntegrationSuite extends munit.FunSuite:
+class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
+
+  override val munitTimeout = 3.minutes
+
   private var testKit: AnkkaTestKit = null
 
-  override def beforeAll(): Unit = testKit = AnkkaTestKit.start(ShoppingCartEntity.descriptor)
-  override def afterAll(): Unit  = if testKit != null then testKit.stop()
+  override def beforeAll(): Unit =
+    testKit = AnkkaTestKit.start(ShoppingCartEntity.descriptor)
 
-  private def cart(id: String) = testKit.componentClient.forEventSourcedEntity(EntityId(id))
+  override def afterAll(): Unit =
+    if testKit != null then testKit.stop()
+
+  private def cart(id: String) =
+    testKit.componentClient.forEventSourcedEntity(EntityId(id))
 
   test("state survives losing every entity from memory") {
-    cart("c1").call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 5))
-    val before = cart("c1").call(ShoppingCartEntity.getCart).invoke()
+    val id = "cart-replay"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 5))
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))
+    val _  = cart(id).call(ShoppingCartEntity.removeItem).invoke("p1")
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p3", "Doohickey", 4))
 
+    val before = cart(id).call(ShoppingCartEntity.getCart).invoke()
+
+    // Nothing is cached across this: a whole new actor system, and every entity must
+    // rebuild itself from its journal.
     testKit.restartService()
 
-    assertEquals(cart("c1").call(ShoppingCartEntity.getCart).invoke(), before)
+    val after = cart(id).call(ShoppingCartEntity.getCart).invoke()
+    assertEquals(after, before, "replayed state must equal the state before restart")
+    assertEquals(after.totalQuantity, 4)
   }
 ```
 
@@ -1338,10 +1370,12 @@ while running the tests would otherwise see `Address already in use`:
 <!-- languages: scala, kotlin; `HttpServer.at` is the Scala runtime's; the Java kit binds a free loopback port itself and answers it as `kit.http()`, and a process's integration kit serves its sidecar on a free port, so no other test names a port -->
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/ShoppingCartHttpSuite.scala#http-server -->
 ```scala
-val server  = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
-val testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
-val baseUrl = s"http://127.0.0.1:${server.boundPort.get}"
+// Port 0 so concurrent test runs cannot collide.
+server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
+baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 ```
 
 ///
@@ -1402,10 +1436,11 @@ fails. Mix `LogCapturing` into a munit suite to hold that log back:
 <!-- languages: scala; `LogCapturing` is a munit mixin of the Scala test kit; a Java or Kotlin suite runs under JUnit, which shows a test's output only when it fails, and a Python, TypeScript, Rust or Go suite under its own runner -->
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/QuietCartSuite.scala#log-capturing -->
 ```scala
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 
-class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing
+class QuietCartSuite extends munit.FunSuite with LogCapturing:
 ```
 
 ///
@@ -1821,10 +1856,11 @@ test whose model quietly returned a default would no longer be testing what it s
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/AgentTestKitSuite.scala#model-script -->
 ```scala
 val model = TestModelProvider()
-  .expectToolCall("get_weather", Json.obj("location" -> Json.str("Lisbon")))
-  .expectText("Lisbon is 18C and sunny.")
+  .expectToolCall("get_weather", Json.obj("location" -> Json.str("Oslo")))
+  .expectText("Oslo: 18C and sunny")
 ```
 
 ///
@@ -2349,6 +2385,7 @@ streams when asked, and records every request as JSON:
 <!-- languages: scala; `ModelStandIn` and the provider wire are the Scala agent module's; a Java or Kotlin service names a provider rather than writing one, and a process's providers are the sidecar's -->
 /// tab | Scala
 
+<!-- include: modules/agent/src/test/scala/com/thinkmorestupidless/ankka/agent/samples/ModelStandInSampleSuite.scala#stand-in -->
 ```scala
 import com.thinkmorestupidless.ankka.agent.{ModelResponse, ModelStandIn}
 import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
@@ -2356,7 +2393,8 @@ import com.thinkmorestupidless.ankka.agent.openai.OpenAiProvider
 val standIn = ModelStandIn.start()
 standIn.answer(ModelResponse("Paris"))
 val local = OpenAiProvider.at("local", s"${standIn.address}/v1", "qwen3:8b")
-// … call it, then assert on standIn.lastRequest.body
+val reply = Await.result(local.complete(question("The capital of France?")), 30.seconds)
+assertEquals(standIn.lastRequest.body("model").flatMap(_.asString), Some("qwen3:8b"))
 standIn.close()
 ```
 

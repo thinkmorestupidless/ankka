@@ -130,6 +130,16 @@ class AgentStreamSuite extends munit.FunSuite with LogCapturing:
     assert(model.requests(1).timeout.isDefined, model.requests(1).toString)
   }
 
+  test("a session is free for its next stream as soon as the last one ends") {
+    // The stream's end used to reach the caller before the session was released, so a caller that
+    // started its next stream at once was refused as busy on a loaded machine. The window is too
+    // short to open here on demand; the actor now sends the last token as it frees the session.
+    (1 to 25).foreach { n =>
+      model.expectText(s"Answer $n")
+      assertEquals(collect("st-back-to-back", s"Question $n").mkString, s"Answer $n")
+    }
+  }
+
   test("a rejected stream fails the Source rather than hanging it") {
     val failure = intercept[CommandError] {
       Await.result(

@@ -203,3 +203,10 @@ is the Scala form; the sidecar reads the certificate only when an installation m
   of a failure refuses every summary of that session; and a check that something was *not* compacted
   first waits for a plain session written after it to be compacted (`compactorPassed` in
   `CompactionSteps`, the fence in `ErasureAgentsFeatures`).
+- **A reply that frees a session goes from the actor, not the turn's thread** (2026-11-11). A streamed
+  turn sent its last token (`StreamCompleted`, `StreamAwaiting`, `StreamFailed`) from its virtual thread
+  and only then piped `StreamFinished` to the session actor, so a caller that started its next stream
+  the moment the first ended could reach a session still `busy` and be refused (`AgentStreamSuite`,
+  "memory from a streamed turn is visible", red once on a loaded CI runner and never locally in 500
+  tries). `StreamFinished` now carries the last token and the actor sends it as it becomes idle, as
+  `Finished` always did for a call.

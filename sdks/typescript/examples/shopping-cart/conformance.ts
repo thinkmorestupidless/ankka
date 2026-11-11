@@ -468,9 +468,11 @@ const CopyRecord = s.record("copy-record", {
 })
 type CopyRecordValue = Infer<typeof CopyRecord>
 
+// docs:start replication-status
+/** How this installation's copy stands, for `client.of(ReplicatedVehicle, id).replication()`. An entity that is not replicated is refused. */
 async function copyOf(read: () => Promise<ReplicationStatus>): Promise<CopyRecordValue> {
   try {
-    const r = await read()
+    const r = await read() // r.home: "leipzig"; r.replicationSet: ["leipzig", "vienna"]; r.position: how many records this copy holds
     return {
       home: r.home ?? null,
       replicationSet: [...r.replicationSet].sort(),
@@ -484,6 +486,7 @@ async function copyOf(read: () => Promise<ReplicationStatus>): Promise<CopyRecor
     throw e
   }
 }
+// docs:end replication-status
 
 /** Drives the replicated vehicle: a step, a read, and the three replication changes. */
 export class VehiclesEndpoint extends Endpoint {

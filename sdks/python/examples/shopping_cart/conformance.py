@@ -648,12 +648,18 @@ class CopyRecord:
     refused: str | None = None
 
 
+# docs:start replication-status
 async def copy_of(calls: Calls) -> CopyRecord:
+    """How this installation's copy stands, for ``client.for_event_sourced_entity("replicated-vehicle", id)``.
+    An entity that is not replicated is refused."""
     try:
-        r = await calls.replication()
+        status = await calls.replication()
     except CommandError as refused:
         return CopyRecord(refused=refused.error.code.name)
-    return CopyRecord(r.home, sorted(r.replication_set), r.pending_handover, r.conflict, r.position)
+    # status.home: "leipzig"; status.replication_set: frozenset({"leipzig", "vienna"});
+    # status.position: how many records this copy holds
+    return CopyRecord(status.home, sorted(status.replication_set), status.pending_handover, status.conflict, status.position)
+# docs:end replication-status
 
 
 SOCKET_LOG: list[str] = []

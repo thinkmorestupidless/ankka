@@ -308,6 +308,38 @@ impl Workflow for QuoteWorkflow {
     }
 }
 
+/// A transfer's standing, over HTTP.
+pub struct TransferApi;
+
+impl TransferApi {
+    // docs:start lifecycle
+    /// The engine's view of a transfer: running, paused, completed or failed, and why it failed.
+    /// The transfer's own state answers what it decided; this read runs no handler of it.
+    fn lifecycle(request: &Request) -> Result<String, HttpProblem> {
+        let lifecycle = request
+            .client()
+            .lifecycle(TransferWorkflow, request.path("id"))?;
+        Ok(match lifecycle.failure {
+            Some(reason) => format!("{:?}: {reason}", lifecycle.status),
+            None => format!("{:?}", lifecycle.status),
+        })
+    }
+    // docs:end lifecycle
+}
+
+impl Endpoint for TransferApi {
+    const ENDPOINT_ID: &'static str = "TransferApi";
+    const PREFIX: &'static str = "/transfers";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<TransferApi> {
+        Routes::new().get("/{id}/lifecycle", TransferApi::lifecycle)
+    }
+}
+
 /// The routes of a pricing service that answer a quote's request with the quote.
 pub struct QuoteEndpoint;
 

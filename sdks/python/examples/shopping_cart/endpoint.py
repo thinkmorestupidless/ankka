@@ -115,6 +115,14 @@ class ShoppingCartEndpoint(Endpoint):
         return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).await_end(10.0, reply=Checkout)
     # docs:end await-later
 
+    # docs:start lifecycle
+    @get("/{cartId}/checkouts/lifecycle")
+    async def checkout_lifecycle(self, cartId: str) -> str:
+        """The engine's own view: running, paused, completed or failed, and why."""
+        lifecycle = await self.client.for_workflow("checkout", cartId).lifecycle()
+        return lifecycle.status.value + (f": {lifecycle.failure}" if lifecycle.failure else "")
+    # docs:end lifecycle
+
     # docs:start sse-await
     @sse("/{cartId}/checkouts/events")
     async def checkout_events(self, cartId: str) -> AsyncIterator[str]:

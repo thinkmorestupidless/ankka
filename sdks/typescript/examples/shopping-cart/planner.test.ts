@@ -3,7 +3,7 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { type ComponentClient } from "ankka"
-import { AgentTestKit, ScriptedModel, WorkflowTestKit } from "ankka/testkit"
+import { AgentTestKit, ScriptedModel, WorkflowTestKit, stubClient } from "ankka/testkit"
 import { ActivityAgent, ForecastAgent, PlannerWorkflow, SelectorAgent, Specialist, SummaryAgent } from "./planner.ts"
 import { TicketAgent } from "./tickets.ts"
 
@@ -108,6 +108,21 @@ describe("the planner workflow, against agents played by a client double", () =>
     assert.deepEqual([...new Set(asked.map((a) => a.session))], ["p-select"])
   })
   // docs:end assert
+
+  // docs:start observe
+  test("a plan's own state and the engine's standing are read apart", async () => {
+    const { client } = scriptPlan([Specialist.Budget], "Cheap.")
+    const kit = WorkflowTestKit.of(PlannerWorkflow, "p-observe", client)
+    await kit.call(PlannerWorkflow.handlers.start, { userId: "u-1", destination: "Lisbon" })
+    await kit.runUntilEnd()
+    assert.equal(kit.state.status, "completed") // the domain state
+
+    // The engine's state is the runtime's to answer; a component test is told it.
+    const engine = stubClient({ lifecycle: [[PlannerWorkflow, "p-observe", { status: "completed", retries: {} }]] })
+    const lifecycle = await engine.of(PlannerWorkflow, "p-observe").lifecycle() // the engine's state
+    assert.equal(lifecycle.status, "completed")
+  })
+  // docs:end observe
 
   test("a selector that names nothing usable falls back to the activity specialist", async () => {
     const { client, asked } = scriptPlan(["astrology"], "A trip.")

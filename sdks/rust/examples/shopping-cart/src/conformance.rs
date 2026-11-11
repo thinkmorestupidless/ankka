@@ -599,13 +599,17 @@ impl VehiclesEndpoint {
         VehiclesEndpoint::change(request, "stop-replicating-to")
     }
 
-    /// How this installation's copy stands, as the platform records it (protocol 1.24).
+    // docs:start replication-status
+    /// How this installation's copy stands, as the platform records it (protocol 1.24): its home,
+    /// the set it is replicated to, a handover in flight, a conflict, and how far it has read. An
+    /// entity that is not replicated is refused `NotFound`.
     fn replication(request: &Request) -> Result<CopyRecord, HttpProblem> {
         let vehicle = request.path("vehicleId");
         Ok(CopyRecord::of(
             request.client().replication(ReplicatedVehicle, vehicle),
         ))
     }
+    // docs:end replication-status
 }
 
 impl Endpoint for VehiclesEndpoint {

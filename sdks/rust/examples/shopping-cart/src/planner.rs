@@ -465,6 +465,20 @@ impl Workflow for PlannerWorkflow {
     // docs:end planner-settings
 }
 
+// docs:start observe
+/// A run read two ways: the plan the workflow keeps, from its own `plan` query, and the engine's
+/// standing of the run, which runs no handler. They are separate on purpose: the plan says what the
+/// workflow decided, the standing whether it is running, paused, completed or failed.
+pub fn observe(
+    client: &ankka::Client,
+    plan_id: &str,
+) -> Result<(PlanState, Lifecycle), CommandError> {
+    let state: PlanState = client.invoke(PlannerWorkflow, plan_id, "plan", ())?; // the domain state
+    let lifecycle = client.lifecycle(PlannerWorkflow, plan_id)?; // the engine's state
+    Ok((state, lifecycle))
+}
+// docs:end observe
+
 /// The planner and its agents, as a service the tests run against.
 pub fn build() -> Service {
     Service::new("ankka-rust")

@@ -138,6 +138,20 @@ var QuoteEndpoint = ankka.NewEndpoint("/quotes", ankka.AllowAll(),
 		return quote, err
 	}),
 	// docs:end await-later
+	// docs:start lifecycle
+	// The engine's view of a quote: running, paused, completed or failed, and why it failed. The
+	// quote's own state says what it decided; this read runs no handler of it.
+	ankka.Get("/{id}/lifecycle", func(ctx context.Context, req *ankka.Request) (string, error) {
+		lifecycle, err := ankka.Lifecycle(ctx, "quote", req.Param("id"))
+		if err != nil {
+			return "", err
+		}
+		if lifecycle.Failure != nil {
+			return string(lifecycle.Status) + ": " + *lifecycle.Failure, nil
+		}
+		return string(lifecycle.Status), nil
+	}),
+	// docs:end lifecycle
 	// docs:start sse-await
 	// A quote's end as server-sent events: the wait as one event, on one connection. A Go route
 	// sends no heartbeat of its own while it waits, so a wait longer than a connection's idle

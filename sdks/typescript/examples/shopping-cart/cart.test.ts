@@ -5,7 +5,7 @@ import { createServer as createHttpServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import assert from "node:assert/strict"
 import { Ankka, CommandError, ErrorCode, done, ScriptedServices, type ComponentClient, type Services } from "ankka"
-import { AnkkaTestKit, ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, KeyValueTestKit } from "ankka/testkit"
+import { AnkkaTestKit, ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, KeyValueTestKit, stubClient } from "ankka/testkit"
 import { CallingEndpoint } from "./calling.ts"
 import { CartGraph } from "./cartGraph.ts"
 import { CartContentsGraph } from "./cartContentsGraph.ts"
@@ -325,6 +325,18 @@ describe("the component client from a route, against a client double", () => {
     const kit = EndpointTestKit.of(ShoppingCartEndpoint, refusing)
     assert.equal((await kit.post("/carts/c1/items/try", { productId: "p1", name: "Pen", quantity: 0 })).text(), "refused: quantity must be greater than zero, was 0")
   })
+})
+
+test("the checkout's lifecycle route answers the engine's view, and why it failed", async () => {
+  const client = stubClient({
+    lifecycle: [
+      ["checkout", "c1", { status: "failed", pendingStep: "charge", retries: { charge: 1 }, failure: "the card was refused" }],
+      ["checkout", "c2", { status: "running", pendingStep: "reserve", retries: {} }],
+    ],
+  })
+  const kit = EndpointTestKit.of(ShoppingCartEndpoint, client)
+  assert.equal((await kit.get("/carts/c1/checkouts/lifecycle")).text(), "failed: the card was refused")
+  assert.equal((await kit.get("/carts/c2/checkouts/lifecycle")).text(), "running")
 })
 
 test("the watch socket answers what it does not understand, and ends with its socket", async () => {

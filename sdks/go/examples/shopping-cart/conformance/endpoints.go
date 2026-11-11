@@ -78,7 +78,10 @@ type CopyRecord struct {
 	Refused         *string  `json:"refused"`
 }
 
-// copyOf answers a refusal as a record rather than a status.
+// docs:start replication-status
+// copyOf reads how this installation's copy stands, as the platform records it (protocol 1.24): its
+// home, the set it is replicated to, a handover in flight, a conflict, and how far it has read. An
+// entity that is not replicated is refused NotFound, answered here as a record rather than a status.
 func copyOf(ctx context.Context, component, id string) (CopyRecord, error) {
 	r, err := ankka.Replication(ctx, component, id)
 	if err != nil {
@@ -92,6 +95,8 @@ func copyOf(ctx context.Context, component, id string) (CopyRecord, error) {
 	slices.Sort(set)
 	return CopyRecord{r.Home, set, r.PendingHandover, r.Conflict, r.Position, nil}, nil
 }
+
+// docs:end replication-status
 
 // ── /vehicles: the replicated vehicle ──
 

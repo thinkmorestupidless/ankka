@@ -76,6 +76,9 @@ func TestTheSelectorDecidesWhichSpecialistsRun(t *testing.T) {
 		t.Fatalf("the summary is %v", plan.Summary)
 	}
 	// docs:end assert
+	if state, lifecycle, err := ObservePlan(ctx, "p-select"); err != nil || state.Status != "completed" || !lifecycle.IsCompleted() {
+		t.Fatalf("the plan observed %+v and %+v, %v", state, lifecycle, err)
+	}
 
 	// docs:start drain
 	// Let the second plan finish before the test ends. A workflow left mid-flight keeps consuming

@@ -118,18 +118,18 @@
 
 Samples, each a `docs:start`/`docs:end` (or the language's region marker) region in a file a test runs:
 
-- [ ] T039 [P] [US5] workflows.md, Python: a `#lifecycle` region reading a workflow's standing in `sdks/python/examples/shopping_cart/endpoint.py`, with a test
-- [ ] T040 [P] [US5] workflows.md, TypeScript: a `#lifecycle` region in `sdks/typescript/examples/shopping-cart/endpoint.ts`, with a test
-- [ ] T041 [P] [US5] workflows.md, Rust: a `#lifecycle` region in `sdks/rust/examples/shopping-cart/src/transfer.rs`, with a test
-- [ ] T042 [P] [US5] workflows.md, Go: a `#lifecycle` region in `sdks/go/examples/shopping-cart/samples/awaiting.go`, with a test
-- [ ] T043 [P] [US5] multi-agent-orchestration.md, Python: an `#observe` region in `sdks/python/examples/planner/test_planner.py`, beside the page's other Python test tabs
-- [ ] T044 [P] [US5] multi-agent-orchestration.md, TypeScript: an `#observe` region in `sdks/typescript/examples/shopping-cart/planner.test.ts`, beside the page's other TypeScript test tabs
-- [ ] T045 [P] [US5] multi-agent-orchestration.md, Rust: an `#observe` region in `sdks/rust/examples/shopping-cart/src/planner.rs`, with a test
-- [ ] T046 [P] [US5] multi-agent-orchestration.md, Go: an `#observe` region in `sdks/go/examples/shopping-cart/samples/planner.go`, with a test
-- [ ] T047 [P] [US5] event-sourced-entities.md, Python: a `#replication-status` region in `sdks/python/examples/shopping_cart/conformance.py`, where the `replicated-vehicle` entity is, read by the conformance case of T028
-- [ ] T048 [P] [US5] event-sourced-entities.md, TypeScript: a `#replication-status` region in `sdks/typescript/examples/shopping-cart/conformance.ts`, read by the conformance case of T029
-- [ ] T049 [P] [US5] event-sourced-entities.md, Rust: a `#replication-status` region in `sdks/rust/examples/shopping-cart/src/conformance.rs`, read by the conformance case of T030
-- [ ] T050 [P] [US5] event-sourced-entities.md, Go: a `#replication-status` region in `sdks/go/examples/shopping-cart/conformance/components.go` or a sample beside it, with a test
+- [X] T039 [P] [US5] workflows.md, Python: a `#lifecycle` region reading a workflow's standing in `sdks/python/examples/shopping_cart/endpoint.py`, with a test
+- [X] T040 [P] [US5] workflows.md, TypeScript: a `#lifecycle` region in `sdks/typescript/examples/shopping-cart/endpoint.ts`, with a test
+- [X] T041 [P] [US5] workflows.md, Rust: a `#lifecycle` region in `sdks/rust/examples/shopping-cart/src/transfer.rs`, with a test
+- [X] T042 [P] [US5] workflows.md, Go: a `#lifecycle` region in `sdks/go/examples/shopping-cart/samples/awaiting.go`, with a test
+- [X] T043 [P] [US5] multi-agent-orchestration.md, Python: an `#observe` region in `sdks/python/examples/planner/test_planner.py`, beside the page's other Python test tabs
+- [X] T044 [P] [US5] multi-agent-orchestration.md, TypeScript: an `#observe` region in `sdks/typescript/examples/shopping-cart/planner.test.ts`, beside the page's other TypeScript test tabs
+- [X] T045 [P] [US5] multi-agent-orchestration.md, Rust: an `#observe` region in `sdks/rust/examples/shopping-cart/src/planner.rs`, with a test
+- [X] T046 [P] [US5] multi-agent-orchestration.md, Go: an `#observe` region in `sdks/go/examples/shopping-cart/samples/planner.go`, with a test
+- [X] T047 [P] [US5] event-sourced-entities.md, Python: a `#replication-status` region in `sdks/python/examples/shopping_cart/conformance.py`, where the `replicated-vehicle` entity is, read by the conformance case of T028
+- [X] T048 [P] [US5] event-sourced-entities.md, TypeScript: a `#replication-status` region in `sdks/typescript/examples/shopping-cart/conformance.ts`, read by the conformance case of T029
+- [X] T049 [P] [US5] event-sourced-entities.md, Rust: a `#replication-status` region in `sdks/rust/examples/shopping-cart/src/conformance.rs`, read by the conformance case of T030
+- [X] T050 [P] [US5] event-sourced-entities.md, Go: a `#replication-status` region in `sdks/go/examples/shopping-cart/conformance/components.go` or a sample beside it, with a test
 
 Pages:
 

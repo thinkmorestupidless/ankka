@@ -17,7 +17,9 @@ use prost::Message;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::abi::imports::{Import, call, call_await, call_schedule_recurring};
+use crate::abi::imports::{
+    Import, call, call_await, call_lifecycle, call_replication, call_schedule_recurring,
+};
 use crate::codec::time::Duration;
 use crate::codec::{EncodingError, decode_payload, encode_payload};
 use crate::components::{ComponentOf, kinds};
@@ -25,6 +27,7 @@ use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode};
 use crate::personal::DataSubject;
 use crate::proto::{self, Kind};
+use crate::reads::{Lifecycle, ReplicationStatus};
 
 pub use autonomous::{
     AgentState, Assignment, Attachment, AutonomousAgentCalls, InstanceCalls, NewTask, TaskCalls,
@@ -160,6 +163,85 @@ impl Client {
         let spent = (crate::abi::imports::now() - started).max(0);
         let left = (timeout.to_millis() - spent).max(1);
         self.await_end_by_name(C::component_id(), workflow_id, Duration::of_millis(left))
+    }
+
+    /// The standing of the workflow `workflow_id` of `component`: the runtime's own read, which runs
+    /// no handler and journals nothing. A workflow never started answers `NotStarted`. Needs a
+    /// runtime at protocol 1.24: a module that calls it imports `lifecycle`, and an older runtime
+    /// refuses to load it.
+    pub fn lifecycle<C>(&self, component: C, workflow_id: &str) -> Result<Lifecycle, CommandError>
+    where
+        C: ComponentOf<kinds::Workflow>,
+    {
+        let _ = component;
+        self.lifecycle_by_name(C::component_id(), workflow_id)
+    }
+
+    /// The standing of a workflow named by its component id.
+    pub fn lifecycle_by_name(
+        &self,
+        component_id: &str,
+        workflow_id: &str,
+    ) -> Result<Lifecycle, CommandError> {
+        let request = proto::LifecycleRequest {
+            component_id: component_id.to_string(),
+            workflow_id: workflow_id.to_string(),
+        };
+        let reply =
+            proto::LifecycleReply::decode(call_lifecycle(&request.encode_to_vec()).as_slice())
+                .unwrap_or_else(|e| {
+                    panic!("the runtime's answer to Lifecycle does not decode: {e}")
+                });
+        match reply.result {
+            Some(proto::lifecycle_reply::Result::Lifecycle(l)) => Lifecycle::from_proto(&l),
+            Some(proto::lifecycle_reply::Result::Error(e)) => Err(CommandError::from_proto(&e)),
+            None => Err(CommandError::new(
+                ErrorCode::Internal,
+                "the runtime answered a standing with nothing",
+            )),
+        }
+    }
+
+    /// How the copy at this installation of the replicated entity `entity_id` of `component` stands:
+    /// the runtime's own read. An entity that is not replicated is refused. Needs a runtime at
+    /// protocol 1.24, as [`Client::lifecycle`] does.
+    pub fn replication<C>(
+        &self,
+        component: C,
+        entity_id: &str,
+    ) -> Result<ReplicationStatus, CommandError>
+    where
+        C: ComponentOf<kinds::EventSourced>,
+    {
+        let _ = component;
+        self.replication_by_name(C::component_id(), entity_id)
+    }
+
+    /// How a copy stands, of an entity named by its component id.
+    pub fn replication_by_name(
+        &self,
+        component_id: &str,
+        entity_id: &str,
+    ) -> Result<ReplicationStatus, CommandError> {
+        let request = proto::ReplicationRequest {
+            component_id: component_id.to_string(),
+            entity_id: entity_id.to_string(),
+        };
+        let reply =
+            proto::ReplicationReply::decode(call_replication(&request.encode_to_vec()).as_slice())
+                .unwrap_or_else(|e| {
+                    panic!("the runtime's answer to Replication does not decode: {e}")
+                });
+        match reply.result {
+            Some(proto::replication_reply::Result::Status(s)) => {
+                Ok(ReplicationStatus::from_proto(&s))
+            }
+            Some(proto::replication_reply::Result::Error(e)) => Err(CommandError::from_proto(&e)),
+            None => Err(CommandError::new(
+                ErrorCode::Internal,
+                "the runtime answered a copy's status with nothing",
+            )),
+        }
     }
 
     /// Waits for the end of a workflow named by its component id.

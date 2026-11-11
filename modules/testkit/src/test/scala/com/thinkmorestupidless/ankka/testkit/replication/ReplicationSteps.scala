@@ -76,6 +76,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
   private var pureKit: Option[EventSourcedTestKit[VehicleEntity, Vehicle, VehicleEvent]] = None
   private var pureResult: Option[Either[CommandError, Option[Any]]]                      = None
   private var compared: Option[String]                                                   = None
+  private var copyRead: Option[(String, String, ReplicationStatus)]                      = None
 
   override def afterEach(context: AfterEach): Unit =
     try
@@ -111,6 +112,7 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
       pureKit = None
       pureResult = None
       compared = None
+      copyRead = None
       super.afterEach(context)
 
   /** Starts every installation the scenario named, once, with what its `Given`s configured. */
@@ -1407,6 +1409,122 @@ abstract class ReplicationSteps(features: String) extends GherkinSuite(features)
     assertEquals(vehicle.local, Vector(false, false))
   }
 
+  // ── how a copy stands (feature 065) ───────────────────────────────────────
+
+  /** What the read at `name` was told, and the copy's journal then. */
+  private def copyAt: (String, String, ReplicationStatus) =
+    copyRead.getOrElse(fail("no handler read how a copy stands"))
+
+  Given(
+    "a service {string} written in {string} with a replicated entity {string} at the installation {string}"
+  ) { (_: String, language: String, _: String, a: String) =>
+    assume(
+      language == "Scala",
+      s"the $language row is held by the conformance suite's es.replication-status case against " +
+        s"the $language reference (${LanguagesFeatures.commands.getOrElse(language, "?")})"
+    )
+    // An installation alone does not replicate: one beside it that the entity never names.
+    names = Vector(a, s"$a-beside")
+  }
+
+  Given(
+    "a service {string} written in {string} with a replicated entity {string} at the installations {string}, {string} and {string}"
+  ) { (_: String, language: String, _: String, a: String, b: String, c: String) =>
+    assertEquals(language, "Scala")
+    names = Vector(a, b, c)
+  }
+
+  Given("a service {string} written in {string} with an entity {string} that is not replicated") {
+    (_: String, language: String, _: String) =>
+      assume(
+        false,
+        s"the $language row is held by the conformance suite's es.replication-refused case against " +
+          s"the $language reference (${LanguagesFeatures.commands.getOrElse(language, "?")}), " +
+          "which compares its refusal with the Scala client's"
+      )
+  }
+
+  Given("the vehicle {string} was created at {string} and its history holds {int} records") {
+    (id: String, name: String, records: Int) =>
+      create(name, id, Vector.empty): Unit
+      while journal(name, id).size < records do answered[Receipt](send(name, "add-step", id)): Unit
+      assertEquals(journal(name, id).size, records, "the vehicle's history")
+  }
+
+  Given("a handover of the home of {string} to {string} was asked for and has not completed") {
+    (id: String, to: String) =>
+      val home = names.head
+      create(home, id, Vector(to)): Unit
+      started.transport.pause(to)
+      handOver(id, to).get: Unit
+      eventually(s"$home records the handover to $to")(
+        journal(home, id).find(r => r.record.kind == JournalRecord.KindHandover)
+      ): Unit
+  }
+
+  Given("{string} was created at {string} and at {string}, and the two histories met") {
+    (id: String, a: String, b: String) =>
+      started.transport.block(from = b, to = a)
+      answered[Receipt](send(a, "create", id)): Unit
+      answered[Receipt](send(b, "create", id)): Unit
+      started.transport.unblock(from = b, to = a)
+      homes += id -> a
+      inConflict(id, a, b)
+  }
+
+  When("a handler of {string} at {string} reads how {string} stands") {
+    (_: String, name: String, id: String) =>
+      val held = journal(name, id).map(r => (r.seq, r.bytes))
+      val read = status(name, id)
+      // The read runs no handler of the entity's and records nothing.
+      assertEquals(
+        journal(name, id).map(r => (r.seq, r.bytes)),
+        held,
+        "the copy's journal across the read"
+      )
+      copyRead = Some((name, id, read))
+  }
+
+  Then(
+    "the handler is told the home {string}, the replication set {string}, and the position {int}"
+  ) { (home: String, set: String, position: Int) =>
+    val (name, id, read) = copyAt
+    assertEquals(read.home, Some(home))
+    assertEquals(read.replicationSet, Set(set))
+    assertEquals(read.position, position.toLong)
+    assertEquals(read.position, journal(name, id).size.toLong, "every record of its history")
+    assertEquals(read.pendingHandover, None)
+    assertEquals(read.conflict, None)
+  }
+
+  Then("the handler is told the handover waiting goes to {string}") { (to: String) =>
+    val (_, _, read) = copyAt
+    assertEquals(read.pendingHandover, Some(to))
+    assertEquals(read.home, Some(names.head), "the home is still the home until it completes")
+  }
+
+  Then("the handler is told {string} is in conflict with the home {string}") {
+    (id: String, other: String) =>
+      val (_, readId, read) = copyAt
+      assertEquals(readId, id)
+      assert(read.inConflict, read.toString)
+      assertEquals(read.conflict, Some(other))
+  }
+
+  Then(
+    "the handler is told the position of the copy {string} last held, behind the home's, and a replication set without {string}"
+  ) { (name: String, outside: String) =>
+    val (at, id, read) = copyAt
+    assertEquals(at, name)
+    assertEquals(read.position, journal(name, id).size.toLong, "the copy it last held")
+    assert(
+      read.position < status(homeOf(id), id).position,
+      s"$name at ${read.position} is not behind the home"
+    )
+    assert(!read.replicationSet.contains(outside), read.toString)
+    assert(read.replicationSet.nonEmpty, read.toString)
+  }
+
   // ── every language ────────────────────────────────────────────────────────
 
   Given(
@@ -1463,8 +1581,28 @@ object LanguagesFeatures:
     "Python"     -> "cd sdks/python && uv run conformance",
     "TypeScript" -> "cd sdks/typescript && npm run conformance",
     "Rust"       -> "cd sdks/rust && ./conformance.sh",
+    "Go"         -> "cd sdks/go/examples/shopping-cart && go run ./cmd/conformance",
+    "Kotlin"     -> "sdks/kotlin/gradlew-this-commit.sh :samples:reference:conformance",
     "Java"       ->
       "modules/sdk-java: sbt -Dankka.conformance.reference=java 'sidecar/testOnly *.ConformanceSuite'"
+  )
+
+final class StatusFeatures extends ReplicationSteps("../../features/replication/status.feature"):
+  private val kits =
+    "each SDK's test kit tests: sdks/python/tests/test_client_reads.py, " +
+      "sdks/typescript/test/client-reads.test.ts, sdks/go/reads_test.go, sdks/rust/ankka/tests/reads.rs"
+  override protected def ranElsewhere: Map[String, String] = Map(
+    "the component test kit answers how a copy stands as it was told"                 -> kits,
+    "the component test kit answers a handover waiting and a conflict as it was told" -> kits,
+    "the Rust component test kit answers how a copy stands from the entity it runs"   ->
+      "sdks/rust/ankka/tests/reads.rs, against the entity the kit runs",
+    "the test kit reads how a copy stands from the running service" ->
+      ("each SDK's integration test against a running service: " +
+        LanguagesFeatures.commands.values.mkString("; ")),
+    "a runtime from before the read refuses a module that reads how a copy stands" ->
+      "the sidecar's WasmHostSuite: a module importing `replication` is refused where it is not provided",
+    "a runtime from before the read refuses how a copy stands, naming the protocol version" ->
+      "sdks/python/tests/test_client_reads.py, and the same case in the TypeScript and Go SDKs' tests"
   )
 
 final class LanguagesFeatures

@@ -140,3 +140,13 @@ three LOW) were remediated: FR-005 and the deleted-workflow edge case in T007, S
 the plan's proof, the wrong-kind edge case matched to R3, FR-014 checked in T058, the data model's
 heading, and the docs sample paths named. Left: LOW, User Story 1's independent test reads as
 end-to-end parity for every standing, where SC-001 says which are decoded.
+
+## Found during implementation
+
+- **A copy's position counts every record of its history, the platform's among them** (T032).
+  `ReplicationStatus.position` is the copy's last sequence number, and a replicated entity's history
+  holds the platform's record of its home (kind 3) and of its replication set (kind 4) beside its
+  events, so a create with one event stands at 3. The spec's first wording ("holds 3 events … the
+  position 3") read as events only; `features/replication/status.feature` now says how many records
+  the history holds, which is what every language's read already answered (Scala's included, before
+  this feature). Nothing in a contract changed.

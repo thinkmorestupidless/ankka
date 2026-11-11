@@ -2,14 +2,15 @@ Feature: Reading how a copy stands in every language
   A handler in any language asks a replicated entity's copy at its installation how it stands, and is
   told what a Scala handler is told, from that copy's own journal: the home, the replication set, the
   installation a handover waiting goes to, the other home of a conflict, and the position its history
-  reaches. The read runs no handler of the entity's and records nothing. A runtime from before the
+  reaches: how many records it holds, the platform's records of its home and its replication set
+  among them. The read runs no handler of the entity's and records nothing. A runtime from before the
   read refuses it, and the handler is told which protocol version the read needs.
 
   Scenario Outline: a handler reads the home, the replication set and the position of a copy in every language
     Given a service "fleet" written in "<language>" with a replicated entity "vehicle" at the installation "leipzig"
-    And the vehicle "v1" was created at "leipzig" and holds 3 events
+    And the vehicle "v1" was created at "leipzig" and its history holds 4 records
     When a handler of "fleet" at "leipzig" reads how "v1" stands
-    Then the handler is told the home "leipzig", the replication set "leipzig", and the position 3
+    Then the handler is told the home "leipzig", the replication set "leipzig", and the position 4
 
     Examples:
       | language   |
@@ -47,9 +48,11 @@ Feature: Reading how a copy stands in every language
 
   Scenario: an installation outside the replication set answers with the copy it last held
     Given a service "fleet" written in "Scala" with a replicated entity "vehicle" at the installations "leipzig", "vienna" and "graz"
-    And "graz" was removed from the replication set of "v1" after it held 2 events
+    And the vehicle "v1" was created at "leipzig" with "vienna" and "graz" in its replication set
+    And "graz" was removed from the replication set of "v1"
+    And a caller at "leipzig" sent two commands to "v1"
     When a handler of "fleet" at "graz" reads how "v1" stands
-    Then the handler is told the position 2 and a replication set without "graz"
+    Then the handler is told the position of the copy "graz" last held, behind the home's, and a replication set without "graz"
 
   Scenario Outline: the component test kit answers how a copy stands as it was told
     Given a component test of an endpoint written in "<language>" that reads how a copy of "vehicle" stands
@@ -85,9 +88,9 @@ Feature: Reading how a copy stands in every language
 
   Scenario Outline: the test kit reads how a copy stands from the running service
     Given a test of a service "fleet" written in "<language>"
-    And the vehicle "v1" was created and holds 1 event
+    And the vehicle "v1" was created with one event, so its history holds 3 records
     When the test reads how "v1" stands through the running service
-    Then the test is told the position 1 and the home the test kit's installation
+    Then the test is told the position 3 and the home the test kit's installation
 
     Examples:
       | language   |

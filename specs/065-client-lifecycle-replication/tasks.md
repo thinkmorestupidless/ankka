@@ -76,7 +76,7 @@
 - [X] T029 [P] [US2] The two replication routes in `sdks/typescript/examples/shopping-cart/conformance.ts`
 - [X] T030 [P] [US2] The two replication routes in `sdks/rust/examples/shopping-cart/src/conformance.rs`
 - [X] T031 [P] [US2] The two replication routes in `sdks/go/examples/shopping-cart/conformance/endpoints.go` (components in `components.go`)
-- [ ] T032 [US2] Bind the Scala scenarios of `features/replication/status.feature` (a handover waiting, a conflict, an installation outside the replication set) to the two-installation replication steps in `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/replication/` (extend `ReplicationSteps.scala` and its suite), reading through the Scala client's `replication`; bind the per-language rows as `ReplicationSteps` binds `languages.feature`'s
+- [X] T032 [US2] Bind the Scala scenarios of `features/replication/status.feature` (a handover waiting, a conflict, an installation outside the replication set) to the two-installation replication steps in `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/replication/` (extend `ReplicationSteps.scala` and its suite), reading through the Scala client's `replication`; bind the per-language rows as `ReplicationSteps` binds `languages.feature`'s
 
 **Checkpoint**: the four conformance cases pass for all seven; the Scala replication suite binds the status feature.
 

@@ -122,3 +122,7 @@ appenders.
   next `due_for` only once the handler succeeded, so a test that sees the handler's effect and then
   reads `ankka_timers` can still find the due time just run. Wait for the row to move past it (the
   conformance case `timer.recurring.due-time` read it once and failed on `conformance-java`).
+- **A follower opens its pull asynchronously, from the record after the last one it holds**
+  (2026-11-11). A test that replicates more records straight after the set record that starts the
+  pull cannot know whether the pull opened before or after them (`MirroringSuite` expected 3 and
+  got 4 on `build (rest)`). Wait for the pull, then send the later records through it.

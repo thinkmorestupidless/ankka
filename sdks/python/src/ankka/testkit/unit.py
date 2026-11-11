@@ -19,7 +19,7 @@ from typing import Any, Generic, TypeVar
 from ankka.agent import Agent
 from ankka.approvals import ApprovalRequest, approval_of
 from ankka.autonomous import AutonomousAgent, Malformed, TaskType
-from ankka.client import ComponentClient
+from ankka.client import ComponentClient, Lifecycle, ReplicationStatus
 from ankka.context import Caller, CommandContext, EventContext, LocalCaller, Metadata, Principal, RequestContext
 from ankka.effects.agent import AgentEffect
 from ankka.effects.common import Error, ErrorCode, Fail, NoReply, Reply, Retention
@@ -90,6 +90,74 @@ class _NoClient(ComponentClient):
 
     async def close(self) -> None:
         return None
+
+
+def _component_id(component: Any) -> str:
+    return component if isinstance(component, str) else str(component.component_id)
+
+
+class _StubbedCalls:
+    """Calls to one component instance through a ``ClientStub``: the two reads answer what the stub
+    was told, and everything else refuses as a unit kit's client does."""
+
+    def __init__(self, stub: ClientStub, component_id: str, entity_id: str) -> None:
+        self._stub = stub
+        self.component_id = component_id
+        self.entity_id = entity_id
+
+    async def lifecycle(self) -> Lifecycle:
+        told = self._stub._lifecycles.get((self.component_id, self.entity_id))
+        if told is None:
+            raise RuntimeError(
+                f"the standing of '{self.entity_id}' of '{self.component_id}' was not stubbed: "
+                f"tell the ClientStub with .lifecycle('{self.component_id}', '{self.entity_id}', ...)"
+            )
+        return told
+
+    async def replication(self) -> ReplicationStatus:
+        told = self._stub._copies.get((self.component_id, self.entity_id))
+        if told is None:
+            raise RuntimeError(
+                f"how '{self.entity_id}' of '{self.component_id}' stands was not stubbed: "
+                f"tell the ClientStub with .replication('{self.component_id}', '{self.entity_id}', ...)"
+            )
+        return told
+
+    def __getattr__(self, name: str) -> Any:
+        return self._stub._refuse()
+
+
+class ClientStub(_NoClient):
+    """A unit kit's client that answers a workflow's standing and how a copy stands as the test told
+    it, and refuses everything else as the kits' own client does. Hand it to the component under test
+    where it takes a client (an endpoint's constructor, a graph consumer's or an autonomous agent's
+    kit)::
+
+        client = ClientStub().lifecycle("transfer", "t1", Lifecycle(Status.FAILED, None, {"deposit": 2}, "refused"))
+        kit = EndpointTestKit.of(TransfersEndpoint, client)
+
+    A read it was not told is refused, naming the id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._lifecycles: dict[tuple[str, str], Lifecycle] = {}
+        self._copies: dict[tuple[str, str], ReplicationStatus] = {}
+
+    def lifecycle(self, component: Any, workflow_id: str, standing: Lifecycle) -> ClientStub:
+        """Answers ``for_workflow(component, workflow_id).lifecycle()`` with ``standing``."""
+        self._lifecycles[(_component_id(component), workflow_id)] = standing
+        return self
+
+    def replication(self, component: Any, entity_id: str, status: ReplicationStatus) -> ClientStub:
+        """Answers ``for_event_sourced_entity(component, entity_id).replication()`` with ``status``."""
+        self._copies[(_component_id(component), entity_id)] = status
+        return self
+
+    def for_event_sourced_entity(self, component_id: str, entity_id: str) -> Any:
+        return _StubbedCalls(self, component_id, entity_id)
+
+    def for_workflow(self, component_id: str, workflow_id: str) -> Any:
+        return _StubbedCalls(self, component_id, workflow_id)
 
 
 class EventSourcedTestKit(Generic[S, E]):

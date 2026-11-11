@@ -43,6 +43,7 @@ final class PlannerEndpoint(client: ComponentClient) extends HttpEndpoint("/plan
     client.forWorkflow(EntityId(planId)).call(PlannerWorkflow.start).invoke(request)
   }
 
+  // docs:start observe
   get("/{planId}") { (planId: String) =>
     client.forWorkflow(EntityId(planId)).call(PlannerWorkflow.plan).invoke()
   }
@@ -54,3 +55,4 @@ final class PlannerEndpoint(client: ComponentClient) extends HttpEndpoint("/plan
     s"${lifecycle.status}${lifecycle.failure.map(reason => s": $reason").getOrElse("")}"
   }
   // docs:end lifecycle
+  // docs:end observe

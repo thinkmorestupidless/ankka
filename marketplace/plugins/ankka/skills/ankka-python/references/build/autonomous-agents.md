@@ -905,9 +905,13 @@ AgentClients.forAutonomousAgent(client, Guide::class.java, "reviewer-1").assign(
 **Python**
 
 ```python
-first = await client.tasks.create(ANSWER, "What is in cart c-1?")
-second = await client.tasks.create(ANSWER, "And in c-2?", depends_on=[first])
-await client.for_autonomous_agent(CartAnswerer, "reviewer-1").assign(first, second)
+@post("/review")
+async def review(self) -> Done:
+    """Two questions for one reviewer, the second once the first has been answered."""
+    first = await self.client.tasks.create(ANSWER, "What is in cart c-1?")
+    second = await self.client.tasks.create(ANSWER, "And in c-2?", depends_on=[first])
+    await self.client.for_autonomous_agent(CartAnswerer, "reviewer-1").assign(first, second)
+    return DONE
 ```
 
 **TypeScript**

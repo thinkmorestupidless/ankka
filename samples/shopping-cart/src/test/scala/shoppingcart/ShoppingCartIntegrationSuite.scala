@@ -14,6 +14,7 @@ import scala.concurrent.duration.DurationInt
  * Everything here goes through `ComponentClient`, which is the only way one component addresses
  * another — so this also exercises the routing an endpoint or workflow would use.
  */
+// docs:start integration-test
 class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
@@ -28,6 +29,25 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
 
   private def cart(id: String) =
     testKit.componentClient.forEventSourcedEntity(EntityId(id))
+
+  test("state survives losing every entity from memory") {
+    val id = "cart-replay"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 5))
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))
+    val _  = cart(id).call(ShoppingCartEntity.removeItem).invoke("p1")
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p3", "Doohickey", 4))
+
+    val before = cart(id).call(ShoppingCartEntity.getCart).invoke()
+
+    // Nothing is cached across this: a whole new actor system, and every entity must
+    // rebuild itself from its journal.
+    testKit.restartService()
+
+    val after = cart(id).call(ShoppingCartEntity.getCart).invoke()
+    assertEquals(after, before, "replayed state must equal the state before restart")
+    assertEquals(after.totalQuantity, 4)
+  }
+  // docs:end integration-test
 
   test("a command is persisted and visible to a later read") {
     val id              = "cart-persist"
@@ -65,24 +85,6 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
     // docs:end calling
     assertEquals(done, Done)
     assertEquals(cart.items, List(item))
-  }
-
-  test("state survives losing every entity from memory") {
-    val id = "cart-replay"
-    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 5))
-    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))
-    val _  = cart(id).call(ShoppingCartEntity.removeItem).invoke("p1")
-    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p3", "Doohickey", 4))
-
-    val before = cart(id).call(ShoppingCartEntity.getCart).invoke()
-
-    // Nothing is cached across this: a whole new actor system, and every entity must
-    // rebuild itself from its journal.
-    testKit.restartService()
-
-    val after = cart(id).call(ShoppingCartEntity.getCart).invoke()
-    assertEquals(after, before, "replayed state must equal the state before restart")
-    assertEquals(after.totalQuantity, 4)
   }
 
   test("entities with different ids are fully isolated") {

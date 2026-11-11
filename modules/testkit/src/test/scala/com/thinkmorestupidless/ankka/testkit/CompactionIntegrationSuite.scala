@@ -36,6 +36,7 @@ class CompactionIntegrationSuite extends munit.FunSuite with LogCapturing:
   )
 
   override def beforeAll(): Unit =
+    // docs:start compaction
     val agents = AgentRuntime
       .withDefaultModel(model)
       .withCompaction(settings, Some(ModelSummariser(summaryModel, 30.seconds)))
@@ -43,6 +44,7 @@ class CompactionIntegrationSuite extends munit.FunSuite with LogCapturing:
       Seq(WeatherAgent.descriptor) ++ agents.descriptors,
       Seq(agents, ProjectionRuntime())
     )
+    // docs:end compaction
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 

@@ -164,10 +164,14 @@ typed:
 **Scala**
 
 ```scala
-val judgment = client.forAgent(SessionId(ticket.id)).call(TriageAgent.triage).invoke(ticket)
-val team     = judgment(TriageAgent.route)          // ChoiceAnswer[Team]
-if team.confidence < 0.5 then sendToAPerson(ticket)
-else queue(team.choice, refundAsked = judgment(TriageAgent.refund).probability >= 0.7)
+/** Where a ticket goes: each answer is read through the question that asked it, typed. */
+def dispatch(client: ComponentClient, ticket: Ticket): String =
+  val judgment = client.forAgent(SessionId(ticket.id)).call(TriageAgent.triage).invoke(ticket)
+  val team     = judgment(TriageAgent.route) // ChoiceAnswer[Team]
+  if team.confidence < 0.5 then "a person"
+  else
+    val refundAsked = judgment(TriageAgent.refund).probability >= 0.7
+    team.choice.toString.toLowerCase + (if refundAsked then ", refund asked" else "")
 ```
 
 **Java**
@@ -280,14 +284,19 @@ The service's judgment provider is configured on the agent runtime, beside its t
 **Scala**
 
 ```scala
-Ankka.service
-  .register(TriageAgent.descriptor)
+val agents = AgentRuntime
+  .withDefaultModel(AnthropicProvider.fromEnv())
+  .withJudgments(JevProvider.fromEnv())
+  .withBlueprints(context => Blueprints.registry(context, Source.all, Clock.systemUTC()))
+
+val service = Ankka.service
+  .register(PapersEntity.descriptor)
+  .register(EntriesView.descriptor)
   .registerAll(AgentRuntime.descriptors)
-  .withExtension(
-    AgentRuntime
-      .withDefaultModel(AnthropicProvider.fromEnv())
-      .withJudgments(JevProvider.fromEnv())
-  )
+  .withExtension(agents)
+  .withExtension(TimerRuntime())
+  .withExtension(ProjectionRuntime())
+  .withExtension(HttpServer.of(clients => DigestEndpoint(clients.componentClient, agents)))
   .start()
 ```
 
@@ -498,13 +507,14 @@ text. Give it to the test service through the agent runtime:
 **Scala**
 
 ```scala
-val model = TestModelProvider()
-val judge = TestJudgmentProvider()
+private val model = TestModelProvider()
+private val judge = TestJudgmentProvider()
 
-val testKit = AnkkaTestKit.start(
-  Seq(TriageAgent.descriptor) ++ AgentRuntime.descriptors,
-  Seq(AgentRuntime.withDefaultModel(model).withJudgments(judge))
-)
+override def beforeAll(): Unit =
+  testKit = AnkkaTestKit.start(
+    Seq(TriageAgent.descriptor) ++ AgentRuntime.descriptors,
+    Seq(AgentRuntime.withDefaultModel(model).withJudgments(judge))
+  )
 ```
 
 `expect(answers*)` queues one judgment's answers, taken in order. `always(answers*)` gives standing

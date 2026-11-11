@@ -14,9 +14,11 @@ class AgentTestKitSuite extends munit.FunSuite with LogCapturing:
 
   test("a turn runs the tool the model asks for and answers what the model says next") {
     WeatherAgent.toolCalls.clear()
+    // docs:start model-script
     val model = TestModelProvider()
-      .expectToolCall("get_weather", json("""{"location":"Oslo"}"""))
+      .expectToolCall("get_weather", Json.obj("location" -> Json.str("Oslo")))
       .expectText("Oslo: 18C and sunny")
+    // docs:end model-script
     val kit    = AgentTestKit.of(WeatherAgent, model)
     val result = kit.call(WeatherAgent.ask)("How is Oslo?")
     assertEquals(result.reply, "Oslo: 18C and sunny")

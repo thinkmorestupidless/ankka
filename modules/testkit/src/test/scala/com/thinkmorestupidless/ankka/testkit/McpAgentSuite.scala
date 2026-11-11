@@ -61,7 +61,9 @@ object McpOperator extends AutonomousAgent.Companion[McpOperator](ComponentId("t
   def definition: AutonomousAgentDefinition   =
     define
       .describedAs("Looks after tickets")
+      // docs:start credential
       .mcpServers(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN"))
+      // docs:end credential
       .capability(TaskAcceptance.of(Tasks.summary).maxIterationsPerTask(3))
 
 /** As the operator, checking what the server answers with a judged result guardrail. */

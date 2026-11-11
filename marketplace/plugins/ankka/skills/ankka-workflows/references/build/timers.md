@@ -103,34 +103,38 @@ class Reminder : TimedAction() {
 **Python**
 
 ```python
-from ankka import Done
-from ankka.effects.timed_action import TimedActionEffect
-from ankka.timed_action import TimedAction, action
-
-
 class Reminder(TimedAction):
     component_id = "reminder"
 
-    @action("nudge")
-    async def nudge(self, cart_id: str) -> TimedActionEffect:
-        attempts = int(self.metadata.get("ankka.attempts") or "0")
-        if attempts > 5:
-            return self.effects.done()          # give up quietly rather than retry forever
+    @action("remind")
+    async def remind(self, id: str) -> TimedActionEffect:
         assert self.client is not None
-        await self.client.for_key_value_entity("reminders", cart_id).call("record").invoke(reply=Done)
+        await self.client.for_event_sourced_entity("conformance", id).call("record").invoke("reminded", reply=str)
+        return self.effects.done()
+
+    @action("tick")
+    async def tick(self, id: str) -> TimedActionEffect:
+        """Records the due time it was run for, as the runtime told it."""
+        assert self.client is not None
+        due = self.metadata.get("ankka.due")
+        assert due is not None, "a timed action is run with ankka.due"
+        await self.client.for_event_sourced_entity("conformance", id).call("record").invoke(f"due:{int(due)}", reply=str)
         return self.effects.done()
 ```
 
 **TypeScript**
 
 ```ts
-import { TimedAction, action, s } from "ankka"
-
 export class Reminder extends TimedAction {
   static readonly componentId = "reminder"
   static readonly actions = {
-    nudge: action("nudge", s.string, async (r: Reminder, cartId) => {
-      await r.client.of(Reminders, cartId).call(Reminders.handlers.record).invoke()
+    remind: action("remind", s.string, async (r: Reminder, id) => {
+      await r.client.of(Conformance, id).call(Conformance.handlers.record).invoke("reminded")
+      return r.effects.done()
+    }),
+    // Records the due time it was run for, as the runtime told it.
+    tick: action("tick", s.string, async (r: Reminder, id) => {
+      await r.client.of(Conformance, id).call(Conformance.handlers.record).invoke(`due:${r.dueTime?.getTime()}`)
       return r.effects.done()
     }),
   }
@@ -365,26 +369,36 @@ fun remind(id: String): Done {
 **Python**
 
 ```python
-from datetime import timedelta
-
-await client.timers.schedule("nudge-c1", timedelta(hours=1), "reminder", "nudge", "c1")
-await client.timers.cancel("nudge-c1")
+@post("/remind/{id}")
+async def remind(self, id: str) -> Done:
+    await self.client.timers.schedule(f"remind-{id}", timedelta(seconds=1), "reminder", "remind", id)
+    return DONE
 ```
 
 **TypeScript**
 
 ```ts
-import { Duration } from "ankka"
-
-await client.timers.schedule("nudge-c1", Duration.ofHours(1), { component: Reminder, handler: Reminder.actions.nudge }, "c1")
-await client.timers.cancel("nudge-c1")
+remind: post("/remind/{id}", Done, async (ep: ConformanceEndpoint, req) => {
+  await ep.client.timers.schedule(`remind-${req.params.id}`, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, req.params.id)
+  return done
+}),
 ```
 
 **Rust**
 
 ```rust
-ctx.client().schedule("nudge-c1", Duration::of_hours(1), Reminder, None, "nudge", "c1".to_string())?;
-ctx.client().cancel("nudge-c1")?;
+fn remind(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+    let id = request.path("id");
+    request.client().schedule(
+        &format!("remind-{id}"),
+        Duration::of_seconds(1),
+        Reminder,
+        None,
+        "remind",
+        id.to_string(),
+    )?;
+    Ok(Done)
+}
 ```
 
 **Go**
@@ -451,23 +465,78 @@ fun recur(id: String): Done {
 **Python**
 
 ```python
-from datetime import timedelta
+# A recurring timer: due at once, then every second.
+@post("/recur/{id}")
+async def recur(self, id: str) -> Done:
+    await self.client.timers.schedule_recurring(f"recur-{id}", timedelta(0), timedelta(seconds=1), "reminder", "tick", id)
+    return DONE
 
-await client.timers.schedule_recurring("sweep-carts", timedelta(0), timedelta(hours=1), "cleanup", "sweep")
+# The same timer set again, with a delay a replacement would be first due after.
+@post("/recur/{id}/again")
+async def recur_again(self, id: str) -> Done:
+    await self.client.timers.schedule_recurring(f"recur-{id}", timedelta(seconds=60), timedelta(seconds=1), "reminder", "tick", id)
+    return DONE
+
+@post("/recur/{id}/cancel")
+async def recur_cancel(self, id: str) -> Done:
+    await self.client.timers.cancel(f"recur-{id}")
+    return DONE
 ```
 
 **TypeScript**
 
 ```ts
-import { Duration } from "ankka"
-
-await client.timers.scheduleRecurring("sweep-carts", Duration.ZERO, Duration.ofHours(1), { component: Cleanup, handler: Cleanup.actions.sweep })
+// A recurring timer: due at once, then every second.
+recur: post("/recur/{id}", Done, async (ep: ConformanceEndpoint, req) => {
+  await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ZERO, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
+  return done
+}),
+// The same timer set again, with a delay a replacement would be first due after.
+recurAgain: post("/recur/{id}/again", Done, async (ep: ConformanceEndpoint, req) => {
+  await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ofSeconds(60), Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
+  return done
+}),
+recurCancel: post("/recur/{id}/cancel", Done, async (ep: ConformanceEndpoint, req) => {
+  await ep.client.timers.cancel(`recur-${req.params.id}`)
+  return done
+}),
 ```
 
 **Rust**
 
 ```rust
-ctx.client().schedule_recurring("sweep-carts", Duration::of_seconds(0), Duration::of_hours(1), Cleanup, "sweep", ())?;
+fn set_recurring(
+    request: &Request,
+    delay: Duration,
+    period: Duration,
+) -> Result<Done, HttpProblem> {
+    let id = request.path("id");
+    request.client().schedule_recurring(
+        &format!("recur-{id}"),
+        delay,
+        period,
+        Reminder,
+        "tick",
+        id.to_string(),
+    )?;
+    Ok(Done)
+}
+
+/// A recurring timer: due at once, then every second.
+fn recur(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+    Self::set_recurring(request, Duration::ZERO, Duration::of_seconds(1))
+}
+
+/// The same timer set again, with a delay a replacement would be first due after.
+fn recur_again(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+    Self::set_recurring(request, Duration::of_seconds(60), Duration::of_seconds(1))
+}
+
+fn recur_cancel(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+    let id = request.path("id");
+    request.client().cancel(&format!("recur-{id}"))?;
+    Ok(Done)
+}
 ```
 
 **Go**

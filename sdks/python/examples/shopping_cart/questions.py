@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from collections.abc import AsyncIterator
 
-from ankka import Acl, Endpoint, get, post, sse
+from ankka import DONE, Acl, Done, Endpoint, get, post, sse
 from ankka.client import ComponentClient
 
 from examples.shopping_cart.answerer import ANSWER, Answer, CartAnswerer
@@ -43,6 +43,16 @@ class QuestionsEndpoint(Endpoint):
         task = await client.for_task(task_id).get(ANSWER)
         return Asked(task_id, task.assignee[1] if task.assignee else "")
     # docs:end run-task
+
+    # docs:start assign-tasks
+    @post("/review")
+    async def review(self) -> Done:
+        """Two questions for one reviewer, the second once the first has been answered."""
+        first = await self.client.tasks.create(ANSWER, "What is in cart c-1?")
+        second = await self.client.tasks.create(ANSWER, "And in c-2?", depends_on=[first])
+        await self.client.for_autonomous_agent(CartAnswerer, "reviewer-1").assign(first, second)
+        return DONE
+    # docs:end assign-tasks
 
     # docs:start read-task
     @get("/{taskId}")

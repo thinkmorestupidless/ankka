@@ -985,6 +985,7 @@ assign them to an instance by an id you choose; they are worked one at a time, i
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CartAnswererSuite.scala#assign-tasks -->
 ```scala
 val first  = client.tasks.create(CartTasks.answer, "What is in cart c-1?").create()
 val second = client.tasks.create(CartTasks.answer, "And in c-2?").dependsOn(first).create()
@@ -1021,10 +1022,15 @@ AgentClients.forAutonomousAgent(client, Guide::class.java, "reviewer-1").assign(
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/questions.py#assign-tasks -->
 ```python
-first = await client.tasks.create(ANSWER, "What is in cart c-1?")
-second = await client.tasks.create(ANSWER, "And in c-2?", depends_on=[first])
-await client.for_autonomous_agent(CartAnswerer, "reviewer-1").assign(first, second)
+@post("/review")
+async def review(self) -> Done:
+    """Two questions for one reviewer, the second once the first has been answered."""
+    first = await self.client.tasks.create(ANSWER, "What is in cart c-1?")
+    second = await self.client.tasks.create(ANSWER, "And in c-2?", depends_on=[first])
+    await self.client.for_autonomous_agent(CartAnswerer, "reviewer-1").assign(first, second)
+    return DONE
 ```
 
 ///

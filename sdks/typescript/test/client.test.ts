@@ -127,8 +127,10 @@ describe("the component client", () => {
   test("an agent session, a task and an instance carry their data subject, and nothing without one", async () => {
     const subjectOf = (req: InvokeRequest) => req.metadata?.entries.filter((e) => e.key === "ankka-data-subject").map((e) => e.value)
     const scoped = client.withMetadata({ traceparent: "00-abc" })
+    // docs:start agent-subject
     const session = scoped.forAgent("assistant", "s1", { subject: subject("player/8c1f") })
     await session.call("done").invoke()
+    // docs:end agent-subject
     for await (const _ of session.call("stream", s.string).stream("hi")) void _
     const [asked, streamed] = invokes.slice(-2)
     assert.deepEqual(subjectOf(asked!), ["player/8c1f"])

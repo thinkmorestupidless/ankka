@@ -1732,6 +1732,7 @@ impl ConformanceEndpoint {
         Ok(end)
     }
 
+    // docs:start schedule
     fn remind(request: &Request, (): ()) -> Result<Done, HttpProblem> {
         let id = request.path("id");
         request.client().schedule(
@@ -1744,7 +1745,9 @@ impl ConformanceEndpoint {
         )?;
         Ok(Done)
     }
+    // docs:end schedule
 
+    // docs:start recurring
     fn set_recurring(
         request: &Request,
         delay: Duration,
@@ -1777,6 +1780,7 @@ impl ConformanceEndpoint {
         request.client().cancel(&format!("recur-{id}"))?;
         Ok(Done)
     }
+    // docs:end recurring
 
     /// A period of zero: refused before anything is sent, a 400 naming the timer.
     fn recur_refused(request: &Request, (): ()) -> Result<Done, HttpProblem> {

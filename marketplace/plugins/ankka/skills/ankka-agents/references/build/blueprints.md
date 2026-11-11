@@ -180,8 +180,13 @@ whose drafter is a worker with tools, is a combination, not a new pattern:
 **Scala**
 
 ```scala
-Step("dig").work("researcher").each("papers.papers", limit = 4).result(Shape.arr(text))
-Step("views").ask("reviewer").times(3).reads("draft").result(Shape.arr(Shape.obj("n" -> Shape.integer, "result" -> text)))
+val dig: Step =
+  Step("dig").work("researcher").each("papers.papers", limit = 4).result(Shape.arr(text))
+val views: Step = Step("views")
+  .ask("reviewer")
+  .times(3)
+  .reads("draft")
+  .result(Shape.arr(Shape.obj("n" -> Shape.integer, "result" -> text)))
 ```
 
 **Java**
@@ -411,10 +416,11 @@ started — inject `agents.blueprints` into an endpoint or a workflow, as a `Tim
 **Scala**
 
 ```scala
-val registered = agents.blueprints.register(brief)      // Registered(name, version, isNew, notes)
-agents.blueprints.register(jsonText)                    // the same, from a blueprint written as JSON
-agents.blueprints.versions("brief")                     // every version, oldest first
-agents.blueprints.version("brief", 2)                   // one, as it was registered
+val registered = agents.blueprints.register(brief)   // Registered(name, version, isNew, notes)
+val fromJson   =
+  agents.blueprints.register(jsonText) // the same, from a blueprint written as JSON
+val versions   = agents.blueprints.versions("brief") // every version, oldest first
+val second = agents.blueprints.version("brief", 2) // one, as it was registered
 ```
 
 **Java**
@@ -801,9 +807,13 @@ longer or shorter.
 **Scala**
 
 ```scala
-Blueprint("digest")
+val digest: Blueprint = Blueprint("digest")
   .input(Period.shape)
-  .schedule(Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London")).perMissedPeriod)
+  .schedule(
+    Schedule
+      .weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London"))
+      .perMissedPeriod
+  )
 ```
 
 **Java**

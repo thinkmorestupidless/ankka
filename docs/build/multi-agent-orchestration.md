@@ -920,6 +920,7 @@ Every agent in a plan is addressed with the same session id, the workflow's own 
 
 /// tab | Scala
 
+<!-- include: samples/multi-agent-planner/src/main/scala/planner/application/PlannerWorkflow.scala#session -->
 ```scala
 private val session = SessionId(context.workflowId)
 ```
@@ -1505,11 +1506,29 @@ accumulate one conversation exactly as the Scala ones do:
 
 /// tab | Scala
 
+<!-- include: samples/multi-agent-planner/src/main/scala/planner/application/PlannerWorkflow.scala#select -->
 ```scala
+/** Asks the selector which specialists this request needs. */
 def selectSpecialistsStep(destination: String): StepEffect =
-  val selection = client.forAgent(session).call(SelectorAgent.select).invoke(destination)
+  val selection = client
+    .forAgent(session)
+    .call(SelectorAgent.select)
+    .invoke(s"Plan a trip to $destination")
+
+  // Ignore anything the model invented that is not a real specialist.
+  val known  = selection.specialists.filter(Specialist.All.contains)
+  val chosen =
+    if known.nonEmpty then known
+    // A selector that names nothing usable should not stall the plan.
+    else List(Specialist.Activity)
+
   stepEffects
-    .updateState(currentState.copy(selection = Some(selection)))
+    .updateState(
+      currentState.copy(
+        status = PlanState.Consulting,
+        selection = Some(selection.copy(specialists = chosen))
+      )
+    )
     .thenTransitionTo(PlannerWorkflow.consultSpecialists)
 ```
 
@@ -1572,22 +1591,42 @@ suspend fun selectSpecialists(destination: String): StepEffect {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/planner/planner_workflow.py#select -->
 ```python
-@step("select")
-async def select(self) -> WorkflowStepEffect[Plan]:
-    selection = await self.context.client.for_agent("selector", self.entity_id).call("select").invoke(self.state.destination, reply=Selection)
-    return self.step_effects.update_state(replace(self.state, selection=selection)).then_transition_to("consult")
+@step("select-specialists")
+async def select_specialists(self, destination: str) -> WorkflowStepEffect[PlanState]:
+    """Asks the selector which specialists this request needs."""
+    selection = await self._agent("selector-agent").call("select").invoke(f"Plan a trip to {destination}", reply=AgentSelection)
+    # Ignore anything the model invented that is not a real specialist.
+    known = [s for s in selection.specialists if s in SPECIALISTS]
+    # A selector that names nothing usable should not stall the plan.
+    chosen = known or [ACTIVITY]
+    consulting = replace(self.state, status=CONSULTING, selection=replace(selection, specialists=chosen))
+    return self.step_effects.update_state(consulting).then_transition_to("consult-specialists")
 ```
 
 ///
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/planner.ts#select -->
 ```ts
-select: step("select", async (w: PlannerWorkflow) => {
-  const selection = await w.client.of(SelectorAgent, w.entityId).call(SelectorAgent.handlers.select).invoke(w.state.destination)
-  return w.stepEffects.updateState({ ...w.state, selection }).thenTransitionTo("consult")
-}),
+/** Asks the selector which specialists this request needs. */
+async selectSpecialistsStep() {
+  const selection = await this.client
+    .of(SelectorAgent, this.session)
+    .call(SelectorAgent.handlers.select)
+    .invoke(`Plan a trip to ${this.state.destination}`)
+
+  // Ignore anything the model invented that is not a real specialist.
+  const known = selection.specialists.filter((name) => (Specialist.All as readonly string[]).includes(name))
+  // A selector that names nothing usable should not stall the plan.
+  const chosen = known.length > 0 ? known : [Specialist.Activity]
+
+  return this.stepEffects
+    .updateState({ ...this.state, status: "consulting", selection: { ...selection, specialists: chosen } })
+    .thenTransitionTo("consult")
+}
 ```
 
 ///
@@ -1675,7 +1714,7 @@ func selectSpecialists(ctx context.Context, s PlanState, destination string) (pl
 
 ///
 
-In Python `Plan` and `Selection` are the workflow's own dataclasses; in TypeScript they are its shapes.
+In Python `PlanState` and `AgentSelection` are the workflow's own dataclasses; in TypeScript they are its shapes.
 The parallel pattern is `invokeAsync` with `ComponentClient.await` in Scala, `asyncio.gather` in Python
 and `Promise.all` in TypeScript. A selector that should stay out of the conversation turns memory off:
 `memory(MemoryProvider.none)`, `memory(False)` and `memory(false)`.
@@ -1689,9 +1728,17 @@ call is in flight or the workflow failed long ago.
 <!-- languages: scala, java, kotlin; a Python, TypeScript, Rust or Go client has no `lifecycle` query of a workflow; a workflow that must show whether it is still going records it in its state, and a view or a consumer reads the standing with each state -->
 /// tab | Scala
 
+<!-- include: samples/multi-agent-planner/src/main/scala/planner/api/PlannerEndpoint.scala#observe -->
 ```scala
-client.forWorkflow(planId).call(PlannerWorkflow.plan).invoke()      // the domain state
-client.forWorkflow(planId).lifecycle(PlannerWorkflow).invoke()      // the engine's state
+get("/{planId}") { (planId: String) =>
+  client.forWorkflow(EntityId(planId)).call(PlannerWorkflow.plan).invoke()
+}
+
+/** The engine's own view: running, paused, completed or failed, and why. */
+get("/{planId}/lifecycle") { (planId: String) =>
+  val lifecycle = client.forWorkflow(EntityId(planId)).lifecycle(PlannerWorkflow).invoke()
+  s"${lifecycle.status}${lifecycle.failure.map(reason => s": $reason").getOrElse("")}"
+}
 ```
 
 ///

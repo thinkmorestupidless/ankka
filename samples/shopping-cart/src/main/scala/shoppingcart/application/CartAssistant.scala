@@ -60,10 +60,12 @@ object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assista
    * Output only: the check runs before memory is written, so a rejected reply leaves no trace in
    * the conversation. Nothing is wrong with a shopper *asking* about a key.
    */
+  // docs:start custom-guardrail
   val noSecrets: Guardrail = new Guardrail:
     val name                                                     = "no-secrets"
     override def checkOutput(text: String): Either[String, Unit] =
       if text.contains("sk-") then Left("a key leaked") else Right(())
+  // docs:end custom-guardrail
 
   def create(context: AgentContext) = new CartAssistant
 

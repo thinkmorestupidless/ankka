@@ -26,15 +26,14 @@ final class OrderTimers(context: TimedActionContext) extends TimedAction:
     OrderTimers.observed.add(s"$orderId:attempt-${context.previousAttempts}"): Unit
     effects.error("this timer never succeeds")
 
+// docs:start companion
 object OrderTimers extends TimedAction.Companion[OrderTimers](ComponentId("order-timers")):
-
-  /** Records what fired, so tests can assert on it. */
-  val observed: java.util.concurrent.ConcurrentLinkedQueue[String] =
-    java.util.concurrent.ConcurrentLinkedQueue[String]()
-
-  // docs:start companion
   def create(context: TimedActionContext) = new OrderTimers(context)
 
   val expireOrder = handler("expire-order")(_.expireOrder)
   // docs:end companion
   val alwaysFails = handler("always-fails")(_.alwaysFails)
+
+  /** Records what fired, so tests can assert on it. */
+  val observed: java.util.concurrent.ConcurrentLinkedQueue[String] =
+    java.util.concurrent.ConcurrentLinkedQueue[String]()

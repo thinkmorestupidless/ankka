@@ -52,7 +52,7 @@ no JVM to install: `linux-x64`, `linux-arm64`, `macos-arm64` and `macos-x64`, ea
 Linux builds need glibc 2.35 or later, so they do not run on Alpine.
 
 ```bash
-ankka_version=0.16.0                                  # a release from the releases page
+ankka_version=0.16.2                                  # a release from the releases page
 platform=linux-x64                                   # or linux-arm64, macos-arm64, macos-x64
 base="https://github.com/thinkmorestupidless/ankka/releases/download/v$ankka_version"
 curl -LO "$base/ankka-cli-$ankka_version-$platform.tar.gz" -LO "$base/ankka-cli-$ankka_version-$platform.tar.gz.sha256"
@@ -69,7 +69,7 @@ Every release also carries the CLI as a zip that runs on a JDK 21 on the `PATH` 
 platform with no native build: unpack it and put its `bin` directory on your `PATH`.
 
 ```bash
-ankka_version=0.16.0                                  # a release from the releases page
+ankka_version=0.16.2                                  # a release from the releases page
 curl -LO "https://github.com/thinkmorestupidless/ankka/releases/download/v$ankka_version/ankka-cli-$ankka_version.zip"
 unzip "ankka-cli-$ankka_version.zip"
 export PATH="$PWD/ankka-cli-$ankka_version/bin:$PATH"
@@ -138,10 +138,10 @@ release with the platform's version. Add it to your own project, pinned to the v
 you deploy to:
 
 ```bash
-uv add "ankka==0.16.0"
+uv add "ankka==0.16.2"
 ```
 
-The `testkit` extra (`uv add "ankka[testkit]==0.16.0"`) brings the dependencies of the integration
+The `testkit` extra (`uv add "ankka[testkit]==0.16.2"`) brings the dependencies of the integration
 testkit, which starts Postgres and the sidecar in containers. To use an SDK that is not released yet,
 install it from a checkout of the repository instead: generate its protocol stubs with `uv run python
 scripts/proto.py` in `sdks/python`, then `uv add --editable /path/to/ankka/sdks/python`.
@@ -150,7 +150,7 @@ A Python service also needs the ankka sidecar image, which runs beside your proc
 everything stateful. It is public on GitHub Container Registry, tagged with the platform's version:
 
 ```bash
-docker pull ghcr.io/thinkmorestupidless/ankka-sidecar:0.16.0
+docker pull ghcr.io/thinkmorestupidless/ankka-sidecar:0.16.2
 ```
 
 SDKs from version 0.7.0 start that image in the integration testkit by default, at their own version, and
@@ -166,7 +166,7 @@ release with the platform's version. Add it to your own project, pinned to the v
 deploy to:
 
 ```bash
-npm install ankka@0.16.0
+npm install ankka@0.16.2
 npm install -D testcontainers @testcontainers/postgresql      # only for the integration testkit
 ```
 
@@ -182,7 +182,7 @@ published at every release with the platform's version and fetched through the G
 your own module, pinned to the version of the platform you deploy to:
 
 ```bash
-go get github.com/thinkmorestupidless/ankka-go@v0.16.0
+go get github.com/thinkmorestupidless/ankka-go@v0.16.2
 ```
 
 The test kits are the package `github.com/thinkmorestupidless/ankka-go/testkit` in the same module, so
@@ -203,8 +203,8 @@ the crate to your own project, pinned to the version of the platform you deploy 
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo add ankka@0.16.0 serde --features serde/derive
-cargo add --dev ankka@0.16.0 --features testkit                 # the integration testkit, which needs Docker
+cargo add ankka@0.16.2 serde --features serde/derive
+cargo add --dev ankka@0.16.2 --features testkit                 # the integration testkit, which needs Docker
 ```
 
 The runtime that loads a module is the same `ankka-sidecar` image a Python, TypeScript or Go service runs

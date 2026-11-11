@@ -40,11 +40,11 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]            # cdylib: the module; rlib: the tests
 
 [dependencies]
-ankka = "0.16.0"                            # the version of the platform you will deploy to
+ankka = "0.16.2"                            # the version of the platform you will deploy to
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-ankka = { version = "0.16.0", features = ["testkit"] }
+ankka = { version = "0.16.2", features = ["testkit"] }
 
 [features]
 slow = []                                  # the tests that start Docker

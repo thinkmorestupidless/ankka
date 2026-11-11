@@ -64,7 +64,7 @@ of the control plane carries no actor system, database driver or Kubernetes clie
 for the JVM, under the Scala 3 artifact name; this is its sbt coordinate:
 
 ```scala
-libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.16.0"
+libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.16.2"
 ```
 
 The CLI is built on the same library, so a client using it reads every answer the CLI can read and

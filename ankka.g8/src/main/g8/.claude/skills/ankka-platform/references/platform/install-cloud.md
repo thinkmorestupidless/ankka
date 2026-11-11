@@ -169,10 +169,10 @@ fetched when `ghcr.io` is unavailable. Whichever you choose, rename the images i
 images:
   - name: ankka-controlplane
     newName: registry.example.com/ankka/ankka-controlplane
-    newTag: "0.16.0"
+    newTag: "0.16.2"
   - name: ankka-operator
     newName: registry.example.com/ankka/ankka-operator
-    newTag: "0.16.0"
+    newTag: "0.16.2"
 ```
 
 The sidecar needs one more step. It appears in no manifest, because the operator injects it beside every

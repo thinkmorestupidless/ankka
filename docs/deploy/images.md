@@ -35,13 +35,24 @@ The relevant settings in the template's `build.sbt` are:
 <!-- languages: scala; an sbt-native-packager setting; a Java or Kotlin service is packaged by its template's Dockerfile and Gradle, and a process or a module by its own image, as the page's sections for them show -->
 /// tab | Scala
 
+<!-- include: ankka.g8/src/main/g8/build.sbt#image -->
 ```scala
-Docker / packageName  := serviceName,
+Docker / packageName := serviceName,
+// Unset, the image is tagged unqualified, which is what `kind load docker-image` wants. Set,
+// the image is tagged for that registry and `sbt Docker/publish` pushes there — which is how
+// the deploy workflow gets the image somewhere the cluster can pull from.
+Docker / dockerRepository := sys.env.get("DOCKER_REPOSITORY"),
+// Which architectures the image is built for. Unset, this machine's, which is what `kind load`
+// wants and all `Docker/publishLocal` can do. Set, `Docker/publish` follows its ordinary build
+// with `docker buildx build --platform <list> --push`, so one tag serves a cluster of either
+// architecture; the deploy workflow sets both. Building for the architecture this machine is not
+// needs buildx and QEMU (Docker Desktop and OrbStack have both).
 dockerBuildxPlatforms := sys.env.get("ANKKA_IMAGE_PLATFORMS").toSeq.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty),
-dockerBaseImage       := "eclipse-temurin:21-jre",
-dockerUpdateLatest    := true,
-dockerExposedPorts    := Seq(9000),
-Docker / version      := version.value.replace('+', '-')
+dockerBaseImage      := "eclipse-temurin:21-jre",
+dockerUpdateLatest   := true,
+dockerExposedPorts   := Seq(9000),
+// A Docker tag may not contain '+'; a git-derived snapshot version might.
+Docker / version     := version.value.replace('+', '-')
 ```
 
 ///

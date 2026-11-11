@@ -80,8 +80,10 @@ A service in the runtime's own JVM builds the same provider in code, naming the 
 <!-- languages: scala, java, kotlin; a Python, TypeScript, Rust or Go handler names a configured provider and never a model, so the descriptor is its one form -->
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ModelProviderSamples.scala#installation-model -->
 ```scala
-val local = ModelProviders.installation("qwen3:0.6b")
+// The installation's own model server, by the model's tag; its address and credential are the platform's.
+def installation: ModelProvider = ModelProviders.installation("qwen3:0.6b")
 ```
 
 ///

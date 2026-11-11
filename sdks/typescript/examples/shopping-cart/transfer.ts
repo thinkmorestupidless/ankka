@@ -1,6 +1,6 @@
 // A transfer between two balances as a durable process: withdraw, deposit, and put the money back if the
 // deposit fails. The sidecar journals every transition before the next step runs.
-import { Ankka, Done, done, ErrorCode, EventSourcedEntity, Workflow, command, jsonCodec, query, s, step, workflowSettings, type Infer } from "ankka"
+import { Ankka, Done, done, Duration, ErrorCode, EventSourcedEntity, Workflow, command, jsonCodec, query, s, step, workflowSettings, type Infer } from "ankka"
 
 const BalanceEvent = s.sumType("BalanceEvent", { Withdrawn: { amount: s.int }, Deposited: { amount: s.int } })
 type BalanceEvent = Infer<typeof BalanceEvent>
@@ -37,7 +37,15 @@ export type TransferState = Infer<typeof TransferState>
 export class TransferWorkflow extends Workflow<TransferState> {
   static readonly componentId = "transfer"
   static readonly state = jsonCodec(TransferState, "transfer-state")
-  static readonly settings = workflowSettings({ steps: { deposit: { recovery: { maxRetries: 1, failoverTo: "compensate" } } } })
+  // docs:start settings
+  static readonly settings = workflowSettings({
+    timeout: Duration.ofSeconds(60),
+    defaultStepTimeout: Duration.ofSeconds(10),
+    // One retry, then compensate. The deposit is the step that can fail for reasons outside this
+    // workflow's control, so it is the one worth a second attempt.
+    steps: { deposit: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
+  })
+  // docs:end settings
 
   // Step names and handler names are wire names: renaming a method is safe, renaming the string is a
   // protocol change for every instance already in flight.

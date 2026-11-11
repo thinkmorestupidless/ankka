@@ -123,7 +123,13 @@ fun compensateStep(): StepEffect {
 export class TransferWorkflow extends Workflow<TransferState> {
   static readonly componentId = "transfer"
   static readonly state = jsonCodec(TransferState, "transfer-state")
-  static readonly settings = workflowSettings({ steps: { deposit: { recovery: { maxRetries: 1, failoverTo: "compensate" } } } })
+  static readonly settings = workflowSettings({
+    timeout: Duration.ofSeconds(60),
+    defaultStepTimeout: Duration.ofSeconds(10),
+    // One retry, then compensate. The deposit is the step that can fail for reasons outside this
+    // workflow's control, so it is the one worth a second attempt.
+    steps: { deposit: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
+  })
 
   // Step names and handler names are wire names: renaming a method is safe, renaming the string is a
   // protocol change for every instance already in flight.
@@ -573,9 +579,9 @@ Register it on the service like any other component:
 **Scala**
 
 ```scala
-Ankka.service
+val service = Ankka.service
+  .register(WalletEntity.descriptor)
   .register(TransferWorkflow.descriptor)
-  .start()
 ```
 
 **Java**
@@ -1283,9 +1289,11 @@ override fun settings(): WorkflowSettings =
 
 ```python
 settings = WorkflowSettings(
-    timeout=timedelta(minutes=5),
+    timeout=timedelta(seconds=60),
     default_step_timeout=timedelta(seconds=10),
-    steps={"charge": StepSettings(recovery=Recovery(max_retries=1, failover_to="compensate"))},
+    # One retry, then compensate. The deposit is the step that can fail for reasons outside
+    # this workflow's control, so it is the one worth a second attempt.
+    steps={"deposit": StepSettings(recovery=Recovery(max_retries=1, failover_to="compensate"))},
 )
 ```
 
@@ -1293,8 +1301,11 @@ settings = WorkflowSettings(
 
 ```ts
 static readonly settings = workflowSettings({
+  timeout: Duration.ofSeconds(60),
   defaultStepTimeout: Duration.ofSeconds(10),
-  steps: { charge: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
+  // One retry, then compensate. The deposit is the step that can fail for reasons outside this
+  // workflow's control, so it is the one worth a second attempt.
+  steps: { deposit: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
 })
 ```
 

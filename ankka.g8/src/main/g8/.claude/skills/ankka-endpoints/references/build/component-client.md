@@ -22,8 +22,8 @@ The client is addressed first by kind and instance, then by handler:
 ```scala
 val cart = componentClient.forEventSourcedEntity(EntityId("cart-1"))
 
-cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))   // Done
-cart.call(ShoppingCartEntity.getCart).invoke()                              // ShoppingCart
+cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2)) // Done
+cart.call(ShoppingCartEntity.getCart).invoke()                            // ShoppingCart
 ```
 
 **Java**
@@ -60,7 +60,7 @@ state = await cart.call("get-cart").invoke(reply=ShoppingCart)          # decode
 const cart = client.of(ShoppingCartEntity, "cart-1")
 
 await cart.call(ShoppingCartEntity.handlers.addItem).invoke({ productId: "p1", name: "Widget", quantity: 2 })
-await cart.call(ShoppingCartEntity.handlers.getCart).invoke()          // ShoppingCart
+const state = await cart.call(ShoppingCartEntity.handlers.getCart).invoke() // ShoppingCart
 ```
 
 **Rust**
@@ -180,7 +180,10 @@ stays readable and costs nothing to wait.
 
 ```scala
 val pending = cartIds.map(id =>
-  componentClient.forEventSourcedEntity(EntityId(id)).call(ShoppingCartEntity.totalQuantity).invokeAsync()
+  componentClient
+    .forEventSourcedEntity(EntityId(id))
+    .call(ShoppingCartEntity.totalQuantity)
+    .invokeAsync()
 )
 val totals = pending.map(ComponentClient.await(_, 10.seconds))
 ```
@@ -264,7 +267,7 @@ A component that refuses a command returns an error effect with a code. The call
 
 ```scala
 try cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 0))
-catch case e: CommandError if e.code == ErrorCode.BadRequest => ...
+catch case e: CommandError if e.code == ErrorCode.BadRequest => Done
 ```
 
 **Java**
@@ -483,7 +486,7 @@ passing the request's metadata to the client:
 **Scala**
 
 ```scala
-post("/{cartId}/checkouts") { (cartId: String, mode: String) =>
+postBody("/{cartId}/checkouts") { (cartId: String, mode: String) =>
   // The request's context is already on this thread, so the call joins its trace.
   client.forWorkflow(EntityId(cartId)).call(CheckoutWorkflow.start).invoke(mode)
 }

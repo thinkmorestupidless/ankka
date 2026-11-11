@@ -147,12 +147,11 @@ fails at startup rather than at its first request.
 **Scala**
 
 ```scala
-Ankka.service
+val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)
   .register(CartRows.descriptor)
   .withExtension(ProjectionRuntime())
   .withExtension(HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient)))
-  .start()
 ```
 
 **Java**
@@ -194,25 +193,56 @@ fun main() {
 **Python**
 
 ```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CartRows)
-    .register(ShoppingCartEndpoint)
-)
-
-asyncio.run(service.listen())
+def service() -> Any:
+    """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
+    registered = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(CartRows)
+        .register(CheckoutNotifier)
+        .register(CheckoutLog)
+        .register(CheckoutWorkflow)
+        .register(CartAssistant)
+        .register(CartAnswerer)
+        .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
+        .register(CartKeysEndpoint)
+        .register(CartMcpEndpoint)
+    )
+    # The graph is published to a topic, and a sidecar with no broker refuses a service that
+    # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.
+    if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
+        registered = registered.register(CartGraph).register(CartContentsGraph)
+    return registered
 ```
 
 **TypeScript**
 
 ```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CartRows)
-  .register(ShoppingCartEndpoint)
-
-await service.listen()
+/**
+ * The whole inventory: registration is explicit, so nothing is discovered by scanning. The checkout
+ * notices and the cart's graph are published to a topic, so they are registered only where there is a
+ * broker to publish to; without one the sidecar refuses a component that needs it.
+ */
+export function service() {
+  const cart = Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+    .register(CheckoutNotifier)
+    .register(CheckoutLog)
+    .register(CheckoutWorkflow)
+    .register(CartAssistant)
+    .register(CartAnswerer)
+    .register(ShoppingCartEndpoint)
+    .register(QuestionsEndpoint)
+    .register(CallingEndpoint)
+    .register(CartMcp)
+    .register(CartKeysEndpoint)
+  // The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+  // components that need one are registered only where it is set.
+  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+}
 ```
 
 **Rust**

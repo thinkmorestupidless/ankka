@@ -16,6 +16,7 @@ import { CartAnswerer } from "./answerer.ts"
 import { QuestionsEndpoint } from "./questions.ts"
 import { CartKeysEndpoint, CartMcp } from "./cartMcp.ts"
 
+// docs:start registration
 /**
  * The whole inventory: registration is explicit, so nothing is discovered by scanning. The checkout
  * notices and the cart's graph are published to a topic, so they are registered only where there is a
@@ -41,6 +42,7 @@ export function service() {
   return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
   // docs:end broker-from-env
 }
+// docs:end registration
 
 if (import.meta.main) {
   await service().listen()

@@ -24,6 +24,7 @@ from examples.shopping_cart.entity import ShoppingCartEntity
 from examples.shopping_cart.questions import QuestionsEndpoint
 
 
+# docs:start registration
 def service() -> Any:
     """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
     registered = (
@@ -46,6 +47,7 @@ def service() -> Any:
     if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
         registered = registered.register(CartGraph).register(CartContentsGraph)
     return registered
+    # docs:end registration
 
 
 async def main() -> None:

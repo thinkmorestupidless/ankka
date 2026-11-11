@@ -15,16 +15,22 @@ Declare a topic as the source, with the serializer that decodes its messages:
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.core.{Codecs, ComponentId}
+import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 
-final case class StockEvent(productId: String, delta: Int)
-final case class StockRow(productId: String, level: Int)
+/** What arrives on the topic. */
+final case class StockEvent(sku: String, delta: Int, warehouse: String)
+
+/** A view built from a topic rather than an entity. */
+final case class StockRow(sku: String, onHand: Int, updates: Int)
 
 final class StockLevelsView extends View[StockEvent, StockRow]:
+
   def onChange(event: StockEvent): Effect =
-    val current = rowState.getOrElse(StockRow(updateContext.subject, 0))
-    effects.updateRow(current.copy(level = current.level + event.delta))
+    val current = rowState.getOrElse(StockRow(updateContext.subject, 0, 0))
+    effects.updateRow(
+      current.copy(onHand = current.onHand + event.delta, updates = current.updates + 1)
+    )
 
 object StockLevels
     extends View.Companion[StockLevelsView, StockEvent, StockRow](
@@ -625,7 +631,6 @@ A Scala service names the broker with the projection runtime:
 Ankka.service
   .register(StockLevels.descriptor)
   .withExtension(ProjectionRuntime.withKafka("localhost:9092"))
-  .start()
 ```
 
 **TypeScript**
@@ -649,7 +654,6 @@ named by `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and runs entity sources only when the v
 Ankka.service
   .register(StockLevels.descriptor)
   .withExtension(ProjectionRuntime.fromEnv())
-  .start()
 ```
 
 **TypeScript**
@@ -1243,51 +1247,79 @@ class ContractRelay : Consumer<Fanned, Fanned>() {
 **Python**
 
 ```python
-from ankka import Consumer, Contract, Publication, StartFrom
+class ContractRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more."""
 
-EVENTS = Contract.from_file("schemas/events.v1.json", name="events.v1")
-ORDERS = Contract.from_file("schemas/order.v1.json", name="order.v1")
-
-class Relay(Consumer[Event, Order]):
-    component_id = "relay"
-    topic = "events"
+    component_id = "contract-relay"
+    topic = "conformance-contracts"
     start_from = StartFrom.EARLIEST
-    contract = EVENTS                      # what "events" is expected to carry
-    produces_to = Publication("orders", contract=ORDERS)
+    contract = ORDER_CONTRACT
+    broker = "legacy"
+    parallel = True
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-contracted", contract=ORDER_CONTRACT, broker="legacy")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(Fanned(n=message.n + 1))
 ```
 
 **TypeScript**
 
 ```ts
-import { Consumer, Contract, StartFrom, type Publication } from "ankka"
-
-const events = Contract.fromFile("schemas/events.v1.json", "events.v1")
-const orders = Contract.fromFile("schemas/order.v1.json", "order.v1")
-
-class Relay extends Consumer<Event, Order> {
-  static readonly componentId = "relay"
-  static readonly topic = "events"
+/** Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more. */
+export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "contract-relay"
+  static readonly topic = "conformance-contracts"
   static readonly startFrom = StartFrom.earliest
-  static readonly contract = events          // what "events" is expected to carry
-  static readonly producesTo: Publication = { topic: "orders", contract: orders }
+  static readonly contract = orderContract
+  static readonly broker = "legacy"
+  static readonly parallel = true
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-contracted", contract: orderContract, broker: "legacy" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce({ n: message.n + 1 })
+  }
 }
 ```
 
 **Rust**
 
 ```rust
-use ankka::{Contract, Publication, Source, StartFrom};
+/// Reads "events" and publishes to "transactions", stating the contract the topic carries.
+pub struct WalletRelay;
 
-fn events() -> Contract {
-    Contract::from_file("schemas/events.v1.json", "events.v1").unwrap()
+impl WalletRelay {
+    fn transactions() -> Contract {
+        Contract::from_bytes(TRANSACTION_SCHEMA.as_bytes(), "transaction.v1")
+            .expect("the transaction schema is JSON")
+    }
 }
 
-fn source() -> Source {
-    Source::topic("events").start_from(StartFrom::Earliest).contract(events())
-}
+impl Consumer for WalletRelay {
+    type Message = StockEvent;
+    const COMPONENT_ID: &'static str = "wallet";
 
-fn produces() -> Option<Publication> {
-    Some(Publication::to("orders").contract(Contract::from_file("schemas/order.v1.json", "order.v1").unwrap()))
+    fn source() -> Source {
+        Source::topic("events")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(Publication::to("transactions").contract(WalletRelay::transactions()))
+    }
+
+    fn on_message(event: StockEvent, _: &Context) -> ConsumerEffect {
+        consumer::produce(FanLine {
+            product_id: event.product_id,
+            delta: event.delta,
+        })
+    }
 }
 ```
 
@@ -1362,8 +1394,34 @@ A component names the broker for a topic it reads or publishes to:
 **Scala**
 
 ```scala
-ChangeSource.fromTopic("events", serializer, StartFrom.Earliest, TopicOptions(broker = Some("legacy")))
-override def produces = Some(Publication("archive", broker = Some("legacy")))
+/**
+ * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+ * publishes one more.
+ */
+final class ContractRelay extends Consumer[Fanned, Fanned]:
+  def onMessage(message: Fanned): Effect = effects.produce(Fanned(message.n + 1))
+
+object ContractRelay
+    extends Consumer.Companion[ContractRelay, Fanned, Fanned](
+      componentId = ComponentId("contract-relay"),
+      source = ChangeSource.fromTopic(
+        Contracts,
+        Codecs.serializer[Fanned]("fanned"),
+        StartFrom.Earliest,
+        TopicOptions(
+          contract = Some(OrderContract),
+          broker = Some(DeclaredBroker),
+          parallel = true
+        )
+      )
+    ):
+  def create(ctx: ConsumerContext) = new ContractRelay
+
+  override val outputSerializer: Option[Serializer[Fanned]] =
+    Some(Codecs.serializer[Fanned]("fanned"))
+
+  override def produces: Option[Publication] =
+    Some(Publication(Contracted, Some(OrderContract), Some(DeclaredBroker)))
 ```
 
 **Java**
@@ -1462,26 +1520,77 @@ class ContractRelay : Consumer<Fanned, Fanned>() {
 **Python**
 
 ```python
-class Intake(Consumer[Event, Order]):
-    topic = "events"
+class ContractRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more."""
+
+    component_id = "contract-relay"
+    topic = "conformance-contracts"
     start_from = StartFrom.EARLIEST
+    contract = ORDER_CONTRACT
     broker = "legacy"
-    produces_to = "orders"           # on the installation's broker, as before
+    parallel = True
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-contracted", contract=ORDER_CONTRACT, broker="legacy")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(Fanned(n=message.n + 1))
 ```
 
 **TypeScript**
 
 ```ts
-static readonly topic = "events"
-static readonly broker = "legacy"
-static readonly producesTo = "orders"
+/** Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more. */
+export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "contract-relay"
+  static readonly topic = "conformance-contracts"
+  static readonly startFrom = StartFrom.earliest
+  static readonly contract = orderContract
+  static readonly broker = "legacy"
+  static readonly parallel = true
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-contracted", contract: orderContract, broker: "legacy" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce({ n: message.n + 1 })
+  }
+}
 ```
 
 **Rust**
 
 ```rust
-fn source() -> Source {
-    Source::topic("events").start_from(StartFrom::Earliest).broker("legacy")
+/// Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more.
+pub struct ContractRelay;
+
+impl Consumer for ContractRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "contract-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-contracts")
+            .contract(order_contract())
+            .broker("legacy")
+            .parallel()
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(
+            Publication::to("conformance-contracted")
+                .contract(order_contract())
+                .broker("legacy"),
+        )
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n + 1).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
 }
 ```
 
@@ -1595,32 +1704,66 @@ class PartnerRelay : Consumer<Fanned, Fanned>() {
 **Python**
 
 ```python
-class Players(View[Player, PlayerRow]):
-    topic = "casino.players"
-    project = "spinvibe"
+class PartnerRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other."""
 
+    component_id = "partner-relay"
+    topic = "conformance-shared"
+    project = "partner"
+    start_from = StartFrom.EARLIEST
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-shared-relayed", project="partner")
+    out_codec = json_codec(Fanned, "fanned")
 
-class Deposits(Consumer[Event, Deposit]):
-    produces_to = Publication("payments.deposits", project="spinvibe")
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(message)
 ```
 
 **TypeScript**
 
 ```ts
-static readonly topic = "casino.players"
-static readonly project = "spinvibe"
-static readonly producesTo = { topic: "payments.deposits", project: "spinvibe" }
+/** Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other. */
+export class PartnerRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "partner-relay"
+  static readonly topic = "conformance-shared"
+  static readonly project = "partner"
+  static readonly startFrom = StartFrom.earliest
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-shared-relayed", project: "partner" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce(message)
+  }
+}
 ```
 
 **Rust**
 
 ```rust
-fn source() -> Source {
-    Source::topic("casino.players").project("spinvibe")
-}
+/// Reads `conformance-shared` of project `partner` from the earliest, and republishes to its other.
+pub struct PartnerRelay;
 
-fn produces() -> Option<Publication> {
-    Some(Publication::to("payments.deposits").project("spinvibe"))
+impl Consumer for PartnerRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "partner-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-shared").project("partner")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(Publication::to("conformance-shared-relayed").project("partner"))
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
 }
 ```
 
@@ -1676,7 +1819,34 @@ handler relies on.
 **Scala**
 
 ```scala
-ChangeSource.fromTopic("events", serializer, StartFrom.Earliest, TopicOptions(parallel = true))
+/**
+ * Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and
+ * publishes one more.
+ */
+final class ContractRelay extends Consumer[Fanned, Fanned]:
+  def onMessage(message: Fanned): Effect = effects.produce(Fanned(message.n + 1))
+
+object ContractRelay
+    extends Consumer.Companion[ContractRelay, Fanned, Fanned](
+      componentId = ComponentId("contract-relay"),
+      source = ChangeSource.fromTopic(
+        Contracts,
+        Codecs.serializer[Fanned]("fanned"),
+        StartFrom.Earliest,
+        TopicOptions(
+          contract = Some(OrderContract),
+          broker = Some(DeclaredBroker),
+          parallel = true
+        )
+      )
+    ):
+  def create(ctx: ConsumerContext) = new ContractRelay
+
+  override val outputSerializer: Option[Serializer[Fanned]] =
+    Some(Codecs.serializer[Fanned]("fanned"))
+
+  override def produces: Option[Publication] =
+    Some(Publication(Contracted, Some(OrderContract), Some(DeclaredBroker)))
 ```
 
 **Java**
@@ -1775,24 +1945,77 @@ class ContractRelay : Consumer<Fanned, Fanned>() {
 **Python**
 
 ```python
-class Intake(Consumer[Event, None]):
-    topic = "events"
+class ContractRelay(Consumer[Fanned, Fanned]):
+    """Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more."""
+
+    component_id = "contract-relay"
+    topic = "conformance-contracts"
     start_from = StartFrom.EARLIEST
+    contract = ORDER_CONTRACT
+    broker = "legacy"
     parallel = True
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = Publication("conformance-contracted", contract=ORDER_CONTRACT, broker="legacy")
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(Fanned(n=message.n + 1))
 ```
 
 **TypeScript**
 
 ```ts
-static readonly topic = "events"
-static readonly parallel = true
+/** Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more. */
+export class ContractRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "contract-relay"
+  static readonly topic = "conformance-contracts"
+  static readonly startFrom = StartFrom.earliest
+  static readonly contract = orderContract
+  static readonly broker = "legacy"
+  static readonly parallel = true
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = { topic: "conformance-contracted", contract: orderContract, broker: "legacy" }
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce({ n: message.n + 1 })
+  }
+}
 ```
 
 **Rust**
 
 ```rust
-fn source() -> Source {
-    Source::topic("events").start_from(StartFrom::Earliest).parallel()
+/// Reads `conformance-contracts` as `order.v1` on broker `legacy`, partitions in parallel, and publishes one more.
+pub struct ContractRelay;
+
+impl Consumer for ContractRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "contract-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-contracts")
+            .contract(order_contract())
+            .broker("legacy")
+            .parallel()
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
+    fn produces() -> Option<Publication> {
+        Some(
+            Publication::to("conformance-contracted")
+                .contract(order_contract())
+                .broker("legacy"),
+        )
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n + 1).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
 }
 ```
 
@@ -1893,13 +2116,17 @@ headers, subject keying, decoding, view writes and consumer dispatch — and sub
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.core.Metadata
-import com.thinkmorestupidless.ankka.runtime.{InMemoryBroker, ProjectionRuntime}
-
 val broker  = InMemoryBroker()
-val testKit = AnkkaTestKit.start(Seq(StockLevels.descriptor), Seq(ProjectionRuntime.withBroker(broker, broker)))
+val testKit = AnkkaTestKit.start(
+  Seq(StockLevels.descriptor),
+  Seq(ProjectionRuntime.withBroker(broker, broker))
+)
 
-broker.publish("stock-events", """{"productId":"p1","delta":5}""".getBytes("UTF-8"), Metadata.empty.withSubject("p1"))
+val sent = broker.publish(
+  "stock-events",
+  """{"sku":"p1","delta":5,"warehouse":"w1"}""".getBytes("UTF-8"),
+  Metadata.empty.withSubject("p1")
+)
 ```
 
 **Java**

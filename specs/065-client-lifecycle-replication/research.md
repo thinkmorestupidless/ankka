@@ -160,3 +160,7 @@ end-to-end parity for every standing, where SC-001 says which are decoded.
   and the number of events it holds, which is what "holds v1 with 3 events … position 3" says. A
   workflow kit sharing an endpoint kit's service (`EndpointTestKit::workflow`) records the standing
   it reaches there; the kit applies no recovery, so its retries are always empty.
+
+- **FR-014 is checked against the branch point.** `git diff main --stat -- modules/sdk-java/src/main`
+  shows `Clients.scala` because `main` changed it after this branch was cut (#258); no commit here
+  touches it, and `git diff main...HEAD` over the three JVM SDK trees prints nothing.

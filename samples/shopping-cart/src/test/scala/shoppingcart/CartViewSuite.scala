@@ -3,7 +3,7 @@ package shoppingcart
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.EntityId
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
-import com.thinkmorestupidless.ankka.runtime.{InMemoryPublisher, ProjectionRuntime}
+import com.thinkmorestupidless.ankka.runtime.{InMemoryPublisher, ProjectionRuntime, SqlFragment}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.application.{CartRows, CheckoutNotifier, ShoppingCartEntity}
 import shoppingcart.domain.LineItem
@@ -22,7 +22,9 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
   override val munitTimeout = 4.minutes
 
   private var testKit: AnkkaTestKit = null
-  private val publisher             = InMemoryPublisher()
+
+  // docs:start in-memory-publisher
+  private val publisher = InMemoryPublisher()
 
   override def beforeAll(): Unit =
     // docs:start start
@@ -31,6 +33,7 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
       Seq(ProjectionRuntime.withPublisher(publisher))
     )
     // docs:end start
+  // docs:end in-memory-publisher
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
@@ -119,6 +122,29 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
     assertEquals(found.map(_.cartId), Vector("view-q-1"))
   }
 
+  test("rows are ordered and limited by fields inside the payload") {
+    val ids = Vector("view-ordered-1", "view-ordered-2", "view-ordered-3")
+    ids.foreach(id => cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 1)))
+    val _ = cart("view-ordered-2").call(ShoppingCartEntity.checkout).invoke()
+    val _ = eventually("the rows exist, the second checked out") {
+      Option.when(
+        rows.get("view-ordered-2").exists(_.checkedOut) && ids.forall(rows.get(_).isDefined)
+      )(())
+    }
+
+    // docs:start ordered
+    val openCarts = rows.ordered(
+      condition = jsonText("checkedOut") ++ sql" = ${"false"}",
+      order = jsonText("cartId") ++ SqlFragment.raw(" DESC"),
+      limit = 20
+    )
+    // docs:end ordered
+    assert(openCarts.forall(!_.checkedOut), openCarts.toString)
+    assertEquals(openCarts.map(_.cartId), openCarts.map(_.cartId).sorted.reverse)
+    val ours = openCarts.map(_.cartId).filter(ids.contains)
+    assertEquals(ours, Vector("view-ordered-3", "view-ordered-1"))
+  }
+
   test("a checked-out cart's row is marked checked out and keeps what it held") {
     val id = "view-checked-out"
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 4))
@@ -160,10 +186,12 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 1))
     val _  = cart(id).call(ShoppingCartEntity.checkout).invoke()
 
+    // docs:start published
     val published = eventually("the checkout notice is published") {
       Option(publisher.publishedTo("cart-checkouts").filter(_.text.contains(id)))
         .filter(_.nonEmpty)
     }
+    // docs:end published
     assertEquals(published.size, 1)
     assert(published.head.text.contains(s"\"cartId\":\"$id\""), published.head.text)
 

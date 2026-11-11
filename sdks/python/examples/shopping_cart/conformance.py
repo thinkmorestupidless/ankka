@@ -1254,6 +1254,7 @@ class TreeRow:
     under: str | None = None
 
 
+# docs:start declared-recursive-query
 class TreeRows(View[Placed, TreeRow]):
     """One row per node, and every row under one to any depth: the same statement in every language."""
 
@@ -1276,6 +1277,7 @@ SELECT payload FROM below ORDER BY row_key""",
 
     def on_change(self, event: Placed) -> ViewEffect:
         return self.effects.update_row(TreeRow(self.metadata.subject or "", event.under))
+# docs:end declared-recursive-query
 
 
 class TreeEndpoint(Endpoint):
@@ -1299,11 +1301,13 @@ class TreeEndpoint(Endpoint):
     async def under(self, nodeId: str, parentId: str) -> str:
         return await self._place(nodeId, parentId)
 
+    # docs:start declared-recursive-ask
     @get("/{nodeId}/below")
     async def below(self, nodeId: str) -> list[str]:
         views = self.client.with_metadata(self.request.metadata).views
         rows = await views.ask("tree-rows", "under", TreeRow, {"row": nodeId})
         return [row.key for row in rows]
+    # docs:end declared-recursive-ask
 
     # docs:start stream
     @sse("/streamed")

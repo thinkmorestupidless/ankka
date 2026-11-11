@@ -802,14 +802,12 @@ runs the projection.
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/RegistrationSuite.scala#register-view -->
 ```scala
-import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
-
 val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)
   .register(CartRows.descriptor)
   .withExtension(ProjectionRuntime())
-  .start()
 ```
 
 ///
@@ -858,22 +856,56 @@ fun main() {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/main.py#service -->
 ```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CartRows)
-)
+def service() -> Any:
+    """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
+    registered = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(CartRows)
+        .register(CheckoutNotifier)
+        .register(CheckoutLog)
+        .register(CheckoutWorkflow)
+        .register(CartAssistant)
+        .register(CartAnswerer)
+        .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
+        .register(CartKeysEndpoint)
+        .register(CartMcpEndpoint)
+    )
+    # The graph is published to a topic, and a sidecar with no broker refuses a service that
+    # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.
+    if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
+        registered = registered.register(CartGraph).register(CartContentsGraph)
+    return registered
 ```
 
 ///
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/main.ts#service -->
 ```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CartRows)
+export function service() {
+  const cart = Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+    .register(CheckoutNotifier)
+    .register(CheckoutLog)
+    .register(CheckoutWorkflow)
+    .register(CartAssistant)
+    .register(CartAnswerer)
+    .register(ShoppingCartEndpoint)
+    .register(QuestionsEndpoint)
+    .register(CallingEndpoint)
+    .register(CartMcp)
+    .register(CartKeysEndpoint)
+  // The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+  // components that need one are registered only where it is set.
+  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+}
 ```
 
 ///
@@ -1134,10 +1166,8 @@ An ordered query over the cart rows, returning the first twenty open carts by id
 <!-- languages: scala, go; an ordering written at the call is the Scala client's `sql"…"`; a Java, Kotlin, Python, TypeScript or Rust client declares the query on the view instead -->
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CartViewSuite.scala#ordered -->
 ```scala
-import com.thinkmorestupidless.ankka.runtime.SqlFragment
-import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
-
 val openCarts = rows.ordered(
   condition = jsonText("checkedOut") ++ sql" = ${"false"}",
   order = jsonText("cartId") ++ SqlFragment.raw(" DESC"),
@@ -1220,9 +1250,12 @@ kit.eventually(Duration.ofSeconds(10)) {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/test_client.py#get-and-all -->
 ```python
-row = await self.client.views.get("cart-rows", cart_id, CartRow)     # one row, or None
-rows = await self.client.views.all("cart-rows", CartRow)             # every row, up to 1000
+async def a_row_and_every_row(client: ComponentClient, cart_id: str) -> tuple[CartRow | None, list[CartRow]]:
+    row = await client.views.get("cart-rows", cart_id, CartRow)  # one row, or None
+    rows = await client.views.all("cart-rows", CartRow)  # every row, up to 1000
+    return row, rows
 ```
 
 ///
@@ -1378,47 +1411,75 @@ fun below(nodeId: String): List<String> =
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#declared-recursive-query -->
 ```python
-from ankka.view import query, table_of
+class TreeRows(View[Placed, TreeRow]):
+    """One row per node, and every row under one to any depth: the same statement in every language."""
 
-class Nodes(View[NodeEvent, NodeRow]):
-    component_id = "nodes"
-    source = NodeEntity
-    event_codec = NODE_EVENTS
-    row_codec = NODE_ROW
-    under = query("under", f"""
-        WITH RECURSIVE below AS (
-          SELECT row_key, payload FROM {table_of("nodes")} WHERE payload::jsonb->>'under' = :row
-          UNION
-          SELECT n.row_key, n.payload FROM {table_of("nodes")} n
-            JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
-        SELECT payload FROM below""")
+    component_id = "tree-rows"
+    source = TreeNode
+    event_codec = TreeNode.event_codec
+    row_codec = json_codec(TreeRow, "tree-row")
+    under = declare(
+        "under",
+        f"""WITH RECURSIVE below AS (
+  SELECT row_key, payload FROM {table_of("tree-rows")} WHERE payload::jsonb->>'under' = :row
+  UNION
+  SELECT n.row_key, n.payload FROM {table_of("tree-rows")} n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+)
+SELECT payload FROM below ORDER BY row_key""",
+    )
+    all_rows = declare("all-rows", f"SELECT row_key, payload FROM {table_of('tree-rows')} ORDER BY row_key", watched=True)
 
-rows = await self.client.views.ask("nodes", "under", NodeRow, {"row": node_id})
+    def on_change(self, event: Placed) -> ViewEffect:
+        return self.effects.update_row(TreeRow(self.metadata.subject or "", event.under))
+```
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#declared-recursive-ask -->
+```python
+@get("/{nodeId}/below")
+async def below(self, nodeId: str) -> list[str]:
+    views = self.client.with_metadata(self.request.metadata).views
+    rows = await views.ask("tree-rows", "under", TreeRow, {"row": nodeId})
+    return [row.key for row in rows]
 ```
 
 ///
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#declared-query -->
 ```ts
-import { declaredQuery, tableOf } from "ankka"
-
-export class Nodes extends View<NodeEvent, NodeRow> {
-  static readonly componentId = "nodes"
+/** One row per node, and every row under a row, to any depth, by key: the same statement in every language. */
+export class TreeRows extends View<TreePlaced, TreeRow> {
+  static readonly componentId = "tree-rows"
+  static readonly source = TreeNode
+  static readonly events = jsonCodec(TreePlaced, "tree-event")
+  static readonly row = jsonCodec(TreeRow, "tree-row")
   static readonly declared = [
-    declaredQuery("under", `
-      WITH RECURSIVE below AS (
-        SELECT row_key, payload FROM ${tableOf("nodes")} WHERE payload::jsonb->>'under' = :row
-        UNION
-        SELECT n.row_key, n.payload FROM ${tableOf("nodes")} n
-          JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
-      SELECT payload FROM below`),
+    declaredQuery(
+      "under",
+      `WITH RECURSIVE below AS (
+  SELECT row_key, payload FROM ${tableOf("tree-rows")} WHERE payload::jsonb->>'under' = :row
+  UNION
+  SELECT n.row_key, n.payload FROM ${tableOf("tree-rows")} n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+)
+SELECT payload FROM below ORDER BY row_key`,
+    ),
+    declaredQuery("all-rows", `SELECT row_key, payload FROM ${tableOf("tree-rows")} ORDER BY row_key`, { watched: true }),
   ]
-  // ...
-}
 
-const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
+  onChange(event: TreePlaced) {
+    return this.effects.updateRow({ key: this.subject, under: event.under })
+  }
+}
+```
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#declared-recursive-ask -->
+```ts
+below: get("/{nodeId}/below", s.list(s.string), async (ep: TreeEndpoint, req) =>
+  (await ep.client.views.ask(TreeRows.componentId, "under", { row: req.params.nodeId }, TreeRow)).map((row) => row.key),
+),
 ```
 
 ///
@@ -2463,9 +2524,17 @@ never rebuilt.
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/views/EntityViewVersionSuite.scala#version -->
 ```scala
-object Shipments extends KeyedView.Companion[ShipmentsView, ShipmentRow](...):
-  override def version = Some(2)
+object Rebuilt
+    extends KeyedView.Companion[RebuiltView, VersionRow](
+      ComponentId("rebuilt"),
+      VersionRow.serializer
+    ):
+  val shipments                         = source(ChangeSource.eventsOf(Shipment))(_.touch)
+  val customers                         = source(ChangeSource.eventsOf(Customer))(_.touch)
+  override def version                  = Some(EntityVersions.keyed)
+  def create(ctx: ViewComponentContext) = new RebuiltView(EntityVersions.keyed)
 ```
 
 ///
@@ -2628,9 +2697,11 @@ compared by equality with a value the caller gives, which the runtime answers fr
 <!-- languages: scala; lookup fields are declared in the Scala SDK only -->
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/LookupTokenSuite.scala#lookup -->
 ```scala
 lookup(_.email)
-val byEmail = query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
+val byEmail =
+  query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
 ```
 
 ///
@@ -2711,11 +2782,22 @@ assertNull(kit.row("c1").orNull())
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/test_cart.py#view-test -->
 ```python
-kit = ViewTestKit.of(CartRows)
-kit.on_change("c1", ItemAdded(LineItem("p1", "Pen", 2)))
-assert kit.get("c1") == CartRow("c1", {"p1": 2}, False)
-assert isinstance(kit.on_delete("c1"), UpdateRow)
+def test_cart_rows_follow_the_events_and_leave_with_a_discarded_cart() -> None:
+    kit = ViewTestKit.of(CartRows)
+    assert isinstance(kit.on_change("c1", ItemAdded(PEN)), UpdateRow)
+    kit.on_change("c1", ItemAdded(LineItem("p1", "Pen", 3)))
+    kit.on_change("c1", ItemAdded(INK))
+    kit.on_change("c1", ItemRemoved("p2"))
+    assert kit.get("c1") == CartRow("c1", {"p1": 5}, False)
+    kit.on_change("c1", CheckedOut())
+    assert kit.get("c1") == CartRow("c1", {"p1": 5}, True)
+    # A discarded cart's row goes with it: the event changes nothing, the deletion removes the row.
+    kit.on_change("c2", ItemAdded(PEN))
+    assert kit.on_change("c2", Discarded()).__class__.__name__ == "Ignore"
+    assert isinstance(kit.on_delete("c2"), DeleteRow)
+    assert kit.get("c2") is None
 ```
 
 ///

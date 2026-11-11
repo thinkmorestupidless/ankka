@@ -52,9 +52,11 @@ object Members
       rowSerializer = Codecs.serializer[MemberRow]("member-row")
     ):
   def create(ctx: ViewComponentContext) = new MembersView
+  // docs:start lookup
   lookup(_.email)
   val byEmail =
     query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
+  // docs:end lookup
   val byCity = query("by-city")(s"SELECT payload FROM $table WHERE payload::jsonb->>'city' = :city")
 // docs:end lookup-view
 

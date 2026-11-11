@@ -40,6 +40,14 @@ async def every_cart(client: ComponentClient) -> list[CartRow]:
 # docs:end view-client
 
 
+# docs:start get-and-all
+async def a_row_and_every_row(client: ComponentClient, cart_id: str) -> tuple[CartRow | None, list[CartRow]]:
+    row = await client.views.get("cart-rows", cart_id, CartRow)  # one row, or None
+    rows = await client.views.all("cart-rows", CartRow)  # every row, up to 1000
+    return row, rows
+# docs:end get-and-all
+
+
 class _Sidecar:
     """Answers as the sidecar would: a cart's total is the length of its id, an item with no
     quantity is refused, and the view holds two rows."""
@@ -72,4 +80,10 @@ def test_a_refusal_arrives_as_a_command_error_with_its_code() -> None:
 
 def test_the_view_client_answers_rows() -> None:
     rows: list[Any] = asyncio.run(every_cart(_client()))
+    assert rows == [CartRow("c1", {"p1": 2}), CartRow("c2", {}, True)]
+
+
+def test_the_view_client_answers_one_row_and_every_row() -> None:
+    row, rows = asyncio.run(a_row_and_every_row(_client(), "c1"))
+    assert row == CartRow("c1", {"p1": 2})
     assert rows == [CartRow("c1", {"p1": 2}), CartRow("c2", {}, True)]

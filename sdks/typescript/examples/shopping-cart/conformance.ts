@@ -524,9 +524,11 @@ export class TreeEndpoint extends Endpoint {
     under: post("/{nodeId}/under/{parentId}", s.string, (ep: TreeEndpoint, req) =>
       ep.client.of(TreeNode, req.params.nodeId).call(TreeNode.handlers.place).invoke(req.params.parentId),
     ),
+    // docs:start declared-recursive-ask
     below: get("/{nodeId}/below", s.list(s.string), async (ep: TreeEndpoint, req) =>
       (await ep.client.views.ask(TreeRows.componentId, "under", { row: req.params.nodeId }, TreeRow)).map((row) => row.key),
     ),
+    // docs:end declared-recursive-ask
     // docs:start stream
     streamed: sse("/streamed", async function* (ep: TreeEndpoint) {
       for await (const row of ep.client.views.stream(TreeRows.componentId, "all-rows", {}, TreeRow)) yield row.key

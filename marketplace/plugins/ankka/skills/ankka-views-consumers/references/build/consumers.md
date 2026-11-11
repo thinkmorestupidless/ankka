@@ -1250,6 +1250,11 @@ def service() -> Any:
 **TypeScript**
 
 ```ts
+/**
+ * The whole inventory: registration is explicit, so nothing is discovered by scanning. The checkout
+ * notices and the cart's graph are published to a topic, so they are registered only where there is a
+ * broker to publish to; without one the sidecar refuses a component that needs it.
+ */
 export function service() {
   const cart = Ankka.service()
     .register(ShoppingCartEntity)

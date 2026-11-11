@@ -134,8 +134,10 @@ class ShoppingCartEndpoint(Endpoint):
     @sse("/chat/{session}")
     async def chat(self, session: str) -> AsyncIterator[str]:
         question = next((v for k, v in self.request.query if k == "q"), "")
+        # docs:start consume
         async for token in self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("chat").stream(question):
             yield token
+        # docs:end consume
     # docs:end agent-routes
 
     @get("/{cartId}/checkout-log")

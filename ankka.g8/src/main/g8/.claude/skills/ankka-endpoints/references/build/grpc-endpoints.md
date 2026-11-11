@@ -55,8 +55,8 @@ cleanly under the warnings a service's own code is held to. In `project/plugins.
 **Scala**
 
 ```scala
-addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
+addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.8")
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.21"
 ```
 
 And in `build.sbt`, the subproject beside the service, which depends on it and on `ankka-grpc`. Both

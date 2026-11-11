@@ -62,9 +62,10 @@ cleanly under the warnings a service's own code is held to. In `project/plugins.
 <!-- languages: scala; an sbt plugin declaration; a Java or Kotlin service generates its stubs with protoc through its own build -->
 /// tab | Scala
 
+<!-- include: project/plugins.sbt#scalapb -->
 ```scala
-addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
+addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.8")
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.21"
 ```
 
 ///

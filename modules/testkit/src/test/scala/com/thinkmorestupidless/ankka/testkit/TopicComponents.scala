@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
+// docs:start topic-view
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 
@@ -24,6 +25,7 @@ object StockLevels
       rowSerializer = Codecs.serializer[StockRow]("stock-row")
     ):
   def create(ctx: ViewComponentContext) = new StockLevelsView
+// docs:end topic-view
 
 /** A consumer that reacts to the same topic and republishes low-stock alerts. */
 final case class LowStockAlert(sku: String, onHand: Int)

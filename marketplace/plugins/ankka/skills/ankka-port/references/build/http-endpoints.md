@@ -564,7 +564,7 @@ keeps a session. `Respond` wraps any body the endpoint can already answer with a
 
 ```scala
 get("/account")(() => Respond(Html(page), headers = Vector("Set-Cookie" -> cookie)))
-post("/logout")(() => Respond.redirect("/"))            // 303 See Other, Location: /
+post("/logout")(() => Respond.redirect("/")) // 303 See Other, Location: /
 get("/style.css")(() => Bytes("text/css", stylesheet))
 ```
 
@@ -1818,7 +1818,6 @@ like any other component, and the sidecar serves it:
 Ankka.service
   .register(ShoppingCartEntity.descriptor)
   .withExtension(HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient)))
-  .start()
 ```
 
 **Java**
@@ -1860,23 +1859,40 @@ fun main() {
 **Python**
 
 ```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(ShoppingCartEndpoint)
-)
-
-asyncio.run(service.listen())
+def service() -> Any:
+    """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
+    registered = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(CartRows)
+        .register(CheckoutNotifier)
+        .register(CheckoutLog)
+        .register(CheckoutWorkflow)
+        .register(CartAssistant)
+        .register(CartAnswerer)
+        .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
+        .register(CartKeysEndpoint)
+        .register(CartMcpEndpoint)
+    )
+    # The graph is published to a topic, and a sidecar with no broker refuses a service that
+    # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.
+    if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
+        registered = registered.register(CartGraph).register(CartContentsGraph)
+    return registered
 ```
 
 **TypeScript**
 
 ```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(ShoppingCartEndpoint)
+import { Ankka } from "ankka"
+import { ShoppingCartEntity } from "./cart.ts"
+import { ShoppingCartEndpoint } from "./api.ts"
 
-await service.listen()
+export const service = () => Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+
+if (import.meta.main) await service().listen()
 ```
 
 **Rust**
@@ -1946,7 +1962,7 @@ established. Every SDK answers with a status by raising or throwing an `HttpProb
 get("/{cartId}/rows") { (cartId: String) =>
   clients.viewClient
     .forView(CartRows)
-    .byId(cartId)
+    .get(cartId)
     .getOrElse(throw HttpProblem.notFound(s"no row for cart '$cartId'"))
 }
 ```
@@ -2063,15 +2079,22 @@ final class MixedAclEndpoint extends HttpEndpoint("/mixed"):
 **Python**
 
 ```python
-class CartsEndpoint(Endpoint):
-    prefix = "/carts"
+class MixedAclEndpoint(Endpoint):
+    """One endpoint, two audiences: reading a cart is public, purging one is not. A route's own
+    ``acl`` replaces the endpoint's for that route, so neither audience needs an endpoint of its
+    own at a second prefix."""
+
+    prefix = "/mixed"
     acl = Acl.ALLOW_ALL
 
-    @get("/{cart_id}")
-    async def get_cart(self, cart_id: str) -> Cart: ...
+    @get("/{cartId}")
+    def cart(self, cartId: str) -> str:
+        return f"cart:{cartId}"
 
-    @delete("/{cart_id}", acl=Acl.DENY_ALL)
-    async def purge(self, cart_id: str) -> None: ...
+    @delete("/{cartId}", acl=Acl.AUTHENTICATED)
+    def purge(self, cartId: str) -> str:
+        principal = self.request.principal
+        return f"purged:{cartId} by {principal.subject if principal else '?'}"
 ```
 
 **TypeScript**
@@ -2211,36 +2234,41 @@ class OnlySelfEndpoint : HttpEndpoint(), RouteRegistrar {
 **Python**
 
 ```python
-class CallersEndpoint(Endpoint):
-    prefix = "/callers"
-    acl = Acl.allow_callers(Callers.internet, Callers.service("orders"))
+prefix = "/callers"
+# Only the internet and the orders service in this project; any other caller is refused 403.
+acl = Acl.allow_callers(Callers.internet, Callers.service("orders"))
 
-    @get("/whoami")
-    def whoami(self) -> str:
-        c = self.request.caller
-        if isinstance(c, ServiceCaller):
-            return f"service:{c.project}/{c.name}"
-        return "gateway" if isinstance(c, Gateway) else "local"
+# Another instance of this very service, and nothing else: a route's own ACL replaces the
+# endpoint's for that route.
+@get("/self", acl=Acl.allow_callers(Callers.self_))
+def only_self(self) -> str:
+    return "self"
+```
 
-    @get("/self", acl=Acl.allow_callers(Callers.self_))
-    def only_self(self) -> str:
-        return "self"
+```python
+@get("/whoami")
+def whoami(self) -> str:
+    c = self.request.caller
+    if isinstance(c, ServiceCaller):
+        return f"service:{c.project}/{c.name}"
+    if isinstance(c, MachineCaller):
+        return f"machine:{c.organization}/{c.name}"
+    return "gateway" if isinstance(c, Gateway) else "local"
 ```
 
 **TypeScript**
 
 ```ts
-export class CallersEndpoint extends Endpoint {
-  static readonly prefix = "/callers"
-  static readonly acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
-  static readonly routes = {
-    whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => {
-      const c = req.caller
-      return c.kind === "service" ? `service:${c.project}/${c.name}` : c.kind
-    }),
-    onlySelf: get("/self", s.string, () => "self", { acl: Acl.allowCallers(Callers.self) }),
-  }
-}
+// Only the internet and the orders service in this project; any other caller is refused 403.
+onlyOrders: get("/only-orders", s.string, (_ep: CallersEndpoint, req) => `admitted: ${describe(req.caller)}`, {
+  acl: Acl.allowCallers(Callers.internet, Callers.service("orders")),
+}),
+// Another instance of this very service, and nothing else.
+onlySelf: get("/only-self", s.string, () => "admitted: myself", { acl: Acl.allowCallers(Callers.self) }),
+```
+
+```ts
+whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => whoIsCalling(req.caller)),
 ```
 
 **Rust**

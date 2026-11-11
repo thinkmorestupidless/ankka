@@ -25,11 +25,12 @@ The client is addressed first by kind and instance, then by handler:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/GuideSamplesSuite.scala#addressing -->
 ```scala
 val cart = componentClient.forEventSourcedEntity(EntityId("cart-1"))
 
-cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))   // Done
-cart.call(ShoppingCartEntity.getCart).invoke()                              // ShoppingCart
+cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2)) // Done
+cart.call(ShoppingCartEntity.getCart).invoke()                            // ShoppingCart
 ```
 
 ///
@@ -61,6 +62,7 @@ val held: Cart = cart.call(ShoppingCart::getCart).invokeSuspending()
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/test_client.py#addressing -->
 ```python
 cart = client.for_event_sourced_entity("shopping-cart", "c1")
 
@@ -72,11 +74,12 @@ state = await cart.call("get-cart").invoke(reply=ShoppingCart)          # decode
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/test/client-samples.test.ts#addressing -->
 ```ts
 const cart = client.of(ShoppingCartEntity, "cart-1")
 
 await cart.call(ShoppingCartEntity.handlers.addItem).invoke({ productId: "p1", name: "Widget", quantity: 2 })
-await cart.call(ShoppingCartEntity.handlers.getCart).invoke()          // ShoppingCart
+const state = await cart.call(ShoppingCartEntity.handlers.getCart).invoke() // ShoppingCart
 ```
 
 ///
@@ -203,9 +206,13 @@ stays readable and costs nothing to wait.
 <!-- languages: scala, java, kotlin, python, typescript, go; the Rust client has no asynchronous invoke: a module's call to another component blocks until it is answered, and several calls run one after another -->
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/GuideSamplesSuite.scala#fan-out -->
 ```scala
 val pending = cartIds.map(id =>
-  componentClient.forEventSourcedEntity(EntityId(id)).call(ShoppingCartEntity.totalQuantity).invokeAsync()
+  componentClient
+    .forEventSourcedEntity(EntityId(id))
+    .call(ShoppingCartEntity.totalQuantity)
+    .invokeAsync()
 )
 val totals = pending.map(ComponentClient.await(_, 10.seconds))
 ```
@@ -304,9 +311,10 @@ A component that refuses a command returns an error effect with a code. The call
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/GuideSamplesSuite.scala#refusal -->
 ```scala
 try cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 0))
-catch case e: CommandError if e.code == ErrorCode.BadRequest => ...
+catch case e: CommandError if e.code == ErrorCode.BadRequest => Done
 ```
 
 ///
@@ -459,6 +467,7 @@ it as `clients.viewClient`:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/GuideSamples.scala#view-client -->
 ```scala
 val rows = clients.viewClient.forView(CartRows)
 ```
@@ -564,8 +573,9 @@ passing the request's metadata to the client:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/GuideSamples.scala#start-workflow -->
 ```scala
-post("/{cartId}/checkouts") { (cartId: String, mode: String) =>
+postBody("/{cartId}/checkouts") { (cartId: String, mode: String) =>
   // The request's context is already on this thread, so the call joins its trace.
   client.forWorkflow(EntityId(cartId)).call(CheckoutWorkflow.start).invoke(mode)
 }

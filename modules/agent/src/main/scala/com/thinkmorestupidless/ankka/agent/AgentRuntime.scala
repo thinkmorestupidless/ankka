@@ -591,8 +591,15 @@ private[agent] object AgentHost:
       reply: EntityProtocol.Reply
   ) extends EntityProtocol.ModuleCommand
 
-  /** Signals that a stream finished, so the session can accept the next request. */
-  private case object StreamFinished extends EntityProtocol.ModuleCommand
+  /**
+   * Signals that a stream finished, so the session can accept the next request. It carries the
+   * stream's last token, which the actor sends as it becomes idle: sent from the turn's own thread,
+   * a caller that starts its next stream as soon as the first ends reached a session still busy.
+   */
+  private final case class StreamFinished(
+      tokens: ActorRef[EntityProtocol.StreamToken],
+      last: EntityProtocol.StreamToken
+  ) extends EntityProtocol.ModuleCommand
 
   private val StashCapacity = 32
 
@@ -709,7 +716,8 @@ private[agent] object AgentHost:
             replyTo ! reply
             stash.unstashAll(idle)
 
-          case StreamFinished =>
+          case StreamFinished(tokens, last) =>
+            tokens ! last
             stash.unstashAll(idle)
 
           case _ => Behaviors.same
@@ -986,31 +994,34 @@ private[agent] object AgentHost:
             AgentCalls.subjectIn(request.metadata)
           )
         )
-        ended match
-          case Right(None)           => request.tokens ! EntityProtocol.StreamCompleted
-          case Right(Some(requests)) =>
-            // The text the model wrote before its tool call has been sent; the stream ends
-            // with what it waits for, never by hanging.
-            request.tokens ! EntityProtocol.StreamAwaiting(
-              writeToArray(Approvals.Awaiting(requests))
-            )
-          case Left(rejection) => request.tokens ! EntityProtocol.StreamFailed(rejection)
         ended
       }
     }(using AnkkaExecutors.virtual)
 
+    // The last token goes from the actor, as it frees the session (StreamFinished).
     ctx.pipeToSelf(execution) {
-      case Success(_)       => StreamFinished
+      case Success(Right(None)) => StreamFinished(request.tokens, EntityProtocol.StreamCompleted)
+      case Success(Right(Some(requests))) =>
+        // The text the model wrote before its tool call has been sent; the stream ends
+        // with what it waits for, never by hanging.
+        StreamFinished(
+          request.tokens,
+          EntityProtocol.StreamAwaiting(writeToArray(Approvals.Awaiting(requests)))
+        )
+      case Success(Left(rejection)) =>
+        StreamFinished(request.tokens, EntityProtocol.StreamFailed(rejection))
       case Failure(failure) =>
         // The loop itself threw rather than returning a rejection; the caller is waiting
         // on the token stream, so it has to be told.
-        request.tokens ! EntityProtocol.StreamFailed(
-          CommandError(
-            Option(failure.getMessage).getOrElse(failure.toString),
-            ErrorCode.Internal
+        StreamFinished(
+          request.tokens,
+          EntityProtocol.StreamFailed(
+            CommandError(
+              Option(failure.getMessage).getOrElse(failure.toString),
+              ErrorCode.Internal
+            )
           )
         )
-        StreamFinished
     }
 
 /**

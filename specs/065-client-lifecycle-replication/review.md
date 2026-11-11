@@ -88,7 +88,7 @@ Not run: `sidecar/testOnly *ClientReadsSuite *WasmHostSuite *ConformanceSuite`, 
 ## Questions
 
 - `sdks/go/testkit/agent.go:418` (`testkit.Mcp`): question: the Go MCP kit still takes components only, so an MCP tool that reads a standing cannot be answered in a Go unit test. The endpoint kit now can. The spec's US3 names endpoints, so this is outside it. Is an MCP tool reading either value something the other SDKs' MCP kits support? If they do, an `McpWith` like `EndpointWith` would close the gap. If they do not, nothing is needed.
-  Answered: yes, Python's and TypeScript's MCP kits take a client as every kit does, so `testkit.McpWith(e, opts...)` now takes the same options, with a test of a tool answering a stubbed standing, 332cf4407
+  Answered: Python and TypeScript have no MCP endpoint unit kit; a tool there is a function of the endpoint class, tested with any client the test hands it, so a stubbed client (`ClientStub`, `stubClient`) already answers its reads. Go's `testkit.Mcp` is the only kit that built its client itself, so `testkit.McpWith(e, opts...)` now takes the options the other Go kits take, with a test of a tool answering a stubbed standing, 332cf4407
 
 ## Praise
 

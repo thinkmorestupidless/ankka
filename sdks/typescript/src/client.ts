@@ -6,7 +6,7 @@
 
 import { Code, ConnectError, createClient, type Client as ConnectClient, type Transport } from "@connectrpc/connect"
 import { createGrpcTransport } from "@connectrpc/connect-node"
-import { Client, Overflow as ProtoOverflow, type QueryReply, type RowFrame } from "./_proto/ankka/protocol/v1/client_pb.ts"
+import { Client, Overflow as ProtoOverflow, WorkflowStatus as ProtoWorkflowStatus, type QueryReply, type RowFrame, type WorkflowLifecycle as ProtoLifecycle, type ReplicationStatus as ProtoReplicationStatus } from "./_proto/ankka/protocol/v1/client_pb.ts"
 import type { Payload, ErrorCode as ProtoErrorCode } from "./_proto/ankka/protocol/v1/payload_pb.ts"
 import { codecFor, jsonCodec, isCodec, textCodecs, binaryCodecs, codecForManifest, type Codec, type Shape } from "./codec.ts"
 import { CommandError, type ErrorDetail, type Metadata } from "./effects/common.ts"
@@ -275,6 +275,79 @@ const awaitTooOld = (failure: unknown): never => {
   throw failure
 }
 
+/** The first protocol whose runtime answers a workflow's standing and how a copy stands; an older one answers `UNIMPLEMENTED`. */
+export const READS_SINCE = "1.24"
+
+const readsTooOld =
+  (what: string) =>
+  (failure: unknown): never => {
+    if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+      throw new CommandError({
+        message: `the runtime beside this process is too old for reading ${what}, which needs protocol ${READS_SINCE}; this process speaks ${PROTOCOL_VERSION}: ${failure.rawMessage}`,
+        code: "UNAVAILABLE",
+      })
+    }
+    throw failure
+  }
+
+/** Where a workflow has got to, as the engine records it. */
+export type WorkflowStatus = "not-started" | "running" | "paused" | "completed" | "failed"
+
+/**
+ * A workflow's standing (protocol 1.24): its status, the step it is on or waits after, how many times each
+ * step was retried (a step never retried is absent), and why it failed.
+ */
+export interface Lifecycle {
+  readonly status: WorkflowStatus
+  readonly pendingStep?: string
+  readonly retries: Readonly<Record<string, number>>
+  readonly failure?: string
+}
+
+/**
+ * How the copy of a replicated entity at this installation stands (protocol 1.24): its home, the installations
+ * that hold it (sorted), the installation a handover waiting goes to, the other home when it was created at two,
+ * and how many records this copy's history holds.
+ */
+export interface ReplicationStatus {
+  readonly home?: string
+  readonly replicationSet: readonly string[]
+  readonly pendingHandover?: string
+  readonly conflict?: string
+  readonly position: bigint
+}
+
+const statuses: Partial<Record<number, WorkflowStatus>> = {
+  [ProtoWorkflowStatus.NOT_STARTED]: "not-started",
+  [ProtoWorkflowStatus.RUNNING]: "running",
+  [ProtoWorkflowStatus.PAUSED]: "paused",
+  [ProtoWorkflowStatus.COMPLETED]: "completed",
+  [ProtoWorkflowStatus.FAILED]: "failed",
+}
+
+/** A standing as the protocol carries it, read; a status this SDK does not know is refused. */
+export function lifecycleOf(message: ProtoLifecycle): Lifecycle {
+  const status = statuses[message.status]
+  if (status === undefined) throw new CommandError({ message: `a workflow's standing this SDK does not know: ${message.status}`, code: "INTERNAL" })
+  return {
+    status,
+    ...(message.pendingStep !== undefined ? { pendingStep: message.pendingStep } : {}),
+    retries: { ...message.retries },
+    ...(message.failure !== undefined ? { failure: message.failure } : {}),
+  }
+}
+
+/** How a copy stands, as the protocol carries it, read. */
+export function replicationOf(message: ProtoReplicationStatus): ReplicationStatus {
+  return {
+    ...(message.home !== undefined ? { home: message.home } : {}),
+    replicationSet: [...message.replicationSet],
+    ...(message.pendingHandover !== undefined ? { pendingHandover: message.pendingHandover } : {}),
+    ...(message.conflict !== undefined ? { conflict: message.conflict } : {}),
+    position: message.position,
+  }
+}
+
 /** Calls on one component instance, by wire name. */
 /** The metadata key a call to an agent names its data subject under (feature 042). */
 export const DATA_SUBJECT_KEY = "ankka-data-subject"
@@ -330,6 +403,29 @@ export class Calls {
   }
 
   /**
+   * For a workflow: its standing, as the engine records it — the runtime's own read, which runs no handler and
+   * journals nothing. A workflow never started answers `not-started`.
+   */
+  async lifecycle(): Promise<Lifecycle> {
+    const answer = await stubOf(this.#connection)
+      .lifecycle({ componentId: this.#componentId, workflowId: this.#entityId })
+      .catch(readsTooOld("a workflow's standing"))
+    if (answer.result.case === "error") throw new CommandError(errorOf(answer.result.value))
+    if (answer.result.case !== "lifecycle") throw new CommandError({ message: "the runtime answered a standing with nothing", code: "INTERNAL" })
+    return lifecycleOf(answer.result.value)
+  }
+
+  /** For a replicated event sourced entity: how its copy at this installation stands. An entity that is not replicated is refused. */
+  async replication(): Promise<ReplicationStatus> {
+    const answer = await stubOf(this.#connection)
+      .replication({ componentId: this.#componentId, entityId: this.#entityId })
+      .catch(readsTooOld("how a copy stands"))
+    if (answer.result.case === "error") throw new CommandError(errorOf(answer.result.value))
+    if (answer.result.case !== "status") throw new CommandError({ message: "the runtime answered a copy's status with nothing", code: "INTERNAL" })
+    return replicationOf(answer.result.value)
+  }
+
+  /**
    * The same wait as a stream, for an `sse` route that must outlast the idle timeout: a heartbeat while it goes
    * on, then exactly one `ended`, `failed` or `timed-out` part. `awaitPartJson` renders a part as a line.
    */
@@ -379,6 +475,16 @@ export class TypedCalls<C> {
   /** For a workflow: the same wait as a stream of parts. */
   awaitEndParts<S = StateOf<C>>(timeoutMillis: number): AsyncIterable<AwaitPart<S>> {
     return this.#calls.awaitEndParts<S>(timeoutMillis)
+  }
+
+  /** For a workflow: its standing, as the engine records it. */
+  lifecycle(): Promise<Lifecycle> {
+    return this.#calls.lifecycle()
+  }
+
+  /** For a replicated event sourced entity: how its copy at this installation stands. */
+  replication(): Promise<ReplicationStatus> {
+    return this.#calls.replication()
   }
 }
 

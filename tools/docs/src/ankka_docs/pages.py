@@ -84,6 +84,7 @@ class Settings:
         samples:                      # every code sample is shown in every value of this facet the page names
           facet: languages
           fences: {typescript: [ts]}  # fence info strings that mean a value, beyond the value itself
+          tested: true                # every tab's code is an `<!-- include -->` of a tested file, or says why not
         release:                      # where pages name a release of this repository
           patterns: docs/release-patterns.txt
           tags: "v*"
@@ -98,6 +99,7 @@ class Settings:
     retired_hosts: list[str] = field(default_factory=list)
     samples_facet: str | None = None
     samples_fences: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    samples_tested: bool = False
     release: ReleaseSettings | None = None
 
     @property
@@ -206,6 +208,9 @@ def settings(raw: Any, root: Path) -> Settings:
         if not isinstance(infos, list) or not all(isinstance(i, str) for i in infos):
             raise ConfigError(f"extra.docs.samples.fences.{value} must be a list of strings")
         samples_fences[str(value)] = tuple(infos)
+    samples_tested = samples.get("tested", False)
+    if not isinstance(samples_tested, bool):
+        raise ConfigError("extra.docs.samples.tested must be true or false")
     release = raw.get("release")
     release_settings: ReleaseSettings | None = None
     if release is not None:
@@ -222,6 +227,7 @@ def settings(raw: Any, root: Path) -> Settings:
         retired_hosts=[str(h) for h in site_links.get("retired-hosts") or []],
         samples_facet=str(samples_facet) if samples_facet else None,
         samples_fences=samples_fences,
+        samples_tested=samples_tested,
         release=release_settings,
     )
 

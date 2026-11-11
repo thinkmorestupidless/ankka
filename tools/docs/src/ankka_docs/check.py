@@ -471,6 +471,59 @@ def samples(tree: Tree) -> list[Problem]:
     return problems
 
 
+# A sample a reader copies must be one a test compiles and runs, or it drifts from the SDK with nothing
+# going red. With `extra.docs.samples.tested`, every tab in one of the facet's languages opens with the
+# `<!-- include: path#region -->` that `docs sync` fills (see snippets.py). A tab whose code no test can
+# hold (a version line `docs sync` keeps current, a setting of the reader's own build) says so on the
+# line before its block, and the reason is what a reviewer checks:
+#
+#     <!-- untested: the version line docs sync keeps at the newest release -->
+UNTESTED = re.compile(r"^<!--\s*untested:\s*(?P<reason>.*?)\s*-->\s*$")
+
+
+def tested(tree: Tree) -> list[Problem]:
+    settings = tree.project.settings
+    facet = settings.samples_facet
+    if facet is None or not settings.samples_tested:
+        return []
+    by_label = {value.lower(): value for value in settings.facets[facet]}
+    problems: list[Problem] = []
+    for page in tree.pages.values():
+        lines = page.body.split("\n")
+        in_code = fenced_lines(page.body)
+        for index, line in enumerate(lines):
+            opened = TAB.match(line) if index not in in_code else None
+            if not opened or opened.group("label").lower() not in by_label:
+                continue
+            first = index + 1
+            while first < len(lines) and not lines[first].strip():
+                first += 1
+            head = lines[first].strip() if first < len(lines) else ""
+            label = opened.group("label")
+            untested = UNTESTED.match(head)
+            if snippets.INCLUDE.match(head):
+                continue
+            if untested and not untested.group("reason"):
+                problems.append(Problem(page.path, first + 1, f"the '{label}' tab's `untested:` comment gives no reason; say why no test can hold it"))
+            elif untested:
+                after = first + 1
+                while after < len(lines) and not lines[after].strip():
+                    after += 1
+                if after < len(lines) and snippets.INCLUDE.match(lines[after].strip()):
+                    problems.append(Problem(page.path, first + 1, f"the '{label}' tab is included from a tested file; remove its `untested:` comment"))
+            elif head.startswith("```"):
+                problems.append(
+                    Problem(
+                        page.path,
+                        index + 1,
+                        f"the '{label}' tab's code is written in the page, where nothing tests it: mark a region in a tested file and "
+                        "put `<!-- include: path#region -->` before the block (then `docs sync`), "
+                        "or say why no test can hold it in `<!-- untested: <reason> -->`",
+                    )
+                )
+    return problems
+
+
 def run(tree: Tree) -> list[Problem]:
     return [
         *frontmatter(tree),
@@ -483,6 +536,7 @@ def run(tree: Tree) -> list[Problem]:
         *examples(tree),
         *tabs(tree),
         *samples(tree),
+        *tested(tree),
         *addresses(tree),
         *snippets.check(tree),
         *generate.check(tree),

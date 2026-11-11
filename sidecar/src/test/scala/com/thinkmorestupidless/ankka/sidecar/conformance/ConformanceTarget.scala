@@ -296,7 +296,7 @@ object ConformanceTarget:
     )
 
   /** A replication transport that reaches no other installation. */
-  private object Unreachable extends ReplicationTransport:
+  private[sidecar] object Unreachable extends ReplicationTransport:
     import com.thinkmorestupidless.ankka.core.{ComponentId as Cid, EntityId as Eid}
     import org.apache.pekko.{Done, NotUsed}
     import org.apache.pekko.stream.scaladsl.Source as PekkoSource

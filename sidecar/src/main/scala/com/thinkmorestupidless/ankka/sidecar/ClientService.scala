@@ -98,6 +98,11 @@ final class ClientService(
 
   def decide(request: DecideRequest): Future[InvokeReply] = logic.decide(request)
 
+  // A workflow's standing and how a copy stands (1.24): a refusal travels in the reply.
+  def lifecycle(request: LifecycleRequest): Future[LifecycleReply]       = logic.lifecycle(request)
+  def replication(request: ReplicationRequest): Future[ReplicationReply] =
+    logic.replication(request)
+
   // A wait's end, a failure included, travels in the reply; this never fails the gRPC call.
   def awaitEnd(request: AwaitEndRequest): Future[InvokeReply] = logic.awaitEnd(request)
 

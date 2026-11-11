@@ -63,7 +63,8 @@ object ModuleLoader:
    * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
    * module that calls it, as is `await_end`, which arrived with 1.18, the three client key imports,
    * which arrived with 1.20, `storage`, which arrived with 1.21, and `keyring_seal`, `keyring_open`
-   * and `erasure_ask`, which arrived with 1.23.
+   * and `erasure_ask`, which arrived with 1.23, and `lifecycle` and `replication`, which arrived
+   * with 1.24.
    */
   val Imports: Set[String] =
     Set(
@@ -89,7 +90,9 @@ object ModuleLoader:
       "storage",
       "keyring_seal",
       "keyring_open",
-      "erasure_ask"
+      "erasure_ask",
+      "lifecycle",
+      "replication"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r

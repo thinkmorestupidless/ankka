@@ -671,8 +671,9 @@ Kotlin ones on the entity the reference service records its cases on:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/application/CheckoutRecorder.scala#checkout-recorder -->
 ```scala
-import com.thinkmorestupidless.ankka.core.{ComponentId, Done, EntityId}
+import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId}
 import com.thinkmorestupidless.ankka.sdk.*
 import shoppingcart.domain.ShoppingCartEvent
 import shoppingcart.domain.ShoppingCartEvent.*
@@ -1287,12 +1288,12 @@ Like a view, a consumer runs only in a service with the projection runtime:
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/RegistrationSuite.scala#register-consumer -->
 ```scala
 val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)
   .register(CheckoutNotifier.descriptor)
   .withExtension(ProjectionRuntime.withKafka("localhost:9092"))
-  .start()
 ```
 
 ///
@@ -1341,37 +1342,86 @@ fun main() {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/main.py#service -->
 ```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CheckoutLog)
-    .register(CheckoutNotifier)
-)
+def service() -> Any:
+    """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
+    registered = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(CartRows)
+        .register(CheckoutNotifier)
+        .register(CheckoutLog)
+        .register(CheckoutWorkflow)
+        .register(CartAssistant)
+        .register(CartAnswerer)
+        .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
+        .register(CartKeysEndpoint)
+        .register(CartMcpEndpoint)
+    )
+    # The graph is published to a topic, and a sidecar with no broker refuses a service that
+    # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.
+    if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
+        registered = registered.register(CartGraph).register(CartContentsGraph)
+    return registered
 ```
 
 ///
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/main.ts#service -->
 ```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CheckoutLog)
-  .register(CheckoutNotifier)
+export function service() {
+  const cart = Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+    .register(CheckoutNotifier)
+    .register(CheckoutLog)
+    .register(CheckoutWorkflow)
+    .register(CartAssistant)
+    .register(CartAnswerer)
+    .register(ShoppingCartEndpoint)
+    .register(QuestionsEndpoint)
+    .register(CallingEndpoint)
+    .register(CartMcp)
+    .register(CartKeysEndpoint)
+  // The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+  // components that need one are registered only where it is set.
+  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+}
 ```
 
 ///
 
 /// tab | Rust
 
+<!-- include: sdks/rust/examples/shopping-cart/src/lib.rs#service -->
 ```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
 pub fn build() -> Service {
-    Service::new("cart")
-        .register(ShoppingCart)
-        .register(CheckoutLog)
-        .register(CheckoutNotifier)
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
 }
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
 ```
 
 ///
@@ -1601,14 +1651,23 @@ broker, and `InMemoryBroker` also delivers it to the service's own topic sources
 <!-- languages: scala, java, kotlin; `InMemoryPublisher` and `InMemoryBroker` are the JVM runtime's; a Python, TypeScript or Go consumer that publishes is tested with its `ConsumerTestKit`, and what reaches a broker through the integration kit against a real one; a module has no integration kit -->
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CartViewSuite.scala#in-memory-publisher -->
 ```scala
-val publisher = InMemoryPublisher()
-val testKit = AnkkaTestKit.start(
-  Seq(ShoppingCartEntity.descriptor, CheckoutNotifier.descriptor),
-  Seq(ProjectionRuntime.withPublisher(publisher))
-)
-// ... check out a cart, then poll until the notice arrives:
-publisher.publishedTo("cart-checkouts").map(_.recordKey)
+private val publisher = InMemoryPublisher()
+
+override def beforeAll(): Unit =
+  testKit = AnkkaTestKit.start(
+    Seq(ShoppingCartEntity.descriptor, CartRows.descriptor, CheckoutNotifier.descriptor),
+    Seq(ProjectionRuntime.withPublisher(publisher))
+  )
+```
+
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/CartViewSuite.scala#published -->
+```scala
+val published = eventually("the checkout notice is published") {
+  Option(publisher.publishedTo("cart-checkouts").filter(_.text.contains(id)))
+    .filter(_.nonEmpty)
+}
 ```
 
 ///

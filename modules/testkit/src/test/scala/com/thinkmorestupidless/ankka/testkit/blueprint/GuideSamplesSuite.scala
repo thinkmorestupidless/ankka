@@ -62,3 +62,25 @@ class GuideSamplesSuite extends munit.FunSuite with LogCapturing:
     assertEquals(run.stepNamed("polish").map(_.rounds.size), Some(1))
     assert(run.modelCalls <= 20)
   }
+
+  test("a blueprint is registered, and read back by version, through the runtime's calls") {
+    val brief    = GuideSamples.brief
+    val jsonText = brief.runBudget(30).json
+    // docs:start registering
+    val registered = agents.blueprints.register(brief)   // Registered(name, version, isNew, notes)
+    val fromJson   =
+      agents.blueprints.register(jsonText) // the same, from a blueprint written as JSON
+    val versions   = agents.blueprints.versions("brief") // every version, oldest first
+    val second = agents.blueprints.version("brief", 2) // one, as it was registered
+    // docs:end registering
+    assertEquals((registered.version, registered.isNew), (1, false))
+    assertEquals((fromJson.version, fromJson.isNew), (2, true))
+    assertEquals(versions.map(_.number), Vector(1, 2))
+    assertEquals(second.name, "brief")
+  }
+
+  test("the guide's combinations and schedule are steps and a blueprint like any other") {
+    assertEquals(GuideSamples.Combinations.dig.name, "dig")
+    assertEquals(GuideSamples.Combinations.views.name, "views")
+    assert(GuideSamples.digest.schedule.isDefined)
+  }

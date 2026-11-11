@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.agent.blueprint.*
 import com.thinkmorestupidless.ankka.agent.judgment.{Question, YesNoQuestion}
 import com.thinkmorestupidless.ankka.agent.{FunctionTool, Json}
 
+import java.time.{DayOfWeek, LocalTime, ZoneId}
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
@@ -75,6 +76,30 @@ object GuideSamples:
     )
     .runBudget(20)
   // docs:end blueprint
+
+  /**
+   * Steps that combine patterns: a for-each of work steps, and a gather of one worker's answers.
+   */
+  object Combinations:
+    // docs:start combinations
+    val dig: Step =
+      Step("dig").work("researcher").each("papers.papers", limit = 4).result(Shape.arr(text))
+    val views: Step = Step("views")
+      .ask("reviewer")
+      .times(3)
+      .reads("draft")
+      .result(Shape.arr(Shape.obj("n" -> Shape.integer, "result" -> text)))
+    // docs:end combinations
+
+  // docs:start schedule
+  val digest: Blueprint = Blueprint("digest")
+    .input(Period.shape)
+    .schedule(
+      Schedule
+        .weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London"))
+        .perMissedPeriod
+    )
+  // docs:end schedule
 
   // docs:start registry
   /**

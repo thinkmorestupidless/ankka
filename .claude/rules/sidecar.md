@@ -28,6 +28,18 @@ records (kinds 3–7) never reach a process as events. A module is told the even
 
 ## Traps
 
+- **A process SDK's integration kit cannot start the whole conformance reference** (2026-11-11,
+  feature 065). The reference declares authenticated routes and an erasure handler, so its sidecar
+  refuses to start without `ANKKA_AUTH_ISSUERS` (a placeholder issuer such as
+  `https://staff.invalid` with its JWKS URL and audience satisfies it), and with them it still did
+  not become ready within the kit's wait. A kit test that needs a replicated entity registers that
+  entity and its endpoint beside the cart sample, with `ANKKA_INSTALLATION` and one other
+  installation (`ANKKA_INSTALLATION_ELSEWHERE_DB_HOST=elsewhere.invalid`), which is enough for
+  the copy to be replicated.
+- **A copy's `position` counts every journal record, the platform's included** (2026-11-11, feature
+  065). A replicated entity created with one event stands at 3: the home record and the set record
+  are written with the first event. The Rust unit kit counts events only, since it keeps no platform
+  records; a test that compares a runtime's position with a kit's compares different counts.
 - **A process SDK's gRPC client must wait for ready, not fail fast** (2026-11-04, feature 042).
   The sidecar restarts under a running process (the conformance suite's `target.restart()`), and a
   gRPC channel that lost its connection is in backoff: every call in that window fails at once with

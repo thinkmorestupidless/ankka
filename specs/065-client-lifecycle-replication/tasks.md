@@ -146,7 +146,7 @@ Pages:
 
 ## Phase 8: Polish & cross-cutting
 
-- [ ] T057 Write any trap this work cost time on, dated, in the `.claude/rules/` file for its area (`sidecar.md`, `wasm.md`, `sdk-go.md`, `sdk-typescript.md`, …)
+- [X] T057 Write any trap this work cost time on, dated, in the `.claude/rules/` file for its area (`sidecar.md`, `wasm.md`, `sdk-go.md`, `sdk-typescript.md`, …)
 - [ ] T058 Run `quickstart.md` end to end and `just features` (0 findings); `git diff main --stat -- modules/sdk/src/main modules/sdk-java/src/main sdks/kotlin/ankka-kotlin*/src/main` prints nothing (FR-014)
 
 ---

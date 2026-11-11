@@ -60,6 +60,15 @@ its context, and that is the case the runtime's rule exists for (`service_calls.
 
 ## Traps
 
+- **A route on the example's own endpoint links its import into the plain module** (2026-11-11,
+  feature 065). A docs sample calling `lifecycle` from `CartApi` made the plain example import it,
+  so it would need a 1.24 runtime and `WasmHostSuite`'s "imports neither read" case would fail. A sample
+  that reads goes on an endpoint the module's `build()` does not register (`TransferApi`), or in a
+  free function nothing registered calls; check with `wasm-objdump -j Import -x` on the release build.
+- **The example's tests run from `sdks/rust`, not from the example's directory** (2026-11-11). The
+  example's `.cargo/config.toml` targets wasm, so `cargo test` there compiles the tests for
+  `wasm32-unknown-unknown` and fails in `mio`; `cargo test -p shopping-cart` from the workspace runs
+  them natively.
 - **Compiling a module is the sidecar's peak of heap, and the JVM's default was a quarter of the
   pod** (2026-11-05, feature 042). Chicory compiled the Rust conformance reference in about 100 MiB
   alone, against a 128 MiB heap at the default 512Mi; 042's cases added 8 MiB and the wasm pod ran

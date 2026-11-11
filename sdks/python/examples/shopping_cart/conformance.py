@@ -411,6 +411,7 @@ class ProfileGraph(GraphConsumer[ProfileState]):
 # ── reminder: a timed action ──
 
 
+# docs:start timed-action
 class Reminder(TimedAction):
     component_id = "reminder"
 
@@ -428,6 +429,7 @@ class Reminder(TimedAction):
         assert due is not None, "a timed action is run with ankka.due"
         await self.client.for_event_sourced_entity("conformance", id).call("record").invoke(f"due:{int(due)}", reply=str)
         return self.effects.done()
+# docs:end timed-action
 
 
 # ── assistant: an agent whose tool acts through the client ──
@@ -910,11 +912,14 @@ class ConformanceEndpoint(Endpoint):
             raise
         return str(checkout.status)
 
+    # docs:start schedule
     @post("/remind/{id}")
     async def remind(self, id: str) -> Done:
         await self.client.timers.schedule(f"remind-{id}", timedelta(seconds=1), "reminder", "remind", id)
         return DONE
+    # docs:end schedule
 
+    # docs:start recurring
     # A recurring timer: due at once, then every second.
     @post("/recur/{id}")
     async def recur(self, id: str) -> Done:
@@ -931,6 +936,7 @@ class ConformanceEndpoint(Endpoint):
     async def recur_cancel(self, id: str) -> Done:
         await self.client.timers.cancel(f"recur-{id}")
         return DONE
+    # docs:end recurring
 
     # A period of zero: the SDK refuses it with BAD_REQUEST, which the endpoint answers as a 400.
     @post("/recur-refused/{id}")

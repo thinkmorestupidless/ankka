@@ -1025,10 +1025,13 @@ export class ConformanceEndpoint extends Endpoint {
         throw refused
       }
     }),
+    // docs:start schedule
     remind: post("/remind/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.schedule(`remind-${req.params.id}`, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.remind }, req.params.id)
       return done
     }),
+    // docs:end schedule
+    // docs:start recurring
     // A recurring timer: due at once, then every second.
     recur: post("/recur/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ZERO, Duration.ofSeconds(1), { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
@@ -1043,6 +1046,7 @@ export class ConformanceEndpoint extends Endpoint {
       await ep.client.timers.cancel(`recur-${req.params.id}`)
       return done
     }),
+    // docs:end recurring
     // A period of zero: the SDK's CommandError(BAD_REQUEST) becomes a 400 carrying its message.
     recurRefused: post("/recur-refused/{id}", Done, async (ep: ConformanceEndpoint, req) => {
       await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ZERO, Duration.ZERO, { component: Reminder, handler: Reminder.actions.tick }, req.params.id)

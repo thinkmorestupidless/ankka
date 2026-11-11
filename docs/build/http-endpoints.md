@@ -2122,15 +2122,6 @@ def service() -> Any:
     if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
         registered = registered.register(CartGraph).register(CartContentsGraph)
     return registered
-
-
-async def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
-    await service().listen()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
 ```
 
 ///

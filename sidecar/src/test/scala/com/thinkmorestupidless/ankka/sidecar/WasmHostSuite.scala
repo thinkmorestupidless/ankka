@@ -561,6 +561,37 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("a module that never reads a standing or a copy imports neither; one that does, both") {
+    assume(rustCart.isDefined && rustReference.isDefined, "cargo is not on PATH")
+    // A module importing either needs a runtime at protocol 1.24; one that reads neither must not.
+    val plain = importsOf(rustCart.get)
+    assert(!plain.contains("lifecycle") && !plain.contains("replication"), plain.toString)
+    val reference = importsOf(rustReference.get)
+    assert(reference.contains("lifecycle") && reference.contains("replication"), reference.toString)
+  }
+
+  test("a runtime from before 1.24 refuses a module that reads a standing, naming the import") {
+    assume(rustCart.isDefined && rustReference.isDefined, "cargo is not on PATH")
+    val older    = ModuleLoader.Imports - "lifecycle" - "replication"
+    val refusals =
+      ModuleLoader.check(com.dylibso.chicory.wasm.Parser.parse(rustReference.get), older)
+    assert(
+      refusals.exists(_.contains("imports 'ankka1.lifecycle', which the runtime does not provide")),
+      refusals.mkString("\n")
+    )
+    assert(
+      refusals.exists(
+        _.contains("imports 'ankka1.replication', which the runtime does not provide")
+      ),
+      refusals.mkString("\n")
+    )
+    // A module that reads neither loads on that runtime as it did.
+    assertEquals(
+      ModuleLoader.check(com.dylibso.chicory.wasm.Parser.parse(rustCart.get), older),
+      Vector.empty
+    )
+  }
+
   test("a module that never reaches a bucket does not import storage; one that does, does") {
     assume(rustCart.isDefined && rustReference.isDefined, "cargo is not on PATH")
     // A module importing it needs a runtime at protocol 1.21; one that keeps no object must not.

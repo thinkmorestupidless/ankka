@@ -117,8 +117,11 @@ object ModuleLoader:
             )
           )
 
-  /** Pure: what is wrong with a parsed module, all of it. */
-  def check(module: WasmModule): Vector[String] =
+  /**
+   * Pure: what is wrong with a parsed module, all of it, against a runtime providing `provided`
+   * (this one's `Imports`; a test names an older runtime's).
+   */
+  def check(module: WasmModule, provided: Set[String] = Imports): Vector[String] =
     val problems = Vector.newBuilder[String]
     val exports  = exportNames(module)
 
@@ -138,9 +141,9 @@ object ModuleLoader:
       if i.module() != Abi.ImportModule then
         problems += s"the module imports '${i.module()}.${i.name()}'; a module may import only " +
           s"from '${Abi.ImportModule}'"
-      else if i.importType() != ExternalType.FUNCTION || !Imports.contains(i.name()) then
+      else if i.importType() != ExternalType.FUNCTION || !provided.contains(i.name()) then
         problems += s"the module imports '${i.module()}.${i.name()}', which the runtime does not " +
-          s"provide (it provides ${Imports.toVector.sorted.mkString(", ")})"
+          s"provide (it provides ${provided.toVector.sorted.mkString(", ")})"
     }
     problems.result()
 

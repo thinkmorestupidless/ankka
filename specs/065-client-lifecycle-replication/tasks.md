@@ -103,8 +103,8 @@
 
 **Independent Test**: the four "runtime from before the read" scenarios.
 
-- [ ] T037 [P] [US4] Python, TypeScript and Go: confirm the too-old tests of T010 to T012 and T021 to T023 cover both reads and name `1.24`; add any missing to the three test files
-- [ ] T038 [US4] Rust: in `sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/wasm/WasmHostSuite.scala`, a module that calls `lifecycle` imports it and one that does not, does not (as `await_end` at :554); a loader whose `Imports` lacks `lifecycle` refuses the first with the message naming the import
+- [X] T037 [P] [US4] Python, TypeScript and Go: confirm the too-old tests of T010 to T012 and T021 to T023 cover both reads and name `1.24`; add any missing to the three test files
+- [X] T038 [US4] Rust: in `sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/wasm/WasmHostSuite.scala`, a module that calls `lifecycle` imports it and one that does not, does not (as `await_end` at :554); a loader whose `Imports` lacks `lifecycle` refuses the first with the message naming the import
 
 **Checkpoint**: the four scenarios have their tests.
 

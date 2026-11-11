@@ -167,10 +167,14 @@ class MirroringSuite extends CopiesSuite:
           org.apache.pekko.NotUsed
         }
     val c = copy("leipzig", t)
-    c.follow("vienna", Set("vienna", "leipzig"), "frame")
-    // Following vienna since its set record: its puller was opened from the record after it.
+    // Following vienna since its set record: its puller is opened from the record after it. The
+    // puller opens asynchronously, so the step comes through the pull rather than beside it, where
+    // it could land first and move where the pull opens from.
+    c.follow("vienna", Set("vienna", "leipzig"))
     val q = eventually()(queue)
     assertEquals(t.openedNow, Vector("vienna" -> 3L))
+    q.offer(Replicated(3, step("vienna", "frame")))
+    eventually()(Option.when(c.journal.size == 3)(()))
     q.offer(Replicated(4, set("vienna", Set("vienna"))))
     eventually()(Option.when(c.journal.size == 4)(()))
     scala.concurrent.Await.result(ended.future, 10.seconds)

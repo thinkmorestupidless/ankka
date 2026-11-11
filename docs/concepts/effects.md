@@ -15,9 +15,12 @@ of the whole platform.
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/ShoppingCartEntity.scala#add-item -->
 ```scala
 def addItem(item: LineItem): Effect[Done] =
   if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
+  else if item.quantity <= 0 then
+    effects.error(s"quantity must be greater than zero, was ${item.quantity}")
   else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
 
@@ -65,11 +68,14 @@ suspend fun addItem(item: LineItem): Effect<Done> = effects {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/entity.py#add-item -->
 ```python
 @command("add-item")
 def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
     if self.state.checkedOut:
         return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+    if item.quantity <= 0:
+        return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
     return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 ```
 
@@ -77,9 +83,11 @@ def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingC
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/entity.ts#add-item -->
 ```ts
 addItem(item: LineItem) {
   if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+  if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was ${item.quantity}`)
   return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
 }
 ```
@@ -185,6 +193,7 @@ like any other: nothing is persisted, and the caller receives a typed failure ca
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/ShoppingCartEntity.scala#refusal -->
 ```scala
 if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
 ```

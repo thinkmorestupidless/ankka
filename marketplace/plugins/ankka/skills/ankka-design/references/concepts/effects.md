@@ -13,6 +13,8 @@ of the whole platform.
 ```scala
 def addItem(item: LineItem): Effect[Done] =
   if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
+  else if item.quantity <= 0 then
+    effects.error(s"quantity must be greater than zero, was ${item.quantity}")
   else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
 
@@ -57,6 +59,8 @@ suspend fun addItem(item: LineItem): Effect<Done> = effects {
 def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
     if self.state.checkedOut:
         return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+    if item.quantity <= 0:
+        return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
     return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 ```
 
@@ -65,6 +69,7 @@ def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingC
 ```ts
 addItem(item: LineItem) {
   if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+  if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was ${item.quantity}`)
   return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
 }
 ```

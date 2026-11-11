@@ -75,21 +75,24 @@ object PersonalContact
 
 /// tab | Java
 
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/Players.java#marking -->
 ```java
-import com.thinkmorestupidless.ankka.javasdk.DataSubject;
-import com.thinkmorestupidless.ankka.javasdk.Personal;
-
 @Manifest("player-registered")
 public record PlayerRegistered(String playerId, Personal<String> email, String currency) {}
 
-var subject = DataSubject.of("player/" + id);
-effects().persist(new PlayerRegistered(id, Personal.of(subject, email), "EUR"));
+@Command("register")
+public Effect<Done> register(String email) {
+  var id = context().entityId();
+  var subject = DataSubject.of("player/" + id);
+  return effects().persist(new PlayerRegistered(id, Personal.of(subject, email), "EUR")).thenDone();
+}
 ```
 
 ///
 
 /// tab | Kotlin
 
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Players.kt#marking -->
 ```kotlin
 import com.thinkmorestupidless.ankka.kotlin.personal
 import com.thinkmorestupidless.ankka.kotlin.subject
@@ -97,15 +100,21 @@ import com.thinkmorestupidless.ankka.kotlin.subject
 @Manifest("player-registered")
 data class PlayerRegistered(val playerId: String, val email: Personal<String>, val currency: String)
 
-effects().persist(PlayerRegistered(id, personal(subject("player/$id"), email), "EUR"))
+    @Command("register")
+    fun register(email: String): Effect<Done> = effects {
+        val id = context().entityId()
+        persist(PlayerRegistered(id, personal(subject("player/$id"), email), "EUR")).thenDone()
+    }
 ```
 
 ///
 
 /// tab | Python
 
+<!-- include: sdks/python/tests/test_personal_samples.py#marking -->
 ```python
 from ankka.personal import DataSubject, Personal
+
 
 @dataclass(frozen=True)
 class PlayerRegistered:
@@ -113,7 +122,9 @@ class PlayerRegistered:
     email: Personal[str]
     currency: str
 
-PlayerRegistered(player_id, Personal.of(DataSubject(f"player/{player_id}"), email), "EUR")
+
+def registered(player_id: str, email: str) -> PlayerRegistered:
+    return PlayerRegistered(player_id, Personal.of(DataSubject(f"player/{player_id}"), email), "EUR")
 ```
 
 `DataSubject` raises `ValueError` for a string outside the rule.
@@ -122,22 +133,27 @@ PlayerRegistered(player_id, Personal.of(DataSubject(f"player/{player_id}"), emai
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/personalData.ts#marking -->
 ```ts
-import { personal, s, subject } from "ankka"
+import { personal, s, subject, type Infer } from "ankka"
 
-const PlayerRegistered = s.record("PlayerRegistered", {
+export const PlayerRegistered = s.record("PlayerRegistered", {
   playerId: s.string,
   email: s.personal(s.string),
   currency: s.string,
 })
+export type PlayerRegistered = Infer<typeof PlayerRegistered>
 
-const event = { playerId: id, email: personal(subject(`player/${id}`), email), currency: "EUR" }
+export function registered(id: string, email: string): PlayerRegistered {
+  return { playerId: id, email: personal(subject(`player/${id}`), email), currency: "EUR" }
+}
 ```
 
 ///
 
 /// tab | Rust
 
+<!-- include: sdks/rust/examples/shopping-cart/tests/personal_data.rs#marking -->
 ```rust
 use ankka::{DataSubject, Personal};
 
@@ -149,14 +165,21 @@ struct PlayerRegistered {
     currency: String,
 }
 
-let subject = DataSubject::new(format!("player/{id}"))?;
-PlayerRegistered { player_id: id, email: Personal::present(subject, email), currency: "EUR".into() }
+fn registered(id: &str, email: String) -> Result<PlayerRegistered, CommandError> {
+    let subject = DataSubject::new(format!("player/{id}"))?;
+    Ok(PlayerRegistered {
+        player_id: id.to_string(),
+        email: Personal::present(subject, email),
+        currency: "EUR".into(),
+    })
+}
 ```
 
 ///
 
 /// tab | Go
 
+<!-- include: sdks/go/docs_personal_test.go#personal-field -->
 ```go
 type PlayerRegistered struct {
 	PlayerID string                 `json:"playerId"`
@@ -277,17 +300,19 @@ allowed: equality with a value the caller gives, on a field the view marks for *
 <!-- languages: scala; lookup fields are declared in the Scala SDK only -->
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/LookupTokenSuite.scala#lookup-view -->
 ```scala
-object PlayersByEmail
-    extends View.Companion[PlayersByEmailView, PlayerEvent, PlayerRow](
-      componentId = ComponentId("players-by-email"),
-      source = ChangeSource.eventsOf(PlayerEntity),
-      rowSerializer = Codecs.serializer[PlayerRow]("player-row")
+object Members
+    extends View.Companion[MembersView, Joined, MemberRow](
+      componentId = ComponentId("members"),
+      source = ChangeSource.eventsOf(MemberEntity),
+      rowSerializer = Codecs.serializer[MemberRow]("member-row")
     ):
-  def create(ctx: ViewComponentContext) = new PlayersByEmailView
+  def create(ctx: ViewComponentContext) = new MembersView
   lookup(_.email)
-
-  val byEmail = query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
+  val byEmail =
+    query("by-email")(s"SELECT payload FROM $table WHERE payload::jsonb->>'email' = :email")
+  val byCity = query("by-city")(s"SELECT payload FROM $table WHERE payload::jsonb->>'city' = :city")
 ```
 
 ///
@@ -334,11 +359,17 @@ replaces a session's oldest messages.
 <!-- languages: scala, python, typescript, rust, go; Java and Kotlin services start no session or autonomous agent's instance with a data subject -->
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/PersonalAgentsSuite.scala#agent-subject -->
 ```scala
-val calls = componentClient.forAgent(SessionId("support-91"), subject = Some(DataSubject("player/8c1f")))
-calls.call(HelperAgent.ask).invoke("my card was declined")
+val calls =
+  componentClient.forAgent(SessionId("support-91"), subject = Some(DataSubject("player/8c1f")))
+calls.call(WeatherAgent.ask).invoke("my card was declined")
 
-componentClient.forAutonomousAgent(Resolver, "case-91", subject = Some(DataSubject("player/8c1f")))
+componentClient.forAutonomousAgent(
+  Operator,
+  "case-91",
+  subject = Some(DataSubject("player/8c1f"))
+)
 ```
 
 A task takes one with `.withSubject(DataSubject("player/8c1f"))` on its builder.
@@ -347,11 +378,12 @@ A task takes one with `.withSubject(DataSubject("player/8c1f"))` on its builder.
 
 /// tab | Python
 
+<!-- include: sdks/python/tests/test_personal_samples.py#agent-subject -->
 ```python
 calls = client.for_agent("helper", "support-91", subject="player/8c1f")
 await calls.call("ask").invoke("my card was declined", reply=str)
 
-client.for_autonomous_agent(Resolver, "case-91", subject="player/8c1f")
+resolver = client.for_autonomous_agent(Resolver, "case-91", subject="player/8c1f")
 ```
 
 A task takes one with `subject=` where it is created.
@@ -360,11 +392,12 @@ A task takes one with `subject=` where it is created.
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/personalData.ts#agent-subject -->
 ```typescript
-const calls = client.forAgent("helper", "support-91", { subject: "player/8c1f" });
-await calls.call("ask").invoke("my card was declined");
+const calls = client.forAgent("helper", "support-91", { subject: "player/8c1f" })
+await calls.call("ask", s.string, s.string).invoke("my card was declined")
 
-client.forAutonomousAgent("resolver", "case-91", { subject: "player/8c1f" });
+const resolver = client.forAutonomousAgent("resolver", "case-91", { subject: "player/8c1f" })
 ```
 
 A task takes one with `subject` in the options of `client.tasks.create`.
@@ -373,6 +406,7 @@ A task takes one with `subject` in the options of `client.tasks.create`.
 
 /// tab | Rust
 
+<!-- include: sdks/rust/examples/shopping-cart/tests/personal_data.rs#agent-subject -->
 ```rust
 let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
 // every call to an agent made through it names the data subject
@@ -384,11 +418,13 @@ A task takes one with `NewTask::subject`, an instance with `InstanceCalls::with_
 
 /// tab | Go
 
+<!-- include: sdks/go/docs_personal_test.go#agent-subject -->
 ```go
 ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
 // every call to an agent made with ctx names the data subject
+answer, err := ankka.Invoke[string](ctx, "helper", "support-91", "ask", "my card was declined")
 
-instance := ankka.Instance(client, "case-91").WithSubject(ankka.MustSubject("player/8c1f"))
+instance := ankka.Instance("resolver", "case-91").WithSubject(ankka.MustSubject("player/8c1f"))
 ```
 
 A task takes one in `TaskOptions.Subject`.
@@ -438,9 +474,11 @@ its handler never runs.
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/ErasureHandlerSuite.scala#erasure-handler -->
 ```scala
-Ankka.service
-  .withErasureHandler(ErasureHandler { ctx => subject =>
+/** The service's part of an erasure: the subject's objects in its `kyc` bucket. */
+def withKycErasure(service: ServiceBuilder): ServiceBuilder =
+  service.withErasureHandler(ErasureHandler { ctx => subject =>
     val removed = ctx.storage.bucket("kyc").erase(subject)
     ErasureReport(removed.count, removed.finality)
   })
@@ -453,11 +491,14 @@ sequence `erasureSeq`, and `rerun`.
 
 /// tab | Java
 
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/docs/ErasureSamples.java#erasure-handler -->
 ```java
-Ankka.service("players")
-    .register(Player.class)
-    .withErasureHandler((ctx, subject) ->
-        ErasureReport.of(ctx.storage().bucket("kyc").erase(subject)));
+static ServiceBuilder players() {
+  return Ankka.service("players")
+      .register(Players.class)
+      .withErasureHandler(
+          (ctx, subject) -> ErasureReport.of(ctx.storage().defaultBucket().erase(subject)));
+}
 ```
 
 `ErasureHandler`, `ErasureContext` and `ErasureReport` are in `com.thinkmorestupidless.ankka.javasdk.erasure`.
@@ -469,12 +510,15 @@ erasure's sequence `erasureSeq()`, and `rerun()`. A report is `ErasureReport.imm
 
 /// tab | Kotlin
 
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Erasures.kt#erasure-handler -->
 ```kotlin
-Ankka.service("players")
-    .register(Player::class.java)
-    .withErasureHandler { ctx, subject ->
-        ErasureReport.of(ctx.storage().bucket("kyc").erase(subject))
-    }
+/** The players service, whose part of an erasure is the subject's objects in its bucket. */
+fun players(): ServiceBuilder =
+    Ankka.service("players")
+        .register(PlayerEntity::class.java)
+        .withErasureHandler { ctx, subject ->
+            ErasureReport.of(ctx.storage().defaultBucket().erase(subject))
+        }
 ```
 
 The handler and its context are the Java SDK's.
@@ -483,10 +527,8 @@ The handler and its context are the Java SDK's.
 
 /// tab | Python
 
+<!-- include: sdks/python/tests/test_personal_samples.py#erasure-handler -->
 ```python
-from ankka.erasure import ErasureContext, ErasureReport
-from ankka.personal import DataSubject
-
 @service.erasure_handler
 async def erase(ctx: ErasureContext, subject: DataSubject) -> ErasureReport:
     removed = await ctx.storage.bucket("kyc").erase(subject)
@@ -497,8 +539,9 @@ async def erase(ctx: ErasureContext, subject: DataSubject) -> ErasureReport:
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/personalData.ts#erasure-handler -->
 ```ts
-Ankka.service({ client }).erasureHandler(async (ctx, subject) => {
+const service = Ankka.service({ client }).erasureHandler(async (ctx, subject) => {
   const removed = await ctx.storage.bucket("kyc").erase(subject)
   return { objectsErased: removed.count, finality: removed.finality }
 })
@@ -508,6 +551,7 @@ Ankka.service({ client }).erasureHandler(async (ctx, subject) => {
 
 /// tab | Rust
 
+<!-- include: sdks/rust/examples/shopping-cart/tests/personal_data.rs#erasure-handler -->
 ```rust
 Service::new("players").erasure_handler(|ctx, subject| {
     let storage = ctx.storage().expect("an erasure handler has the buckets");
@@ -521,6 +565,7 @@ Service::new("players").erasure_handler(|ctx, subject| {
 
 /// tab | Go
 
+<!-- include: sdks/go/docs_personal_test.go#erasure-handler -->
 ```go
 svc.ErasureHandler(func(ctx context.Context, subject ankka.DataSubject) (ankka.ErasureReport, error) {
 	bucket, err := ankka.StorageFrom(ctx).Bucket("kyc")
@@ -551,8 +596,9 @@ closed, a retention period ended.
 
 /// tab | Scala
 
+<!-- include: modules/runtime/src/test/scala/com/thinkmorestupidless/ankka/runtime/keyring/ControlPlaneErasuresSuite.scala#ask -->
 ```scala
-val asked = clients.erasures.ask(
+val asked = erasures.ask(
   DataSubject("player/8c1f"),
   notBefore = Some(LocalDate.parse("2031-10-08")),
   reason = Some("aml-retention"),
@@ -567,13 +613,16 @@ An endpoint reaches it as `clients.erasures`, a consumer and an erasure handler 
 
 /// tab | Java
 
+<!-- include: modules/testkit-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/testkit/kinds/PlayerErasures.java#ask -->
 ```java
-ErasureAsked asked = erasures().ask(
-    DataSubject.of("player/8c1f"),
-    ErasureAsk.defaults()
-        .withNotBefore(LocalDate.parse("2031-10-08"))
-        .withReason("aml-retention")
-        .withCorrelation("closure-4411"));
+ErasureAsked asked =
+    erasures()
+        .ask(
+            DataSubject.of("player/" + id),
+            ErasureAsk.defaults()
+                .withNotBefore(LocalDate.parse("2031-10-08"))
+                .withReason("aml-retention")
+                .withCorrelation("closure-4411"));
 // asked.id(), asked.state(): "held", "applying" or "applied"
 ```
 
@@ -584,9 +633,10 @@ An endpoint and a consumer reach it as `erasures()`, an erasure handler as `ctx.
 
 /// tab | Kotlin
 
+<!-- include: sdks/kotlin/samples/shopping-cart/src/test/kotlin/shoppingcart/kotlin/samples/Erasures.kt#ask -->
 ```kotlin
 val asked = erasures().ask(
-    subject("player/8c1f"),
+    subject("player/$id"),
     ErasureAsk.defaults().withReason("aml-retention").withCorrelation("closure-4411"),
 )
 ```
@@ -595,6 +645,7 @@ val asked = erasures().ask(
 
 /// tab | Python
 
+<!-- include: sdks/python/tests/test_personal_samples.py#ask-erasure -->
 ```python
 asked = await self.erasures.ask("player/8c1f", not_before=date(2031, 10, 8), reason="aml-retention")
 ```
@@ -603,6 +654,7 @@ asked = await self.erasures.ask("player/8c1f", not_before=date(2031, 10, 8), rea
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/personalData.ts#ask-erasure -->
 ```ts
 const asked = await this.erasures.ask({ subject: "player/8c1f", reason: "aml-retention", correlation: "closure-4411" })
 ```
@@ -611,6 +663,7 @@ const asked = await this.erasures.ask({ subject: "player/8c1f", reason: "aml-ret
 
 /// tab | Rust
 
+<!-- include: sdks/rust/examples/shopping-cart/tests/personal_data.rs#ask-erasure -->
 ```rust
 let erasures = ctx.erasures().expect("an endpoint may ask");
 let asked = erasures.ask(AskErasure::of(subject).reason("aml-retention"))?;
@@ -622,8 +675,15 @@ A WebAssembly module asks through the `erasure_ask` import, wherever it may make
 
 /// tab | Go
 
+<!-- include: sdks/go/docs_personal_test.go#ask-erasure -->
 ```go
-asked, err := ankka.Erasures(ctx).Ask(ankka.AskErasure{Subject: ankka.MustSubject("player/8c1f"), Reason: "aml-retention"})
+asked, err := ankka.Erasures(ctx).Ask(ankka.AskErasure{
+	Subject:     ankka.MustSubject("player/8c1f"),
+	NotBefore:   ankka.NewLocalDate(2031, time.October, 8),
+	Reason:      "aml-retention",
+	Correlation: "closure-4411",
+})
+// asked.ID, asked.State: "held", "applying" or "applied"
 ```
 
 ///
@@ -672,12 +732,13 @@ installation's keyring outlives a restart:
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/AnkkaTestKitKeyringSuite.scala#erase -->
 ```scala
-kit.erase(DataSubject("player/8c1f"))           // destroys the key now and sends the notice
-kit.restartService()                            // read from the database, not from memory
-assertEquals(card("8c1f").call(ContactCardEntity.email).invoke(), "erased")
+kit.erase(DataSubject("player/77a0")) // destroys the key now and sends the notice
+kit.restartService()                  // read from the database, not from memory
+assertEquals(card("77a0").call(ContactCardEntity.email).invoke(), "erased")
 
-kit.assertNoPersonalValue("ada@example.com")    // fails naming the table and column holding it
+kit.assertNoPersonalValue("ida@example.com") // fails naming the table and column holding it
 ```
 
 ///

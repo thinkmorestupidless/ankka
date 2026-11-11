@@ -19,6 +19,8 @@ serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 ankka = { path = "../../ankka", features = ["testkit"] }
+# The personal data samples answer a client's calls with a host stand-in, which speaks the protocol.
+prost = "0.14"
 
 [features]
 # The tests that start Postgres and the runtime in Docker; compiled out unless asked for.

@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.javasdk.erasure.ErasureContext;
 import com.thinkmorestupidless.ankka.javasdk.erasure.ErasureReport;
 import com.thinkmorestupidless.ankka.javasdk.http.Acl;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
+import java.time.LocalDate;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -41,6 +42,22 @@ public final class PlayerErasures {
     @Post("/forget/{id}")
     public String forget(String id) {
       ErasureAsked asked = erasures().ask(DataSubject.of("player/" + id));
+      return asked.id() + " " + asked.state();
+    }
+
+    @Post("/forget-later/{id}")
+    public String forgetLater(String id) {
+      // docs:start ask
+      ErasureAsked asked =
+          erasures()
+              .ask(
+                  DataSubject.of("player/" + id),
+                  ErasureAsk.defaults()
+                      .withNotBefore(LocalDate.parse("2031-10-08"))
+                      .withReason("aml-retention")
+                      .withCorrelation("closure-4411"));
+      // asked.id(), asked.state(): "held", "applying" or "applied"
+      // docs:end ask
       return asked.id() + " " + asked.state();
     }
 

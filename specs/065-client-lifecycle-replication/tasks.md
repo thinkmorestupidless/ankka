@@ -21,7 +21,7 @@
 - [X] T003 [P] Python: regenerate `sdks/python/proto` (`cd sdks/python && uv run python scripts/proto.py`), set `PROTOCOL_VERSION = "1.24"` in `sdks/python/src/ankka/service.py:32`, update the pin in `sdks/python/tests/test_attribution.py:84`
 - [X] T004 [P] TypeScript: regenerate `sdks/typescript/proto` (`npm run proto`), set 1.24 in `sdks/typescript/src/spec.ts:28`, update the pins in `sdks/typescript/test/attribution.test.ts:69` and `test/contracts.test.ts:124`
 - [X] T005 [P] Go: regenerate `sdks/go/protocol` (`sdks/go/scripts/proto.sh`) and `sdks/go/internal/pb` (`buf generate`), set 1.24 in `sdks/go/ankka.go:13`, update the pins in `sdks/go/service_test.go:73,87,120`
-- [ ] T006 [P] Rust: regenerate `sdks/rust/ankka/protocol` (`sdks/rust/scripts/proto.sh`), set 1.24 in `sdks/rust/ankka/src/service.rs:26`, update any test pinning 1.23 under `sdks/rust/ankka/tests`
+- [X] T006 [P] Rust: regenerate `sdks/rust/ankka/protocol` (`sdks/rust/scripts/proto.sh`), set 1.24 in `sdks/rust/ankka/src/service.rs:26`, update any test pinning 1.23 under `sdks/rust/ankka/tests`
 
 **Checkpoint**: `sbt protocol/compile sidecar/compile`, each SDK builds, and CI's proto `diff -r` steps would pass.
 

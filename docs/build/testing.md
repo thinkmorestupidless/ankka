@@ -79,7 +79,7 @@ fun `an item added is in the cart`() {
 
 /// tab | Python
 
-<!-- include: sdks/python/examples/shopping_cart/test_cart.py#entity-test -->
+<!-- include: sdks/python/examples/shopping_cart/test_cart.py#item-added-test -->
 ```python
 def test_an_item_added_is_in_the_cart() -> None:
     kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")

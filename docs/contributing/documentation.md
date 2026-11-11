@@ -268,8 +268,22 @@ SDK's tests for Java, `sdks/kotlin` for Kotlin, and `sdks/python`, `sdks/typescr
 `sdks/go`, each with an `examples/` shopping cart and a conformance service, for the rest. A sample that
 has no home there yet gets one before it gets a tab.
 
-Samples that are not from a tested source are written by hand. Keep them short, and prefer to add a region
-to a sample or test that exists.
+`docs check` refuses a tab whose code is written in the page. A tab that no test can hold, such as a line
+of the reader's own build file, says why in a comment on the line before its block, and the reason is
+what a reviewer checks:
+
+````markdown
+/// tab | Scala
+
+<!-- untested: a dependency line for the reader's own build -->
+```scala
+"com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion
+```
+
+///
+````
+
+A block outside a tab set, such as a shell command or a descriptor, is written by hand. Keep it short.
 
 ## Generated reference
 

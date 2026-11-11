@@ -33,6 +33,7 @@ In a service created from the template:
 <!-- languages: scala; a `build.sbt` setting; a Python, TypeScript, Rust or Go service pins `ankka` in its own package manifest and `runtime` in `service.json`, with nothing in code -->
 /// tab | Scala
 
+<!-- untested: the release a service pins, which docs sync keeps at the newest release -->
 ```scala
 // build.sbt
 val ankkaVersion = "0.16.2"

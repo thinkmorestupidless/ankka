@@ -6,8 +6,8 @@ use ankka::testkit::{
     AgentTestKit, KeyValueEntityTestKit, ScriptedModel, StepNext, WorkflowTestKit,
 };
 use shopping_cart::planner::{
-    ActivityAgent, ActivityRequest, PlannerWorkflow, Preferences, PreferencesEntity, SelectorAgent,
-    Start, plan_status,
+    ActivityAgent, ActivityRequest, PlanState, PlannerWorkflow, Preferences, PreferencesEntity,
+    SelectorAgent, Start, observe, plan_status,
 };
 
 // docs:start planner-test
@@ -84,4 +84,49 @@ fn preferences_are_kept_under_the_travellers_id() {
     let kept = kit.state();
     assert_eq!(kept.user_id, "u-1");
     assert_eq!(kept.summary(), "likes museums; budget 120");
+}
+
+/// Answers the plan query and the standing, as the runtime would for a run that has ended.
+struct Ended;
+
+impl ankka::abi::imports::NativeHost for Ended {
+    fn call(&self, import: ankka::abi::imports::Import, _: &[u8]) -> Vec<u8> {
+        use ankka::abi::imports::Import;
+        use ankka::proto;
+        use prost::Message;
+        match import {
+            Import::Invoke => proto::InvokeReply {
+                result: Some(proto::invoke_reply::Result::Reply(proto::outcome::Reply {
+                    payload: ankka::codec::encode_payload(&PlanState {
+                        status: plan_status::COMPLETED.to_string(),
+                        summary: Some("Lisbon in the rain".into()),
+                        ..PlanState::empty()
+                    })
+                    .ok(),
+                    metadata: None,
+                })),
+            }
+            .encode_to_vec(),
+            Import::Lifecycle => proto::LifecycleReply {
+                result: Some(proto::lifecycle_reply::Result::Lifecycle(
+                    proto::WorkflowLifecycle {
+                        status: proto::WorkflowStatus::Completed as i32,
+                        ..Default::default()
+                    },
+                )),
+            }
+            .encode_to_vec(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_run_is_observed_as_its_plan_and_as_the_engines_standing() {
+    let (state, lifecycle) = ankka::abi::imports::with_native_host(Ended, || {
+        observe(&ankka::Client::default(), "plan-1")
+    })
+    .unwrap();
+    assert_eq!(state.status, plan_status::COMPLETED);
+    assert!(lifecycle.is_completed());
 }

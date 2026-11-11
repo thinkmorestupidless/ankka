@@ -166,9 +166,9 @@ component by its id and the handler by its wire name, and every call is awaited.
 
 | Addresses | Scala | Python | TypeScript |
 |---|---|---|---|
-| an event sourced entity instance | `forEventSourcedEntity(entityId)` | `for_event_sourced_entity(component_id, entity_id)` | `of(Entity, entityId)` |
+| an event sourced entity instance | `forEventSourcedEntity(entityId)`; `replication(companion)` for how a replicated copy stands | `for_event_sourced_entity(component_id, entity_id)`; `replication()` for how a replicated copy stands | `of(Entity, entityId)`; `replication()` for how a replicated copy stands |
 | a key value entity instance | `forKeyValueEntity(entityId)` | `for_key_value_entity(component_id, entity_id)` | `of(Entity, entityId)` |
-| a workflow instance | `forWorkflow(workflowId)`; `lifecycle(companion)` for the engine's state; `awaitEnd(companion, timeout)` and `call(command).thenAwaitEnd(timeout)` to wait for its end | `for_workflow(component_id, workflow_id)`; `await_end(timeout, reply=…)` and `call(name).then_await_end(timeout)` | `of(Workflow, workflowId)`; `awaitEnd(timeoutMillis)` and `call(handler).thenAwaitEnd(timeoutMillis)` |
+| a workflow instance | `forWorkflow(workflowId)`; `lifecycle(companion)` for the engine's state; `awaitEnd(companion, timeout)` and `call(command).thenAwaitEnd(timeout)` to wait for its end | `for_workflow(component_id, workflow_id)`; `lifecycle()` for the engine's state; `await_end(timeout, reply=…)` and `call(name).then_await_end(timeout)` | `of(Workflow, workflowId)`; `lifecycle()` for the engine's state; `awaitEnd(timeoutMillis)` and `call(handler).thenAwaitEnd(timeoutMillis)` |
 | an agent session | `forAgent(sessionId)`, with `import com.thinkmorestupidless.ankka.agent.*` | `for_agent(component_id, session_id)` | `of(Agent, sessionId)` |
 | a view's rows | the view client; see [Views](views.md) | `views.get(view_id, key, Row)`, `views.all(view_id, Row)` | `views.get(viewId, key, Row)`, `views.all(viewId, Row)` |
 | timers | the timer scheduler; see [Timers](timers.md) | `timers.schedule(...)`, `timers.cancel(timer_id)` | `timers.schedule(...)`, `timers.cancel(timerId)` |

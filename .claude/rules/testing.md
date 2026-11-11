@@ -64,6 +64,9 @@ appenders.
 
 ## Traps
 
+- **A `JournalRecord` compared with `==` compares its bytes by reference** (2026-11-11, feature 065).
+  It holds an `Array[Byte]`, so two reads of the same journal were never equal and a "journals nothing"
+  assertion failed on an unchanged journal. Compare `(r.seq, r.bytes.toSeq)` or the encoded text.
 - **A plain `ActorSystem` in a test binds Pekko's fixed default remoting port, 17355**, because the runtime's
   reference configuration makes the provider `cluster`. Any other test JVM on the machine — another
   worktree's, say — then fails the suite with `Address already in use`. A suite that needs no cluster

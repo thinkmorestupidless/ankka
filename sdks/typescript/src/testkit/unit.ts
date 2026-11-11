@@ -6,7 +6,8 @@
 
 import { create } from "@bufbuild/protobuf"
 import { HttpRequestSchema, SocketInSchema, type SocketIn } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
-import { ComponentClient, noClient } from "../client.ts"
+import { ComponentClient, noClient, type Lifecycle, type ReplicationStatus, type WorkflowStatus } from "../client.ts"
+import { LifecycleReplySchema, ReplicationReplySchema, WorkflowStatus as ProtoWorkflowStatus } from "../_proto/ankka/protocol/v1/client_pb.ts"
 import { InMemoryBuckets, type Buckets } from "../storage.ts"
 import { binaryCodecs, codecFor, type Codec, type Shape } from "../codec.ts"
 import { commandContext, eventContext, type Principal } from "../context.ts"
@@ -352,3 +353,58 @@ export interface SseFrame {
 }
 
 export type { ErrorDetail, Retention }
+
+// ── stubClient: the two reads a unit test answers for itself (protocol 1.24) ──────────────────────
+
+/** A component named by its id or by its class (any class with a static `componentId`). */
+export type ComponentRef = string | { readonly componentId: string }
+
+/** What `stubClient` answers: each read by the component and the id it is asked of. */
+export interface StubbedReads {
+  readonly lifecycle?: ReadonlyArray<readonly [ComponentRef, string, Lifecycle]>
+  readonly replication?: ReadonlyArray<readonly [ComponentRef, string, ReplicationStatus]>
+}
+
+const protoStatuses: Record<WorkflowStatus, ProtoWorkflowStatus> = {
+  "not-started": ProtoWorkflowStatus.NOT_STARTED,
+  running: ProtoWorkflowStatus.RUNNING,
+  paused: ProtoWorkflowStatus.PAUSED,
+  completed: ProtoWorkflowStatus.COMPLETED,
+  failed: ProtoWorkflowStatus.FAILED,
+}
+
+const idOf = (component: ComponentRef): string => (typeof component === "string" ? component : component.componentId)
+
+/**
+ * A client for a unit kit's `client` argument that answers a workflow's standing and how a copy stands as the
+ * test set them, through the same decoding a running service's answers take. An unstubbed read, and every
+ * other call, is refused as `noClient()` refuses: a unit test does not reach the platform.
+ */
+export function stubClient(reads: StubbedReads): ComponentClient {
+  const standings = new Map((reads.lifecycle ?? []).map(([c, id, l]) => [`${idOf(c)}/${id}`, l] as const))
+  const copies = new Map((reads.replication ?? []).map(([c, id, r]) => [`${idOf(c)}/${id}`, r] as const))
+  const refuse = (what: string): never => {
+    throw new Error(`${what} was not stubbed; give it to stubClient, or use the integration testkit`)
+  }
+  const stub = {
+    lifecycle: async (request: { componentId: string; workflowId: string }) => {
+      const l = standings.get(`${request.componentId}/${request.workflowId}`) ?? refuse(`the standing of '${request.workflowId}' of '${request.componentId}'`)
+      const value = { status: protoStatuses[l.status], pendingStep: l.pendingStep, retries: { ...l.retries }, failure: l.failure }
+      return create(LifecycleReplySchema, { result: { case: "lifecycle", value } })
+    },
+    replication: async (request: { componentId: string; entityId: string }) => {
+      const r = copies.get(`${request.componentId}/${request.entityId}`) ?? refuse(`how '${request.entityId}' of '${request.componentId}' stands`)
+      const value = { home: r.home, replicationSet: [...r.replicationSet], pendingHandover: r.pendingHandover, conflict: r.conflict, position: r.position }
+      return create(ReplicationReplySchema, { result: { case: "status", value } })
+    },
+  }
+  const others = new Proxy(stub, {
+    get: (target, name) =>
+      name in target
+        ? target[name as keyof typeof target]
+        : () => {
+            throw new Error("this component called another component; the unit testkit has no sidecar. Pass a stub ComponentClient to the kit.")
+          },
+  })
+  return new ComponentClient("unit-test", { address: "unit-test", transport: undefined, stub: others as never })
+}

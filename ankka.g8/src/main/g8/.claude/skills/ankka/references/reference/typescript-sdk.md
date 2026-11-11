@@ -293,7 +293,8 @@ for await (const token of this.client.forAgent("assistant", session).call("chat"
 | Any component, typed | `client.of(Cls, entityId).call(Cls.handlers.name)` |
 | Event sourced entity | `client.forEventSourcedEntity(componentId, entityId)` |
 | Key value entity | `client.forKeyValueEntity(componentId, entityId)` |
-| Workflow | `client.forWorkflow(componentId, workflowId)`; `client.of(Cls, id).awaitEnd(timeoutMillis)` waits for its end, `.awaitEndParts(timeoutMillis)` as parts for an `sse` route (`awaitPartJson` renders one), and `.call(Cls.handlers.name).thenAwaitEnd(timeoutMillis).invoke(input)` starts and waits as one call |
+| Workflow | `client.forWorkflow(componentId, workflowId)`; `client.of(Cls, id).awaitEnd(timeoutMillis)` waits for its end, `.awaitEndParts(timeoutMillis)` as parts for an `sse` route (`awaitPartJson` renders one), and `.call(Cls.handlers.name).thenAwaitEnd(timeoutMillis).invoke(input)` starts and waits as one call; `client.of(Cls, id).lifecycle()` answers its standing (`status`, `pendingStep`, `retries`, `failure`), the runtime's own read, which runs no handler |
+| A replicated copy | `client.of(Cls, id).replication()` answers how this installation's copy stands (`home`, `replicationSet`, `pendingHandover`, `conflict`, `position`); an entity that is not replicated rejects with `CommandError`, `NOT_FOUND`. Both reads need a sidecar at protocol 1.24; an older one rejects with `CommandError`, `UNAVAILABLE`, naming 1.24 |
 | Agent | `client.forAgent(componentId, sessionId)` |
 
 `.call(...)` gives an invocation: `await invocation.invoke(input)`, or `for await (const token of
@@ -357,6 +358,7 @@ repository. `Ankka.service().spec()` returns what discovery will say without lis
 | `TimedActionTestKit.of(Cls)` | `ankka/testkit` | A timed action's handlers. |
 | `AgentTestKit.of(Cls, sessionId, new ScriptedModel())` | `ankka/testkit` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out. |
 | `EndpointTestKit.of(Cls)` | `ankka/testkit` | An endpoint's routes by path, with no sidecar. |
+| `stubClient({ lifecycle: [[Cls, id, {…}]], replication: [[Cls, id, {…}]] })` | `ankka/testkit` | What a read of a workflow's standing or a copy's status answers, passed as a kit's `client`; a read it was not given throws, naming it. |
 | `AnkkaTestKit.start(service)` | `ankka/testkit` | The whole service through the real sidecar image and a throwaway Postgres. `restart()` starts a new sidecar on the same database. |
 
 Unit testkits need nothing running and still round-trip every value through its codec. They depend on no

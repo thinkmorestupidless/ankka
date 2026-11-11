@@ -43,6 +43,8 @@ const (
 	Client_SubjectNotices_FullMethodName    = "/ankka.protocol.v1.Client/SubjectNotices"
 	Client_AckSubjectNotice_FullMethodName  = "/ankka.protocol.v1.Client/AckSubjectNotice"
 	Client_AskErasure_FullMethodName        = "/ankka.protocol.v1.Client/AskErasure"
+	Client_Lifecycle_FullMethodName         = "/ankka.protocol.v1.Client/Lifecycle"
+	Client_Replication_FullMethodName       = "/ankka.protocol.v1.Client/Replication"
 )
 
 // ClientClient is the client API for Client service.
@@ -106,6 +108,12 @@ type ClientClient interface {
 	SubjectNotices(ctx context.Context, in *SubjectNoticesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[SubjectNotice], error)
 	AckSubjectNotice(ctx context.Context, in *SubjectNoticeAck, opts ...grpc.CallOption) (*SubjectNoticeAckReply, error)
 	AskErasure(ctx context.Context, in *AskErasureRequest, opts ...grpc.CallOption) (*AskErasureReply, error)
+	// A workflow's standing and how a replicated entity's copy stands (protocol 1.24): the runtime's
+	// own reads, which run no handler and journal nothing. A refusal is an Error in the reply, with
+	// the code the runtime refuses the same read with; a runtime older than 1.24 answers
+	// UNIMPLEMENTED.
+	Lifecycle(ctx context.Context, in *LifecycleRequest, opts ...grpc.CallOption) (*LifecycleReply, error)
+	Replication(ctx context.Context, in *ReplicationRequest, opts ...grpc.CallOption) (*ReplicationReply, error)
 }
 
 type clientClient struct {
@@ -381,6 +389,26 @@ func (c *clientClient) AskErasure(ctx context.Context, in *AskErasureRequest, op
 	return out, nil
 }
 
+func (c *clientClient) Lifecycle(ctx context.Context, in *LifecycleRequest, opts ...grpc.CallOption) (*LifecycleReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LifecycleReply)
+	err := c.cc.Invoke(ctx, Client_Lifecycle_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clientClient) Replication(ctx context.Context, in *ReplicationRequest, opts ...grpc.CallOption) (*ReplicationReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReplicationReply)
+	err := c.cc.Invoke(ctx, Client_Replication_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClientServer is the server API for Client service.
 // All implementations must embed UnimplementedClientServer
 // for forward compatibility.
@@ -442,6 +470,12 @@ type ClientServer interface {
 	SubjectNotices(*SubjectNoticesRequest, grpc.ServerStreamingServer[SubjectNotice]) error
 	AckSubjectNotice(context.Context, *SubjectNoticeAck) (*SubjectNoticeAckReply, error)
 	AskErasure(context.Context, *AskErasureRequest) (*AskErasureReply, error)
+	// A workflow's standing and how a replicated entity's copy stands (protocol 1.24): the runtime's
+	// own reads, which run no handler and journal nothing. A refusal is an Error in the reply, with
+	// the code the runtime refuses the same read with; a runtime older than 1.24 answers
+	// UNIMPLEMENTED.
+	Lifecycle(context.Context, *LifecycleRequest) (*LifecycleReply, error)
+	Replication(context.Context, *ReplicationRequest) (*ReplicationReply, error)
 	mustEmbedUnimplementedClientServer()
 }
 
@@ -517,6 +551,12 @@ func (UnimplementedClientServer) AckSubjectNotice(context.Context, *SubjectNotic
 }
 func (UnimplementedClientServer) AskErasure(context.Context, *AskErasureRequest) (*AskErasureReply, error) {
 	return nil, status.Error(codes.Unimplemented, "method AskErasure not implemented")
+}
+func (UnimplementedClientServer) Lifecycle(context.Context, *LifecycleRequest) (*LifecycleReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method Lifecycle not implemented")
+}
+func (UnimplementedClientServer) Replication(context.Context, *ReplicationRequest) (*ReplicationReply, error) {
+	return nil, status.Error(codes.Unimplemented, "method Replication not implemented")
 }
 func (UnimplementedClientServer) mustEmbedUnimplementedClientServer() {}
 func (UnimplementedClientServer) testEmbeddedByValue()                {}
@@ -900,6 +940,42 @@ func _Client_AskErasure_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Client_Lifecycle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LifecycleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServer).Lifecycle(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Client_Lifecycle_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServer).Lifecycle(ctx, req.(*LifecycleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Client_Replication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplicationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServer).Replication(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Client_Replication_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServer).Replication(ctx, req.(*ReplicationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Client_ServiceDesc is the grpc.ServiceDesc for Client service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -974,6 +1050,14 @@ var Client_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AskErasure",
 			Handler:    _Client_AskErasure_Handler,
+		},
+		{
+			MethodName: "Lifecycle",
+			Handler:    _Client_Lifecycle_Handler,
+		},
+		{
+			MethodName: "Replication",
+			Handler:    _Client_Replication_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

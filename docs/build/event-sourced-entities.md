@@ -2073,7 +2073,6 @@ ankka.ApplyWithContext(func(ctx context.Context, s VehicleRecord, e StepAdded) V
 Any installation's copy answers its status from its own journal: the home, the replication set, a
 handover waiting, a conflict, and the position its history reaches.
 
-<!-- languages: scala, java, kotlin; a Python, TypeScript, Rust or Go client has no `replication` query of a copy's status -->
 /// tab | Scala
 
 <!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/replication/ReplicationSmokeSuite.scala#replication-status -->
@@ -2109,6 +2108,90 @@ val status = vienna.componentClient().forEventSourcedEntity("v1").replication(Ve
 assertEquals("leipzig", status.home().orNull())
 assertEquals(setOf("leipzig", "vienna"), status.replicationSet())
 assertTrue(status.position() > 0) // how many records this copy holds
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#replication-status -->
+```python
+async def copy_of(calls: Calls) -> CopyRecord:
+    """How this installation's copy stands, for ``client.for_event_sourced_entity("replicated-vehicle", id)``.
+    An entity that is not replicated is refused."""
+    try:
+        status = await calls.replication()
+    except CommandError as refused:
+        return CopyRecord(refused=refused.error.code.name)
+    # status.home: "leipzig"; status.replication_set: frozenset({"leipzig", "vienna"});
+    # status.position: how many records this copy holds
+    return CopyRecord(status.home, sorted(status.replication_set), status.pending_handover, status.conflict, status.position)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#replication-status -->
+```ts
+/** How this installation's copy stands, for `client.of(ReplicatedVehicle, id).replication()`. An entity that is not replicated is refused. */
+async function copyOf(read: () => Promise<ReplicationStatus>): Promise<CopyRecordValue> {
+  try {
+    const r = await read() // r.home: "leipzig"; r.replicationSet: ["leipzig", "vienna"]; r.position: how many records this copy holds
+    return {
+      home: r.home ?? null,
+      replicationSet: [...r.replicationSet].sort(),
+      pendingHandover: r.pendingHandover ?? null,
+      conflict: r.conflict ?? null,
+      position: r.position,
+      refused: null,
+    }
+  } catch (e) {
+    if (e instanceof CommandError) return { home: null, replicationSet: [], pendingHandover: null, conflict: null, position: 0n, refused: e.code }
+    throw e
+  }
+}
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#replication-status -->
+```rust
+/// How this installation's copy stands, as the platform records it (protocol 1.24): its home,
+/// the set it is replicated to, a handover in flight, a conflict, and how far it has read. An
+/// entity that is not replicated is refused `NotFound`.
+fn replication(request: &Request) -> Result<CopyRecord, HttpProblem> {
+    let vehicle = request.path("vehicleId");
+    Ok(CopyRecord::of(
+        request.client().replication(ReplicatedVehicle, vehicle),
+    ))
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/conformance/endpoints.go#replication-status -->
+```go
+// copyOf reads how this installation's copy stands, as the platform records it (protocol 1.24): its
+// home, the set it is replicated to, a handover in flight, a conflict, and how far it has read. An
+// entity that is not replicated is refused NotFound, answered here as a record rather than a status.
+func copyOf(ctx context.Context, component, id string) (CopyRecord, error) {
+	r, err := ankka.Replication(ctx, component, id)
+	if err != nil {
+		if refusal, ok := ankka.AsRefusal(err); ok {
+			code := refusal.Code.String()
+			return CopyRecord{ReplicationSet: []string{}, Refused: &code}, nil
+		}
+		return CopyRecord{}, err
+	}
+	set := slices.Clone(r.ReplicationSet)
+	slices.Sort(set)
+	return CopyRecord{r.Home, set, r.PendingHandover, r.Conflict, r.Position, nil}, nil
+}
 ```
 
 ///

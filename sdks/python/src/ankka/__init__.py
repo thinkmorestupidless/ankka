@@ -59,6 +59,7 @@ from ankka.client_keys import ClientKeys, ClientKeySummary, Expiry, InMemoryClie
 from ankka.mcp_endpoint import McpEndpoint, ToolAnswer, tool  # noqa: E402
 from ankka.erasures import ErasureAsked, Erasures  # noqa: E402
 from ankka.views import CaughtUp, Overflow, Removed, WatchEnded, sse_events  # noqa: E402
+from ankka.client import Lifecycle, ReplicationStatus, Status  # noqa: E402
 
 __all__ = [
     "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail", "SseEvent",
@@ -81,4 +82,5 @@ __all__ = [
     "table_of",
     "ErasureAsked", "Erasures",
     "CaughtUp", "Overflow", "Removed", "WatchEnded", "sse_events",
+    "Lifecycle", "ReplicationStatus", "Status",
 ]

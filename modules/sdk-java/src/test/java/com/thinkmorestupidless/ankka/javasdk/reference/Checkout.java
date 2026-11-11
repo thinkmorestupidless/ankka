@@ -19,7 +19,8 @@ import java.util.Set;
  * A checkout with a failing step and a pause. {@code mode}: {@code ok}, {@code fail} (charge is
  * declined and compensated), {@code pause} (a pause before charging), {@code abort} (declined; the
  * compensation records it and fails the workflow), {@code drop} (declined; the compensation fails
- * the workflow and records nothing) or {@code doomed} (declined, and the compensation fails too).
+ * the workflow and records nothing), {@code doomed} (declined, and the compensation fails too) or
+ * {@code hold} (the reserve step waits on the scripted service, which a case holds, then goes on).
  */
 // docs:start workflow
 @ComponentId("checkout")
@@ -59,6 +60,9 @@ public class Checkout extends Workflow<Checkout.CheckoutState> {
 
   @Step("reserve")
   public StepEffect reserve() {
+    // A step held where the platform records it running: the scripted service answers when the
+    // case lets it.
+    if (currentState().mode().equals("hold")) services().of("scripted").getText("/hold");
     // A client call from a step: what the cart holds.
     context()
         .componentClient()

@@ -247,6 +247,20 @@ def test_the_calling_endpoint_answers_what_the_other_service_answered() -> None:
     assert kit.request("GET", "/calling/call/ledger").status == 503
 
 
+# docs:start lifecycle-test
+def test_the_checkout_lifecycle_route_answers_the_engines_view() -> None:
+    from ankka import Lifecycle, Status
+    from ankka.testkit import ClientStub, EndpointTestKit
+    from examples.shopping_cart.endpoint import ShoppingCartEndpoint
+
+    failed = Lifecycle(Status.FAILED, "charge", {"charge": 1}, "the card was refused")
+    client = ClientStub().lifecycle("checkout", "c1", failed).lifecycle("checkout", "c2", Lifecycle(Status.RUNNING, "reserve", {}, None))
+    kit = EndpointTestKit(ShoppingCartEndpoint(client))
+    assert kit.request("GET", "/carts/c1/checkouts/lifecycle").body == b"Failed: the card was refused"
+    assert kit.request("GET", "/carts/c2/checkouts/lifecycle").body == b"Running"
+# docs:end lifecycle-test
+
+
 # ── Through a real sidecar and a real Postgres (Docker) ────────────────────────
 
 

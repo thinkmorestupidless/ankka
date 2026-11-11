@@ -855,6 +855,9 @@ public class Checkout extends Workflow<Checkout.CheckoutState> {
 
   @Step("reserve")
   public StepEffect reserve() {
+    // A step held where the platform records it running: the scripted service answers when the
+    // case lets it.
+    if (currentState().mode().equals("hold")) services().of("scripted").getText("/hold");
     // A client call from a step: what the cart holds.
     context()
         .componentClient()
@@ -954,8 +957,9 @@ class CheckoutWorkflow(Workflow[Checkout]):
     def start(self, mode: str) -> WorkflowEffect[Checkout, Done]:
         """``mode``: ``ok``, ``fail`` (the charge is declined and compensated), ``pause`` (a pause
         before it), ``abort`` (declined; the compensation records it and fails the workflow),
-        ``drop`` (declined; the compensation fails the workflow and records nothing) or ``doomed``
-        (declined, and the compensation fails too)."""
+        ``drop`` (declined; the compensation fails the workflow and records nothing), ``doomed``
+        (declined, and the compensation fails too) or ``hold`` (the reserve step waits on the
+        scripted service, which a case holds, then goes on)."""
         if self.state.status != "new":
             return self.effects.error(f"checkout is already {self.state.status}", ErrorCode.CONFLICT)
         return self.effects.update_state(replace(self.state, status="reserving", mode=mode)).then_transition_to("reserve").then_reply(lambda _: DONE)
@@ -966,6 +970,10 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("reserve")
     async def reserve(self) -> WorkflowStepEffect[Checkout]:
+        # A step held where the platform records it running: the scripted service answers when the
+        # case lets it.
+        if self.state.mode == "hold":
+            await self.services("scripted").get_text("/hold")
         # A client call from a step: what the cart holds.
         total = await self._cart().call("total-quantity").invoke(reply=int)
         next_step = "wait" if self.state.mode == "pause" else "charge"
@@ -1040,6 +1048,9 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   async reserve() {
+    // `hold`: a step held where the platform records it running; the scripted service answers when
+    // the case lets it.
+    if (this.state.mode === "hold") await this.services.service("scripted").getText("/hold")
     // A client call from a step: what the cart holds.
     const total = await this.cart().call(ShoppingCartEntity.handlers.totalQuantity).invoke()
     const next = this.state.mode === "pause" ? "wait" : "charge"
@@ -1108,6 +1119,12 @@ impl CheckoutWorkflow {
     }
 
     fn reserve(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
+        // `hold`: a step held where the platform records it running; the scripted service answers
+        // when the case lets it.
+        if checkout.mode == "hold" {
+            let services = ctx.services().expect("a step calls other services");
+            let _ = services.service("scripted").get_text("/hold");
+        }
         // A client call from a step: what the cart holds.
         let total: i32 = ctx
             .client()
@@ -1250,6 +1267,13 @@ var CheckoutFlow = ankka.Workflow[Checkout]("checkout", func(id string) Checkout
 		return ankka.Reply(s.Status), nil
 	}),
 	ankka.Step("reserve", func(ctx context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
+		// `hold`: a step held where the platform records it running; the scripted service answers
+		// when the case lets it.
+		if s.Mode == "hold" {
+			if _, err := ankka.CallService(ctx, "scripted", ankka.ServiceRequest{Method: "GET", Path: "/hold"}); err != nil {
+				return ankka.StepEffect[Checkout]{}, err
+			}
+		}
 		// A client call from a step: what the cart holds.
 		if _, err := ankka.Invoke[int](ctx, cart.ComponentID, s.ID, "total-quantity", ankka.Unit{}); err != nil {
 			return ankka.StepEffect[Checkout]{}, err
@@ -1508,10 +1532,9 @@ A workflow's state is your type and says what the process has decided. It does n
 engine is still running it. A plan whose state reads "consulting" looks the same whether a model call is
 in flight or the workflow failed an hour ago.
 
-Every Scala workflow therefore answers a lifecycle query the runtime implements itself, whatever handlers
-its author declared:
+Every workflow, in every language, therefore answers a lifecycle query the runtime implements itself,
+whatever handlers its author declared:
 
-<!-- languages: scala, java, kotlin; a Python, TypeScript, Rust or Go client has no `lifecycle` query of a workflow; a workflow that must show whether it is still going records it in its state, and a view or a consumer reads the standing with each state -->
 /// tab | Scala
 
 <!-- include: samples/multi-agent-planner/src/main/scala/planner/api/PlannerEndpoint.scala#lifecycle -->
@@ -1554,10 +1577,77 @@ fun lifecycle(id: String): String {
 
 ///
 
-`WorkflowLifecycle` carries `status` (`Running`, `Paused`, `Completed` or `Failed`), the pending step, a
-count of retries per step, and the failure reason when there is one. `isTerminal` is true once the
-workflow has completed or failed. Handler names beginning `ankka:` are reserved for queries like this one,
-and registering one is refused.
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/endpoint.py#lifecycle -->
+```python
+@get("/{cartId}/checkouts/lifecycle")
+async def checkout_lifecycle(self, cartId: str) -> str:
+    """The engine's own view: running, paused, completed or failed, and why."""
+    lifecycle = await self.client.for_workflow("checkout", cartId).lifecycle()
+    return lifecycle.status.value + (f": {lifecycle.failure}" if lifecycle.failure else "")
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#lifecycle -->
+```ts
+/** The engine's own view: running, paused, completed or failed, and why. */
+checkoutLifecycle: get("/{cartId}/checkouts/lifecycle", s.string, async (ep: ShoppingCartEndpoint, req) => {
+  const lifecycle = await ep.client.of(CheckoutWorkflow, req.params.cartId).lifecycle()
+  return lifecycle.status + (lifecycle.failure ? `: ${lifecycle.failure}` : "")
+}),
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/transfer.rs#lifecycle -->
+```rust
+/// The engine's view of a transfer: running, paused, completed or failed, and why it failed.
+/// The transfer's own state answers what it decided; this read runs no handler of it.
+fn lifecycle(request: &Request) -> Result<String, HttpProblem> {
+    let lifecycle = request
+        .client()
+        .lifecycle(TransferWorkflow, request.path("id"))?;
+    Ok(match lifecycle.failure {
+        Some(reason) => format!("{}: {reason}", lifecycle.status),
+        None => lifecycle.status.to_string(),
+    })
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/awaiting.go#lifecycle -->
+```go
+// The engine's view of a quote: running, paused, completed or failed, and why it failed. The
+// quote's own state says what it decided; this read runs no handler of it.
+ankka.Get("/{id}/lifecycle", func(ctx context.Context, req *ankka.Request) (string, error) {
+	lifecycle, err := ankka.Lifecycle(ctx, "quote", req.Param("id"))
+	if err != nil {
+		return "", err
+	}
+	if lifecycle.Failure != nil {
+		return string(lifecycle.Status) + ": " + *lifecycle.Failure, nil
+	}
+	return string(lifecycle.Status), nil
+}),
+```
+
+///
+
+The answer carries the status (not started, running, paused, completed or failed), the step pending, a
+count of retries per step, and the failure reason when there is one, and says whether the workflow has
+ended, completed or failed. Each language names these in its own idiom: `WorkflowLifecycle` and
+`isTerminal` in Scala, Java and Kotlin, `Lifecycle` and `is_terminal` in Python and Rust, `ankka.WorkflowLifecycle`
+and `IsTerminal()` in Go, and a `Lifecycle` whose `status` is `"failed"` or `"not-started"` in TypeScript.
+Handler names beginning `ankka:` are reserved for queries like this one, and registering one is refused.
 
 The same answer, the workflow's **standing**, reaches a view or a consumer that reads the workflow, as data
 with each state the workflow records, so a listing of failed checkouts needs no status field written into

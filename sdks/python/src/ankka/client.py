@@ -11,7 +11,8 @@ import json
 import os
 import time
 from collections.abc import AsyncIterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
@@ -81,6 +82,113 @@ def _await_unimplemented(failure: grpc.aio.AioRpcError) -> CommandError:
             ErrorCode.UNAVAILABLE,
         )
     )
+
+
+# The first protocol whose runtime answers a workflow's standing and how a copy stands; an older one
+# answers UNIMPLEMENTED.
+READS_SINCE = "1.24"
+
+
+def _reads_unimplemented(what: str, failure: grpc.aio.AioRpcError) -> CommandError:
+    """What a runtime before the two reads answers one with, said as what it is."""
+    from ankka.service import PROTOCOL_VERSION
+
+    return CommandError(
+        Error(
+            f"the runtime beside this process does not offer reading {what}, which needs "
+            f"protocol {READS_SINCE} (this SDK speaks {PROTOCOL_VERSION}): {failure.details()}",
+            ErrorCode.UNAVAILABLE,
+        )
+    )
+
+
+class Status(str, Enum):
+    """Where a workflow has got to, as the engine records it."""
+
+    NOT_STARTED = "NotStarted"
+    RUNNING = "Running"
+    PAUSED = "Paused"
+    COMPLETED = "Completed"
+    FAILED = "Failed"
+
+
+_STATUSES = {
+    client_pb2.NOT_STARTED: Status.NOT_STARTED,
+    client_pb2.RUNNING: Status.RUNNING,
+    client_pb2.PAUSED: Status.PAUSED,
+    client_pb2.COMPLETED: Status.COMPLETED,
+    client_pb2.FAILED: Status.FAILED,
+}
+
+
+@dataclass(frozen=True)
+class Lifecycle:
+    """A workflow's standing (protocol 1.24): its status, the step it is on or waits after, how many
+    times each step was retried (a step never retried is absent), and why it failed."""
+
+    status: Status
+    pending_step: str | None = None
+    retries: Mapping[str, int] = field(default_factory=dict)
+    failure: str | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return self.status == Status.RUNNING
+
+    @property
+    def is_paused(self) -> bool:
+        return self.status == Status.PAUSED
+
+    @property
+    def is_completed(self) -> bool:
+        return self.status == Status.COMPLETED
+
+    @property
+    def is_failed(self) -> bool:
+        return self.status == Status.FAILED
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.is_completed or self.is_failed
+
+    @staticmethod
+    def from_pb(pb: client_pb2.WorkflowLifecycle) -> Lifecycle:
+        status = _STATUSES.get(pb.status)
+        if status is None:
+            raise CommandError(Error(f"a workflow's standing the SDK does not know: {pb.status}", ErrorCode.INTERNAL))
+        return Lifecycle(
+            status,
+            pb.pending_step if pb.HasField("pending_step") else None,
+            dict(pb.retries),
+            pb.failure if pb.HasField("failure") else None,
+        )
+
+
+@dataclass(frozen=True)
+class ReplicationStatus:
+    """How the copy of a replicated entity at this installation stands (protocol 1.24): its home,
+    the installations that hold it, the installation a handover waiting goes to, the other home
+    when it was created at two, and how many records this copy's history holds."""
+
+    home: str | None
+    replication_set: frozenset[str]
+    pending_handover: str | None = None
+    conflict: str | None = None
+    position: int = 0
+
+    @property
+    def in_conflict(self) -> bool:
+        return self.conflict is not None
+
+    @staticmethod
+    def from_pb(pb: client_pb2.ReplicationStatus) -> ReplicationStatus:
+        return ReplicationStatus(
+            pb.home if pb.HasField("home") else None,
+            frozenset(pb.replication_set),
+            pb.pending_handover if pb.HasField("pending_handover") else None,
+            pb.conflict if pb.HasField("conflict") else None,
+            pb.position,
+        )
 
 
 def _seconds(timeout: float | timedelta) -> float:
@@ -378,6 +486,36 @@ class Calls:
             raise CommandError(_error(answer.error))
         decoded: R = state.decode(answer.reply.payload.data)
         return decoded
+
+    async def lifecycle(self) -> Lifecycle:
+        """This workflow's standing, as the engine records it: the runtime's own read, which runs no
+        handler and journals nothing. A workflow never started answers ``NOT_STARTED``."""
+        try:
+            answer = await self._stub.Lifecycle(
+                client_pb2.LifecycleRequest(component_id=self.component_id, workflow_id=self.entity_id)
+            )
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise _reads_unimplemented("a workflow's standing", failure) from failure
+            raise
+        if answer.HasField("error"):
+            raise CommandError(_error(answer.error))
+        return Lifecycle.from_pb(answer.lifecycle)
+
+    async def replication(self) -> ReplicationStatus:
+        """How the copy of this replicated entity at this installation stands: the runtime's own
+        read. An entity that is not replicated is refused."""
+        try:
+            answer = await self._stub.Replication(
+                client_pb2.ReplicationRequest(component_id=self.component_id, entity_id=self.entity_id)
+            )
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise _reads_unimplemented("how a copy stands", failure) from failure
+            raise
+        if answer.HasField("error"):
+            raise CommandError(_error(answer.error))
+        return ReplicationStatus.from_pb(answer.status)
 
     async def await_end_parts(
         self, timeout: float | timedelta, *, reply: Any = None, reply_codec: Codec[Any] | None = None

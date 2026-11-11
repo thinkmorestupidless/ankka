@@ -246,6 +246,21 @@ var PlannerWorkflow = ankka.Workflow[PlanState]("planner",
 
 // docs:end planner
 
+// docs:start observe
+// ObservePlan reads a run two ways: the plan the workflow keeps, from its own "plan" query, and the
+// engine's standing of the run, which runs no handler. The plan says what the workflow decided; the
+// standing whether it is running, paused, completed or failed.
+func ObservePlan(ctx context.Context, planID string) (PlanState, ankka.WorkflowLifecycle, error) {
+	state, err := ankka.Invoke[PlanState](ctx, "planner", planID, "plan", ankka.Unit{}) // the domain state
+	if err != nil {
+		return PlanState{}, ankka.WorkflowLifecycle{}, err
+	}
+	lifecycle, err := ankka.Lifecycle(ctx, "planner", planID) // the engine's state
+	return state, lifecycle, err
+}
+
+// docs:end observe
+
 // PlannerService is the planner and every agent it consults.
 func PlannerService() *ankka.Service {
 	return ankka.NewService(PreferencesEntity, PlannerWorkflow, SelectorAgent, WeatherAgent,

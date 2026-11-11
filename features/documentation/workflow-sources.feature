@@ -15,3 +15,9 @@ Feature: The documentation of workflow sources
     Then the documentation says a view or a consumer can read it as it changes
     And the documentation says a step whose outcome must be seen records it in the state
     And the documentation says where to read how a view or a consumer reads a workflow
+
+  Scenario: the documentation shows a workflow's standing read in every language
+    Given the published documentation
+    When a reader reads about reading a workflow's standing
+    Then the documentation shows the read in Scala, Java, Kotlin, Python, TypeScript, Rust and Go, each from a sample a test runs
+    And the documentation names no language that cannot read a workflow's standing

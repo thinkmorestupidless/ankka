@@ -598,6 +598,18 @@ impl VehiclesEndpoint {
     fn stop_replicating_to(request: &Request, (): ()) -> Result<String, HttpProblem> {
         VehiclesEndpoint::change(request, "stop-replicating-to")
     }
+
+    // docs:start replication-status
+    /// How this installation's copy stands, as the platform records it (protocol 1.24): its home,
+    /// the set it is replicated to, a handover in flight, a conflict, and how far it has read. An
+    /// entity that is not replicated is refused `NotFound`.
+    fn replication(request: &Request) -> Result<CopyRecord, HttpProblem> {
+        let vehicle = request.path("vehicleId");
+        Ok(CopyRecord::of(
+            request.client().replication(ReplicatedVehicle, vehicle),
+        ))
+    }
+    // docs:end replication-status
 }
 
 impl Endpoint for VehiclesEndpoint {
@@ -624,6 +636,7 @@ impl Endpoint for VehiclesEndpoint {
                 "/{vehicleId}/stop-replicating-to/{target}",
                 VehiclesEndpoint::stop_replicating_to,
             )
+            .get("/{vehicleId}/replication", VehiclesEndpoint::replication)
     }
 }
 
@@ -1371,6 +1384,70 @@ impl From<StorageError> for StorageRecord {
     }
 }
 
+/// A workflow's standing as the platform records it, the same in every language: `status` one of
+/// `not-started`, `running`, `paused`, `completed` and `failed`, the step it is on or waits after,
+/// each step's retries and, when it failed, why.
+#[derive(Debug, Serialize)]
+pub struct StandingRecord {
+    pub status: String,
+    #[serde(rename = "pendingStep")]
+    pub pending_step: Option<String>,
+    pub retries: BTreeMap<String, u32>,
+    pub failure: Option<String>,
+}
+
+impl From<Lifecycle> for StandingRecord {
+    fn from(read: Lifecycle) -> StandingRecord {
+        let status = match read.status {
+            WorkflowStatus::NotStarted => "not-started",
+            WorkflowStatus::Running => "running",
+            WorkflowStatus::Paused => "paused",
+            WorkflowStatus::Completed => "completed",
+            WorkflowStatus::Failed => "failed",
+        };
+        StandingRecord {
+            status: status.into(),
+            pending_step: read.pending_step,
+            retries: read.retries,
+            failure: read.failure,
+        }
+    }
+}
+
+/// How a copy of an entity stands, the same in every language: its home, its replication set
+/// sorted, a handover waiting, a conflict and its position, or `refused` with the protocol's word
+/// for the code.
+#[derive(Debug, Default, Serialize)]
+pub struct CopyRecord {
+    pub home: Option<String>,
+    #[serde(rename = "replicationSet")]
+    pub replication_set: Vec<String>,
+    #[serde(rename = "pendingHandover")]
+    pub pending_handover: Option<String>,
+    pub conflict: Option<String>,
+    pub position: i64,
+    pub refused: Option<String>,
+}
+
+impl CopyRecord {
+    fn of(read: Result<ReplicationStatus, CommandError>) -> CopyRecord {
+        match read {
+            Ok(r) => CopyRecord {
+                home: r.home,
+                replication_set: r.replication_set,
+                pending_handover: r.pending_handover,
+                conflict: r.conflict,
+                position: r.position,
+                refused: None,
+            },
+            Err(error) => CopyRecord {
+                refused: Some(code_word(error.code)),
+                ..Default::default()
+            },
+        }
+    }
+}
+
 /// `BadRequest` as the protocol says it: `BAD_REQUEST`.
 fn code_word(code: ErrorCode) -> String {
     let mut word = String::new();
@@ -1696,6 +1773,23 @@ impl ConformanceEndpoint {
         }
     }
 
+    /// Where the platform says the checkout has got to (protocol 1.24); no handler of its runs.
+    fn checkout_lifecycle(request: &Request) -> Result<StandingRecord, HttpProblem> {
+        let read = request
+            .client()
+            .lifecycle(CheckoutWorkflow, request.path("id"))?;
+        Ok(read.into())
+    }
+
+    /// How a cart's copy stands: a cart is not replicated, so the read is refused.
+    fn cart_replication(request: &Request) -> Result<CopyRecord, HttpProblem> {
+        Ok(CopyRecord::of(
+            request
+                .client()
+                .replication(ShoppingCart, request.path("id")),
+        ))
+    }
+
     fn checkout_status(request: &Request) -> Result<String, HttpProblem> {
         let checkout: Checkout =
             request
@@ -1867,6 +1961,14 @@ impl Endpoint for ConformanceEndpoint {
             .post("/checkout/{id}", ConformanceEndpoint::start_checkout)
             .get("/checkout/{id}", ConformanceEndpoint::checkout_status)
             .get("/checkout/{id}/row", ConformanceEndpoint::checkout_row)
+            .get(
+                "/checkout/{id}/lifecycle",
+                ConformanceEndpoint::checkout_lifecycle,
+            )
+            .get(
+                "/cart/{id}/replication",
+                ConformanceEndpoint::cart_replication,
+            )
             .get(
                 "/checkout-rows/{standing}",
                 ConformanceEndpoint::checkout_rows,

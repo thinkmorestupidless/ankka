@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.22`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.24`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -95,6 +95,12 @@ entity's keys are its home's (FR-032): a process tracks the home from `Init.home
 `Event.installation` and `Command.home`, and names it as `SubjectKeyRequest.home`; the sidecar
 asks another installation's keyring through the relay, and an unreachable one is `UNAVAILABLE`,
 never erased. A module's home is the host's to know.
+`1.24` added reading a workflow's standing and how a replicated entity's copy stands: `Lifecycle`
+and `Replication` on `Client`, with `WorkflowLifecycle`, `WorkflowStatus` and `ReplicationStatus`,
+and the `lifecycle` and `replication` imports for a module. Each answers the runtime's own read,
+which runs no handler and journals nothing, and carries a refusal in the reply. An earlier runtime
+answers either rpc `UNIMPLEMENTED`, which each SDK reports as the runtime being too old, and refuses
+a module importing either when it loads.
 
 `MAJOR.MINOR`. Within a major:
 

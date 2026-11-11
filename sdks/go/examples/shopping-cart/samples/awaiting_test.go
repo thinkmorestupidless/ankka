@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	ankka "github.com/thinkmorestupidless/ankka-go"
 	"github.com/thinkmorestupidless/ankka-go/testkit"
 )
 
@@ -38,3 +39,21 @@ func TestTheCheckDecides(t *testing.T) {
 		t.Fatalf("the check ended %+v with %+v", progress, kit.State())
 	}
 }
+
+// docs:start lifecycle-test
+func TestTheLifecycleRouteSaysWhyAQuoteFailed(t *testing.T) {
+	ctx := context.Background()
+	failure := "nothing to price"
+	kit := testkit.EndpointWith(QuoteEndpoint,
+		testkit.AnswerLifecycle("quote", "q-1", ankka.WorkflowLifecycle{Status: ankka.Failed, Failure: &failure}),
+		testkit.AnswerLifecycle("quote", "q-2", ankka.WorkflowLifecycle{Status: ankka.Running}))
+	defer kit.Close()
+	if r := kit.Get(ctx, "/quotes/q-1/lifecycle"); r.Text() != "Failed: nothing to price" {
+		t.Fatalf("a failed quote answered %d %q", r.Status, r.Text())
+	}
+	if r := kit.Get(ctx, "/quotes/q-2/lifecycle"); r.Text() != "Running" {
+		t.Fatalf("a running quote answered %d %q", r.Status, r.Text())
+	}
+}
+
+// docs:end lifecycle-test

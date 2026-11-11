@@ -9,6 +9,7 @@ from ankka.contract import Contract, Publication
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -621,6 +622,46 @@ class StorageRecord:
     names: list[str] = field(default_factory=list)
     url: str = ""
 
+@dataclass
+class StandingRecord:
+    """A workflow's standing as the platform records it, the same in every language: ``status`` one
+    of ``not-started``, ``running``, ``paused``, ``completed`` and ``failed``, the step it is on or
+    waits after, each step's retries and, when it failed, why."""
+
+    status: str
+    pendingStep: str | None = None  # noqa: N815 — the record's wire name, the same in every language
+    retries: dict[str, int] = field(default_factory=dict)
+    failure: str | None = None
+
+
+@dataclass
+class CopyRecord:
+    """How a copy of an entity stands, the same in every language: its home, its replication set
+    sorted, a handover waiting, a conflict and its position, or ``refused`` with the protocol's word
+    for the code."""
+
+    home: str | None = None
+    replicationSet: list[str] = field(default_factory=list)  # noqa: N815
+    pendingHandover: str | None = None  # noqa: N815
+    conflict: str | None = None
+    position: int = 0
+    refused: str | None = None
+
+
+# docs:start replication-status
+async def copy_of(calls: Calls) -> CopyRecord:
+    """How this installation's copy stands, for ``client.for_event_sourced_entity("replicated-vehicle", id)``.
+    An entity that is not replicated is refused."""
+    try:
+        status = await calls.replication()
+    except CommandError as refused:
+        return CopyRecord(refused=refused.error.code.name)
+    # status.home: "leipzig"; status.replication_set: frozenset({"leipzig", "vienna"});
+    # status.position: how many records this copy holds
+    return CopyRecord(status.home, sorted(status.replication_set), status.pending_handover, status.conflict, status.position)
+# docs:end replication-status
+
+
 SOCKET_LOG: list[str] = []
 """What the socket handlers noticed, for a case to read once a socket has closed."""
 
@@ -880,6 +921,18 @@ class ConformanceEndpoint(Endpoint):
     async def checkout_status(self, id: str) -> str:
         checkout = await self._scoped().for_workflow("checkout", id).call("status").invoke(reply=Checkout)
         return str(checkout.status)
+
+    @get("/checkout/{id}/lifecycle")
+    async def checkout_lifecycle(self, id: str) -> StandingRecord:
+        """Where the platform says the checkout has got to (protocol 1.24); no handler of its runs."""
+        read = await self._scoped().for_workflow("checkout", id).lifecycle()
+        word = re.sub("([a-z])([A-Z])", r"\1-\2", read.status.value).lower()
+        return StandingRecord(word, read.pending_step, dict(read.retries), read.failure)
+
+    @get("/cart/{id}/replication")
+    async def cart_replication(self, id: str) -> CopyRecord:
+        """How a cart's copy stands: a cart is not replicated, so the read is refused."""
+        return await copy_of(self._scoped().for_event_sourced_entity("shopping-cart", id))
 
     @get("/checkout/{id}/row")
     async def checkout_row(self, id: str) -> CheckoutRow:
@@ -1228,6 +1281,11 @@ class VehiclesEndpoint(Endpoint):
     @post("/{vehicleId}/stop-replicating-to/{target}")
     async def stop_replicating_to(self, vehicleId: str, target: str) -> str:
         return await self._vehicle(vehicleId).call("stop-replicating-to").invoke(target, reply=str)
+
+    @get("/{vehicleId}/replication")
+    async def replication(self, vehicleId: str) -> CopyRecord:
+        """How this installation's copy stands, as the platform records it (protocol 1.24)."""
+        return await copy_of(self._vehicle(vehicleId))
 
 
 # ── tree-node and tree-rows: a tree, walked by a declared recursive query ──

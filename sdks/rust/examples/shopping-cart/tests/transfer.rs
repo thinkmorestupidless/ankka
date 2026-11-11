@@ -3,7 +3,8 @@
 use ankka::prelude::*;
 use ankka::testkit::{EndpointTestKit, KeyValueEntityTestKit, StepNext, WorkflowTestKit};
 use shopping_cart::transfer::{
-    QuoteEndpoint, QuoteRequest, QuoteWorkflow, Transfer, TransferWorkflow, WalletEntity,
+    QuoteEndpoint, QuoteRequest, QuoteWorkflow, Transfer, TransferApi, TransferWorkflow,
+    WalletEntity,
 };
 
 fn transfer(amount: i32) -> Transfer {
@@ -84,3 +85,24 @@ fn a_wait_for_a_workflow_needs_the_runtime() {
     let kit = EndpointTestKit::<QuoteEndpoint>::with_service(shopping_cart::transfer::build());
     kit.get("/quotes/q-1/wait");
 }
+
+// docs:start lifecycle-test
+#[test]
+fn a_transfers_lifecycle_answers_the_engines_view() {
+    let failed = Lifecycle {
+        failure: Some("the bank was shut".into()),
+        ..Lifecycle::of(WorkflowStatus::Failed)
+    };
+    let mut kit =
+        EndpointTestKit::<TransferApi>::new().with_lifecycle(TransferWorkflow, "t1", failed);
+    assert_eq!(
+        kit.get("/transfers/t1/lifecycle").text(),
+        "Failed: the bank was shut"
+    );
+    // A transfer the kit runs is read from where it got to.
+    let mut t2 = kit.workflow::<TransferWorkflow>("t2");
+    assert_eq!(kit.get("/transfers/t2/lifecycle").text(), "NotStarted");
+    t2.command("start", transfer(5));
+    assert_eq!(kit.get("/transfers/t2/lifecycle").text(), "Running");
+}
+// docs:end lifecycle-test

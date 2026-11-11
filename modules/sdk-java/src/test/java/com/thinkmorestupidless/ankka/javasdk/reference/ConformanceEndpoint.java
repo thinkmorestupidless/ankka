@@ -9,10 +9,12 @@ import com.thinkmorestupidless.ankka.javasdk.annotations.Socket;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Sse;
 import com.thinkmorestupidless.ankka.javasdk.client.CommandException;
 import com.thinkmorestupidless.ankka.javasdk.client.EntityRef;
+import com.thinkmorestupidless.ankka.javasdk.client.ReplicationStatus;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceCallFailed;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceIdentityMismatch;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceUnanswered;
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceUnresolvable;
+import com.thinkmorestupidless.ankka.javasdk.client.WorkflowLifecycle;
 import com.thinkmorestupidless.ankka.javasdk.codec.Manifest;
 import com.thinkmorestupidless.ankka.javasdk.http.Acl;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
@@ -50,6 +52,58 @@ public class ConformanceEndpoint extends HttpEndpoint {
       String outcome, int status, String contentType, String body, String answer, String message) {
     static ServiceCallRecord raised(String outcome, String message) {
       return new ServiceCallRecord(outcome, 0, "", "", "", message);
+    }
+  }
+
+  /**
+   * A workflow's standing as the platform records it, the same in every language: {@code status}
+   * one of {@code not-started}, {@code running}, {@code paused}, {@code completed} and {@code
+   * failed}, the step it is on or waits after, each step's retries and, when it failed, why.
+   */
+  @Manifest("standing-record")
+  public record StandingRecord(
+      String status,
+      java.util.Optional<String> pendingStep,
+      Map<String, Integer> retries,
+      java.util.Optional<String> failure) {
+    static StandingRecord of(WorkflowLifecycle l) {
+      var word = l.status().replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase(java.util.Locale.ROOT);
+      return new StandingRecord(word, l.pendingStep(), l.retries(), l.failure());
+    }
+  }
+
+  /**
+   * How a copy of an entity stands, the same in every language: its home, its replication set
+   * sorted, a handover waiting, a conflict and its position, or {@code refused} with the protocol's
+   * word for the code.
+   */
+  @Manifest("copy-record")
+  public record CopyRecord(
+      java.util.Optional<String> home,
+      List<String> replicationSet,
+      java.util.Optional<String> pendingHandover,
+      java.util.Optional<String> conflict,
+      long position,
+      java.util.Optional<String> refused) {
+    static CopyRecord of(java.util.function.Supplier<ReplicationStatus> read) {
+      try {
+        var r = read.get();
+        return new CopyRecord(
+            r.home(),
+            r.replicationSet().stream().sorted().toList(),
+            r.pendingHandover(),
+            r.conflict(),
+            r.position(),
+            java.util.Optional.empty());
+      } catch (CommandException e) {
+        return new CopyRecord(
+            java.util.Optional.empty(),
+            List.of(),
+            java.util.Optional.empty(),
+            java.util.Optional.empty(),
+            0,
+            java.util.Optional.of(codeWord(e.problem())));
+      }
     }
   }
 
@@ -258,7 +312,7 @@ public class ConformanceEndpoint extends HttpEndpoint {
   }
 
   /** A refusal's code as the protocol says it: {@code BAD_REQUEST}. */
-  private static String codeWord(Problem problem) {
+  static String codeWord(Problem problem) {
     return switch (problem.status()) {
       case 400 -> "BAD_REQUEST";
       case 401 -> "UNAUTHORIZED";
@@ -346,6 +400,19 @@ public class ConformanceEndpoint extends HttpEndpoint {
   @Get("/conformance/checkout/{id}")
   public String checkoutStatus(String id) {
     return componentClient().forWorkflow(id).call(Checkout::status).invoke();
+  }
+
+  // Where the platform says the checkout has got to (protocol 1.24); no handler of its runs.
+  @Get("/conformance/checkout/{id}/lifecycle")
+  public StandingRecord checkoutLifecycle(String id) {
+    return StandingRecord.of(componentClient().forWorkflow(id).lifecycle(Checkout.class).invoke());
+  }
+
+  // How a cart's copy stands: a cart is not replicated, so the read is refused.
+  @Get("/conformance/cart/{id}/replication")
+  public CopyRecord cartReplication(String id) {
+    return CopyRecord.of(
+        () -> componentClient().forEventSourcedEntity(id).replication(ShoppingCartEntity.class));
   }
 
   @Get("/conformance/checkout/{id}/row")

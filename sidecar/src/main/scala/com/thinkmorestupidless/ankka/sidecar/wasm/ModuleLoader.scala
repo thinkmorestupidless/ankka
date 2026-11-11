@@ -63,7 +63,8 @@ object ModuleLoader:
    * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
    * module that calls it, as is `await_end`, which arrived with 1.18, the three client key imports,
    * which arrived with 1.20, `storage`, which arrived with 1.21, and `keyring_seal`, `keyring_open`
-   * and `erasure_ask`, which arrived with 1.23.
+   * and `erasure_ask`, which arrived with 1.23, and `lifecycle` and `replication`, which arrived
+   * with 1.24.
    */
   val Imports: Set[String] =
     Set(
@@ -89,7 +90,9 @@ object ModuleLoader:
       "storage",
       "keyring_seal",
       "keyring_open",
-      "erasure_ask"
+      "erasure_ask",
+      "lifecycle",
+      "replication"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r
@@ -114,8 +117,11 @@ object ModuleLoader:
             )
           )
 
-  /** Pure: what is wrong with a parsed module, all of it. */
-  def check(module: WasmModule): Vector[String] =
+  /**
+   * Pure: what is wrong with a parsed module, all of it, against a runtime providing `provided`
+   * (this one's `Imports`; a test names an older runtime's).
+   */
+  def check(module: WasmModule, provided: Set[String] = Imports): Vector[String] =
     val problems = Vector.newBuilder[String]
     val exports  = exportNames(module)
 
@@ -135,9 +141,9 @@ object ModuleLoader:
       if i.module() != Abi.ImportModule then
         problems += s"the module imports '${i.module()}.${i.name()}'; a module may import only " +
           s"from '${Abi.ImportModule}'"
-      else if i.importType() != ExternalType.FUNCTION || !Imports.contains(i.name()) then
+      else if i.importType() != ExternalType.FUNCTION || !provided.contains(i.name()) then
         problems += s"the module imports '${i.module()}.${i.name()}', which the runtime does not " +
-          s"provide (it provides ${Imports.toVector.sorted.mkString(", ")})"
+          s"provide (it provides ${provided.toVector.sorted.mkString(", ")})"
     }
     problems.result()
 

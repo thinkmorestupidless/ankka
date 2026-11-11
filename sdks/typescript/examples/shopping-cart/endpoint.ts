@@ -95,6 +95,14 @@ export class ShoppingCartEndpoint extends Endpoint {
       ep.client.of(CheckoutWorkflow, req.params.cartId).awaitEnd<Checkout>(10_000),
     ),
     // docs:end await-later
+    // docs:start lifecycle
+    /** The engine's own view: running, paused, completed or failed, and why. */
+    checkoutLifecycle: get("/{cartId}/checkouts/lifecycle", s.string, async (ep: ShoppingCartEndpoint, req) => {
+      const lifecycle = await ep.client.of(CheckoutWorkflow, req.params.cartId).lifecycle()
+      return lifecycle.status + (lifecycle.failure ? `: ${lifecycle.failure}` : "")
+    }),
+    // docs:end lifecycle
+
     // docs:start sse-await
     /** A heartbeat while the checkout goes on, then how it ended, on one connection. */
     checkoutEvents: sse("/{cartId}/checkouts/events", async function* (ep: ShoppingCartEndpoint, req) {

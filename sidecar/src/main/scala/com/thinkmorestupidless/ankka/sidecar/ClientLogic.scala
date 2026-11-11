@@ -426,6 +426,47 @@ final class ClientLogic(
           .map(state => InvokeReply(InvokeReply.Result.Reply(pb.Outcome.Reply(Some(state), None))))
           .recover(e => InvokeReply(InvokeReply.Result.Error(failure(e))))
 
+  // ── A workflow's standing and how a copy stands (protocol 1.24) ─────────────────
+
+  /**
+   * A workflow's standing: the engine's own reserved query (`ankka:lifecycle`), which runs no
+   * handler and journals nothing, asked as the Scala client asks it. A refusal is the runtime's,
+   * with its code; a status the protocol has no value for is `INTERNAL`, naming it.
+   */
+  def lifecycle(request: LifecycleRequest): Future[LifecycleReply] =
+    read(request.componentId, request.workflowId, sdk.WorkflowLifecycle.Method)(bytes =>
+      ClientLogic.lifecycleOf(sdk.WorkflowLifecycle.serializer.fromBytes(bytes))
+    ).map {
+      case Right(lifecycle) => LifecycleReply(LifecycleReply.Result.Lifecycle(lifecycle))
+      case Left(refusal)    => LifecycleReply(LifecycleReply.Result.Error(refusal))
+    }(using ExecutionContext.parasitic)
+
+  /**
+   * How the copy of a replicated entity at this installation stands: the host's own reserved query
+   * (`ankka:replication`), asked as the Scala client asks it. An entity that is not replicated is
+   * refused by the host, with its code.
+   */
+  def replication(request: ReplicationRequest): Future[ReplicationReply] =
+    read(request.componentId, request.entityId, sdk.ReplicationStatus.Method)(bytes =>
+      Right(ClientLogic.replicationOf(sdk.ReplicationStatus.serializer.fromBytes(bytes)))
+    ).map {
+      case Right(status) => ReplicationReply(ReplicationReply.Result.Status(status))
+      case Left(refusal) => ReplicationReply(ReplicationReply.Result.Error(refusal))
+    }(using ExecutionContext.parasitic)
+
+  /** One reserved read of `entityId`, its answer decoded, or the refusal as the protocol's. */
+  private def read[A](componentId: String, entityId: String, method: MethodName)(
+      decode: Array[Byte] => Either[pb.Error, A]
+  ): Future[Either[pb.Error, A]] =
+    (ComponentId.parse(componentId), EntityId.parse(entityId)) match
+      case (Right(component), Right(entity)) =>
+        transport
+          .askQuery(component, entity, method, Array.emptyByteArray, Metadata.empty)
+          .map(decode)
+          .recover(e => Left(failure(e)))
+      case _ =>
+        Future.successful(Left(pb.Error("invalid component or id", pb.ErrorCode.BAD_REQUEST)))
+
   /**
    * The same wait as a stream: a `heartbeat` token every `Heartbeat.interval` while it goes on,
    * then one `ended` or `failed` token, after which nothing more is emitted. For a process's
@@ -1094,6 +1135,34 @@ final class ClientLogic(
     ServiceReply(ServiceReply.Result.Failure(ServiceFailure(reason, detail)))
 
 object ClientLogic:
+
+  /** The runtime's standing as the protocol's message; a status it has no value for is refused. */
+  private[sidecar] def lifecycleOf(l: sdk.WorkflowLifecycle): Either[pb.Error, WorkflowLifecycle] =
+    val status = l.status match
+      case "NotStarted" => Some(WorkflowStatus.NOT_STARTED)
+      case "Running"    => Some(WorkflowStatus.RUNNING)
+      case "Paused"     => Some(WorkflowStatus.PAUSED)
+      case "Completed"  => Some(WorkflowStatus.COMPLETED)
+      case "Failed"     => Some(WorkflowStatus.FAILED)
+      case _            => None
+    status
+      .map(st => WorkflowLifecycle(st, l.pendingStep, l.retries, l.failure))
+      .toRight(
+        pb.Error(
+          s"a workflow's standing '${l.status}' has no protocol value",
+          pb.ErrorCode.INTERNAL
+        )
+      )
+
+  /** How a copy stands, as the protocol's message: the replication set sorted. */
+  private[sidecar] def replicationOf(r: sdk.ReplicationStatus): ReplicationStatus =
+    ReplicationStatus(
+      r.home,
+      r.replicationSet.toVector.sorted,
+      r.pendingHandover,
+      r.conflict,
+      r.position
+    )
 
   /** The protocol that added `Request`. */
   val RequestSince: String = "1.8"

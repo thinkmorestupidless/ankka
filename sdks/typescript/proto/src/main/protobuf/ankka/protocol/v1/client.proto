@@ -74,6 +74,13 @@ service Client {
   rpc SubjectNotices   (SubjectNoticesRequest) returns (stream SubjectNotice);
   rpc AckSubjectNotice (SubjectNoticeAck)      returns (SubjectNoticeAckReply);
   rpc AskErasure       (AskErasureRequest)     returns (AskErasureReply);
+
+  // A workflow's standing and how a replicated entity's copy stands (protocol 1.24): the runtime's
+  // own reads, which run no handler and journal nothing. A refusal is an Error in the reply, with
+  // the code the runtime refuses the same read with; a runtime older than 1.24 answers
+  // UNIMPLEMENTED.
+  rpc Lifecycle   (LifecycleRequest)   returns (LifecycleReply);
+  rpc Replication (ReplicationRequest) returns (ReplicationReply);
 }
 
 // 1.20: a client key for `subject`. Exactly one expiry is set.
@@ -460,4 +467,54 @@ message AskErasureReply {
 message ErasureAsked {
   string id = 1;                              // 1.23: the request's id in its project
   string state = 2;                           // 1.23: held, applying or applied
+}
+
+// 1.24: the workflow `workflow_id` of the component `component_id`.
+message LifecycleRequest {
+  string component_id = 1;
+  string workflow_id  = 2;
+}
+
+enum WorkflowStatus {
+  WORKFLOW_STATUS_UNSPECIFIED = 0; // never sent
+  NOT_STARTED = 1;
+  RUNNING     = 2;
+  PAUSED      = 3;
+  COMPLETED   = 4;
+  FAILED      = 5;
+}
+
+message WorkflowLifecycle {
+  WorkflowStatus      status       = 1;
+  optional string     pending_step = 2; // the step it is on or waits after
+  map<string, int32>  retries      = 3; // by step name; a step never retried is absent
+  optional string     failure      = 4; // set when status is FAILED
+}
+
+message LifecycleReply {
+  oneof result {
+    WorkflowLifecycle lifecycle = 1;
+    Error             error     = 2;
+  }
+}
+
+// 1.24: the copy at this installation of the entity `entity_id` of the component `component_id`.
+message ReplicationRequest {
+  string component_id = 1;
+  string entity_id    = 2;
+}
+
+message ReplicationStatus {
+  optional string home             = 1;
+  repeated string replication_set  = 2; // sorted
+  optional string pending_handover = 3; // the installation a handover waiting goes to
+  optional string conflict         = 4; // the other home, when in conflict
+  int64           position         = 5; // records this copy's history holds
+}
+
+message ReplicationReply {
+  oneof result {
+    ReplicationStatus status = 1;
+    Error             error  = 2;
+  }
 }

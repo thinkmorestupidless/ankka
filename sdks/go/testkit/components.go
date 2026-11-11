@@ -37,6 +37,29 @@ func AnswerService(service string, answer ServiceAnswer) Option {
 	}
 }
 
+// AnswerLifecycle has the kit answer ankka.Lifecycle(ctx, component, id) with standing, as the
+// runtime would. A read of a workflow no AnswerLifecycle names is refused, naming it: a unit kit
+// does not run the workflow it reads.
+func AnswerLifecycle(component, id string, standing ankka.WorkflowLifecycle) Option {
+	return func(o *options) {
+		if o.lifecycles == nil {
+			o.lifecycles = map[string]ankka.WorkflowLifecycle{}
+		}
+		o.lifecycles[component+"/"+id] = standing
+	}
+}
+
+// AnswerReplication has the kit answer ankka.Replication(ctx, component, id) with status, as the
+// runtime would. A read of a copy no AnswerReplication names is refused, naming it.
+func AnswerReplication(component, id string, status ankka.ReplicationStatus) Option {
+	return func(o *options) {
+		if o.replications == nil {
+			o.replications = map[string]ankka.ReplicationStatus{}
+		}
+		o.replications[component+"/"+id] = status
+	}
+}
+
 // hosted is a service of one component and the ones it calls, and the client its handlers use.
 type hosted struct {
 	view   *kit.Service
@@ -46,7 +69,7 @@ type hosted struct {
 
 func host(component ankka.Declaration, o options) *hosted {
 	v := view(ankka.NewService(append([]ankka.Declaration{component}, o.calling...)...))
-	client, stop := serveStandIn(v, o.services)
+	client, stop := serveStandIn(v, o)
 	return &hosted{view: v, client: client, stop: stop}
 }
 

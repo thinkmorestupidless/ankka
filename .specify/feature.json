@@ -1,1 +1,3 @@
-{"feature_directory":"specs/064-sealed-session-compaction"}
+{
+  "feature_directory": "specs/065-client-lifecycle-replication"
+}

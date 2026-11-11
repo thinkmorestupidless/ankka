@@ -69,6 +69,9 @@ type options struct {
 	entityID string
 	calling  []ankka.Declaration
 	services map[string]ServiceAnswer
+	// What AnswerLifecycle and AnswerReplication set, by "<component>/<id>".
+	lifecycles   map[string]ankka.WorkflowLifecycle
+	replications map[string]ankka.ReplicationStatus
 }
 
 // EntityID is the id of the instance the kit drives; "test-entity" by default.

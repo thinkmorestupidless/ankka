@@ -81,7 +81,7 @@ In = event_sourced_pb2.EventSourcedIn
 
 
 def test_the_protocol_version_is_1_22() -> None:
-    assert PROTOCOL_VERSION == "1.23"
+    assert PROTOCOL_VERSION == "1.24"
 
 
 def test_a_command_tells_its_handler_and_its_events_who_acted_and_where_it_was_forwarded_from() -> None:

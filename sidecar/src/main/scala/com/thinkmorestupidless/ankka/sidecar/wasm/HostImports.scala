@@ -96,6 +96,8 @@ final class HostImports(
     .addFunction(randomFunction)
     .addFunction(bytes("schedule_recurring")(scheduleRecurring))
     .addFunction(bytes("await_end")(awaitEnd))
+    .addFunction(bytes("lifecycle")(lifecycle))
+    .addFunction(bytes("replication")(replication))
     .addFunction(bytes("issue_client_key")(issueClientKey))
     .addFunction(bytes("list_client_keys")(listClientKeys))
     .addFunction(bytes("revoke_client_key")(revokeClientKey))
@@ -129,6 +131,22 @@ final class HostImports(
       case Some(c) =>
         val asked = AwaitEndRequest.parseFrom(request)
         await(c.awaitEnd(asked), asked.timeoutMillis.max(0L).millis + commandTimeout).toByteArray
+
+  /**
+   * A workflow's standing and how a replicated entity's copy stands (protocol 1.24): the runtime's
+   * own reads, answered as a process's are, a refusal in the reply.
+   */
+  private[sidecar] def lifecycle(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None    => LifecycleReply(LifecycleReply.Result.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.lifecycle(LifecycleRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  private[sidecar] def replication(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None    => ReplicationReply(ReplicationReply.Result.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.replication(ReplicationRequest.parseFrom(request)), commandTimeout).toByteArray
 
   /**
    * A command sent without waiting for its answer: dispatched, and the guest carries on at once. A

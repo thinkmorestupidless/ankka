@@ -103,6 +103,12 @@ async def test_the_selector_decides_which_specialists_run_and_only_those_run() -
         assert plan.summary == "A mild, affordable trip."
         # docs:end assert
 
+        # docs:start observe
+        state = await planner.call("plan").invoke(reply=PlanState)  # the domain state
+        lifecycle = await planner.lifecycle()  # the engine's state
+        assert state.status == COMPLETED and lifecycle.is_completed
+        # docs:end observe
+
         # The activity specialist reads the traveller's preferences itself, as context.
         preferences = {"userId": "u-1", "likes": ["trams"], "dislikes": [], "maxBudget": 90}
         assert (await kit.http.put("/plans/preferences/u-1", json=preferences)).status_code == 204

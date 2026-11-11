@@ -65,6 +65,12 @@ pub enum Import {
     /// `erasure_ask`: `AskErasureRequest` in, `AskErasureReply` out (protocol 1.23). Called through
     /// [`call_erasure_ask`].
     ErasureAsk,
+    /// `lifecycle`: `LifecycleRequest` in, `LifecycleReply` out (protocol 1.24). Called through
+    /// [`call_lifecycle`].
+    Lifecycle,
+    /// `replication`: `ReplicationRequest` in, `ReplicationReply` out (protocol 1.24). Called
+    /// through [`call_replication`].
+    Replication,
 }
 
 /// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
@@ -190,6 +196,20 @@ pub fn call_keyring_open(request: &[u8]) -> Vec<u8> {
 /// is refused `Unavailable`.
 pub fn call_erasure_ask(request: &[u8]) -> Vec<u8> {
     host::call_erasure_ask(request)
+}
+
+/// Calls `lifecycle`: a workflow's standing, an encoded `LifecycleRequest` in and an encoded
+/// `LifecycleReply` out. In a link block of its own, so a module that never reads a standing does
+/// not import it, and runs on a runtime that predates it (protocol 1.24); a runtime that predates
+/// it refuses to load a module that does.
+pub fn call_lifecycle(request: &[u8]) -> Vec<u8> {
+    host::call_lifecycle(request)
+}
+
+/// Calls `replication`: how a replicated entity's copy stands, an encoded `ReplicationRequest` in
+/// and an encoded `ReplicationReply` out. In a link block of its own, as [`call_lifecycle`] is.
+pub fn call_replication(request: &[u8]) -> Vec<u8> {
+    host::call_replication(request)
 }
 
 /// Sends a line to the runtime's log, under the module's logger.
@@ -337,6 +357,28 @@ mod host {
         through(request, erasure_ask_import)
     }
 
+    // The two reads (protocol 1.24): each a block of its own, reached only from its own function,
+    // so a module that reads neither imports neither.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "lifecycle"]
+        fn lifecycle_import(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "replication"]
+        fn replication_import(ptr: u32, len: u32) -> u64;
+    }
+
+    pub(super) fn call_lifecycle(request: &[u8]) -> Vec<u8> {
+        through(request, lifecycle_import)
+    }
+
+    pub(super) fn call_replication(request: &[u8]) -> Vec<u8> {
+        through(request, replication_import)
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -365,6 +407,8 @@ mod host {
                 Import::KeyringSeal => panic!("keyring_seal is called through call_keyring_seal"),
                 Import::KeyringOpen => panic!("keyring_open is called through call_keyring_open"),
                 Import::ErasureAsk => panic!("erasure_ask is called through call_erasure_ask"),
+                Import::Lifecycle => panic!("lifecycle is called through call_lifecycle"),
+                Import::Replication => panic!("replication is called through call_replication"),
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -779,7 +823,23 @@ mod native {
             Import::Storage => call_storage(request),
             Import::KeyringSeal | Import::KeyringOpen => keyring(import, request),
             Import::ErasureAsk => call_erasure_ask(request),
+            Import::Lifecycle => proto::LifecycleReply {
+                result: Some(proto::lifecycle_reply::Result::Error(unavailable)),
+            }
+            .encode_to_vec(),
+            Import::Replication => proto::ReplicationReply {
+                result: Some(proto::replication_reply::Result::Error(unavailable)),
+            }
+            .encode_to_vec(),
         }
+    }
+
+    pub(super) fn call_lifecycle(request: &[u8]) -> Vec<u8> {
+        call(Import::Lifecycle, request)
+    }
+
+    pub(super) fn call_replication(request: &[u8]) -> Vec<u8> {
+        call(Import::Replication, request)
     }
 
     pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {

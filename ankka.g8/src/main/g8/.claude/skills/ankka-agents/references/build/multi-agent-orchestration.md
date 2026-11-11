@@ -1579,6 +1579,55 @@ fun `a plan's own state and the engine's lifecycle are read apart`() {
 }
 ```
 
+**Python**
+
+```python
+state = await planner.call("plan").invoke(reply=PlanState)  # the domain state
+lifecycle = await planner.lifecycle()  # the engine's state
+assert state.status == COMPLETED and lifecycle.is_completed
+```
+
+**TypeScript**
+
+```ts
+const state = await planner.call(PlannerWorkflow.handlers.plan).invoke() // the domain state
+const lifecycle = await planner.lifecycle() // the engine's state
+assert.equal(state.status, "completed")
+assert.equal(lifecycle.status, "completed")
+```
+
+**Rust**
+
+```rust
+/// A run read two ways: the plan the workflow keeps, from its own `plan` query, and the engine's
+/// standing of the run, which runs no handler. They are separate on purpose: the plan says what the
+/// workflow decided, the standing whether it is running, paused, completed or failed.
+pub fn observe(
+    client: &ankka::Client,
+    plan_id: &str,
+) -> Result<(PlanState, Lifecycle), CommandError> {
+    let state: PlanState = client.invoke(PlannerWorkflow, plan_id, "plan", ())?; // the domain state
+    let lifecycle = client.lifecycle(PlannerWorkflow, plan_id)?; // the engine's state
+    Ok((state, lifecycle))
+}
+```
+
+**Go**
+
+```go
+// ObservePlan reads a run two ways: the plan the workflow keeps, from its own "plan" query, and the
+// engine's standing of the run, which runs no handler. The plan says what the workflow decided; the
+// standing whether it is running, paused, completed or failed.
+func ObservePlan(ctx context.Context, planID string) (PlanState, ankka.WorkflowLifecycle, error) {
+	state, err := ankka.Invoke[PlanState](ctx, "planner", planID, "plan", ankka.Unit{}) // the domain state
+	if err != nil {
+		return PlanState{}, ankka.WorkflowLifecycle{}, err
+	}
+	lifecycle, err := ankka.Lifecycle(ctx, "planner", planID) // the engine's state
+	return state, lifecycle, err
+}
+```
+
 The local console shows each request's trace, including the time spent waiting on models; see
 [The local console](../operate/local-console.md).
 

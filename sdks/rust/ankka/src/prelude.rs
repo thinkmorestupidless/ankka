@@ -29,6 +29,7 @@ pub use crate::erasure::{ErasureReport, Finality};
 pub use crate::erasures::{AskErasure, ErasureAsked, Erasures};
 pub use crate::graph::{self, GraphConsumer, GraphEffect};
 pub use crate::personal::{DataSubject, Personal};
+pub use crate::reads::{Lifecycle, ReplicationStatus, WorkflowStatus};
 pub use crate::service::Service;
 pub use crate::services::{RequestOptions, ServiceError, ServiceResponse};
 pub use crate::standing::Standing;

@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.22"`;
+- its protocol version, `"1.24"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency, and whether it is replicated, for
@@ -84,6 +84,8 @@ The table is generated from the `.proto` files.
 | `Client` | `SubjectNotices` | `SubjectNoticesRequest` | `stream SubjectNotice` | `client.proto` |
 | `Client` | `AckSubjectNotice` | `SubjectNoticeAck` | `SubjectNoticeAckReply` | `client.proto` |
 | `Client` | `AskErasure` | `AskErasureRequest` | `AskErasureReply` | `client.proto` |
+| `Client` | `Lifecycle` | `LifecycleRequest` | `LifecycleReply` | `client.proto` |
+| `Client` | `Replication` | `ReplicationRequest` | `ReplicationReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -225,7 +227,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.22`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.24`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -298,6 +300,16 @@ earlier runtime refuses a module importing `storage` when it loads.
 `1.22` added who acted and where a write came from: `attribution` and `forwarded_from` on an event
 sourced entity's `Command` and `Event`, and on a module's `FoldRequest`. Each is empty when there is
 nothing to say, so a process that ignores them reads `1.22` as `1.21`.
+`1.23` added personal data: `GetSubjectKey`, `SubjectNotices`, `AckSubjectNotice` and `AskErasure` on
+`Client`, `Spec.erasure_handler` and the `Erasure` service a process serves, and for a module the
+`keyring_seal` and `keyring_open` imports, the `erase` export and `storage`'s `erase` operation. An earlier
+runtime answers the four calls `UNIMPLEMENTED`.
+`1.24` added reading a workflow's standing and how a replicated entity's copy stands: `Lifecycle` and
+`Replication` on `Client`, with `WorkflowLifecycle`, `WorkflowStatus` and `ReplicationStatus`, and the
+`lifecycle` and `replication` imports for a module. Each answers the runtime's own read, which runs no
+handler and journals nothing, and carries a refusal in the reply. An earlier runtime answers either call
+`UNIMPLEMENTED`, which each SDK reports as the runtime being too old, and refuses a module importing
+either when it loads.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

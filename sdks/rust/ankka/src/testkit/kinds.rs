@@ -31,6 +31,7 @@ use crate::effects::view::ViewEffect;
 use crate::effects::{CommandError, ErrorCode, Retention};
 use crate::graph::{self, Element, GraphConsumer};
 use crate::proto::{self, Kind, Payload};
+use crate::reads::{Lifecycle, WorkflowStatus};
 use crate::service::{PROTOCOL_VERSION, Service};
 
 fn encoded<T: Serialize + 'static>(value: &T, what: &str) -> Payload {
@@ -226,6 +227,29 @@ impl<C: Workflow> WorkflowTestKit<C> {
         }
     }
 
+    /// Instance `entity_id` on a service another kit holds, recording its standing there.
+    pub(crate) fn sharing(entity_id: &str, runtime: Rc<InMemory>) -> WorkflowTestKit<C> {
+        let mut kit = WorkflowTestKit::new(entity_id);
+        kit.runtime = Some(runtime);
+        kit.record(Lifecycle::of(WorkflowStatus::NotStarted));
+        kit
+    }
+
+    /// Records the standing the kit reached on the service it holds, which an endpoint reads.
+    fn record(&self, standing: Lifecycle) {
+        if let Some(runtime) = &self.runtime {
+            runtime.record_standing(C::COMPONENT_ID, &self.entity_id, standing);
+        }
+    }
+
+    fn at(status: WorkflowStatus, step: Option<String>, failure: Option<String>) -> Lifecycle {
+        Lifecycle {
+            pending_step: step,
+            failure,
+            ..Lifecycle::of(status)
+        }
+    }
+
     /// Steps' calls to the service's event sourced entities are answered in memory.
     pub fn with_service(mut self, service: Service) -> WorkflowTestKit<C> {
         self.runtime = Some(in_memory(service));
@@ -260,6 +284,8 @@ impl<C: Workflow> WorkflowTestKit<C> {
         if out.transition.is_some() {
             self.pending = out.transition;
             self.paused = None;
+            let step = self.pending.as_ref().map(|s| s.step.clone());
+            self.record(Self::at(WorkflowStatus::Running, step, None));
         }
         Answered::of(out.outcome)
     }
@@ -291,21 +317,35 @@ impl<C: Workflow> WorkflowTestKit<C> {
         self.stored = reply.state;
         let next = reply.reply.and_then(|r| r.next).and_then(|n| n.outcome);
         use proto::step_outcome::Outcome;
+        let ran = Some(step.step.clone());
         match next {
             Some(Outcome::TransitionTo(to)) => {
                 let name = to.step.clone();
                 self.pending = Some(to);
+                self.record(Self::at(WorkflowStatus::Running, Some(name.clone()), None));
                 StepNext::TransitionTo(name)
             }
             Some(Outcome::Pause(p)) => {
                 self.paused = p.on_timeout.clone();
+                self.record(Self::at(WorkflowStatus::Paused, ran, None));
                 StepNext::Pause {
                     after_millis: p.after_millis,
                     on_timeout: p.on_timeout.map(|s| s.step),
                 }
             }
-            Some(Outcome::Fail(e)) => StepNext::Fail(CommandError::from_proto(&e)),
-            _ => StepNext::End,
+            Some(Outcome::Fail(e)) => {
+                let error = CommandError::from_proto(&e);
+                self.record(Self::at(
+                    WorkflowStatus::Failed,
+                    ran,
+                    Some(error.message.clone()),
+                ));
+                StepNext::Fail(error)
+            }
+            _ => {
+                self.record(Self::at(WorkflowStatus::Completed, None, None));
+                StepNext::End
+            }
         }
     }
 

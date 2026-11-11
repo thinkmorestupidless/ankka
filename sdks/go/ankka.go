@@ -10,7 +10,7 @@
 package ankka
 
 // ProtocolVersion is the sidecar protocol this SDK speaks, declared in discovery.
-const ProtocolVersion = "1.23"
+const ProtocolVersion = "1.24"
 
 // SDKName is how this SDK names itself to the sidecar, and how a deployed service says which SDK
 // built it.

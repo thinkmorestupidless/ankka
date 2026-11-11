@@ -23,7 +23,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.23";
+pub const PROTOCOL_VERSION: &str = "1.24";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -347,6 +347,15 @@ impl Service {
                  1.23 or later."
             )
         })
+    }
+
+    /// Whether the event sourced entity `id` is replicated; `None` when this service has no event
+    /// sourced entity of that id.
+    pub(crate) fn replicated(&self, id: &str) -> Option<bool> {
+        match self.component(id)?.to_component().detail {
+            Some(proto::component::Detail::EventSourced(d)) => Some(d.replicated),
+            _ => None,
+        }
     }
 
     fn component(&self, id: &str) -> Option<&dyn Registered> {

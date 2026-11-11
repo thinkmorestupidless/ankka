@@ -33,6 +33,16 @@ func TestAWaitIsAnsweredWhenTheWorkflowEnds(t *testing.T) {
 	if r, err := h.Get(ctx, "/quotes/q-2/wait"); err != nil || r.Status != 424 || !strings.Contains(r.Text(), "nothing to price") {
 		t.Fatalf("a failed quote's wait answered %v, %v", r, err)
 	}
+	// The engine's view of each: one ended, one failed with its reason.
+	if r, err := h.Get(ctx, "/quotes/q-1/lifecycle"); err != nil || r.Text() != "Completed" {
+		t.Fatalf("the ended quote's lifecycle answered %v, %v", r, err)
+	}
+	if r, err := h.Get(ctx, "/quotes/q-2/lifecycle"); err != nil || !strings.HasPrefix(r.Text(), "Failed: ") || !strings.Contains(r.Text(), "nothing to price") {
+		t.Fatalf("the failed quote's lifecycle answered %v, %v", r, err)
+	}
+	if r, err := h.Get(ctx, "/quotes/q-9/lifecycle"); err != nil || r.Text() != "NotStarted" {
+		t.Fatalf("a quote never started answered %v, %v", r, err)
+	}
 	if r, err := h.Do(ctx, http.MethodGet, "/quotes/q-1/events", nil, nil); err != nil || !strings.Contains(r.Text(), "event:ended") {
 		t.Fatalf("the events answered %v, %v", r, err)
 	}

@@ -43,4 +43,11 @@ public class VehiclesEndpoint extends HttpEndpoint {
   public String stopReplicatingTo(String vehicleId, String target) {
     return vehicle(vehicleId).call(ReplicatedVehicle::stopReplicatingTo).invoke(target);
   }
+
+  // How this installation's copy stands, as the platform records it (protocol 1.24).
+  @Get("/vehicles/{vehicleId}/replication")
+  public ConformanceEndpoint.CopyRecord replication(String vehicleId) {
+    return ConformanceEndpoint.CopyRecord.of(
+        () -> vehicle(vehicleId).replication(ReplicatedVehicle.class));
+  }
 }

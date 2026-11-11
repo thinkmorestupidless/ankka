@@ -261,13 +261,16 @@ state = await cart.call("get-cart").invoke(reply=ShoppingCart)
 |---|---|
 | Event sourced entity | `client.for_event_sourced_entity(component_id, entity_id)` |
 | Key value entity | `client.for_key_value_entity(component_id, entity_id)` |
-| Workflow | `client.for_workflow(component_id, workflow_id)`; `.await_end(timeout, reply=State)` waits for its end, `.await_end_parts(timeout, reply=State)` as parts for an `@sse` route, and `.call(name).then_await_end(timeout).invoke(input, reply=State)` starts and waits as one call |
+| Workflow | `client.for_workflow(component_id, workflow_id)`; `.await_end(timeout, reply=State)` waits for its end, `.await_end_parts(timeout, reply=State)` as parts for an `@sse` route, and `.call(name).then_await_end(timeout).invoke(input, reply=State)` starts and waits as one call; `.lifecycle()` answers its standing (`Lifecycle`: `status`, `pending_step`, `retries`, `failure`, `is_terminal`), the runtime's own read, which runs no handler |
+| A replicated copy | `client.for_event_sourced_entity(component_id, entity_id).replication()` answers how this installation's copy stands (`ReplicationStatus`: `home`, `replication_set`, `pending_handover`, `conflict`, `position`); an entity that is not replicated raises `CommandError` with `NOT_FOUND` |
 | Agent | `client.for_agent(component_id, session_id)` |
 
 `.call(name)` gives an invocation: `await invocation.invoke(input, reply=Type)`, or
 `async for token in invocation.stream(input)` for a streaming agent handler. A refusal raises
 `ankka.client.CommandError`, whose `error` holds the message and code. Passing a request's metadata on
-makes the call a child span of the request's trace. See [Calling components](../build/component-client.md).
+makes the call a child span of the request's trace. `lifecycle()` and `replication()` need a sidecar at
+protocol 1.24; an older one is a `CommandError` with `UNAVAILABLE` naming 1.24. See
+[Calling components](../build/component-client.md).
 
 ## Secret store
 
@@ -326,6 +329,7 @@ Locally, run the sidecar with `docker compose --profile polyglot up -d` from the
 | `TimedActionTestKit.of(Cls)` | `ankka.testkit` | A timed action's handlers. |
 | `AgentTestKit.of(Cls, session_id, model=ScriptedModel())` | `ankka.testkit` | An agent's plan, tools and guardrails, against a scripted model. |
 | `EndpointTestKit.of(Cls, …)` | `ankka.testkit` | An endpoint's routes, with no sidecar. |
+| `ClientStub().lifecycle(Cls, id, Lifecycle(…)).replication(Cls, id, ReplicationStatus(…))` | `ankka.testkit` | What a read of a workflow's standing or a copy's status answers, passed as a kit's `client`; a read it was not given raises, naming it. |
 | `AnkkaTestKit.start(builder)` | `ankka.testkit.integration` | The whole service through the real sidecar image and a throwaway Postgres. `restart()` starts a new sidecar on the same database; `kit.caller_headers(caller)` makes a request to `kit.http` arrive as that caller, so a route's caller rules apply. |
 
 Unit testkits need nothing running and still round-trip every value through its codec. See

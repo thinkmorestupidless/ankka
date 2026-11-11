@@ -13,11 +13,14 @@ use ankka::proto;
 use ankka::{Lifecycle, ReplicationStatus, WorkflowStatus};
 use prost::Message;
 
+/// Each import the host was asked, with its encoded request.
+type Asked = Rc<RefCell<Vec<(Import, Vec<u8>)>>>;
+
 #[derive(Clone, Default)]
 struct Answering {
     lifecycle: Option<proto::LifecycleReply>,
     replication: Option<proto::ReplicationReply>,
-    asked: Rc<RefCell<Vec<(Import, Vec<u8>)>>>,
+    asked: Asked,
 }
 
 impl NativeHost for Answering {

@@ -349,6 +349,15 @@ impl Service {
         })
     }
 
+    /// Whether the event sourced entity `id` is replicated; `None` when this service has no event
+    /// sourced entity of that id.
+    pub(crate) fn replicated(&self, id: &str) -> Option<bool> {
+        match self.component(id)?.to_component().detail {
+            Some(proto::component::Detail::EventSourced(d)) => Some(d.replicated),
+            _ => None,
+        }
+    }
+
     fn component(&self, id: &str) -> Option<&dyn Registered> {
         self.components
             .iter()

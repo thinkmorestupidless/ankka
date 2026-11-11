@@ -3,10 +3,12 @@
 //! in memory — and on two consumers of the counter: what one published, under which keys, and the
 //! elements of the graph the other publishes.
 
-use ankka::effects::consumer;
+use ankka::effects::{consumer, workflow};
 use ankka::graph::{ElementKind, Value};
 use ankka::prelude::*;
-use ankka::testkit::{ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit};
+use ankka::testkit::{
+    ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, StepNext,
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Tally {
@@ -430,4 +432,195 @@ fn an_endpoint_answers_from_a_key_value_entity_in_memory() {
     // A deleted entity starts again from its empty state.
     assert_eq!(kit.delete("/nicknames/u1").status, 204);
     assert_eq!(name(kit.get("/nicknames/u1")), "");
+}
+
+// ── a workflow's standing and how a copy stands (protocol 1.24) ──
+//
+// The Rust rows of features/polyglot/standing.feature and features/replication/status.feature: the kit
+// answers both reads from the workflow and the entity it runs, an answer a test sets wins over what it
+// runs, and a read of neither is refused naming what was not stubbed.
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+struct Plan {
+    goal: String,
+}
+
+struct Plans;
+
+impl Workflow for Plans {
+    type State = Plan;
+    const COMPONENT_ID: &'static str = "plan";
+
+    fn empty_state(_: &str) -> Plan {
+        Plan::default()
+    }
+
+    fn handlers() -> WorkflowHandlers<Plans> {
+        WorkflowHandlers::new().command("start", |_: &Plan, goal: String, _: &Context| {
+            workflow::update_state(Plan { goal })
+                .transition_to("consult")
+                .then_reply_value(Done)
+        })
+    }
+
+    fn steps() -> Steps<Plans> {
+        Steps::new().step("consult", |plan: &Plan, _: (), _: &Context| {
+            if plan.goal == "impossible" {
+                step_effects::fail(CommandError::new(
+                    ErrorCode::BadRequest,
+                    "the provider refused",
+                ))
+            } else {
+                step_effects::update_state(plan.clone()).then_end()
+            }
+        })
+    }
+}
+
+struct Vehicle;
+
+impl Vehicle {
+    fn add(_: &Tally, amount: i64, _: &Context) -> Effect<TallyEvent, i64> {
+        effects::persist(TallyEvent::Added { amount }).then_reply(|t: &Tally| t.total)
+    }
+}
+
+impl EventSourcedEntity for Vehicle {
+    type State = Tally;
+    type Event = TallyEvent;
+    const COMPONENT_ID: &'static str = "vehicle";
+    const REPLICATED: bool = true;
+
+    fn empty_state(name: &str) -> Tally {
+        Counter::empty_state(name)
+    }
+
+    fn apply(tally: Tally, event: &TallyEvent) -> Tally {
+        Counter::apply(tally, event)
+    }
+
+    fn handlers() -> Handlers<Vehicle> {
+        Handlers::new().command("add", Vehicle::add)
+    }
+}
+
+struct ReadsApi;
+
+impl ReadsApi {
+    fn standing(request: &Request) -> Result<String, HttpProblem> {
+        let read = request.client().lifecycle(Plans, request.path("id"))?;
+        Ok(format!(
+            "{:?} {} {}",
+            read.status,
+            read.pending_step.unwrap_or_default(),
+            read.failure.unwrap_or_default()
+        ))
+    }
+
+    fn copy(request: &Request) -> Result<String, HttpProblem> {
+        let component = request.path("component");
+        let read = request
+            .client()
+            .replication_by_name(component, request.path("id"))?;
+        Ok(format!(
+            "{} {} {}",
+            read.home.unwrap_or_default(),
+            read.replication_set.join(","),
+            read.position
+        ))
+    }
+
+    fn add(request: &Request, amount: i64) -> Result<i64, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Vehicle, request.path("id"), "add", amount)?)
+    }
+}
+
+impl Endpoint for ReadsApi {
+    const ENDPOINT_ID: &'static str = "ReadsApi";
+    const PREFIX: &'static str = "/reads";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<ReadsApi> {
+        Routes::new()
+            .get("/plans/{id}", ReadsApi::standing)
+            .get("/copies/{component}/{id}", ReadsApi::copy)
+            .post("/vehicles/{id}", ReadsApi::add)
+    }
+}
+
+fn reads_kit() -> EndpointTestKit<ReadsApi> {
+    EndpointTestKit::<ReadsApi>::with_service(
+        Service::new("test")
+            .register(Plans)
+            .register(Vehicle)
+            .register(Counter),
+    )
+}
+
+#[test]
+fn the_kit_answers_the_standing_of_a_workflow_it_runs() {
+    let mut kit = reads_kit();
+    let mut p5 = kit.workflow::<Plans>("p5");
+    assert_eq!(kit.get("/reads/plans/p5").text(), "NotStarted  ");
+    p5.command("start", "impossible".to_string());
+    assert_eq!(kit.get("/reads/plans/p5").text(), "Running consult ");
+    assert!(matches!(p5.run_step(), StepNext::Fail(_)));
+    assert_eq!(
+        kit.get("/reads/plans/p5").text(),
+        "Failed consult the provider refused"
+    );
+    let mut p7 = kit.workflow::<Plans>("p7");
+    p7.command("start", "lunch".to_string());
+    assert!(matches!(p7.run_to_end(), StepNext::End));
+    assert_eq!(kit.get("/reads/plans/p7").text(), "Completed  ");
+}
+
+#[test]
+fn an_answer_the_kit_was_told_wins_over_the_workflow_it_runs() {
+    let mut kit = reads_kit().with_lifecycle(Plans, "p6", Lifecycle::of(WorkflowStatus::Paused));
+    let mut p6 = kit.workflow::<Plans>("p6");
+    p6.command("start", "lunch".to_string());
+    assert!(matches!(p6.run_to_end(), StepNext::End));
+    assert_eq!(kit.get("/reads/plans/p6").text(), "Paused  ");
+}
+
+#[test]
+fn the_kit_answers_how_a_copy_stands_from_the_entity_it_runs() {
+    let kit = reads_kit();
+    for amount in [1_i64, 2, 3] {
+        assert_eq!(kit.post("/reads/vehicles/v1", &amount).status, 200);
+    }
+    // No installation in a unit kit: no home and no set, and the position is the events it holds.
+    assert_eq!(kit.get("/reads/copies/vehicle/v1").text(), "  3");
+    let told = reads_kit().with_replication(
+        Vehicle,
+        "v2",
+        ReplicationStatus {
+            home: Some("leipzig".into()),
+            replication_set: vec!["leipzig".into(), "vienna".into()],
+            pending_handover: None,
+            conflict: None,
+            position: 7,
+        },
+    );
+    assert_eq!(
+        told.get("/reads/copies/vehicle/v2").text(),
+        "leipzig leipzig,vienna 7"
+    );
+}
+
+#[test]
+fn a_read_the_kit_neither_ran_nor_was_told_is_refused() {
+    let kit = reads_kit();
+    let standing = kit.get("/reads/plans/p9");
+    assert_eq!(standing.status, 500, "{}", standing.text());
+    let copy = kit.get("/reads/copies/vehicle/v9");
+    assert_eq!(copy.status, 500, "{}", copy.text());
+    // An entity that is not replicated is refused as the runtime refuses it.
+    assert_eq!(kit.get("/reads/copies/counter/c1").status, 404);
 }

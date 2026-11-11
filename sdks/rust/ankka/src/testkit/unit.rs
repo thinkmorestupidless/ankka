@@ -29,6 +29,7 @@ use crate::components::{ComponentOf, Endpoint, EventSourcedEntity, HeldState, Re
 use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode, ReplicationChange, Retention};
 use crate::proto::{self, Kind, Payload};
+use crate::reads::{Lifecycle, ReplicationStatus};
 use crate::service::Service;
 
 // ── Event sourced entities ───────────────────────────────────────────────────
@@ -383,9 +384,106 @@ pub(crate) struct InMemory {
     service: Service,
     states: RefCell<HashMap<(String, String), Payload>>,
     commands: Cell<i64>,
+    /// How many events each entity's history holds, as the kit ran its commands.
+    positions: RefCell<HashMap<(String, String), i64>>,
+    /// The standing of each workflow a kit sharing this one ran.
+    standings: RefCell<HashMap<(String, String), Lifecycle>>,
+    /// What a test said a read answers: kept apart from what the kit ran, and it wins.
+    told_standings: RefCell<HashMap<(String, String), Lifecycle>>,
+    told_copies: RefCell<HashMap<(String, String), ReplicationStatus>>,
+}
+
+fn unstubbed(what: String, with: &str) -> proto::Error {
+    CommandError::new(
+        ErrorCode::Internal,
+        format!("{what} was not stubbed; give the kit {with}, or run it in the kit"),
+    )
+    .to_proto()
 }
 
 impl InMemory {
+    pub(crate) fn of(service: Service) -> InMemory {
+        InMemory {
+            service,
+            states: RefCell::default(),
+            commands: Cell::new(0),
+            positions: RefCell::default(),
+            standings: RefCell::default(),
+            told_standings: RefCell::default(),
+            told_copies: RefCell::default(),
+        }
+    }
+
+    /// Records the standing of a workflow a kit ran.
+    pub(crate) fn record_standing(&self, component_id: &str, id: &str, standing: Lifecycle) {
+        self.standings
+            .borrow_mut()
+            .insert((component_id.to_string(), id.to_string()), standing);
+    }
+
+    /// The standing a test said, else the one the kit ran, else refused as not stubbed.
+    fn lifecycle(&self, request: proto::LifecycleRequest) -> proto::LifecycleReply {
+        use proto::lifecycle_reply::Result;
+        let key = (request.component_id, request.workflow_id);
+        let found = self
+            .told_standings
+            .borrow()
+            .get(&key)
+            .or(self.standings.borrow().get(&key))
+            .cloned();
+        let result = match found {
+            Some(standing) => Result::Lifecycle(standing.to_proto()),
+            None => Result::Error(unstubbed(
+                format!("the standing of '{}' of '{}'", key.1, key.0),
+                "with_lifecycle",
+            )),
+        };
+        proto::LifecycleReply {
+            result: Some(result),
+        }
+    }
+
+    /// What a test said, else the copy the kit holds (no installation, so no home and no set;
+    /// its position the events it holds), else refused: as not replicated, or as not stubbed.
+    fn replication(&self, request: proto::ReplicationRequest) -> proto::ReplicationReply {
+        use proto::replication_reply::Result;
+        let key = (request.component_id, request.entity_id);
+        let told = self.told_copies.borrow().get(&key).cloned();
+        let result = match (told, self.service.replicated(&key.0)) {
+            (Some(status), _) => Result::Status(status.to_proto()),
+            (None, Some(false)) => Result::Error(
+                CommandError::new(
+                    ErrorCode::NotFound,
+                    format!("'{}' is not replicated", key.0),
+                )
+                .to_proto(),
+            ),
+            (None, Some(true)) => match self.positions.borrow().get(&key) {
+                Some(&position) => Result::Status(
+                    ReplicationStatus {
+                        home: None,
+                        replication_set: Vec::new(),
+                        pending_handover: None,
+                        conflict: None,
+                        position,
+                    }
+                    .to_proto(),
+                ),
+                None => Result::Error(unstubbed(
+                    format!("how '{}' of '{}' stands", key.1, key.0),
+                    "with_replication",
+                )),
+            },
+            (None, None) => Result::Error(unstubbed(
+                format!("how '{}' of '{}' stands", key.1, key.0),
+                "with_replication",
+            )),
+        };
+        proto::ReplicationReply {
+            result: Some(result),
+        }
+    }
+
     fn invoke(&self, request: proto::InvokeRequest) -> proto::InvokeReply {
         let refuse = |code: ErrorCode, message: String| proto::InvokeReply {
             result: Some(proto::invoke_reply::Result::Error(
@@ -437,11 +535,15 @@ impl InMemory {
             };
         }
         // What each kind answers that the store needs: whether it deleted itself, and its outcome.
-        let (retention, outcome) = match reply.reply {
-            Some(proto::handle_reply::Reply::EventSourced(out)) => (out.retention, out.outcome),
-            Some(proto::handle_reply::Reply::KeyValue(out)) => (out.retention, out.outcome),
+        let (retention, outcome, persisted) = match reply.reply {
+            Some(proto::handle_reply::Reply::EventSourced(out)) => {
+                (out.retention, out.outcome, out.events.len() as i64)
+            }
+            Some(proto::handle_reply::Reply::KeyValue(out)) => (out.retention, out.outcome, 0),
             _ => return refuse(ErrorCode::Internal, "no reply".to_string()),
         };
+        // A copy's position is how many events its history holds; a key value entity has none.
+        *self.positions.borrow_mut().entry(key.clone()).or_default() += persisted;
         let deleted = matches!(
             retention.as_ref().and_then(|r| r.retention.as_ref()),
             Some(proto::retention::Retention::DeleteNow(_))
@@ -475,11 +577,7 @@ struct Shared(Rc<InMemory>);
 
 /// A service's event sourced and key value entities in memory, for the kits whose components call them.
 pub(crate) fn in_memory(service: Service) -> Rc<InMemory> {
-    Rc::new(InMemory {
-        service,
-        states: RefCell::default(),
-        commands: Cell::new(0),
-    })
+    Rc::new(InMemory::of(service))
 }
 
 /// Runs `f` with `runtime` answering its client calls, if there is one.
@@ -506,6 +604,14 @@ impl NativeHost for Shared {
                 Err(e) => panic!("a send that does not decode: {e}"),
             },
             Import::Config => proto::ConfigReply { value: None }.encode_to_vec(),
+            Import::Lifecycle => match proto::LifecycleRequest::decode(request) {
+                Ok(request) => self.0.lifecycle(request).encode_to_vec(),
+                Err(e) => panic!("a lifecycle read that does not decode: {e}"),
+            },
+            Import::Replication => match proto::ReplicationRequest::decode(request) {
+                Ok(request) => self.0.replication(request).encode_to_vec(),
+                Err(e) => panic!("a replication read that does not decode: {e}"),
+            },
             other => {
                 panic!("the unit testkit does not answer {other:?}; use the integration testkit")
             }
@@ -541,12 +647,56 @@ impl<E: Endpoint> EndpointTestKit<E> {
     pub fn with_service(service: Service) -> EndpointTestKit<E> {
         EndpointTestKit {
             registration: EndpointRegistration::new(),
-            runtime: Some(Rc::new(InMemory {
-                service,
-                states: RefCell::default(),
-                commands: Cell::new(0),
-            })),
+            runtime: Some(in_memory(service)),
         }
+    }
+
+    /// The kit answers a read of the standing of `workflow_id` of `component` with `standing`, over
+    /// anything a workflow kit sharing this one ran.
+    pub fn with_lifecycle<C>(mut self, component: C, workflow_id: &str, standing: Lifecycle) -> Self
+    where
+        C: ComponentOf<kinds::Workflow>,
+    {
+        let _ = component;
+        self.runtime_or_empty().told_standings.borrow_mut().insert(
+            (C::component_id().to_string(), workflow_id.to_string()),
+            standing,
+        );
+        self
+    }
+
+    /// The kit answers a read of how `entity_id` of `component` stands with `status`, over the
+    /// copy it holds.
+    pub fn with_replication<C>(
+        mut self,
+        component: C,
+        entity_id: &str,
+        status: ReplicationStatus,
+    ) -> Self
+    where
+        C: ComponentOf<kinds::EventSourced>,
+    {
+        let _ = component;
+        self.runtime_or_empty().told_copies.borrow_mut().insert(
+            (C::component_id().to_string(), entity_id.to_string()),
+            status,
+        );
+        self
+    }
+
+    /// A kit for the workflow `workflow_id` of `C` that shares this kit's service: its steps' calls
+    /// reach the same entities, and the standing it reaches is what the endpoint reads.
+    pub fn workflow<C: crate::components::Workflow>(
+        &mut self,
+        workflow_id: &str,
+    ) -> super::kinds::WorkflowTestKit<C> {
+        let runtime = self.runtime_or_empty().clone();
+        super::kinds::WorkflowTestKit::sharing(workflow_id, runtime)
+    }
+
+    fn runtime_or_empty(&mut self) -> &Rc<InMemory> {
+        self.runtime
+            .get_or_insert_with(|| in_memory(Service::new("ankka-testkit")))
     }
 
     /// A request to send.

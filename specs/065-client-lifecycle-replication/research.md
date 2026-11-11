@@ -155,3 +155,8 @@ end-to-end parity for every standing, where SC-001 says which are decoded.
   which is a `RuntimeError` in Python and an `Error` in TypeScript. The kits follow R5, so a test
   that forgot a stub fails as one that forgot a client does, and the message names the component
   and the id that were not stubbed.
+- **The Rust component kit's copy has no installation, so its position counts events alone** (T036).
+  `InMemory` keeps no platform records: a replicated entity it runs answers no home, an empty set,
+  and the number of events it holds, which is what "holds v1 with 3 events … position 3" says. A
+  workflow kit sharing an endpoint kit's service (`EndpointTestKit::workflow`) records the standing
+  it reaches there; the kit applies no recovery, so its retries are always empty.

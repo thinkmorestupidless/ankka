@@ -104,6 +104,8 @@ suspend fun addItem(item: LineItem): Effect<Done> = effects {
 def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
     if self.state.checkedOut:
         return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+    if item.quantity <= 0:
+        return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
     return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 ```
 

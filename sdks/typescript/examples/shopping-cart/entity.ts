@@ -37,6 +37,7 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
     }
   }
 
+  // docs:start add-item
   addItem(item: LineItem) {
     // docs:start refusal
     if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
@@ -44,6 +45,7 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
     if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was ${item.quantity}`)
     return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
   }
+  // docs:end add-item
 
   removeItem(productId: string) {
     if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)

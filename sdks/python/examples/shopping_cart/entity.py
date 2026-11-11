@@ -29,6 +29,7 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
         raise AssertionError(event)
     # docs:end declaration
 
+    # docs:start add-item
     @command("add-item")
     def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
         # docs:start refusal
@@ -38,6 +39,7 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
         if item.quantity <= 0:
             return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
         return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
+    # docs:end add-item
 
     @command("remove-item")
     def remove_item(self, product_id: str) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:

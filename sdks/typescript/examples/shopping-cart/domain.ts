@@ -3,8 +3,10 @@
 import { s, type Infer } from "ankka"
 
 // docs:start domain
+// docs:start line-item
 export const LineItem = s.record("LineItem", { productId: s.string, name: s.string, quantity: s.int })
 export type LineItem = Infer<typeof LineItem>
+// docs:end line-item
 
 export const ShoppingCart = s.record("ShoppingCart", { cartId: s.string, items: s.list(LineItem), checkedOut: s.boolean })
 export type ShoppingCart = Infer<typeof ShoppingCart>

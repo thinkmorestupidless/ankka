@@ -30,7 +30,9 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
 
   // docs:start add-item
   def addItem(item: LineItem): Effect[Done] =
+    // docs:start refusal
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
+    // docs:end refusal
     else if item.quantity <= 0 then
       effects.error(s"quantity must be greater than zero, was ${item.quantity}")
     else effects.persist(ItemAdded(item)).thenReply(_ => Done)
@@ -85,7 +87,9 @@ object ShoppingCartEntity
    * `LineItem` crosses the wire as a command argument, so it needs a manifest of its own. Declared
    * before the handlers below because object initialisation runs in order.
    */
+  // docs:start line-item
   given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
+  // docs:end line-item
 
   def create(context: EventSourcedEntityContext) = new ShoppingCartEntity(context)
 

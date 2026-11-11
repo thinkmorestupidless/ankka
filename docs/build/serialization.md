@@ -25,9 +25,8 @@ refused where the code is written, not at the first replay.
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/ShoppingCartEntity.scala#line-item -->
 ```scala
-import com.thinkmorestupidless.ankka.core.{Codecs, Serializer}
-
 given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
 ```
 
@@ -61,9 +60,8 @@ data class LineItem(val productId: String, val name: String, val quantity: Int)
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/entity.py#codecs -->
 ```python
-from ankka import json_codec
-
 state_codec = json_codec(ShoppingCart, "shopping-cart")
 event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
 ```
@@ -72,12 +70,14 @@ event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/domain.ts#line-item -->
 ```ts
-import { jsonCodec, s, type Infer } from "ankka"
-
 export const LineItem = s.record("LineItem", { productId: s.string, name: s.string, quantity: s.int })
 export type LineItem = Infer<typeof LineItem>
+```
 
+<!-- include: sdks/typescript/examples/shopping-cart/entity.ts#codecs -->
+```ts
 static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
 static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
 ```

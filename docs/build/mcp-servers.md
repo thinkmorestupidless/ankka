@@ -238,8 +238,9 @@ the service starts:
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/McpAgentSuite.scala#credential -->
 ```scala
-McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN")
+.mcpServers(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN"))
 ```
 
 ///

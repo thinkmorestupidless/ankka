@@ -215,7 +215,7 @@ the service starts:
 **Scala**
 
 ```scala
-McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN")
+.mcpServers(McpServer.named("tickets").header("Authorization", "ANKKA_MCP_TICKETS_TOKEN"))
 ```
 
 **Java**

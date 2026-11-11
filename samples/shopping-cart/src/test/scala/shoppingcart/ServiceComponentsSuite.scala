@@ -7,7 +7,7 @@ import shoppingcart.api.ShoppingCartEndpoint
 import shoppingcart.application.{CartRows, ShoppingCartEntity}
 
 /** A service's registration is its whole inventory: what it names is what it hosts. */
-class RegistrationSuite extends munit.FunSuite:
+class ServiceComponentsSuite extends munit.FunSuite:
 
   // docs:start registration
   val service = Ankka.service

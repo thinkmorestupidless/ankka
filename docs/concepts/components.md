@@ -152,7 +152,7 @@ fails at startup rather than at its first request.
 
 /// tab | Scala
 
-<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/RegistrationSuite.scala#registration -->
+<!-- include: samples/shopping-cart/src/test/scala/shoppingcart/ServiceComponentsSuite.scala#registration -->
 ```scala
 val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)

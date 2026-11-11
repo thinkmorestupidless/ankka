@@ -772,7 +772,9 @@ fn an_agent_session_a_task_and_an_instance_carry_their_data_subject() {
     with_native_host(host.clone(), || {
         let client =
             Client::with_metadata(ankka::Metadata::new().set("traceparent", "00-abc-def-01"));
+        // docs:start agent-subject
         let about = client.with_data_subject(player.clone());
+        // docs:end agent-subject
         let _: Value = about
             .invoke_by_name(Kind::Agent, "support", "s-1", "ask", "hi")
             .unwrap();

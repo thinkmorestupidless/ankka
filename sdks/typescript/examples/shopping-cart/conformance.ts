@@ -1052,7 +1052,9 @@ export class ConformanceEndpoint extends Endpoint {
       await ep.client.timers.scheduleRecurring(`recur-${req.params.id}`, Duration.ZERO, Duration.ZERO, { component: Reminder, handler: Reminder.actions.tick }, req.params.id)
       return done
     }),
+    // docs:start call-agent
     ask: post("/ask/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.ask).invoke(question)),
+    // docs:end call-agent
     askSecond: post("/ask-second/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.askSecond).invoke(question)),
     // docs:start approver-routes
     // A turn that may wait: the model's answer, or the approval requests it waits on.

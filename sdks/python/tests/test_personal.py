@@ -524,8 +524,10 @@ def test_an_agent_session_names_its_data_subject_on_every_call() -> None:
     client._stub_cache = stub  # type: ignore[assignment]
 
     async def run() -> None:
+        # docs:start agent-subject
         session = client.for_agent("support", "s-1", subject=DataSubject("player/8c1f"))
         await session.call("ask").invoke("hi", reply=str)
+        # docs:end agent-subject
         await session.call("ask").invoke("again", reply=str)
         await client.for_agent("support", "s-2").call("ask").invoke("hi", reply=str)
         await client.tasks.create(TaskType("answer", "An answer."), "How many?", id="t-1", subject="player/8c1f")

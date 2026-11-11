@@ -944,9 +944,11 @@ class ConformanceEndpoint(Endpoint):
         await self.client.timers.schedule_recurring(f"recur-{id}", timedelta(0), timedelta(0), "reminder", "tick", id)
         return DONE
 
+    # docs:start call-agent
     @post("/ask/{session}")
     async def ask(self, session: str, question: str) -> str:
         return await self._scoped().for_agent("assistant", session).call("ask").invoke(question, reply=str)
+    # docs:end call-agent
 
     @post("/ask-second/{session}")
     async def ask_second(self, session: str, question: str) -> str:

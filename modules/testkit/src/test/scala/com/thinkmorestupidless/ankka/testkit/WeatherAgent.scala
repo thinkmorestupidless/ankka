@@ -7,12 +7,14 @@ import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
 
 /** A structured answer, to exercise `thenReplyAs`. */
+// docs:start forecast
 final case class Forecast(location: String, summary: String, degreesCelsius: Int)
 
 // Top-level, not in the companion: `thenReplyAs` is called from inside the agent class,
 // which does not see the companion object's givens.
 given JsonValueCodec[Forecast] = Codecs.make[Forecast]
 given Serializer[Forecast]     = Codecs.serializer[Forecast]("forecast")
+// docs:end forecast
 
 /**
  * An agent with a tool, a system message and a structured variant.

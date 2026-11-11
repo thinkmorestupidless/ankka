@@ -734,6 +734,8 @@ Declare the codec at the top level of the file, beside the case class, not in th
 ```scala
 final case class Forecast(location: String, summary: String, degreesCelsius: Int)
 
+// Top-level, not in the companion: `thenReplyAs` is called from inside the agent class,
+// which does not see the companion object's givens.
 given JsonValueCodec[Forecast] = Codecs.make[Forecast]
 given Serializer[Forecast]     = Codecs.serializer[Forecast]("forecast")
 ```
@@ -1695,10 +1697,10 @@ reject:
 **Scala**
 
 ```scala
-val noKeys: Guardrail = new Guardrail:
-  val name = "no-keys"
+val noSecrets: Guardrail = new Guardrail:
+  val name                                                     = "no-secrets"
   override def checkOutput(text: String): Either[String, Unit] =
-    if text.contains("sk-") then Left("the reply contains what looks like a key") else Right(())
+    if text.contains("sk-") then Left("a key leaked") else Right(())
 ```
 
 **Java**
@@ -2140,7 +2142,8 @@ Each provider's defaults can be changed:
 ```scala
 val model = AnthropicProvider.fromEnv(
   modelName = "claude-opus-5",
-  defaults = AnthropicProvider.Defaults(maxTokens = 16000L, thinking = true, effort = Some(Effort.High))
+  defaults =
+    AnthropicProvider.Defaults(maxTokens = 16000L, thinking = true, effort = Some(Effort.High))
 )
 ```
 
@@ -2178,13 +2181,11 @@ are replaced by a summary once the session's text passes a size:
 ```scala
 val agents = AgentRuntime
   .withDefaultModel(model)
-  .withCompaction(CompactionSettings(maxHistoryBytes = 100_000, keepRecentMessages = 10))
-
-Ankka.service
-  .registerAll(agents.descriptors)      // session memory and the compactor
-  .withExtension(agents)
-  .withExtension(ProjectionRuntime())   // the compactor is a consumer
-  .start()
+  .withCompaction(settings, Some(ModelSummariser(summaryModel, 30.seconds)))
+testKit = AnkkaTestKit.start(
+  Seq(WeatherAgent.descriptor) ++ agents.descriptors,
+  Seq(agents, ProjectionRuntime())
+)
 ```
 
 **Java**
@@ -2240,10 +2241,8 @@ Agents are called through the component client, addressed by session:
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.agent.*
-
 val answer: String =
-  componentClient.forAgent(SessionId("session-42")).call(WeatherAgent.consult).invoke("Lisbon")
+  componentClient.forAgent(SessionId("session-42")).call(WeatherAgent.ask).invoke("Lisbon")
 ```
 
 **Java**
@@ -2266,13 +2265,15 @@ val reply = runBlocking {
 **Python**
 
 ```python
-answer = await client.for_agent("assistant", "session-42").call("ask").invoke("what is in cart c1?", reply=str)
+@post("/ask/{session}")
+async def ask(self, session: str, question: str) -> str:
+    return await self._scoped().for_agent("assistant", session).call("ask").invoke(question, reply=str)
 ```
 
 **TypeScript**
 
 ```ts
-const answer = await client.of(CartAssistant, "session-42").call(CartAssistant.handlers.ask).invoke("what is in cart c1?")
+ask: post("/ask/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.ask).invoke(question)),
 ```
 
 **Rust**
@@ -2340,31 +2341,33 @@ call and tool result) is kept encrypted under the data subject's key:
 **Scala**
 
 ```scala
-componentClient
+val reply = componentClient
   .forAgent(SessionId("support-91"), subject = Some(DataSubject("player/8c1f")))
-  .call(HelperAgent.ask)
+  .call(WeatherAgent.ask)
   .invoke("my card was declined")
 ```
 
 **Python**
 
 ```python
-await client.for_agent("helper", "support-91", subject="player/8c1f").call("ask").invoke("my card was declined", reply=str)
+session = client.for_agent("support", "s-1", subject=DataSubject("player/8c1f"))
+await session.call("ask").invoke("hi", reply=str)
 ```
 
 **TypeScript**
 
 ```typescript
-await client.forAgent("helper", "support-91", { subject: "player/8c1f" }).call("ask").invoke("my card was declined");
+const session = scoped.forAgent("assistant", "s1", { subject: subject("player/8c1f") })
+await session.call("done").invoke()
 ```
 
 **Rust**
 
 ```rust
-let client = client.with_data_subject(DataSubject::new("player/8c1f")?);
+let about = client.with_data_subject(player.clone());
 ```
 
-Every call to an agent made through `client` names the data subject.
+Every call to an agent made through `about` names the data subject.
 
 **Go**
 

@@ -150,3 +150,8 @@ end-to-end parity for every standing, where SC-001 says which are decoded.
   position 3") read as events only; `features/replication/status.feature` now says how many records
   the history holds, which is what every language's read already answered (Scala's included, before
   this feature). Nothing in a contract changed.
+- **An unstubbed read is refused with each kit's own no-client error** (T033, T034). The contract's
+  stub table says `CommandError`; R5 says the stub refuses "with the same error `_NoClient` gives",
+  which is a `RuntimeError` in Python and an `Error` in TypeScript. The kits follow R5, so a test
+  that forgot a stub fails as one that forgot a client does, and the message names the component
+  and the id that were not stubbed.

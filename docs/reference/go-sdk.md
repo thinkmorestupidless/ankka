@@ -873,7 +873,7 @@ conversation ends, so anything a handler still does after that cannot reach it.
 | `ankka.SendAndAwait[R](ctx, workflowID, id, wire, input, within)` | starts a workflow and answers its end state as one call |
 | `ankka.AwaitEnd[R](ctx, workflowID, id, within)` | waits for a workflow already started |
 | `ankka.Lifecycle(ctx, workflowID, id)` | the workflow's standing, an `ankka.WorkflowLifecycle` (`Status`, `PendingStep`, `Retries`, `Failure`, `IsTerminal()`); the runtime's own read, which runs no handler. A sidecar before protocol 1.24 is a `*ankka.ProtocolTooOldError` |
-| `ankka.Replication(ctx, entityID, id)` | how this installation's copy of a replicated entity stands, an `ankka.ReplicationStatus` (`Home`, `ReplicationSet`, `PendingHandover`, `Conflict`, `Position`); an entity that is not replicated is refused `NotFound` |
+| `ankka.Replication(ctx, entityID, id)` | how this installation's copy of a replicated entity stands, an `ankka.ReplicationStatus` (`Home`, `ReplicationSet`, `PendingHandover`, `Conflict`, `Position`); an entity that is not replicated is refused `NotFound`. A sidecar before protocol 1.24 is a `*ankka.ProtocolTooOldError` |
 | `ankka.ViewRow`, `ankka.QueryView`, `ankka.QueryStream`, `ankka.Watch` | a view's rows |
 
 <!-- include: sdks/go/examples/shopping-cart/cart/api.go#call-entity -->
@@ -1179,7 +1179,7 @@ A sidecar older than something the service declares is refused at discovery, nam
 | `testkit.Agent(agent, session, testkit.NewScriptedModel())` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out |
 | `testkit.Endpoint(endpoint, components…)`, `testkit.Mcp(endpoint, components…)` | An endpoint's routes, or an MCP endpoint's tools, with no sidecar |
 | `testkit.Calling(components…)`, `testkit.AnswerService(name, answer)` | Options of the component kits: the components a handler calls, and the answer a call to another service gets; a call to a service no `AnswerService` names fails as unresolvable |
-| `testkit.AnswerLifecycle(workflowID, id, standing)`, `testkit.AnswerReplication(entityID, id, status)` | Options of the component kits: what `ankka.Lifecycle` and `ankka.Replication` answer; a read no option names is refused, naming it. `testkit.EndpointWith(e, opts…)` is the endpoint kit given options |
+| `testkit.AnswerLifecycle(workflowID, id, standing)`, `testkit.AnswerReplication(entityID, id, status)` | Options of the component kits: what `ankka.Lifecycle` and `ankka.Replication` answer; a read no option names is refused, naming it. `testkit.EndpointWith(e, opts…)` and `testkit.McpWith(e, opts…)` are the endpoint and MCP kits given options |
 | `testkit.AgentCalling(components…)`, `testkit.AgentAnswering(name, answer)` | The same two options for the agent kit, for the components and services an agent's tools call |
 | `testkit.StartT(t, service)` | The whole service through the real sidecar image and a throwaway Postgres; `Restart(ctx)` starts a new sidecar on the same database; skipped unless `ANKKA_SLOW=1` |
 

@@ -294,7 +294,7 @@ for await (const token of this.client.forAgent("assistant", session).call("chat"
 | Event sourced entity | `client.forEventSourcedEntity(componentId, entityId)` |
 | Key value entity | `client.forKeyValueEntity(componentId, entityId)` |
 | Workflow | `client.forWorkflow(componentId, workflowId)`; `client.of(Cls, id).awaitEnd(timeoutMillis)` waits for its end, `.awaitEndParts(timeoutMillis)` as parts for an `sse` route (`awaitPartJson` renders one), and `.call(Cls.handlers.name).thenAwaitEnd(timeoutMillis).invoke(input)` starts and waits as one call; `client.of(Cls, id).lifecycle()` answers its standing (`status`, `pendingStep`, `retries`, `failure`), the runtime's own read, which runs no handler |
-| A replicated copy | `client.of(Cls, id).replication()` answers how this installation's copy stands (`home`, `replicationSet`, `pendingHandover`, `conflict`, `position`); an entity that is not replicated rejects with `CommandError`, `NOT_FOUND` |
+| A replicated copy | `client.of(Cls, id).replication()` answers how this installation's copy stands (`home`, `replicationSet`, `pendingHandover`, `conflict`, `position`); an entity that is not replicated rejects with `CommandError`, `NOT_FOUND`. Both reads need a sidecar at protocol 1.24; an older one rejects with `CommandError`, `UNAVAILABLE`, naming 1.24 |
 | Agent | `client.forAgent(componentId, sessionId)` |
 
 `.call(...)` gives an invocation: `await invocation.invoke(input)`, or `for await (const token of

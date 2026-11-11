@@ -509,6 +509,13 @@ var CheckoutFlow = ankka.Workflow[Checkout]("checkout", func(id string) Checkout
 		return ankka.Reply(s.Status), nil
 	}),
 	ankka.Step("reserve", func(ctx context.Context, s Checkout, _ ankka.Unit) (ankka.StepEffect[Checkout], error) {
+		// `hold`: a step held where the platform records it running; the scripted service answers
+		// when the case lets it.
+		if s.Mode == "hold" {
+			if _, err := ankka.CallService(ctx, "scripted", ankka.ServiceRequest{Method: "GET", Path: "/hold"}); err != nil {
+				return ankka.StepEffect[Checkout]{}, err
+			}
+		}
 		// A client call from a step: what the cart holds.
 		if _, err := ankka.Invoke[int](ctx, cart.ComponentID, s.ID, "total-quantity", ankka.Unit{}); err != nil {
 			return ankka.StepEffect[Checkout]{}, err

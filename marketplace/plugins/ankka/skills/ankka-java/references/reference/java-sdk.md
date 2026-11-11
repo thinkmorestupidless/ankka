@@ -565,6 +565,9 @@ public class Checkout extends Workflow<Checkout.CheckoutState> {
 
   @Step("reserve")
   public StepEffect reserve() {
+    // A step held where the platform records it running: the scripted service answers when the
+    // case lets it.
+    if (currentState().mode().equals("hold")) services().of("scripted").getText("/hold");
     // A client call from a step: what the cart holds.
     context()
         .componentClient()

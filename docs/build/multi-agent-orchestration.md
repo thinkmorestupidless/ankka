@@ -1725,7 +1725,6 @@ A workflow's own state answers "what did we decide"; the engine's lifecycle answ
 and if not, why not". Both matter: a plan whose state reads "consulting" looks identical whether a model
 call is in flight or the workflow failed long ago.
 
-<!-- languages: scala, java, kotlin; a Python, TypeScript, Rust or Go client has no `lifecycle` query of a workflow; a workflow that must show whether it is still going records it in its state, and a view or a consumer reads the standing with each state -->
 /// tab | Scala
 
 <!-- include: samples/multi-agent-planner/src/main/scala/planner/api/PlannerEndpoint.scala#observe -->
@@ -1774,6 +1773,75 @@ fun `a plan's own state and the engine's lifecycle are read apart`() {
     val lifecycle = planner("p-observe").lifecycle(PlannerWorkflow::class.java).invoke() // the engine's state
     assertEquals(PlanState.COMPLETED, state.status)
     assertTrue(lifecycle.isCompleted, lifecycle.status())
+}
+```
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/planner/test_planner.py#observe -->
+```python
+state = await planner.call("plan").invoke(reply=PlanState)  # the domain state
+lifecycle = await planner.lifecycle()  # the engine's state
+assert state.status == COMPLETED and lifecycle.is_completed
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/planner.test.ts#observe -->
+```ts
+test("a plan's own state and the engine's standing are read apart", async () => {
+  const { client } = scriptPlan([Specialist.Budget], "Cheap.")
+  const kit = WorkflowTestKit.of(PlannerWorkflow, "p-observe", client)
+  await kit.call(PlannerWorkflow.handlers.start, { userId: "u-1", destination: "Lisbon" })
+  await kit.runUntilEnd()
+  assert.equal(kit.state.status, "completed") // the domain state
+
+  // The engine's state is the runtime's to answer; a component test is told it.
+  const engine = stubClient({ lifecycle: [[PlannerWorkflow, "p-observe", { status: "completed", retries: {} }]] })
+  const lifecycle = await engine.of(PlannerWorkflow, "p-observe").lifecycle() // the engine's state
+  assert.equal(lifecycle.status, "completed")
+})
+```
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/planner.rs#observe -->
+```rust
+/// A run read two ways: the plan the workflow keeps, from its own `plan` query, and the engine's
+/// standing of the run, which runs no handler. They are separate on purpose: the plan says what the
+/// workflow decided, the standing whether it is running, paused, completed or failed.
+pub fn observe(
+    client: &ankka::Client,
+    plan_id: &str,
+) -> Result<(PlanState, Lifecycle), CommandError> {
+    let state: PlanState = client.invoke(PlannerWorkflow, plan_id, "plan", ())?; // the domain state
+    let lifecycle = client.lifecycle(PlannerWorkflow, plan_id)?; // the engine's state
+    Ok((state, lifecycle))
+}
+```
+
+///
+
+/// tab | Go
+
+<!-- include: sdks/go/examples/shopping-cart/samples/planner.go#observe -->
+```go
+// ObservePlan reads a run two ways: the plan the workflow keeps, from its own "plan" query, and the
+// engine's standing of the run, which runs no handler. The plan says what the workflow decided; the
+// standing whether it is running, paused, completed or failed.
+func ObservePlan(ctx context.Context, planID string) (PlanState, ankka.WorkflowLifecycle, error) {
+	state, err := ankka.Invoke[PlanState](ctx, "planner", planID, "plan", ankka.Unit{}) // the domain state
+	if err != nil {
+		return PlanState{}, ankka.WorkflowLifecycle{}, err
+	}
+	lifecycle, err := ankka.Lifecycle(ctx, "planner", planID) // the engine's state
+	return state, lifecycle, err
 }
 ```
 

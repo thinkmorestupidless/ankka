@@ -133,12 +133,12 @@ Samples, each a `docs:start`/`docs:end` (or the language's region marker) region
 
 Pages:
 
-- [ ] T051 [US5] `docs/build/workflows.md` "Domain state and lifecycle": Python, TypeScript, Rust and Go tabs including T039 to T042; remove the `<!-- languages: ... -->` comment at :1500; the prose keeps "standing"
-- [ ] T052 [US5] `docs/build/multi-agent-orchestration.md`: the four tabs including T043 to T046; remove the comment at :1689
-- [ ] T053 [US5] `docs/build/event-sourced-entities.md` "Reading how a copy stands": the four tabs including T047 to T050; remove the comment at :1988
-- [ ] T054 [US5] Remove the "Only a Scala, Java or Kotlin client reads a workflow's lifecycle…" bullet from `docs/reference/limitations.md`; update the lifecycle/replication row of `docs/build/component-client.md:168`
-- [ ] T055 [US5] `docs/reference/sidecar-protocol.md`: the two rpcs in the table, a 1.24 history line, and "currently 1.24" (it says 1.22); `docs/reference/wasm-abi.md`: the two imports
-- [ ] T056 [US5] `just docs-sync && just docs`: no problems, and the skill copies under `marketplace/` and `ankka.g8/` refreshed
+- [X] T051 [US5] `docs/build/workflows.md` "Domain state and lifecycle": Python, TypeScript, Rust and Go tabs including T039 to T042; remove the `<!-- languages: ... -->` comment at :1500; the prose keeps "standing"
+- [X] T052 [US5] `docs/build/multi-agent-orchestration.md`: the four tabs including T043 to T046; remove the comment at :1689
+- [X] T053 [US5] `docs/build/event-sourced-entities.md` "Reading how a copy stands": the four tabs including T047 to T050; remove the comment at :1988
+- [X] T054 [US5] Remove the "Only a Scala, Java or Kotlin client reads a workflow's lifecycle…" bullet from `docs/reference/limitations.md`; update the lifecycle/replication row of `docs/build/component-client.md:168`
+- [X] T055 [US5] `docs/reference/sidecar-protocol.md`: the two rpcs in the table, a 1.24 history line, and "currently 1.24" (it says 1.22); `docs/reference/wasm-abi.md`: the two imports
+- [X] T056 [US5] `just docs-sync && just docs`: no problems, and the skill copies under `marketplace/` and `ankka.g8/` refreshed
 
 **Checkpoint**: `just docs` reports no problems; the three sections carry seven tabs.
 

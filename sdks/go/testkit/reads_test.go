@@ -86,3 +86,39 @@ func TestAUnitKitRefusesAReadItWasNotToldToAnswer(t *testing.T) {
 		t.Fatalf("an unstubbed copy failed with %v (%T)", err, err)
 	}
 }
+
+// An endpoint's route reads both through the kit's answers, as a workflow's step does.
+var readsEndpoint = ankka.NewEndpoint("/reads", ankka.AllowAll(),
+	ankka.Get("/plans/{id}", func(ctx context.Context, req *ankka.Request) (string, error) {
+		l, err := ankka.Lifecycle(ctx, "plan", req.Param("id"))
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s %s", l.Status, str(l.Failure)), nil
+	}),
+	ankka.Get("/vehicles/{id}", func(ctx context.Context, req *ankka.Request) (string, error) {
+		c, err := ankka.Replication(ctx, "vehicle", req.Param("id"))
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s %d", str(c.Home), c.Position), nil
+	}),
+)
+
+func TestAnEndpointKitAnswersAStubbedStandingAndAStubbedCopy(t *testing.T) {
+	k := testkit.EndpointWith(readsEndpoint,
+		testkit.AnswerLifecycle("plan", "p1", ankka.WorkflowLifecycle{Status: ankka.Failed, Failure: ptr("the bank was shut")}),
+		testkit.AnswerReplication("vehicle", "v1", ankka.ReplicationStatus{Home: ptr("leipzig"), Position: 4}))
+	defer k.Close()
+	ctx := context.Background()
+	if r := k.Get(ctx, "/reads/plans/p1"); r.Status != 200 || r.Text() != "Failed the bank was shut" {
+		t.Fatalf("the standing read %d %q", r.Status, r.Text())
+	}
+	if r := k.Get(ctx, "/reads/vehicles/v1"); r.Status != 200 || r.Text() != "leipzig 4" {
+		t.Fatalf("the copy read %d %q", r.Status, r.Text())
+	}
+	// Unstubbed: refused, naming what was not stubbed.
+	if r := k.Get(ctx, "/reads/plans/p2"); r.Status == 200 || !strings.Contains(r.Text(), "not stubbed") {
+		t.Fatalf("an unstubbed standing read %d %q", r.Status, r.Text())
+	}
+}

@@ -36,8 +36,17 @@ type EndpointKit struct {
 // Endpoint is a kit for the endpoint e and the components its routes call. It panics, naming
 // each problem, when the declarations have problems a service would refuse to start with.
 func Endpoint(e *ankka.Endpoint, components ...ankka.Declaration) *EndpointKit {
-	v := view(ankka.NewService(append([]ankka.Declaration{e}, components...)...))
-	client, stop := serveStandIn(v, options{})
+	return EndpointWith(e, Calling(components...))
+}
+
+// EndpointWith is a kit for the endpoint e given the options the other kits take: the components
+// its routes call (Calling), and what a read of a workflow's standing (AnswerLifecycle), of a
+// copy's status (AnswerReplication) or a call to another service (AnswerService) answers. It
+// panics as Endpoint does.
+func EndpointWith(e *ankka.Endpoint, opts ...Option) *EndpointKit {
+	o := settings(opts)
+	v := view(ankka.NewService(append([]ankka.Declaration{e}, o.calling...)...))
+	client, stop := serveStandIn(v, o)
 	return &EndpointKit{view: v, client: client, stop: stop}
 }
 

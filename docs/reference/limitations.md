@@ -401,6 +401,10 @@ feature also says what that feature does not do.
   write-only, filtered and rewriting memory providers are the Scala SDK's, and the Java and Kotlin SDKs'
   `Memory` has no filter. A Python, TypeScript, Rust or Go agent's memory is on or off, and compaction of
   its sessions is not yet configurable.
+- **A Scala, Java or Kotlin unit test kit has no stub for another workflow's standing or a copy's
+  status.** A test of a component that reads one runs the service in the integration test kit, where the
+  runtime answers from what it records; a workflow's own kit reads that workflow's `lifecycle`. The
+  Python, TypeScript, Rust and Go kits take an answer for either read.
 - **Conditions, orderings and counts written at the call are the Scala view client's.** The `sql"…"`
   fragments are Scala's; a Java, Kotlin, Python, TypeScript, Rust or Go client reads a view by key, whole,
   or through a query declared on the view.

@@ -1793,18 +1793,10 @@ assert state.status == COMPLETED and lifecycle.is_completed
 
 <!-- include: sdks/typescript/examples/shopping-cart/planner.test.ts#observe -->
 ```ts
-test("a plan's own state and the engine's standing are read apart", async () => {
-  const { client } = scriptPlan([Specialist.Budget], "Cheap.")
-  const kit = WorkflowTestKit.of(PlannerWorkflow, "p-observe", client)
-  await kit.call(PlannerWorkflow.handlers.start, { userId: "u-1", destination: "Lisbon" })
-  await kit.runUntilEnd()
-  assert.equal(kit.state.status, "completed") // the domain state
-
-  // The engine's state is the runtime's to answer; a component test is told it.
-  const engine = stubClient({ lifecycle: [[PlannerWorkflow, "p-observe", { status: "completed", retries: {} }]] })
-  const lifecycle = await engine.of(PlannerWorkflow, "p-observe").lifecycle() // the engine's state
-  assert.equal(lifecycle.status, "completed")
-})
+const state = await planner.call(PlannerWorkflow.handlers.plan).invoke() // the domain state
+const lifecycle = await planner.lifecycle() // the engine's state
+assert.equal(state.status, "completed")
+assert.equal(lifecycle.status, "completed")
 ```
 
 ///

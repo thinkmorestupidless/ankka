@@ -1614,8 +1614,8 @@ fn lifecycle(request: &Request) -> Result<String, HttpProblem> {
         .client()
         .lifecycle(TransferWorkflow, request.path("id"))?;
     Ok(match lifecycle.failure {
-        Some(reason) => format!("{:?}: {reason}", lifecycle.status),
-        None => format!("{:?}", lifecycle.status),
+        Some(reason) => format!("{}: {reason}", lifecycle.status),
+        None => lifecycle.status.to_string(),
     })
 }
 ```
@@ -1642,10 +1642,12 @@ ankka.Get("/{id}/lifecycle", func(ctx context.Context, req *ankka.Request) (stri
 
 ///
 
-`WorkflowLifecycle` carries `status` (`Running`, `Paused`, `Completed` or `Failed`), the pending step, a
-count of retries per step, and the failure reason when there is one. `isTerminal` is true once the
-workflow has completed or failed. Handler names beginning `ankka:` are reserved for queries like this one,
-and registering one is refused.
+The answer carries the status (not started, running, paused, completed or failed), the step pending, a
+count of retries per step, and the failure reason when there is one, and says whether the workflow has
+ended, completed or failed. Each language names these in its own idiom: `WorkflowLifecycle` and
+`isTerminal` in Scala, Java and Kotlin, `Lifecycle` and `is_terminal` in Python and Rust, `ankka.WorkflowLifecycle`
+and `IsTerminal()` in Go, and a `Lifecycle` whose `status` is `"failed"` or `"not-started"` in TypeScript.
+Handler names beginning `ankka:` are reserved for queries like this one, and registering one is refused.
 
 The same answer, the workflow's **standing**, reaches a view or a consumer that reads the workflow, as data
 with each state the workflow records, so a listing of failed checkouts needs no status field written into

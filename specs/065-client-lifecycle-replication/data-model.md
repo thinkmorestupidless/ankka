@@ -32,5 +32,5 @@ unchanged).
 
 `InMemory` keeps, per `(component, workflow id)`, the standing of each workflow the kit runs:
 not started when created, running once started, paused on a pause effect, completed on its end,
-failed with the reason when a step fails past its retries; with the retry count per step and the
-step it is on. An answer set with `with_lifecycle` or `with_replication` is kept apart and wins.
+failed with the reason when a step fails; with the step it is on. The kit applies no recovery, so
+its retries are always empty; a test that needs retries sets them with `with_lifecycle`. An answer set with `with_lifecycle` or `with_replication` is kept apart and wins.

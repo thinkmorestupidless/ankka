@@ -947,6 +947,91 @@ loopback with `ScriptedService.start()` and gives its address to
 `AnkkaTestKit.start(…, localServices = Map(name -> scripted.address))`. See
 [Calling other services](calling-services.md).
 
+## Testing a component that reads a standing
+
+A component that reads a workflow's standing or how a replicated copy stands is told the answer in a unit
+test, as the runtime would give it, and a read the test did not answer is refused, naming the workflow or
+entity: a unit test runs no workflow it does not drive. Python gives a `ClientStub` to the kit as its
+client, TypeScript a `stubClient`, Go the `testkit.AnswerLifecycle` and `testkit.AnswerReplication`
+options (`testkit.EndpointWith` for an endpoint), and Rust `with_lifecycle` and `with_replication` on the
+kit, which otherwise answers from the workflows it runs in memory.
+
+**Python**
+
+```python
+def test_the_checkout_lifecycle_route_answers_the_engines_view() -> None:
+    from ankka import Lifecycle, Status
+    from ankka.testkit import ClientStub, EndpointTestKit
+    from examples.shopping_cart.endpoint import ShoppingCartEndpoint
+
+    failed = Lifecycle(Status.FAILED, "charge", {"charge": 1}, "the card was refused")
+    client = ClientStub().lifecycle("checkout", "c1", failed).lifecycle("checkout", "c2", Lifecycle(Status.RUNNING, "reserve", {}, None))
+    kit = EndpointTestKit(ShoppingCartEndpoint(client))
+    assert kit.request("GET", "/carts/c1/checkouts/lifecycle").body == b"Failed: the card was refused"
+    assert kit.request("GET", "/carts/c2/checkouts/lifecycle").body == b"Running"
+```
+
+**TypeScript**
+
+```ts
+test("the checkout's lifecycle route answers the engine's view, and why it failed", async () => {
+  const client = stubClient({
+    lifecycle: [
+      ["checkout", "c1", { status: "failed", pendingStep: "charge", retries: { charge: 1 }, failure: "the card was refused" }],
+      ["checkout", "c2", { status: "running", pendingStep: "reserve", retries: {} }],
+    ],
+  })
+  const kit = EndpointTestKit.of(ShoppingCartEndpoint, client)
+  assert.equal((await kit.get("/carts/c1/checkouts/lifecycle")).text(), "failed: the card was refused")
+  assert.equal((await kit.get("/carts/c2/checkouts/lifecycle")).text(), "running")
+})
+```
+
+**Rust**
+
+```rust
+#[test]
+fn a_transfers_lifecycle_answers_the_engines_view() {
+    let failed = Lifecycle {
+        failure: Some("the bank was shut".into()),
+        ..Lifecycle::of(WorkflowStatus::Failed)
+    };
+    let mut kit =
+        EndpointTestKit::<TransferApi>::new().with_lifecycle(TransferWorkflow, "t1", failed);
+    assert_eq!(
+        kit.get("/transfers/t1/lifecycle").text(),
+        "Failed: the bank was shut"
+    );
+    // A transfer the kit runs is read from where it got to.
+    let mut t2 = kit.workflow::<TransferWorkflow>("t2");
+    assert_eq!(kit.get("/transfers/t2/lifecycle").text(), "NotStarted");
+    t2.command("start", transfer(5));
+    assert_eq!(kit.get("/transfers/t2/lifecycle").text(), "Running");
+}
+```
+
+**Go**
+
+```go
+func TestTheLifecycleRouteSaysWhyAQuoteFailed(t *testing.T) {
+	ctx := context.Background()
+	failure := "nothing to price"
+	kit := testkit.EndpointWith(QuoteEndpoint,
+		testkit.AnswerLifecycle("quote", "q-1", ankka.WorkflowLifecycle{Status: ankka.Failed, Failure: &failure}),
+		testkit.AnswerLifecycle("quote", "q-2", ankka.WorkflowLifecycle{Status: ankka.Running}))
+	defer kit.Close()
+	if r := kit.Get(ctx, "/quotes/q-1/lifecycle"); r.Text() != "Failed: nothing to price" {
+		t.Fatalf("a failed quote answered %d %q", r.Status, r.Text())
+	}
+	if r := kit.Get(ctx, "/quotes/q-2/lifecycle"); r.Text() != "Running" {
+		t.Fatalf("a running quote answered %d %q", r.Status, r.Text())
+	}
+}
+```
+
+A test of the whole service reads both from what the runtime records, in every language; see
+[Integration testing](#integration-testing).
+
 ## Integration testing
 
 An integration test kit starts the whole service against a throwaway Postgres in Docker and drives it

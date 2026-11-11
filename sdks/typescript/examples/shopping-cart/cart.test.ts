@@ -327,6 +327,7 @@ describe("the component client from a route, against a client double", () => {
   })
 })
 
+// docs:start lifecycle-test
 test("the checkout's lifecycle route answers the engine's view, and why it failed", async () => {
   const client = stubClient({
     lifecycle: [
@@ -338,6 +339,7 @@ test("the checkout's lifecycle route answers the engine's view, and why it faile
   assert.equal((await kit.get("/carts/c1/checkouts/lifecycle")).text(), "failed: the card was refused")
   assert.equal((await kit.get("/carts/c2/checkouts/lifecycle")).text(), "running")
 })
+// docs:end lifecycle-test
 
 test("the watch socket answers what it does not understand, and ends with its socket", async () => {
   const { EndpointTestKit } = await import("ankka/testkit")

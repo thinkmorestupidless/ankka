@@ -427,6 +427,8 @@ let answer: String = ctx.client().invoke_by_name(Kind::Agent, "assistant", sessi
 | `query(View, name, key)`, `query_by_name(...)` | a view's rows |
 | `schedule(...)`, `schedule_recurring(...)`, `cancel(timer_id)` | timers; `schedule_recurring` since protocol 1.12 |
 | `await_end(Workflow, workflow_id, timeout)`, `invoke_then_await_end(Workflow, workflow_id, name, input, timeout)`, `await_end_by_name(...)` | waits for a workflow's end and answers its state, as `S`; a failed or deleted workflow is an `Err` whose code is `WorkflowFailed` and whose `details` hold `step` and `reason`. Since protocol 1.18. The instance is held for as long as the wait, so a module waits from a step, a route or a tool, not a command |
+| `lifecycle(Workflow, workflow_id)`, `lifecycle_by_name(...)` | the workflow's standing, a `Lifecycle` (`status`, `pending_step`, `retries`, `failure`, `is_terminal()`); the runtime's own read, which runs no handler. Since protocol 1.24: a module that calls it imports `lifecycle`, and an older runtime refuses to load it |
+| `replication(Entity, entity_id)`, `replication_by_name(...)` | how this installation's copy of a replicated entity stands, a `ReplicationStatus` (`home`, `replication_set`, `pending_handover`, `conflict`, `position`); an entity that is not replicated is an `Err` with `NotFound`. Since 1.24, imported as `replication` |
 
 A call blocks the handler until the runtime answers; a refusal is an `Err(CommandError)` whose `code` is the
 refusal's. Inside a handler `ctx.client()` carries the request's trace, so the call is a child span. See
@@ -583,7 +585,7 @@ runtime refuses a module with problems, logging each. Locally, the ankka reposit
 | `TimedActionTestKit::<C>::new()` | A timed action's `fire(name, input)`. |
 | `AgentTestKit::<C>::new(session, ScriptedModel::new())` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out. |
 | `AutonomousAgentTestKit::<C>::new(task_id)` | An autonomous agent's tools, guardrails and task rules for one task, with no loop. |
-| `EndpointTestKit::<E>::new()` | An endpoint's routes by method and path, with no runtime; `with_service(build())` answers its calls to the service's entities in memory. |
+| `EndpointTestKit::<E>::new()` | An endpoint's routes by method and path, with no runtime; `with_service(build())` answers its calls to the service's entities in memory. `with_lifecycle(Workflow, id, Lifecycle)` and `with_replication(Entity, id, ReplicationStatus)` say what a read answers; otherwise a read is answered from the components it runs in memory (`workflow::<W>(id)` drives one), and a read of neither is refused, naming it. |
 | `AnkkaTestKit::start(Module::build()?)` | The whole module in the real runtime image and a throwaway Postgres (feature `testkit`, Docker). `restart()` starts a new runtime on the same database. |
 
 The kits that call other components take `with_service(build())` too. Unit kits run natively with

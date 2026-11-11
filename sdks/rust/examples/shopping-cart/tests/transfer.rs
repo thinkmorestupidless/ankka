@@ -86,6 +86,7 @@ fn a_wait_for_a_workflow_needs_the_runtime() {
     kit.get("/quotes/q-1/wait");
 }
 
+// docs:start lifecycle-test
 #[test]
 fn a_transfers_lifecycle_answers_the_engines_view() {
     let failed = Lifecycle {
@@ -104,3 +105,4 @@ fn a_transfers_lifecycle_answers_the_engines_view() {
     t2.command("start", transfer(5));
     assert_eq!(kit.get("/transfers/t2/lifecycle").text(), "Running");
 }
+// docs:end lifecycle-test

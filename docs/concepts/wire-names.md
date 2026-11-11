@@ -19,6 +19,7 @@ A handler is declared under its wire name, beside the method that implements it.
 
 /// tab | Scala
 
+<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/ShoppingCartEntity.scala#companion -->
 ```scala
 object ShoppingCartEntity
     extends EventSourcedEntity.Companion[ShoppingCartEntity, ShoppingCart, ShoppingCartEvent](
@@ -26,10 +27,21 @@ object ShoppingCartEntity
       stateSerializer = Codecs.serializer[ShoppingCart]("shopping-cart"),
       eventSerializer = Codecs.serializer[ShoppingCartEvent]("shopping-cart-event")
     ):
+
+  /**
+   * `LineItem` crosses the wire as a command argument, so it needs a manifest of its own. Declared
+   * before the handlers below because object initialisation runs in order.
+   */
+  given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
+
   def create(context: EventSourcedEntityContext) = new ShoppingCartEntity(context)
 
-  val addItem = command("add-item")(_.addItem)
-  val getCart = query("get-cart")(_.getCart)
+  val addItem       = command("add-item")(_.addItem)
+  val removeItem    = command("remove-item")(_.removeItem)
+  val checkout      = command("checkout")(_.checkout)
+  val discard       = command("discard")(_.discard)
+  val getCart       = query("get-cart")(_.getCart)
+  val totalQuantity = query("total-quantity")(_.totalQuantity)
 ```
 
 ///
@@ -122,6 +134,7 @@ class ShoppingCart : EventSourcedEntity<Cart, CartEvent>() {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/entity.py#handlers -->
 ```python
 class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     component_id = "shopping-cart"
@@ -129,27 +142,38 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
 
     @command("add-item")
-    def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]: ...
+    def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+        if self.state.checkedOut:
+            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+        if item.quantity <= 0:
+            return self.effects.error(f"quantity must be greater than zero, was {item.quantity}")
+        return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 
     @query("get-cart")
-    def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]: ...
+    def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]:
+        return self.effects.reply(self.state)
 ```
 
 ///
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/entity.ts#handlers -->
 ```ts
 export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
   static readonly componentId = "shopping-cart"
   static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
   static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+  static readonly snapshotEvery = 100
 
   static readonly handlers = {
     addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+    removeItem: command("remove-item", s.string, Done, (cart: ShoppingCartEntity, productId) => cart.removeItem(productId)),
+    checkout: command("checkout", ShoppingCart, (cart: ShoppingCartEntity) => cart.checkout()),
+    discard: command("discard", Done, (cart: ShoppingCartEntity) => cart.discard()),
     getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+    totalQuantity: query("total-quantity", s.int, (cart: ShoppingCartEntity) => cart.effects.reply(totalQuantity(cart.state))),
   }
-}
 ```
 
 ///
@@ -244,8 +268,14 @@ val held: Cart = cart.call(ShoppingCart::getCart).invokeSuspending()
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/endpoint.py#call-site -->
 ```python
-await client.for_event_sourced_entity("shopping-cart", cart_id).call("add-item").invoke(item, reply=Done)
+def _cart(self, cart_id: str) -> Calls:
+    return self.client.with_metadata(self.request.metadata).for_event_sourced_entity("shopping-cart", cart_id)
+
+@post("/{cartId}/items")
+async def add_item(self, cartId: str, item: LineItem) -> Done:
+    return await self._cart(cartId).call("add-item").invoke(item, reply=Done)
 ```
 
 ///

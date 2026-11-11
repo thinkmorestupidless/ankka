@@ -291,8 +291,10 @@ Register the entity like any other component, and call it through the component 
 **Scala**
 
 ```scala
-val service = Ankka.service.register(CheckoutLog.descriptor).start()
+val service = Ankka.service.register(CheckoutLog.descriptor)
+```
 
+```scala
 val record =
   componentClient.forKeyValueEntity(EntityId("c1")).call(CheckoutLog.get).invoke()
 ```
@@ -321,17 +323,26 @@ ankkaTestKit(service) { // `service.start()` in a main; here the kit starts it
 **Python**
 
 ```python
-service = Ankka.service().register(CheckoutLog)
+def checkout_log_service() -> Any:
+    """Registered like any other component, and called through the component client."""
+    return Ankka.service().register(CheckoutLog)
 
-record = await client.for_key_value_entity("checkout-log", "c1").call("get").invoke(reply=CheckoutRecord)
+
+async def checkout_record(client: ComponentClient, cart_id: str) -> CheckoutRecord:
+    return await client.for_key_value_entity("checkout-log", cart_id).call("get").invoke(reply=CheckoutRecord)
 ```
 
 **TypeScript**
 
 ```ts
-const service = Ankka.service().register(CheckoutLog)
+/** Registered like any other component, and called through the component client. */
+export function checkoutLogService() {
+  return Ankka.service().register(CheckoutLog)
+}
 
-const record = await client.of(CheckoutLog, "c1").call(CheckoutLog.handlers.get).invoke()
+export function checkoutRecord(client: ComponentClient, cartId: string): Promise<CheckoutRecord> {
+  return client.of(CheckoutLog, cartId).call(CheckoutLog.handlers.get).invoke()
+}
 ```
 
 **Rust**

@@ -1458,6 +1458,7 @@ try
   val status = atB.replication(Fleet.vehicles)
   assertEquals(status.home, Some("smoke-a"))
   assertEquals(status.replicationSet, Set("smoke-a", "smoke-b"))
+  assert(status.position > 0L) // how many records this copy holds
 finally fleet.stopAll()
 ```
 

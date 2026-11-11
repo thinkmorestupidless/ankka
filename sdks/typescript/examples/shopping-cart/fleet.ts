@@ -8,9 +8,11 @@ export type Vehicle = Infer<typeof Vehicle>
 export const VehicleEvent = s.sumType("VehicleEvent", { StepAdded: { step: s.string }, Allotted: { dealer: s.string } })
 export type VehicleEvent = Infer<typeof VehicleEvent>
 
+// docs:start replicated-declaration
 export class Vehicles extends EventSourcedEntity<Vehicle, VehicleEvent> {
   static readonly componentId = "vehicles"
   static readonly replicated = true
+  // docs:end replicated-declaration
   static readonly state = jsonCodec(Vehicle, "vehicle")
   static readonly events = jsonCodec(VehicleEvent, "vehicle-event")
 
@@ -25,6 +27,7 @@ export class Vehicles extends EventSourcedEntity<Vehicle, VehicleEvent> {
     return { steps: [], dealer: null, writtenAt: [] }
   }
 
+  // docs:start replicated-apply
   applyEvent(vehicle: Vehicle, event: VehicleEvent, context?: EventContext): Vehicle {
     // Where this event was written, on replay as well as when it is persisted here.
     const writtenAt = [...vehicle.writtenAt, context?.installation ?? ""]
@@ -35,7 +38,9 @@ export class Vehicles extends EventSourcedEntity<Vehicle, VehicleEvent> {
         return { ...vehicle, dealer: event.dealer, writtenAt }
     }
   }
+  // docs:end replicated-apply
 
+  // docs:start replicated-effects
   /** Allots the vehicle to a dealership, whose installation holds a copy from now on. */
   allot(dealer: string) {
     // docs:start replicate-to
@@ -49,6 +54,7 @@ export class Vehicles extends EventSourcedEntity<Vehicle, VehicleEvent> {
     return this.effects.handOverTo(installation).thenReply(() => done)
     // docs:end hand-over
   }
+  // docs:end replicated-effects
 }
 
 export const Build = s.record("Build", { vehicle: s.string, step: s.string, installation: s.string, local: s.boolean })

@@ -50,6 +50,23 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
     assertEquals(state.items.map(_.productId), List("p1", "p2"))
   }
 
+  test("a command and a query are called by the entity's id") {
+    val componentClient = testKit.componentClient
+    val item            = LineItem("p1", "Widget", 2)
+    // docs:start calling
+    val done = componentClient
+      .forEventSourcedEntity(EntityId("c1"))
+      .call(ShoppingCartEntity.addItem)
+      .invoke(item)
+    val cart = componentClient
+      .forEventSourcedEntity(EntityId("c1"))
+      .call(ShoppingCartEntity.getCart)
+      .invoke()
+    // docs:end calling
+    assertEquals(done, Done)
+    assertEquals(cart.items, List(item))
+  }
+
   test("state survives losing every entity from memory") {
     val id = "cart-replay"
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 5))

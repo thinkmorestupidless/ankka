@@ -243,6 +243,7 @@ object EntityViewVersionSuite:
       val count = change.rows.get(change.subject).fold(0)(_.count)
       effects.updateRow(change.subject, VersionRow(change.subject, version, count + 1))
 
+  // docs:start version
   object Rebuilt
       extends KeyedView.Companion[RebuiltView, VersionRow](
         ComponentId("rebuilt"),
@@ -252,6 +253,7 @@ object EntityViewVersionSuite:
     val customers                         = source(ChangeSource.eventsOf(Customer))(_.touch)
     override def version                  = Some(EntityVersions.keyed)
     def create(ctx: ViewComponentContext) = new RebuiltView(EntityVersions.keyed)
+  // docs:end version
 
   final class PlainView(version: Int) extends View[Recorded, VersionRow]:
     def onChange(event: Recorded): Effect =

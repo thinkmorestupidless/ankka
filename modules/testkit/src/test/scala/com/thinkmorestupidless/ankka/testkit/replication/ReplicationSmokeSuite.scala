@@ -29,9 +29,12 @@ class ReplicationSmokeSuite extends munit.FunSuite with LogCapturing:
       assertEquals(mirrored.local.distinct, Vector(false))
       val forwarded = atB.call(Fleet.vehicles.recordInspection).invoke("brakes")
       assertEquals(forwarded.installation, Some("smoke-a"))
+      // docs:start replication-status
       val status = atB.replication(Fleet.vehicles)
       assertEquals(status.home, Some("smoke-a"))
       assertEquals(status.replicationSet, Set("smoke-a", "smoke-b"))
+      assert(status.position > 0L) // how many records this copy holds
+      // docs:end replication-status
     finally fleet.stopAll()
     // docs:end several-installations
   }

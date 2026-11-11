@@ -1117,11 +1117,8 @@ register the class. In Go, pass the declaration to `ankka.NewService`.
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.runtime.Ankka
-
 val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)
-  .start()
 ```
 
 **Java**
@@ -1163,17 +1160,56 @@ fun main() {
 **Python**
 
 ```python
-from ankka import Ankka
-
-service = Ankka.service().register(ShoppingCartEntity)
+def service() -> Any:
+    """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
+    registered = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(CartRows)
+        .register(CheckoutNotifier)
+        .register(CheckoutLog)
+        .register(CheckoutWorkflow)
+        .register(CartAssistant)
+        .register(CartAnswerer)
+        .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
+        .register(CartKeysEndpoint)
+        .register(CartMcpEndpoint)
+    )
+    # The graph is published to a topic, and a sidecar with no broker refuses a service that
+    # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.
+    if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
+        registered = registered.register(CartGraph).register(CartContentsGraph)
+    return registered
 ```
 
 **TypeScript**
 
 ```ts
-import { Ankka } from "ankka"
-
-const service = Ankka.service().register(ShoppingCartEntity)
+/**
+ * The whole inventory: registration is explicit, so nothing is discovered by scanning. The checkout
+ * notices and the cart's graph are published to a topic, so they are registered only where there is a
+ * broker to publish to; without one the sidecar refuses a component that needs it.
+ */
+export function service() {
+  const cart = Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+    .register(CheckoutNotifier)
+    .register(CheckoutLog)
+    .register(CheckoutWorkflow)
+    .register(CartAssistant)
+    .register(CartAnswerer)
+    .register(ShoppingCartEndpoint)
+    .register(QuestionsEndpoint)
+    .register(CallingEndpoint)
+    .register(CartMcp)
+    .register(CartKeysEndpoint)
+  // The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+  // components that need one are registered only where it is set.
+  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+}
 ```
 
 **Rust**
@@ -1218,10 +1254,14 @@ call is routed to wherever the entity lives in the cluster.
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.core.EntityId
-
-val done  = componentClient.forEventSourcedEntity(EntityId("c1")).call(ShoppingCartEntity.addItem).invoke(item)
-val cart  = componentClient.forEventSourcedEntity(EntityId("c1")).call(ShoppingCartEntity.getCart).invoke()
+val done = componentClient
+  .forEventSourcedEntity(EntityId("c1"))
+  .call(ShoppingCartEntity.addItem)
+  .invoke(item)
+val cart = componentClient
+  .forEventSourcedEntity(EntityId("c1"))
+  .call(ShoppingCartEntity.getCart)
+  .invoke()
 ```
 
 **Java**
@@ -1246,15 +1286,20 @@ val held: Cart = cart.call(ShoppingCart::getCart).invokeSuspending()
 **Python**
 
 ```python
-done = await client.for_event_sourced_entity("shopping-cart", "c1").call("add-item").invoke(item, reply=Done)
-cart = await client.for_event_sourced_entity("shopping-cart", "c1").call("get-cart").invoke(reply=ShoppingCart)
+async def add_and_read(client: ComponentClient, item: LineItem) -> ShoppingCart:
+    cart = client.for_event_sourced_entity("shopping-cart", "c1")
+    await cart.call("add-item").invoke(item)  # Done
+    return await cart.call("get-cart").invoke(reply=ShoppingCart)
 ```
 
 **TypeScript**
 
 ```ts
-const done = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.addItem).invoke(item)
-const cart = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.getCart).invoke()
+export async function addAndRead(client: ComponentClient, item: LineItem): Promise<ShoppingCart> {
+  const cart = client.of(ShoppingCartEntity, "c1")
+  await cart.call(ShoppingCartEntity.handlers.addItem).invoke(item) // Done
+  return cart.call(ShoppingCartEntity.handlers.getCart).invoke()
+}
 ```
 
 **Rust**
@@ -1481,7 +1526,7 @@ class VehicleEntity : EventSourcedEntity<Vehicle, VehicleEvent>() {
 **Python**
 
 ```python
-class VehicleEntity(EventSourcedEntity[Vehicle, VehicleEvent]):
+class VehicleEntity(EventSourcedEntity[Vehicle, StepAdded]):
     component_id = "vehicle"
     replicated = True
 ```
@@ -1489,23 +1534,21 @@ class VehicleEntity(EventSourcedEntity[Vehicle, VehicleEvent]):
 **TypeScript**
 
 ```ts
-class VehicleEntity extends EventSourcedEntity<Vehicle, VehicleEvent> {
-  static readonly componentId = "vehicle"
+export class Vehicles extends EventSourcedEntity<Vehicle, VehicleEvent> {
+  static readonly componentId = "vehicles"
   static readonly replicated = true
-  // …
-}
 ```
 
 **Rust**
 
 ```rust
-impl EventSourcedEntity for VehicleEntity {
-    type State = Vehicle;
-    type Event = VehicleEvent;
-    const COMPONENT_ID: &'static str = "vehicle";
+impl EventSourcedEntity for ReplicatedVehicle {
+    type State = VehicleRecord;
+    type Event = StepAdded;
+    const COMPONENT_ID: &'static str = "replicated-vehicle";
+    const STATE_MANIFEST: Option<&'static str> = Some("vehicle-record");
+    const EVENT_MANIFEST: Option<&'static str> = Some("step-added");
     const REPLICATED: bool = true;
-    // …
-}
 ```
 
 **Go**
@@ -1605,34 +1648,47 @@ fun stopReplicatingTo(installation: String): Effect<Receipt> = effects {
 
 ```python
 @command("hand-over")
-def hand_over(self, installation: str) -> EventSourcedEffect[Vehicle, VehicleEvent, Done]:
-    return self.effects.hand_over_to(installation).then_reply(lambda _: DONE)
+def hand_over(self, target: str) -> EventSourcedEffect[Vehicle, StepAdded, str]:
+    return self.effects.hand_over_to(target).then_reply(lambda _: target)
 
 @command("allot")
-def allot(self, dealer: str) -> EventSourcedEffect[Vehicle, VehicleEvent, Done]:
-    return self.effects.persist(Allotted(dealer)).replicate_to(dealer).then_reply(lambda _: DONE)
+def allot(self, target: str) -> EventSourcedEffect[Vehicle, StepAdded, str]:
+    return self.effects.persist(StepAdded("allotted")).replicate_to(target).stop_replicating_to("factory").then_reply(
+        lambda _: target
+    )
 ```
 
 **TypeScript**
 
 ```ts
-handOver: command("hand-over", s.string, Done, (v: VehicleEntity, installation) =>
-  v.effects.handOverTo(installation).thenReply(() => done)),
-allot: command("allot", s.string, Done, (v: VehicleEntity, dealer) =>
-  v.effects.persist({ type: "Allotted", dealer }).replicateTo(dealer).thenReply(() => done)),
+/** Allots the vehicle to a dealership, whose installation holds a copy from now on. */
+allot(dealer: string) {
+  return this.effects.persist({ type: "Allotted", dealer }).replicateTo(dealer).thenReply(() => done)
+}
+
+/** Ships the vehicle: its home is the dealership's installation from now on. */
+handOver(installation: string) {
+  return this.effects.handOverTo(installation).thenReply(() => done)
+}
 ```
 
 **Rust**
 
 ```rust
-fn hand_over(_: &Vehicle, installation: String, _: &Context) -> Effect<VehicleEvent, Done> {
-    effects::hand_over_to(installation).then_reply_value(Done)
+fn hand_over(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
+    effects::hand_over_to(target.clone()).then_reply_value(target)
 }
 
-fn allot(_: &Vehicle, dealer: String, _: &Context) -> Effect<VehicleEvent, Done> {
-    effects::persist(VehicleEvent::Allotted { dealer: dealer.clone() })
-        .replicate_to(dealer)
-        .then_reply_value(Done)
+fn replicate_to(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
+    effects::replicate_to(target.clone()).then_reply_value(target)
+}
+
+fn stop_replicating_to(
+    _: &VehicleRecord,
+    target: String,
+    _: &Context,
+) -> Effect<StepAdded, String> {
+    effects::stop_replicating_to(target.clone()).then_reply_value(target)
 }
 ```
 
@@ -1752,27 +1808,44 @@ private fun receipt(command: String): (Vehicle) -> Receipt {
 
 ```python
 def apply_event(self, state: Vehicle, event: StepAdded) -> Vehicle:
-    written = self.event_context  # installation, is_local, sequence
-    return Vehicle(state.steps + [event.step], state.written_at + [written.installation])
+    here = self.event_context
+    return Vehicle(state.steps + [event.step], state.written_at + [here.installation], state.local + [here.is_local])
 ```
 
 **TypeScript**
 
 ```ts
-applyEvent(state: Vehicle, event: StepAdded, context?: EventContext): Vehicle {
-  // context.installation, context.isLocal, context.sequence
-  return { steps: [...state.steps, event.step], writtenAt: [...state.writtenAt, context?.installation ?? ""] }
+applyEvent(vehicle: Vehicle, event: VehicleEvent, context?: EventContext): Vehicle {
+  // Where this event was written, on replay as well as when it is persisted here.
+  const writtenAt = [...vehicle.writtenAt, context?.installation ?? ""]
+  switch (event.type) {
+    case "StepAdded":
+      return { ...vehicle, steps: [...vehicle.steps, event.step], writtenAt }
+    case "Allotted":
+      return { ...vehicle, dealer: event.dealer, writtenAt }
+  }
 }
 ```
 
 **Rust**
 
 ```rust
-// `apply` is unchanged; `apply_at` is called instead, and calls `apply` unless overridden.
-fn apply_at(mut state: Vehicle, event: &VehicleEvent, ctx: &EventContext) -> Vehicle {
-    let VehicleEvent::StepAdded { step } = event;
-    state.steps.push(step.clone());
-    state.written_at.push(ctx.installation().unwrap_or_default().to_string());
+fn apply(state: VehicleRecord, event: &StepAdded) -> VehicleRecord {
+    Self::apply_at(state, event, &EventContext::new(None, true, 0))
+}
+
+fn apply_at(mut state: VehicleRecord, event: &StepAdded, ctx: &EventContext) -> VehicleRecord {
+    state.steps.push(event.step.clone());
+    state
+        .written_at
+        .push(ctx.installation().unwrap_or_default().to_string());
+    state.local.push(ctx.is_local());
+    state
+        .acted_by
+        .push(ctx.attribution().unwrap_or_default().to_string());
+    state
+        .forwarded_from
+        .push(ctx.forwarded_from().unwrap_or_default().to_string());
     state
 }
 ```
@@ -1808,10 +1881,10 @@ handover waiting, a conflict, and the position its history reaches.
 **Scala**
 
 ```scala
-val status = componentClient.forEventSourcedEntity(EntityId("v1")).replication(Vehicles)
-status.home            // Some("leipzig")
-status.replicationSet  // Set("leipzig", "vienna")
-status.position        // how many records this copy holds
+val status = atB.replication(Fleet.vehicles)
+assertEquals(status.home, Some("smoke-a"))
+assertEquals(status.replicationSet, Set("smoke-a", "smoke-b"))
+assert(status.position > 0L) // how many records this copy holds
 ```
 
 **Java**
@@ -1876,26 +1949,56 @@ kit.replay("leipzig", listOf(VehicleEvent.Created("v1"), VehicleEvent.StepAdded(
 ```python
 kit = EventSourcedTestKit.of(VehicleEntity, "v1", mode="follower", home="leipzig", installation="bratislava")
 kit.replay(StepAdded("frame"), written_at="leipzig")
-assert kit.call("add-step", "wheels").error.code == ErrorCode.NOT_HOME
+refused = kit.call("add-step", "wheels")
+assert refused.error is not None and refused.error.code == ErrorCode.NOT_HOME
 ```
 
 **TypeScript**
 
 ```ts
-const kit = EventSourcedTestKit.of(VehicleEntity, "v1", noClient(), { kind: "follower", home: "leipzig", installation: "bratislava" })
-kit.replay([{ step: "frame" }], "leipzig")
-assert.equal((await kit.call("add-step", "wheels")).error?.code, ErrorCode.NotHome)
+test("a follower answers from what it mirrored and refuses to write", async () => {
+  const follower = { kind: "follower", home: "leipzig", installation: "bratislava" } as const
+  const kit = EventSourcedTestKit.of(Vehicles, "v1", undefined, follower)
+  kit.replay([{ type: "StepAdded", step: "frame" }, { type: "StepAdded", step: "paint" }], "leipzig")
+  const mirrored = { steps: ["frame", "paint"], dealer: null, writtenAt: ["leipzig", "leipzig"] }
+  assert.deepEqual((await kit.call(Vehicles.handlers.get)).reply, mirrored)
+  const refused = await kit.call(Vehicles.handlers.addStep, "wheels")
+  assert.equal(refused.error?.code, "NOT_HOME")
+  assert.match(refused.error?.message ?? "", /leipzig/)
+})
 ```
 
 **Rust**
 
 ```rust
-let mut kit = EventSourcedTestKit::<VehicleEntity>::new("v1").in_mode(ReplicationMode::Follower {
-    home: "leipzig".to_string(),
-    installation: "bratislava".to_string(),
-});
-kit.replay(vec![VehicleEvent::StepAdded { step: "frame".to_string() }], Some("leipzig"));
-assert_eq!(kit.command("add-step", "wheels".to_string()).error().map(|e| e.code), Some(ErrorCode::NotHome));
+#[test]
+fn a_follower_answers_queries_from_its_mirrored_history_and_refuses_to_write() {
+    let mut kit =
+        EventSourcedTestKit::<ReplicatedVehicle>::new("v1").in_mode(ReplicationMode::Follower {
+            home: "leipzig".into(),
+            installation: "bratislava".into(),
+        });
+    // History the copy mirrored from its home, written there.
+    kit.replay(
+        vec![
+            StepAdded {
+                step: "frame".into(),
+            },
+            StepAdded {
+                step: "paint".into(),
+            },
+        ],
+        Some("leipzig"),
+    );
+    let vehicle = kit.command("get", ()).reply::<VehicleRecord>().unwrap();
+    assert_eq!(vehicle.steps, vec!["frame", "paint"]);
+    assert_eq!(vehicle.written_at, vec!["leipzig", "leipzig"]);
+    assert_eq!(vehicle.local, vec![false, false]);
+    // A command that may persist is refused: the home is the only copy that writes.
+    let refused = kit.command("add-step", "wheels".to_string());
+    assert_eq!(refused.error().map(|e| e.code), Some(ErrorCode::NotHome));
+    assert!(refused.error().unwrap().message.contains("leipzig"));
+}
 ```
 
 A whole service at several installations is tested with the integration test kit; see
@@ -1911,11 +2014,14 @@ component's serializers, so a missing codec fails in the test rather than on fir
 **Scala**
 
 ```scala
-val kit    = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
-val result = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 2))
+test("adding an item persists exactly one event and acknowledges") {
+  val kit    = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
+  val result = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 2))
 
-assertEquals(result.replyValue, Done)
-assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
+  assertEquals(result.replyValue, Done)
+  assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
+  assertEquals(kit.currentState.totalQuantity, 2)
+}
 ```
 
 **Java**
@@ -1948,8 +2054,17 @@ assertEquals(1, kit.events().size)
 **Python**
 
 ```python
-kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
-assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
+def test_add_merge_remove_and_checkout() -> None:
+    kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+    assert kit.call("add-item", PEN).events == (ItemAdded(PEN),)
+    assert kit.call("add-item", LineItem("p1", "Pen", 3)).persisted
+    assert kit.state.items == [LineItem("p1", "Pen", 5)]
+    kit.call("add-item", INK)
+    assert kit.call("total-quantity").reply == 6
+    assert kit.call("remove-item", "p2").events == (ItemRemoved("p2"),)
+    checked = kit.call("checkout")
+    assert checked.events == (CheckedOut(),)
+    assert checked.reply == ShoppingCart("c1", [LineItem("p1", "Pen", 5)], True)
 ```
 
 **TypeScript**

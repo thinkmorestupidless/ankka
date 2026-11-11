@@ -460,6 +460,7 @@ impl ReplicatedVehicle {
         effects::persist(StepAdded { step }).then_reply_value(placement)
     }
 
+    // docs:start replicated-effects
     // docs:start hand-over
     fn hand_over(_: &VehicleRecord, target: String, _: &Context) -> Effect<StepAdded, String> {
         effects::hand_over_to(target.clone()).then_reply_value(target)
@@ -479,12 +480,14 @@ impl ReplicatedVehicle {
     ) -> Effect<StepAdded, String> {
         effects::stop_replicating_to(target.clone()).then_reply_value(target)
     }
+    // docs:end replicated-effects
 
     fn get(vehicle: &VehicleRecord, (): (), _: &Context) -> ReadOnlyEffect<VehicleRecord> {
         effects::reply(vehicle.clone())
     }
 }
 
+// docs:start replicated-declaration
 impl EventSourcedEntity for ReplicatedVehicle {
     type State = VehicleRecord;
     type Event = StepAdded;
@@ -492,11 +495,13 @@ impl EventSourcedEntity for ReplicatedVehicle {
     const STATE_MANIFEST: Option<&'static str> = Some("vehicle-record");
     const EVENT_MANIFEST: Option<&'static str> = Some("step-added");
     const REPLICATED: bool = true;
+    // docs:end replicated-declaration
 
     fn empty_state(_: &str) -> VehicleRecord {
         VehicleRecord::default()
     }
 
+    // docs:start replicated-apply
     fn apply(state: VehicleRecord, event: &StepAdded) -> VehicleRecord {
         Self::apply_at(state, event, &EventContext::new(None, true, 0))
     }
@@ -515,6 +520,7 @@ impl EventSourcedEntity for ReplicatedVehicle {
             .push(ctx.forwarded_from().unwrap_or_default().to_string());
         state
     }
+    // docs:end replicated-apply
 
     fn handlers() -> Handlers<ReplicatedVehicle> {
         Handlers::new()

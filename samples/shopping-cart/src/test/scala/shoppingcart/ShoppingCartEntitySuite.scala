@@ -15,14 +15,20 @@ class ShoppingCartEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def newKit = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
 
+  // docs:start unit-test
   test("adding an item persists exactly one event and acknowledges") {
-    val kit    = newKit
+    val kit    = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
     val result = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 2))
 
     assertEquals(result.replyValue, Done)
     assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
-    assertEquals(result.eventOfType[ItemAdded].item.quantity, 2)
     assertEquals(kit.currentState.totalQuantity, 2)
+  }
+  // docs:end unit-test
+
+  test("an event of a type is read from a result") {
+    val result = newKit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 2))
+    assertEquals(result.eventOfType[ItemAdded].item.quantity, 2)
   }
 
   test("state is rebuilt purely by folding events") {

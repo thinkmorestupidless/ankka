@@ -624,7 +624,7 @@ Kotlin ones on the entity the reference service records its cases on:
 **Scala**
 
 ```scala
-import com.thinkmorestupidless.ankka.core.{ComponentId, Done, EntityId}
+import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId}
 import com.thinkmorestupidless.ankka.sdk.*
 import shoppingcart.domain.ShoppingCartEvent
 import shoppingcart.domain.ShoppingCartEvent.*
@@ -1182,7 +1182,6 @@ val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)
   .register(CheckoutNotifier.descriptor)
   .withExtension(ProjectionRuntime.withKafka("localhost:9092"))
-  .start()
 ```
 
 **Java**
@@ -1224,32 +1223,83 @@ fun main() {
 **Python**
 
 ```python
-service = (
-    Ankka.service()
-    .register(ShoppingCartEntity)
-    .register(CheckoutLog)
-    .register(CheckoutNotifier)
-)
+def service() -> Any:
+    """The whole inventory: registration is explicit, so nothing is discovered by scanning."""
+    registered = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(CartRows)
+        .register(CheckoutNotifier)
+        .register(CheckoutLog)
+        .register(CheckoutWorkflow)
+        .register(CartAssistant)
+        .register(CartAnswerer)
+        .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
+        .register(CartKeysEndpoint)
+        .register(CartMcpEndpoint)
+    )
+    # The graph is published to a topic, and a sidecar with no broker refuses a service that
+    # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.
+    if os.environ.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"):
+        registered = registered.register(CartGraph).register(CartContentsGraph)
+    return registered
 ```
 
 **TypeScript**
 
 ```ts
-const service = Ankka.service()
-  .register(ShoppingCartEntity)
-  .register(CheckoutLog)
-  .register(CheckoutNotifier)
+/**
+ * The whole inventory: registration is explicit, so nothing is discovered by scanning. The checkout
+ * notices and the cart's graph are published to a topic, so they are registered only where there is a
+ * broker to publish to; without one the sidecar refuses a component that needs it.
+ */
+export function service() {
+  const cart = Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+    .register(CheckoutNotifier)
+    .register(CheckoutLog)
+    .register(CheckoutWorkflow)
+    .register(CartAssistant)
+    .register(CartAnswerer)
+    .register(ShoppingCartEndpoint)
+    .register(QuestionsEndpoint)
+    .register(CallingEndpoint)
+    .register(CartMcp)
+    .register(CartKeysEndpoint)
+  // The broker is the sidecar's, named by ANKKA_KAFKA_BOOTSTRAP_SERVERS in its environment; the
+  // components that need one are registered only where it is set.
+  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CheckoutNotices).register(CartGraph).register(CartContentsGraph) : cart
+}
 ```
 
 **Rust**
 
 ```rust
+/// Everything the module hosts, registered by value; `service!` emits the exports once.
 pub fn build() -> Service {
-    Service::new("cart")
-        .register(ShoppingCart)
-        .register(CheckoutLog)
-        .register(CheckoutNotifier)
+    let service = Service::new("ankka-rust")
+        .register(entity::ShoppingCart)
+        .register(cart_rows::CartRows)
+        .register(checkout_workflow::CheckoutWorkflow)
+        .register(checkout_notifier::CheckoutNotifier)
+        .register(checkout_log::CheckoutLog)
+        .register(assistant::CartAssistant)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
+        None => service,
+    }
 }
+
+#[cfg(not(feature = "conformance"))]
+ankka::service!(build);
 ```
 
 **Go**
@@ -1453,13 +1503,20 @@ broker, and `InMemoryBroker` also delivers it to the service's own topic sources
 **Scala**
 
 ```scala
-val publisher = InMemoryPublisher()
-val testKit = AnkkaTestKit.start(
-  Seq(ShoppingCartEntity.descriptor, CheckoutNotifier.descriptor),
-  Seq(ProjectionRuntime.withPublisher(publisher))
-)
-// ... check out a cart, then poll until the notice arrives:
-publisher.publishedTo("cart-checkouts").map(_.recordKey)
+private val publisher = InMemoryPublisher()
+
+override def beforeAll(): Unit =
+  testKit = AnkkaTestKit.start(
+    Seq(ShoppingCartEntity.descriptor, CartRows.descriptor, CheckoutNotifier.descriptor),
+    Seq(ProjectionRuntime.withPublisher(publisher))
+  )
+```
+
+```scala
+val published = eventually("the checkout notice is published") {
+  Option(publisher.publishedTo("cart-checkouts").filter(_.text.contains(id)))
+    .filter(_.nonEmpty)
+}
 ```
 
 **Java**

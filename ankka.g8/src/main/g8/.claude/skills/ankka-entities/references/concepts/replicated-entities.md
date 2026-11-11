@@ -81,7 +81,13 @@ entity's set is its home alone. A handler adds an installation with `replicateTo
 **Scala**
 
 ```scala
-effects.persist(Allotted(dealer)).replicateTo(dealer).thenReply(_ => Done)
+/** Allots the vehicle to a dealership, whose installation holds it from now on. */
+def replicateTo(installation: String): Effect[Receipt] =
+  effects.replicateTo(installation).thenReply(receipt("replicate-to"))
+
+/** The factory no longer needs it: its installation keeps what it holds and mirrors no more. */
+def stopReplicatingTo(installation: String): Effect[Receipt] =
+  effects.stopReplicatingTo(installation).thenReply(receipt("stop-replicating-to"))
 ```
 
 **Java**
@@ -174,7 +180,9 @@ A handover makes another installation in the replication set the home. A handler
 **Scala**
 
 ```scala
-effects.handOverTo("vienna").thenReply(_ => Done)
+/** Ships the vehicle: its home is the dealership's installation from now on. */
+def handOver(installation: String): Effect[Receipt] =
+  effects.handOverTo(installation).thenReply(receipt("hand-over"))
 ```
 
 **Java**

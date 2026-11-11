@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.javasdk.annotations.Socket
 import com.thinkmorestupidless.ankka.javasdk.annotations.Sse
 import com.thinkmorestupidless.ankka.javasdk.client.CommandException
 import com.thinkmorestupidless.ankka.javasdk.client.EntityRef
+import com.thinkmorestupidless.ankka.javasdk.client.ReplicationStatus
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceCallFailed
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceIdentityMismatch
 import com.thinkmorestupidless.ankka.javasdk.client.ServiceUnanswered
@@ -48,6 +49,19 @@ class ConformanceEndpoint : HttpEndpoint() {
         val body: String = "",
         val answer: String = "",
         val message: String = "",
+    )
+
+    /**
+     * A workflow's standing as the platform records it, the same in every language: `status` one of
+     * `not-started`, `running`, `paused`, `completed` and `failed`, the step it is on or waits after,
+     * each step's retries and, when it failed, why.
+     */
+    @Manifest("standing-record")
+    data class StandingRecord(
+        val status: String,
+        val pendingStep: String? = null,
+        val retries: Map<String, Int> = emptyMap(),
+        val failure: String? = null,
     )
 
     /** What a storage call did, the same in every language. */
@@ -243,6 +257,18 @@ class ConformanceEndpoint : HttpEndpoint() {
     @Get("/conformance/checkout/{id}")
     fun checkoutStatus(id: String): String = componentClient().forWorkflow(id).call(Checkout::status).invoke()
 
+    // Where the platform says the checkout has got to (protocol 1.24); no handler of its runs.
+    @Get("/conformance/checkout/{id}/lifecycle")
+    fun checkoutLifecycle(id: String): StandingRecord {
+        val l = componentClient().forWorkflow(id).lifecycle(Checkout::class.java).invoke()
+        val word = l.status().replace(Regex("([a-z])([A-Z])"), "$1-$2").lowercase()
+        return StandingRecord(word, l.pendingStep().orNull(), l.retries(), l.failure().orNull())
+    }
+
+    // How a cart's copy stands: a cart is not replicated, so the read is refused.
+    @Get("/conformance/cart/{id}/replication")
+    fun cartReplication(id: String): CopyRecord = copyOf { entity(id).replication(ShoppingCartEntity::class.java) }
+
     @Get("/conformance/checkout/{id}/row")
     fun checkoutRow(id: String): CheckoutRows.CheckoutRow =
         viewClient().forView(CheckoutRows::class.java).getOrNull(id) ?: throw ProblemException(Problem.notFound("no row for '$id'"))
@@ -356,6 +382,28 @@ class ConformanceEndpoint : HttpEndpoint() {
         val socketLog = ConcurrentLinkedQueue<String>()
     }
 }
+
+/**
+ * How a copy of an entity stands, the same in every language: its home, its replication set sorted,
+ * a handover waiting, a conflict and its position, or `refused` with the protocol's word for the code.
+ */
+@Manifest("copy-record")
+data class CopyRecord(
+    val home: String? = null,
+    val replicationSet: List<String> = emptyList(),
+    val pendingHandover: String? = null,
+    val conflict: String? = null,
+    val position: Long = 0,
+    val refused: String? = null,
+)
+
+internal fun copyOf(read: () -> ReplicationStatus): CopyRecord =
+    try {
+        val r = read()
+        CopyRecord(r.home().orNull(), r.replicationSet().sorted(), r.pendingHandover().orNull(), r.conflict().orNull(), r.position())
+    } catch (e: CommandException) {
+        CopyRecord(refused = codeWord(e.problem()))
+    }
 
 /** A refusal's code as the protocol says it: `BAD_REQUEST`. */
 private fun codeWord(problem: Problem): String =

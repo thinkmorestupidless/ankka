@@ -49,6 +49,12 @@ impl CheckoutWorkflow {
     }
 
     fn reserve(checkout: &Checkout, _: (), ctx: &Context) -> StepEffect<Checkout> {
+        // `hold`: a step held where the platform records it running; the scripted service answers
+        // when the case lets it.
+        if checkout.mode == "hold" {
+            let services = ctx.services().expect("a step calls other services");
+            let _ = services.service("scripted").get_text("/hold");
+        }
         // A client call from a step: what the cart holds.
         let total: i32 = ctx
             .client()

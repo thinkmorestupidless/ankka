@@ -24,7 +24,8 @@ import java.time.Duration
  * A checkout with a failing step and a pause. `mode`: `ok`, `fail` (charge is declined and
  * compensated), `pause` (a pause before charging), `abort` (declined; the compensation records it
  * and fails the workflow), `drop` (declined; the compensation fails the workflow and records
- * nothing) or `doomed` (declined, and the compensation fails too).
+ * nothing), `doomed` (declined, and the compensation fails too) or `hold` (the reserve step waits
+ * on the scripted service, which a case holds, then goes on).
  */
 @ComponentId("checkout")
 class Checkout : Workflow<Checkout.CheckoutState>() {
@@ -48,6 +49,9 @@ class Checkout : Workflow<Checkout.CheckoutState>() {
 
     @Step("reserve")
     suspend fun reserve(): StepEffect {
+        // A step held where the platform records it running: the scripted service answers when the
+        // case lets it.
+        if (currentState().mode == "hold") services().of("scripted").getText("/hold")
         // A client call from a step: what the cart holds.
         context().componentClient().forEventSourcedEntity(currentState().id).call(ShoppingCartEntity::totalQuantity).invokeSuspending()
         return stepEffects {

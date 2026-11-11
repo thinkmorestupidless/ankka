@@ -408,6 +408,151 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assert(reason.exists(_.nonEmpty), answer.body)
   }
 
+  // ── A workflow's standing and how a copy stands (feature 065) ─────────────
+
+  /** The Scala client, in the target's runtime: what every language's route is compared with. */
+  private def scalaClient: com.thinkmorestupidless.ankka.sdk.ComponentClient =
+    given ActorSystem[?] = target.system
+    com.thinkmorestupidless.ankka.sdk.ComponentClient(
+      com.thinkmorestupidless.ankka.runtime.ShardingTransport(
+        org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding(target.system),
+        10.seconds
+      )
+    )
+
+  private def scalaStanding(id: String): Json =
+    val read = scalaClient
+      .forWorkflow(com.thinkmorestupidless.ankka.core.EntityId(id))
+      .lifecycle(ConformanceReference.Checkout)
+      .invoke()
+    standing(ConformanceReference.standingOf(read))
+
+  /** A standing as the routes answer it, with what may be absent made present. */
+  private def standing(r: ConformanceReference.StandingRecord): Json =
+    Json.obj(
+      "status"      -> Json.str(r.status),
+      "pendingStep" -> r.pendingStep.fold(Json.Null)(Json.str),
+      "retries"     -> Json.obj(r.retries.toSeq.sorted.map((k, n) => k -> Json.num(n))*),
+      "failure"     -> r.failure.fold(Json.Null)(Json.str)
+    )
+
+  private def standing(reply: Reply): Json =
+    assertEquals(reply.status, 200, reply.body)
+    val j                 = reply.json
+    def text(key: String) = j(key).flatMap(_.asString)
+    standing(
+      ConformanceReference.StandingRecord(
+        text("status").getOrElse(fail(s"no status: ${reply.body}")),
+        text("pendingStep"),
+        j("retries") match
+          case Some(Json.Obj(fields)) =>
+            fields.flatMap((k, v) => v.asDouble.map(n => k -> n.toInt))
+          case _ => Map.empty
+        ,
+        text("failure")
+      )
+    )
+
+  /** A copy as the routes answer it, with what may be absent made present. */
+  private def copy(r: ConformanceReference.CopyRecord): Json =
+    r.refused match
+      case Some(code) => Json.obj("refused" -> Json.str(code))
+      case None       =>
+        Json.obj(
+          "home"            -> r.home.fold(Json.Null)(Json.str),
+          "replicationSet"  -> Json.arr(r.replicationSet.map(Json.str)*),
+          "pendingHandover" -> r.pendingHandover.fold(Json.Null)(Json.str),
+          "conflict"        -> r.conflict.fold(Json.Null)(Json.str),
+          "position"        -> Json.num(r.position.toDouble)
+        )
+
+  private def copy(reply: Reply): Json =
+    assertEquals(reply.status, 200, reply.body)
+    val j                 = reply.json
+    def text(key: String) = j(key).flatMap(_.asString)
+    copy(
+      ConformanceReference.CopyRecord(
+        text("home"),
+        j("replicationSet")
+          .flatMap(_.asArray)
+          .map(_.flatMap(_.asString).toVector)
+          .getOrElse(Vector.empty),
+        text("pendingHandover"),
+        text("conflict"),
+        j("position").flatMap(_.asDouble).map(_.toLong).getOrElse(0L),
+        text("refused")
+      )
+    )
+
+  test("wf.lifecycle-running: a workflow held in its step answers running and the step") {
+    val held = java.util.concurrent.CountDownLatch(1)
+    target.scripted.answer { _ =>
+      held.await(30, TimeUnit.SECONDS): Unit
+      ServiceResponse(200, "text/plain", "ok".getBytes, Vector.empty)
+    }
+    try
+      assertEquals(post("/conformance/checkout/wl1", "hold").body, "started")
+      eventually()(Some(target.scripted.requests.map(_.path)).filter(_.contains("/hold")))
+      val statusBefore  = spans("checkout", "status").size
+      val journalBefore = journal("checkout|wl1")
+      val read          = standing(get("/conformance/checkout/wl1/lifecycle"))
+      assertEquals(read("status").flatMap(_.asString), Some("running"), read.toString)
+      assertEquals(read("pendingStep").flatMap(_.asString), Some("reserve"), read.toString)
+      assertEquals(read, scalaStanding("wl1"))
+      // The read runs no handler of the workflow's and records nothing.
+      assertEquals(spans("checkout", "status").size, statusBefore)
+      assertEquals(journal("checkout|wl1"), journalBefore)
+    finally
+      held.countDown()
+      target.scripted.answer(_ => ServiceResponse(200, "text/plain", "ok".getBytes, Vector.empty))
+    eventually()(Some(checkoutStatus("wl1")).filter(_ == "charged"))
+  }
+
+  test(
+    "wf.lifecycle-failed: a step failing past its retries answers failed, the reason and the retries"
+  ) {
+    assertEquals(post("/conformance/checkout-await/wl2", "doomed").status, 424)
+    val read = standing(get("/conformance/checkout/wl2/lifecycle"))
+    assertEquals(read("status").flatMap(_.asString), Some("failed"), read.toString)
+    assert(read("failure").flatMap(_.asString).exists(_.nonEmpty), read.toString)
+    assertEquals(
+      read("retries").flatMap(_("charge")).flatMap(_.asDouble),
+      Some(1.0),
+      read.toString
+    )
+    assertEquals(read, scalaStanding("wl2"))
+  }
+
+  test("es.replication-status: a copy answers its home, its set and its position") {
+    post("/vehicles/rs1/steps", "frame")
+    post("/vehicles/rs1/steps", "wheels")
+    val read = copy(get("/vehicles/rs1/replication"))
+    assertEquals(read("home").flatMap(_.asString), Some("a"), read.toString)
+    assertEquals(
+      read("replicationSet").flatMap(_.asArray).map(_.flatMap(_.asString)),
+      Some(Vector("a")),
+      read.toString
+    )
+    val expected = scalaClient
+      .forEventSourcedEntity(com.thinkmorestupidless.ankka.core.EntityId("rs1"))
+      .replication(ConformanceReference.ReplicatedVehicle)
+    assertEquals(read, copy(ConformanceReference.copyOf(expected)))
+    // Its position counts every record of its journal, the platform's included.
+    assertEquals(expected.position, journal("replicated-vehicle|rs1").size.toLong)
+  }
+
+  test("es.replication-refused: an entity that is not replicated is refused its copy's standing") {
+    postJson("/carts/rr1/items", cartJson("p1", "Pen", 1))
+    val read = copy(get("/conformance/cart/rr1/replication"))
+    assert(read("refused").flatMap(_.asString).exists(_.nonEmpty), read.toString)
+    val expected = ConformanceReference.copyOf(
+      scalaClient
+        .forEventSourcedEntity(com.thinkmorestupidless.ankka.core.EntityId("rr1"))
+        .replication(ConformanceReference.ShoppingCartEntity)
+    )
+    assertEquals(read, copy(expected))
+  }
+
   // ── View and consumer ──────────────────────────────────────────────────────
 
   test("view.row-updated") {

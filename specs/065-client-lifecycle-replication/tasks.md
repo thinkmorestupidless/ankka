@@ -47,13 +47,13 @@
 - [X] T011 [P] [US1] TypeScript: `Lifecycle` and its `status` union in `sdks/typescript/src/client.ts`, `Calls.lifecycle()` and `TypedCalls.lifecycle()`, `READS_SINCE` with a too-old error like `awaitTooOld`, exported from `src/index.ts`; test each status and the too-old error in `sdks/typescript/test/client-reads.test.ts`
 - [X] T012 [P] [US1] Go: `WorkflowLifecycle`, `WorkflowStatus` and `Lifecycle(ctx, component, id)` in `sdks/go/reads.go` (pattern of `clientkeys.go`), mapping `Unimplemented` through `tooOld("reading a workflow's standing", "1.24", err)`; test each status and `*ProtocolTooOldError` against `fakeSidecar` in `sdks/go/reads_test.go`
 - [X] T013 [P] [US1] Rust: `Import::Lifecycle`, `call_lifecycle` and its own extern block in `sdks/rust/ankka/src/abi/imports.rs` (as `await_end` is, so only a caller imports it), the native host dispatch and `NativeHost` method; `Lifecycle` and `WorkflowStatus` in a new `sdks/rust/ankka/src/reads.rs` exported from `lib.rs` and `prelude.rs`; `ComponentClient::lifecycle` in `sdks/rust/ankka/src/client.rs`; test the decode of each status in `sdks/rust/ankka/tests/reads.rs` with a native host answering bytes
-- [ ] T014 [US1] Add conformance cases `wf.lifecycle-running` (a workflow held in its step answers running and the step) and `wf.lifecycle-failed` (a step failing past its retries answers failed, the reason and the retries) to `sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/ConformanceSuite.scala`, each comparing the route's JSON with the Scala client's read of the same id, and their route in `ConformanceReference.scala`
-- [ ] T015 [P] [US1] The two lifecycle routes in `modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java`
-- [ ] T016 [P] [US1] The two lifecycle routes in `sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt`
-- [ ] T017 [P] [US1] The two lifecycle routes in `sdks/python/examples/shopping_cart/conformance.py`
-- [ ] T018 [P] [US1] The two lifecycle routes in `sdks/typescript/examples/shopping-cart/conformance.ts`
-- [ ] T019 [P] [US1] The two lifecycle routes in `sdks/rust/examples/shopping-cart/src/conformance.rs`
-- [ ] T020 [P] [US1] The two lifecycle routes in `sdks/go/examples/shopping-cart/conformance/endpoints.go`
+- [X] T014 [US1] Add conformance cases `wf.lifecycle-running` (a workflow held in its step answers running and the step) and `wf.lifecycle-failed` (a step failing past its retries answers failed, the reason and the retries) to `sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/ConformanceSuite.scala`, each comparing the route's JSON with the Scala client's read of the same id, and their route in `ConformanceReference.scala`
+- [X] T015 [P] [US1] The two lifecycle routes in `modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java`
+- [X] T016 [P] [US1] The two lifecycle routes in `sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt`
+- [X] T017 [P] [US1] The two lifecycle routes in `sdks/python/examples/shopping_cart/conformance.py`
+- [X] T018 [P] [US1] The two lifecycle routes in `sdks/typescript/examples/shopping-cart/conformance.ts`
+- [X] T019 [P] [US1] The two lifecycle routes in `sdks/rust/examples/shopping-cart/src/conformance.rs`
+- [X] T020 [P] [US1] The two lifecycle routes in `sdks/go/examples/shopping-cart/conformance/endpoints.go`
 
 **Checkpoint**: each language's conformance runner passes the two cases.
 
@@ -69,13 +69,13 @@
 - [X] T022 [P] [US2] TypeScript: `ReplicationStatus` and `Calls.replication()` / `TypedCalls.replication()` in `sdks/typescript/src/client.ts`; tests in `sdks/typescript/test/client-reads.test.ts`
 - [X] T023 [P] [US2] Go: `ReplicationStatus` and `Replication(ctx, component, id)` in `sdks/go/reads.go`; tests in `sdks/go/reads_test.go`
 - [X] T024 [P] [US2] Rust: `Import::Replication`, its extern block and dispatch in `sdks/rust/ankka/src/abi/imports.rs`; `ReplicationStatus` in `src/reads.rs`; `ComponentClient::replication` in `src/client.rs`; tests in `sdks/rust/ankka/tests/reads.rs`
-- [ ] T025 [US2] Add conformance cases `es.replication-status` (the `replicated-vehicle` copy at installation `a` after events: home, set and position equal to the Scala client's read) and `es.replication-refused` (an unreplicated entity's copy read refused with the Scala client's code) to `ConformanceSuite.scala`, with their routes in `ConformanceReference.scala`
-- [ ] T026 [P] [US2] The two replication routes in `modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java`
-- [ ] T027 [P] [US2] The two replication routes in `sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt`
-- [ ] T028 [P] [US2] The two replication routes in `sdks/python/examples/shopping_cart/conformance.py`
-- [ ] T029 [P] [US2] The two replication routes in `sdks/typescript/examples/shopping-cart/conformance.ts`
-- [ ] T030 [P] [US2] The two replication routes in `sdks/rust/examples/shopping-cart/src/conformance.rs`
-- [ ] T031 [P] [US2] The two replication routes in `sdks/go/examples/shopping-cart/conformance/endpoints.go` (components in `components.go`)
+- [X] T025 [US2] Add conformance cases `es.replication-status` (the `replicated-vehicle` copy at installation `a` after events: home, set and position equal to the Scala client's read) and `es.replication-refused` (an unreplicated entity's copy read refused with the Scala client's code) to `ConformanceSuite.scala`, with their routes in `ConformanceReference.scala`
+- [X] T026 [P] [US2] The two replication routes in `modules/sdk-java/src/test/java/com/thinkmorestupidless/ankka/javasdk/reference/ConformanceEndpoint.java`
+- [X] T027 [P] [US2] The two replication routes in `sdks/kotlin/samples/reference/src/main/kotlin/com/thinkmorestupidless/ankka/kotlin/reference/ConformanceEndpoint.kt`
+- [X] T028 [P] [US2] The two replication routes in `sdks/python/examples/shopping_cart/conformance.py`
+- [X] T029 [P] [US2] The two replication routes in `sdks/typescript/examples/shopping-cart/conformance.ts`
+- [X] T030 [P] [US2] The two replication routes in `sdks/rust/examples/shopping-cart/src/conformance.rs`
+- [X] T031 [P] [US2] The two replication routes in `sdks/go/examples/shopping-cart/conformance/endpoints.go` (components in `components.go`)
 - [ ] T032 [US2] Bind the Scala scenarios of `features/replication/status.feature` (a handover waiting, a conflict, an installation outside the replication set) to the two-installation replication steps in `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/replication/` (extend `ReplicationSteps.scala` and its suite), reading through the Scala client's `replication`; bind the per-language rows as `ReplicationSteps` binds `languages.feature`'s
 
 **Checkpoint**: the four conformance cases pass for all seven; the Scala replication suite binds the status feature.

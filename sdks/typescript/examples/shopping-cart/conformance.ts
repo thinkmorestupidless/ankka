@@ -56,6 +56,7 @@ import {
   tableOf,
   isTerminal,
   type Infer,
+  type ReplicationStatus,
   sseEvents,
   Expiry,
   McpEndpoint,
@@ -441,6 +442,49 @@ export class VehicleFeed extends Consumer<StepAdded, StepAdded> {
   }
 }
 
+/**
+ * A workflow's standing as the platform records it, the same in every language: `status` one of
+ * `not-started`, `running`, `paused`, `completed` and `failed`, the step it is on or waits after, each
+ * step's retries and, when it failed, why.
+ */
+const StandingRecord = s.record("standing-record", {
+  status: s.string,
+  pendingStep: s.option(s.string),
+  retries: s.stringMap(s.int),
+  failure: s.option(s.string),
+})
+
+/**
+ * How a copy of an entity stands, the same in every language: its home, its replication set sorted, a
+ * handover waiting, a conflict and its position, or `refused` with the protocol's word for the code.
+ */
+const CopyRecord = s.record("copy-record", {
+  home: s.option(s.string),
+  replicationSet: s.list(s.string),
+  pendingHandover: s.option(s.string),
+  conflict: s.option(s.string),
+  position: s.long,
+  refused: s.option(s.string),
+})
+type CopyRecordValue = Infer<typeof CopyRecord>
+
+async function copyOf(read: () => Promise<ReplicationStatus>): Promise<CopyRecordValue> {
+  try {
+    const r = await read()
+    return {
+      home: r.home ?? null,
+      replicationSet: [...r.replicationSet].sort(),
+      pendingHandover: r.pendingHandover ?? null,
+      conflict: r.conflict ?? null,
+      position: r.position,
+      refused: null,
+    }
+  } catch (e) {
+    if (e instanceof CommandError) return { home: null, replicationSet: [], pendingHandover: null, conflict: null, position: 0n, refused: e.code }
+    throw e
+  }
+}
+
 /** Drives the replicated vehicle: a step, a read, and the three replication changes. */
 export class VehiclesEndpoint extends Endpoint {
   static readonly prefix = "/vehicles"
@@ -457,6 +501,9 @@ export class VehiclesEndpoint extends Endpoint {
       ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.replicateTo).invoke(req.params.target)),
     stopReplicatingTo: post("/{vehicleId}/stop-replicating-to/{target}", s.string, (ep: VehiclesEndpoint, req) =>
       ep.client.of(ReplicatedVehicle, req.params.vehicleId).call(ReplicatedVehicle.handlers.stopReplicatingTo).invoke(req.params.target)),
+    // How this installation's copy stands, as the platform records it (protocol 1.24).
+    replication: get("/{vehicleId}/replication", CopyRecord, (ep: VehiclesEndpoint, req) =>
+      copyOf(() => ep.client.of(ReplicatedVehicle, req.params.vehicleId).replication())),
   }
 }
 
@@ -1000,6 +1047,14 @@ export class ConformanceEndpoint extends Endpoint {
       return "started"
     }),
     checkoutStatus: get("/checkout/{id}", s.string, async (ep: ConformanceEndpoint, req) => (await ep.client.of(CheckoutWorkflow, req.params.id).call(CheckoutWorkflow.handlers.status).invoke()).status),
+    // Where the platform says the checkout has got to (protocol 1.24); no handler of its runs.
+    checkoutLifecycle: get("/checkout/{id}/lifecycle", StandingRecord, async (ep: ConformanceEndpoint, req) => {
+      const read = await ep.client.of(CheckoutWorkflow, req.params.id).lifecycle()
+      return { status: read.status, pendingStep: read.pendingStep ?? null, retries: read.retries, failure: read.failure ?? null }
+    }),
+    // How a cart's copy stands: a cart is not replicated, so the read is refused.
+    cartReplication: get("/cart/{id}/replication", CopyRecord, (ep: ConformanceEndpoint, req) =>
+      copyOf(() => ep.client.of(ShoppingCartEntity, req.params.id).replication())),
     checkoutRow: get("/checkout/{id}/row", CheckoutRow, async (ep: ConformanceEndpoint, req) => {
       const found = await ep.client.views.get(CheckoutRows.componentId, req.params.id, CheckoutRow)
       if (found === null) throw new HttpProblem(404, `no row for '${req.params.id}'`)

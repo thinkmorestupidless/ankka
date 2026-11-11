@@ -45,6 +45,9 @@ export class CheckoutWorkflow extends Workflow<Checkout> {
   }
 
   async reserve() {
+    // `hold`: a step held where the platform records it running; the scripted service answers when
+    // the case lets it.
+    if (this.state.mode === "hold") await this.services.service("scripted").getText("/hold")
     // A client call from a step: what the cart holds.
     const total = await this.cart().call(ShoppingCartEntity.handlers.totalQuantity).invoke()
     const next = this.state.mode === "pause" ? "wait" : "charge"

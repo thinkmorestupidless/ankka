@@ -44,8 +44,9 @@ class CheckoutWorkflow(Workflow[Checkout]):
     def start(self, mode: str) -> WorkflowEffect[Checkout, Done]:
         """``mode``: ``ok``, ``fail`` (the charge is declined and compensated), ``pause`` (a pause
         before it), ``abort`` (declined; the compensation records it and fails the workflow),
-        ``drop`` (declined; the compensation fails the workflow and records nothing) or ``doomed``
-        (declined, and the compensation fails too)."""
+        ``drop`` (declined; the compensation fails the workflow and records nothing), ``doomed``
+        (declined, and the compensation fails too) or ``hold`` (the reserve step waits on the
+        scripted service, which a case holds, then goes on)."""
         if self.state.status != "new":
             return self.effects.error(f"checkout is already {self.state.status}", ErrorCode.CONFLICT)
         return self.effects.update_state(replace(self.state, status="reserving", mode=mode)).then_transition_to("reserve").then_reply(lambda _: DONE)
@@ -56,6 +57,10 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     @step("reserve")
     async def reserve(self) -> WorkflowStepEffect[Checkout]:
+        # A step held where the platform records it running: the scripted service answers when the
+        # case lets it.
+        if self.state.mode == "hold":
+            await self.services("scripted").get_text("/hold")
         # A client call from a step: what the cart holds.
         total = await self._cart().call("total-quantity").invoke(reply=int)
         next_step = "wait" if self.state.mode == "pause" else "charge"

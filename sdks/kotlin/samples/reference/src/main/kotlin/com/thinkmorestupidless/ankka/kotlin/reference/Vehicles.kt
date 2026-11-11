@@ -119,6 +119,11 @@ class VehiclesEndpoint : HttpEndpoint(), RouteRegistrar {
         post("/vehicles/{vehicleId}/stop-replicating-to/{target}") {
             vehicle(path("vehicleId")).call(ReplicatedVehicle::stopReplicatingTo).invokeSuspending(path("target"))
         }
+        // How this installation's copy stands, as the platform records it (protocol 1.24).
+        get("/vehicles/{vehicleId}/replication") {
+            val id = path("vehicleId")
+            copyOf { vehicle(id).replication(ReplicatedVehicle::class.java) }
+        }
     }
 
     private fun vehicle(id: String): EntityRef = componentClient().forEventSourcedEntity(id)

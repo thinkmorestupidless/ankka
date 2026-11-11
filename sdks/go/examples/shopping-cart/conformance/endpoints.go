@@ -46,6 +46,53 @@ var Joined = ankka.NewEndpoint("/joined", ankka.AllowAll(),
 	}),
 )
 
+// ── a workflow's standing and how a copy stands (protocol 1.24) ──
+
+// StandingRecord is a workflow's standing as the platform records it, the same in every language:
+// status one of not-started, running, paused, completed and failed, the step it is on or waits
+// after, each step's retries and, when it failed, why.
+type StandingRecord struct {
+	Status      string         `json:"status"`
+	PendingStep *string        `json:"pendingStep"`
+	Retries     map[string]int `json:"retries"`
+	Failure     *string        `json:"failure"`
+}
+
+var standingWords = map[ankka.WorkflowStatus]string{
+	ankka.NotStarted: "not-started",
+	ankka.Running:    "running",
+	ankka.Paused:     "paused",
+	ankka.Completed:  "completed",
+	ankka.Failed:     "failed",
+}
+
+// CopyRecord is how a copy of an entity stands, the same in every language: its home, its
+// replication set sorted, a handover waiting, a conflict and its position, or refused with the
+// protocol's word for the code.
+type CopyRecord struct {
+	Home            *string  `json:"home"`
+	ReplicationSet  []string `json:"replicationSet"`
+	PendingHandover *string  `json:"pendingHandover"`
+	Conflict        *string  `json:"conflict"`
+	Position        int64    `json:"position"`
+	Refused         *string  `json:"refused"`
+}
+
+// copyOf answers a refusal as a record rather than a status.
+func copyOf(ctx context.Context, component, id string) (CopyRecord, error) {
+	r, err := ankka.Replication(ctx, component, id)
+	if err != nil {
+		if refusal, ok := ankka.AsRefusal(err); ok {
+			code := refusal.Code.String()
+			return CopyRecord{ReplicationSet: []string{}, Refused: &code}, nil
+		}
+		return CopyRecord{}, err
+	}
+	set := slices.Clone(r.ReplicationSet)
+	slices.Sort(set)
+	return CopyRecord{r.Home, set, r.PendingHandover, r.Conflict, r.Position, nil}, nil
+}
+
 // ── /vehicles: the replicated vehicle ──
 
 func vehicleCall(wire string) func(context.Context, *ankka.Request, ankka.Unit) (string, error) {
@@ -65,6 +112,10 @@ var Vehicles = ankka.NewEndpoint("/vehicles", ankka.AllowAll(),
 	ankka.Post("/{vehicleId}/hand-over/{target}", vehicleCall("hand-over")),
 	ankka.Post("/{vehicleId}/replicate-to/{target}", vehicleCall("replicate-to")),
 	ankka.Post("/{vehicleId}/stop-replicating-to/{target}", vehicleCall("stop-replicating-to")),
+	// How this installation's copy stands, as the platform records it (protocol 1.24).
+	ankka.Get("/{vehicleId}/replication", func(ctx context.Context, req *ankka.Request) (CopyRecord, error) {
+		return copyOf(ctx, "replicated-vehicle", req.Param("vehicleId"))
+	}),
 )
 
 // ── /tree: a tree, walked, streamed and watched ──
@@ -537,6 +588,22 @@ var API = ankka.NewEndpoint("/conformance", ankka.AllowAll(),
 	}),
 	ankka.Get("/checkout/{id}", func(ctx context.Context, req *ankka.Request) (string, error) {
 		return ankka.Invoke[string](ctx, "checkout", req.Param("id"), "status", ankka.Unit{})
+	}),
+	// Where the platform says the checkout has got to (protocol 1.24); no handler of its runs.
+	ankka.Get("/checkout/{id}/lifecycle", func(ctx context.Context, req *ankka.Request) (StandingRecord, error) {
+		read, err := ankka.Lifecycle(ctx, "checkout", req.Param("id"))
+		if err != nil {
+			return StandingRecord{}, err
+		}
+		retries := read.Retries
+		if retries == nil {
+			retries = map[string]int{}
+		}
+		return StandingRecord{standingWords[read.Status], read.PendingStep, retries, read.Failure}, nil
+	}),
+	// How a cart's copy stands: a cart is not replicated, so the read is refused.
+	ankka.Get("/cart/{id}/replication", func(ctx context.Context, req *ankka.Request) (CopyRecord, error) {
+		return copyOf(ctx, cart.ComponentID, req.Param("id"))
 	}),
 	ankka.Get("/checkout/{id}/row", func(ctx context.Context, req *ankka.Request) (CheckoutRow, error) {
 		row, found, err := ankka.ViewRow[CheckoutRow](ctx, "checkout-rows", req.Param("id"))

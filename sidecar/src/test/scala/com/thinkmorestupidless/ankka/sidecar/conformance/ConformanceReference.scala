@@ -220,7 +220,8 @@ object ConformanceReference:
      * `mode`: `ok`, `fail` (charge is declined and compensated), `pause` (a pause before charging),
      * `abort` (declined; the compensation records it and fails the workflow), `drop` (declined; the
      * compensation fails the workflow and records nothing) or `doomed` (declined, and the
-     * compensation fails too, so the workflow fails).
+     * compensation fails too, so the workflow fails), or `hold` (the reserve step waits on the
+     * scripted service, which a case holds, before going on as `ok`).
      */
     def start(mode: String): Effect[String] =
       if currentState.status != "new" then effects.error("already started", ErrorCode.Conflict)
@@ -230,6 +231,9 @@ object ConformanceReference:
           .transitionTo(Checkout.reserve.ref)
           .thenReply("started")
     def reserveStep: StepEffect =
+      // A step held where the platform records it running: the scripted service answers when the
+      // case lets it.
+      if currentState.mode == "hold" then context.services("scripted").getText("/hold"): Unit
       // A client call from a step: what the cart holds.
       val _ = client
         .forEventSourcedEntity(EntityId(currentState.id))
@@ -1046,6 +1050,10 @@ object ConformanceReference:
     post("/{vehicleId}/stop-replicating-to/{target}") { (vehicleId: String, target: String) =>
       vehicle(vehicleId).call(ReplicatedVehicle.stopReplicatingTo).invoke(target)
     }
+    // How this installation's copy stands, as the platform records it (protocol 1.24).
+    get("/{vehicleId}/replication") { (vehicleId: String) =>
+      copyOf(vehicle(vehicleId).replication(ReplicatedVehicle))
+    }
 
   /** Places nodes of a tree and asks what is under one. */
   final class TreeEndpoint(clients: EndpointClients) extends HttpEndpoint("/tree"):
@@ -1108,6 +1116,53 @@ object ConformanceReference:
   given JsonValueCodec[StorageRecord]  = Codecs.make[StorageRecord]
   given JsonValueCodec[PersonalRecord] = Codecs.make[PersonalRecord]
   given JsonValueCodec[RecordContact]  = Codecs.make[RecordContact]
+
+  /**
+   * A workflow's standing as the platform records it (feature 065), the same in every language:
+   * `status` one of `not-started`, `running`, `paused`, `completed` and `failed`, the step it is on
+   * or waits after, each step's retries and, when it failed, why.
+   */
+  final case class StandingRecord(
+      status: String,
+      pendingStep: Option[String] = None,
+      retries: Map[String, Int] = Map.empty,
+      failure: Option[String] = None
+  )
+
+  /**
+   * How a copy of an entity stands (feature 065), the same in every language: its home, its
+   * replication set sorted, a handover waiting, a conflict and its position, or `refused` with the
+   * protocol's word for the code when the read was refused.
+   */
+  final case class CopyRecord(
+      home: Option[String] = None,
+      replicationSet: Vector[String] = Vector.empty,
+      pendingHandover: Option[String] = None,
+      conflict: Option[String] = None,
+      position: Long = 0,
+      refused: Option[String] = None
+  )
+  given JsonValueCodec[StandingRecord] = Codecs.make[StandingRecord]
+  given JsonValueCodec[CopyRecord]     = Codecs.make[CopyRecord]
+
+  /** `NotStarted` as the standing route says it: `not-started`. */
+  def standingWord(status: String): String =
+    status.replaceAll("([a-z])([A-Z])", "$1-$2").toLowerCase(java.util.Locale.ROOT)
+
+  def standingOf(l: WorkflowLifecycle): StandingRecord =
+    StandingRecord(standingWord(l.status), l.pendingStep, l.retries, l.failure)
+
+  def copyOf(read: => ReplicationStatus): CopyRecord =
+    try
+      val r = read
+      CopyRecord(
+        r.home,
+        r.replicationSet.toVector.sorted,
+        r.pendingHandover,
+        r.conflict,
+        r.position
+      )
+    catch case e: CommandError => CopyRecord(refused = Some(codeWord(e.code)))
 
   /** `BadRequest` as the protocol says it: `BAD_REQUEST`. */
   def codeWord(code: ErrorCode): String =
@@ -1313,6 +1368,14 @@ object ConformanceReference:
       checkout(id).call(Checkout.start).invoke(mode)
     }
     get("/checkout/{id}")((id: String) => checkout(id).call(Checkout.status).invoke())
+    // Where the platform says the checkout has got to (protocol 1.24); no handler of its runs.
+    get("/checkout/{id}/lifecycle") { (id: String) =>
+      standingOf(checkout(id).lifecycle(Checkout).invoke())
+    }
+    // How a cart's copy stands: a cart is not replicated, so the read is refused.
+    get("/cart/{id}/replication") { (id: String) =>
+      copyOf(entity(id).replication(ShoppingCartEntity))
+    }
     get("/checkout/{id}/row") { (id: String) =>
       clients.viewClient
         .forView(CheckoutRows)

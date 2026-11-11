@@ -37,16 +37,16 @@ type EndpointKit struct {
 // each problem, when the declarations have problems a service would refuse to start with.
 func Endpoint(e *ankka.Endpoint, components ...ankka.Declaration) *EndpointKit {
 	v := view(ankka.NewService(append([]ankka.Declaration{e}, components...)...))
-	client, stop := serveStandIn(v, nil)
+	client, stop := serveStandIn(v, options{})
 	return &EndpointKit{view: v, client: client, stop: stop}
 }
 
 // serveStandIn serves a stand-in for the sidecar's Client service, hosting the service's entities
 // in this process, and answers a client of it and how to stop it.
-func serveStandIn(v *kit.Service, services map[string]ServiceAnswer) (*ankka.Client, func()) {
+func serveStandIn(v *kit.Service, o options) (*ankka.Client, func()) {
 	lis := bufconn.Listen(1 << 20)
 	g := grpc.NewServer()
-	pb.RegisterClientServer(g, &standIn{view: v, entities: entityHosts(v), keyValues: keyValueHosts(v), services: services})
+	pb.RegisterClientServer(g, &standIn{view: v, entities: entityHosts(v), keyValues: keyValueHosts(v), services: o.services, lifecycles: o.lifecycles, replications: o.replications})
 	go func() { _ = g.Serve(lis) }()
 	conn, err := grpc.NewClient("passthrough:///testkit",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
@@ -235,6 +235,51 @@ type standIn struct {
 	entities  map[string]*entityHost
 	keyValues map[string]*keyValueHost
 	services  map[string]ServiceAnswer
+	// The reads a test answers for itself (AnswerLifecycle, AnswerReplication).
+	lifecycles   map[string]ankka.WorkflowLifecycle
+	replications map[string]ankka.ReplicationStatus
+}
+
+var protoStatuses = map[ankka.WorkflowStatus]pb.WorkflowStatus{
+	ankka.NotStarted: pb.WorkflowStatus_NOT_STARTED,
+	ankka.Running:    pb.WorkflowStatus_RUNNING,
+	ankka.Paused:     pb.WorkflowStatus_PAUSED,
+	ankka.Completed:  pb.WorkflowStatus_COMPLETED,
+	ankka.Failed:     pb.WorkflowStatus_FAILED,
+}
+
+func unstubbed(what, option, component, id string) *pb.Error {
+	return &pb.Error{Code: pb.ErrorCode_INTERNAL, Message: fmt.Sprintf("%s was not stubbed; give the kit testkit.%s(%q, %q, ...), or use the integration kit", what, option, component, id)}
+}
+
+// Lifecycle answers a workflow's standing from the kit's AnswerLifecycle answers.
+func (s *standIn) Lifecycle(_ context.Context, req *pb.LifecycleRequest) (*pb.LifecycleReply, error) {
+	l, ok := s.lifecycles[req.GetComponentId()+"/"+req.GetWorkflowId()]
+	if !ok {
+		what := fmt.Sprintf("the standing of %q of %q", req.GetWorkflowId(), req.GetComponentId())
+		return &pb.LifecycleReply{Result: &pb.LifecycleReply_Error{Error: unstubbed(what, "AnswerLifecycle", req.GetComponentId(), req.GetWorkflowId())}}, nil
+	}
+	wire, known := protoStatuses[l.Status]
+	if !known {
+		return nil, status.Errorf(codes.InvalidArgument, "testkit: AnswerLifecycle was given a status the protocol does not carry: %q", l.Status)
+	}
+	retries := make(map[string]int32, len(l.Retries))
+	for step, n := range l.Retries {
+		retries[step] = int32(n)
+	}
+	m := &pb.WorkflowLifecycle{Status: wire, PendingStep: l.PendingStep, Retries: retries, Failure: l.Failure}
+	return &pb.LifecycleReply{Result: &pb.LifecycleReply_Lifecycle{Lifecycle: m}}, nil
+}
+
+// Replication answers how a copy stands from the kit's AnswerReplication answers.
+func (s *standIn) Replication(_ context.Context, req *pb.ReplicationRequest) (*pb.ReplicationReply, error) {
+	r, ok := s.replications[req.GetComponentId()+"/"+req.GetEntityId()]
+	if !ok {
+		what := fmt.Sprintf("how %q of %q stands", req.GetEntityId(), req.GetComponentId())
+		return &pb.ReplicationReply{Result: &pb.ReplicationReply_Error{Error: unstubbed(what, "AnswerReplication", req.GetComponentId(), req.GetEntityId())}}, nil
+	}
+	m := &pb.ReplicationStatus{Home: r.Home, ReplicationSet: append([]string{}, r.ReplicationSet...), PendingHandover: r.PendingHandover, Conflict: r.Conflict, Position: r.Position}
+	return &pb.ReplicationReply{Result: &pb.ReplicationReply_Status{Status: m}}, nil
 }
 
 // Request answers a call to another service from the kit's AnswerService answers.

@@ -94,6 +94,26 @@ class CartAnswererSuite extends munit.FunSuite with LogCapturing:
     assertEquals(done.record.iterations, 3)
   }
 
+  test("tasks assigned to one instance are worked one at a time, in order") {
+    model
+      .expectCompleteTask(Answer("Cart c-1 is empty.", List("cart_contents")))
+      .expectCompleteTask(Answer("Cart c-2 is empty.", List("cart_contents")))
+    val client = kit.componentClient
+    // docs:start assign-tasks
+    val first  = client.tasks.create(CartTasks.answer, "What is in cart c-1?").create()
+    val second = client.tasks.create(CartTasks.answer, "And in c-2?").dependsOn(first).create()
+    client.forAutonomousAgent(CartAnswerer)("reviewer-1").assign(first, second)
+    // docs:end assign-tasks
+    assertEquals(
+      kit.awaitTask(first, CartTasks.answer).result.map(_.answer),
+      Some("Cart c-1 is empty.")
+    )
+    assertEquals(
+      kit.awaitTask(second, CartTasks.answer).result.map(_.answer),
+      Some("Cart c-2 is empty.")
+    )
+  }
+
   test("an instance's notifications arrive over server-sent events, each a JSON string") {
     val instance = s"watched-${java.util.UUID.randomUUID()}"
     val lines    = java.util.concurrent.LinkedBlockingQueue[String]()

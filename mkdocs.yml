@@ -143,6 +143,8 @@ extra:
     samples:
       facet: languages
       fences: {typescript: [ts]}
+      # And each tab's code is an include of a tested file, or says in `<!-- untested: <reason> -->` why not.
+      tested: true
     # Files outside docs/ that link to the site. The site's first home, GitHub Pages' project address,
     # is dead; a link to it reads as correct and goes nowhere, so it is refused wherever the site is
     # linked from.

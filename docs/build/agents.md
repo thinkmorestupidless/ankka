@@ -2728,6 +2728,7 @@ Every call to an agent made through `about` names the data subject.
 
 /// tab | Go
 
+<!-- include: sdks/go/docs_personal_test.go#session-subject -->
 ```go
 ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
 ```

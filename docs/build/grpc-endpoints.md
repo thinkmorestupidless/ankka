@@ -77,6 +77,7 @@ rather than on the service's project alone; a service made with `ankka init` alr
 <!-- languages: scala; an sbt build definition; a Java or Kotlin service's build is Gradle's or Maven's -->
 /// tab | Scala
 
+<!-- untested: the reader's own two-project build, which names the published ankka-grpc artifact; this repository's build depends on the module's source instead -->
 ```scala
 lazy val api = project
   .in(file("api"))

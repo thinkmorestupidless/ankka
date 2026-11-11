@@ -87,3 +87,13 @@ bite:
   form in the sources to the newest tag; a build rewrites the site only and never writes a source.
   `git describe` among several tags on one commit is not the highest, so the newest tag is the highest
   version `git tag --merged HEAD` lists.
+- **Every tab's code is included from a tested file** (2026-11-11, #226). With `extra.docs.samples.tested`,
+  `docs check` refuses a language tab whose first line is a fence rather than `<!-- include: ... -->`. A
+  tab no test can hold (the reader's own build line, the version `docs sync` keeps current) carries
+  `<!-- untested: <reason> -->` before its block. Moving 185 hand-written tabs onto tests found dozens
+  that named handlers, components or types that do not exist, or did not compile.
+- **Two branches marking the same region name in one file join silently** (2026-11-11). `docs sync`
+  concatenates every `docs:start <name>` region of that name, so a merge that brings a second
+  `entity-test` into a file shows both tests on every page that includes it, and nothing fails. After a
+  rebase that touched sample files, list repeated names per file (`grep -n "docs:start "`, `uniq -d`)
+  and keep a repeat only where one region is split on purpose (imports and the code they serve).

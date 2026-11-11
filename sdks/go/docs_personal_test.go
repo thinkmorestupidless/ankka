@@ -88,7 +88,9 @@ func TestTheErasureHandlerErasesTheSubjectsObjectsAndKeepsTheRest(t *testing.T) 
 
 func aboutAPlayer(ctx context.Context) (string, ankka.AgentInstance, error) {
 	// docs:start agent-subject
+	// docs:start session-subject
 	ctx = ankka.WithDataSubject(ctx, ankka.MustSubject("player/8c1f"))
+	// docs:end session-subject
 	// every call to an agent made with ctx names the data subject
 	answer, err := ankka.Invoke[string](ctx, "helper", "support-91", "ask", "my card was declined")
 

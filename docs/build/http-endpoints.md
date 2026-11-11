@@ -1040,6 +1040,7 @@ admits a request only when it carries a token one of them signed. Add the module
 <!-- languages: scala; an sbt dependency line; the Java and Kotlin SDKs carry the token verifier already, and a Python, TypeScript, Rust or Go service's tokens are verified by the runtime beside it, with nothing added to the project -->
 /// tab | Scala
 
+<!-- untested: a dependency line for the reader's own build; this repository's build depends on the module's source instead -->
 ```scala
 "com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion
 ```

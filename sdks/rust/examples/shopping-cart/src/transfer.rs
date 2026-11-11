@@ -320,8 +320,8 @@ impl TransferApi {
             .client()
             .lifecycle(TransferWorkflow, request.path("id"))?;
         Ok(match lifecycle.failure {
-            Some(reason) => format!("{:?}: {reason}", lifecycle.status),
-            None => format!("{:?}", lifecycle.status),
+            Some(reason) => format!("{}: {reason}", lifecycle.status),
+            None => lifecycle.status.to_string(),
         })
     }
     // docs:end lifecycle

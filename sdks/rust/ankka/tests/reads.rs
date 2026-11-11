@@ -217,3 +217,21 @@ fn a_standing_round_trips_through_the_protocol() {
     };
     assert_eq!(Lifecycle::from_proto(&l.to_proto()).unwrap(), l);
 }
+
+#[test]
+fn a_status_is_shown_as_the_platform_names_it() {
+    let shown: Vec<String> = [
+        WorkflowStatus::NotStarted,
+        WorkflowStatus::Running,
+        WorkflowStatus::Paused,
+        WorkflowStatus::Completed,
+        WorkflowStatus::Failed,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    assert_eq!(
+        shown,
+        ["NotStarted", "Running", "Paused", "Completed", "Failed"]
+    );
+}

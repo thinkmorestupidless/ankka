@@ -26,6 +26,19 @@ pub enum WorkflowStatus {
     Failed,
 }
 
+/// The status as the platform names it: `NotStarted`, `Running`, `Paused`, `Completed`, `Failed`.
+impl std::fmt::Display for WorkflowStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            WorkflowStatus::NotStarted => "NotStarted",
+            WorkflowStatus::Running => "Running",
+            WorkflowStatus::Paused => "Paused",
+            WorkflowStatus::Completed => "Completed",
+            WorkflowStatus::Failed => "Failed",
+        })
+    }
+}
+
 /// A workflow's standing: its status, the step it is on or waits after, how many times each step was
 /// retried (a step never retried is absent), and why it failed.
 #[derive(Debug, Clone, PartialEq, Eq)]

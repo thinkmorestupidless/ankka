@@ -2,7 +2,8 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode, SessionId}
-import org.apache.pekko.stream.scaladsl.Sink
+import org.apache.pekko.NotUsed
+import org.apache.pekko.stream.scaladsl.{Sink, Source}
 
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
@@ -51,6 +52,21 @@ class AgentStreamSuite extends munit.FunSuite with LogCapturing:
       .forSessionMemory(SessionId(session))
       .call(SessionMemoryEntity.history)
       .invoke()
+
+  test("a stream is a source of tokens, and nothing is sent until it is run") {
+    model.expectText("Rain in Lisbon this afternoon")
+    val componentClient = testKit.componentClient
+
+    // docs:start consume
+    val tokens: Source[String, NotUsed] =
+      componentClient
+        .forAgent(SessionId("s-1"))
+        .stream(WeatherAgent.chat)("Will it rain in Lisbon?")
+    // docs:end consume
+
+    val text = Await.result(tokens.runWith(Sink.seq), 60.seconds).mkString
+    assertEquals(text, "Rain in Lisbon this afternoon")
+  }
 
   test("a reply arrives as several tokens, in order") {
     model.expectText("It is sunny in Berlin today")

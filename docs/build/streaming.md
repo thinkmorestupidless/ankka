@@ -68,6 +68,7 @@ fun chat(question: String): StreamEffect = effects {
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/assistant.py#stream -->
 ```python
 @stream("chat")
 def chat(self, question: str) -> AgentEffect[str]:
@@ -78,8 +79,10 @@ def chat(self, question: str) -> AgentEffect[str]:
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/examples/shopping-cart/assistant.ts#stream-handler -->
 ```ts
 static readonly handlers = {
+  ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
   chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
 }
 ```
@@ -105,6 +108,7 @@ with `stream` rather than `command`:
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/WeatherAgent.scala#stream-registration -->
 ```scala
 val chat = stream("chat")(_.chat)
 ```
@@ -190,9 +194,12 @@ handler is declared with `stream` in the component's `handlers`. The assistant i
 
 /// tab | Scala
 
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/AgentStreamSuite.scala#consume -->
 ```scala
 val tokens: Source[String, NotUsed] =
-  componentClient.forAgent(SessionId("s-1")).stream(WeatherAgent.chat)("Will it rain in Lisbon?")
+  componentClient
+    .forAgent(SessionId("s-1"))
+    .stream(WeatherAgent.chat)("Will it rain in Lisbon?")
 ```
 
 ///
@@ -222,18 +229,20 @@ val text = runBlocking { tokens.toList() }.joinToString("")
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/endpoint.py#consume -->
 ```python
-async for token in client.for_agent("assistant", "s-1").call("chat").stream("Will it rain?"):
-    print(token, end="")
+async for token in self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("chat").stream(question):
+    yield token
 ```
 
 ///
 
 /// tab | TypeScript
 
+<!-- include: sdks/typescript/test/client-samples.test.ts#consume -->
 ```ts
 for await (const token of client.of(CartAssistant, "s-1").call(CartAssistant.handlers.chat).stream("Will it rain?")) {
-  process.stdout.write(token)
+  tokens.push(token)
 }
 ```
 

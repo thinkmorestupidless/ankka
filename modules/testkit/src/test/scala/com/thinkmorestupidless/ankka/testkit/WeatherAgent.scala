@@ -136,10 +136,12 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
 
   def create(context: AgentContext) = new WeatherAgent(context)
 
-  val whoAmI             = command("who-am-i")(_.whoAmI)
-  val ask                = command("ask")(_.ask)
-  val askBounded         = command("ask-bounded")(_.askBounded)
-  val chat               = stream("chat")(_.chat)
+  val whoAmI     = command("who-am-i")(_.whoAmI)
+  val ask        = command("ask")(_.ask)
+  val askBounded = command("ask-bounded")(_.askBounded)
+  // docs:start stream-registration
+  val chat = stream("chat")(_.chat)
+  // docs:end stream-registration
   val chatGuarded        = stream("chat-guarded")(_.chatGuarded)
   val askStructured      = command("ask-structured")(_.askStructured)
   val classify           = command("classify")(_.classify)

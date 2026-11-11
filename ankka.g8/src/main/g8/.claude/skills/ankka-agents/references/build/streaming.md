@@ -63,6 +63,7 @@ def chat(self, question: str) -> AgentEffect[str]:
 
 ```ts
 static readonly handlers = {
+  ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
   chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
 }
 ```
@@ -153,7 +154,9 @@ handler is declared with `stream` in the component's `handlers`. The assistant i
 
 ```scala
 val tokens: Source[String, NotUsed] =
-  componentClient.forAgent(SessionId("s-1")).stream(WeatherAgent.chat)("Will it rain in Lisbon?")
+  componentClient
+    .forAgent(SessionId("s-1"))
+    .stream(WeatherAgent.chat)("Will it rain in Lisbon?")
 ```
 
 **Java**
@@ -176,15 +179,15 @@ val text = runBlocking { tokens.toList() }.joinToString("")
 **Python**
 
 ```python
-async for token in client.for_agent("assistant", "s-1").call("chat").stream("Will it rain?"):
-    print(token, end="")
+async for token in self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("chat").stream(question):
+    yield token
 ```
 
 **TypeScript**
 
 ```ts
 for await (const token of client.of(CartAssistant, "s-1").call(CartAssistant.handlers.chat).stream("Will it rain?")) {
-  process.stdout.write(token)
+  tokens.push(token)
 }
 ```
 

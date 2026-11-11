@@ -78,6 +78,64 @@ func (Overflow) EnumDescriptor() ([]byte, []int) {
 	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{0}
 }
 
+type WorkflowStatus int32
+
+const (
+	WorkflowStatus_WORKFLOW_STATUS_UNSPECIFIED WorkflowStatus = 0 // never sent
+	WorkflowStatus_NOT_STARTED                 WorkflowStatus = 1
+	WorkflowStatus_RUNNING                     WorkflowStatus = 2
+	WorkflowStatus_PAUSED                      WorkflowStatus = 3
+	WorkflowStatus_COMPLETED                   WorkflowStatus = 4
+	WorkflowStatus_FAILED                      WorkflowStatus = 5
+)
+
+// Enum value maps for WorkflowStatus.
+var (
+	WorkflowStatus_name = map[int32]string{
+		0: "WORKFLOW_STATUS_UNSPECIFIED",
+		1: "NOT_STARTED",
+		2: "RUNNING",
+		3: "PAUSED",
+		4: "COMPLETED",
+		5: "FAILED",
+	}
+	WorkflowStatus_value = map[string]int32{
+		"WORKFLOW_STATUS_UNSPECIFIED": 0,
+		"NOT_STARTED":                 1,
+		"RUNNING":                     2,
+		"PAUSED":                      3,
+		"COMPLETED":                   4,
+		"FAILED":                      5,
+	}
+)
+
+func (x WorkflowStatus) Enum() *WorkflowStatus {
+	p := new(WorkflowStatus)
+	*p = x
+	return p
+}
+
+func (x WorkflowStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (WorkflowStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_ankka_protocol_v1_client_proto_enumTypes[1].Descriptor()
+}
+
+func (WorkflowStatus) Type() protoreflect.EnumType {
+	return &file_ankka_protocol_v1_client_proto_enumTypes[1]
+}
+
+func (x WorkflowStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use WorkflowStatus.Descriptor instead.
+func (WorkflowStatus) EnumDescriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{1}
+}
+
 // UNANSWERED is zero on purpose: a reason a reader does not know reads as zero, and "no answer"
 // is the reading of an unknown failure that never sends anything twice.
 type ServiceFailure_Reason int32
@@ -113,11 +171,11 @@ func (x ServiceFailure_Reason) String() string {
 }
 
 func (ServiceFailure_Reason) Descriptor() protoreflect.EnumDescriptor {
-	return file_ankka_protocol_v1_client_proto_enumTypes[1].Descriptor()
+	return file_ankka_protocol_v1_client_proto_enumTypes[2].Descriptor()
 }
 
 func (ServiceFailure_Reason) Type() protoreflect.EnumType {
-	return &file_ankka_protocol_v1_client_proto_enumTypes[1]
+	return &file_ankka_protocol_v1_client_proto_enumTypes[2]
 }
 
 func (x ServiceFailure_Reason) Number() protoreflect.EnumNumber {
@@ -177,11 +235,11 @@ func (x StorageRequest_Op) String() string {
 }
 
 func (StorageRequest_Op) Descriptor() protoreflect.EnumDescriptor {
-	return file_ankka_protocol_v1_client_proto_enumTypes[2].Descriptor()
+	return file_ankka_protocol_v1_client_proto_enumTypes[3].Descriptor()
 }
 
 func (StorageRequest_Op) Type() protoreflect.EnumType {
-	return &file_ankka_protocol_v1_client_proto_enumTypes[2]
+	return &file_ankka_protocol_v1_client_proto_enumTypes[3]
 }
 
 func (x StorageRequest_Op) Number() protoreflect.EnumNumber {
@@ -223,11 +281,11 @@ func (x StorageRequest_Access) String() string {
 }
 
 func (StorageRequest_Access) Descriptor() protoreflect.EnumDescriptor {
-	return file_ankka_protocol_v1_client_proto_enumTypes[3].Descriptor()
+	return file_ankka_protocol_v1_client_proto_enumTypes[4].Descriptor()
 }
 
 func (StorageRequest_Access) Type() protoreflect.EnumType {
-	return &file_ankka_protocol_v1_client_proto_enumTypes[3]
+	return &file_ankka_protocol_v1_client_proto_enumTypes[4]
 }
 
 func (x StorageRequest_Access) Number() protoreflect.EnumNumber {
@@ -4046,6 +4104,420 @@ func (x *ErasureAsked) GetState() string {
 	return ""
 }
 
+// 1.24: the workflow `workflow_id` of the component `component_id`.
+type LifecycleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ComponentId   string                 `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
+	WorkflowId    string                 `protobuf:"bytes,2,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LifecycleRequest) Reset() {
+	*x = LifecycleRequest{}
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LifecycleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LifecycleRequest) ProtoMessage() {}
+
+func (x *LifecycleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LifecycleRequest.ProtoReflect.Descriptor instead.
+func (*LifecycleRequest) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *LifecycleRequest) GetComponentId() string {
+	if x != nil {
+		return x.ComponentId
+	}
+	return ""
+}
+
+func (x *LifecycleRequest) GetWorkflowId() string {
+	if x != nil {
+		return x.WorkflowId
+	}
+	return ""
+}
+
+type WorkflowLifecycle struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        WorkflowStatus         `protobuf:"varint,1,opt,name=status,proto3,enum=ankka.protocol.v1.WorkflowStatus" json:"status,omitempty"`
+	PendingStep   *string                `protobuf:"bytes,2,opt,name=pending_step,json=pendingStep,proto3,oneof" json:"pending_step,omitempty"`                                           // the step it is on or waits after
+	Retries       map[string]int32       `protobuf:"bytes,3,rep,name=retries,proto3" json:"retries,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"` // by step name; a step never retried is absent
+	Failure       *string                `protobuf:"bytes,4,opt,name=failure,proto3,oneof" json:"failure,omitempty"`                                                                      // set when status is FAILED
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WorkflowLifecycle) Reset() {
+	*x = WorkflowLifecycle{}
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WorkflowLifecycle) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WorkflowLifecycle) ProtoMessage() {}
+
+func (x *WorkflowLifecycle) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WorkflowLifecycle.ProtoReflect.Descriptor instead.
+func (*WorkflowLifecycle) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *WorkflowLifecycle) GetStatus() WorkflowStatus {
+	if x != nil {
+		return x.Status
+	}
+	return WorkflowStatus_WORKFLOW_STATUS_UNSPECIFIED
+}
+
+func (x *WorkflowLifecycle) GetPendingStep() string {
+	if x != nil && x.PendingStep != nil {
+		return *x.PendingStep
+	}
+	return ""
+}
+
+func (x *WorkflowLifecycle) GetRetries() map[string]int32 {
+	if x != nil {
+		return x.Retries
+	}
+	return nil
+}
+
+func (x *WorkflowLifecycle) GetFailure() string {
+	if x != nil && x.Failure != nil {
+		return *x.Failure
+	}
+	return ""
+}
+
+type LifecycleReply struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Result:
+	//
+	//	*LifecycleReply_Lifecycle
+	//	*LifecycleReply_Error
+	Result        isLifecycleReply_Result `protobuf_oneof:"result"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LifecycleReply) Reset() {
+	*x = LifecycleReply{}
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LifecycleReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LifecycleReply) ProtoMessage() {}
+
+func (x *LifecycleReply) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LifecycleReply.ProtoReflect.Descriptor instead.
+func (*LifecycleReply) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *LifecycleReply) GetResult() isLifecycleReply_Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *LifecycleReply) GetLifecycle() *WorkflowLifecycle {
+	if x != nil {
+		if x, ok := x.Result.(*LifecycleReply_Lifecycle); ok {
+			return x.Lifecycle
+		}
+	}
+	return nil
+}
+
+func (x *LifecycleReply) GetError() *Error {
+	if x != nil {
+		if x, ok := x.Result.(*LifecycleReply_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+type isLifecycleReply_Result interface {
+	isLifecycleReply_Result()
+}
+
+type LifecycleReply_Lifecycle struct {
+	Lifecycle *WorkflowLifecycle `protobuf:"bytes,1,opt,name=lifecycle,proto3,oneof"`
+}
+
+type LifecycleReply_Error struct {
+	Error *Error `protobuf:"bytes,2,opt,name=error,proto3,oneof"`
+}
+
+func (*LifecycleReply_Lifecycle) isLifecycleReply_Result() {}
+
+func (*LifecycleReply_Error) isLifecycleReply_Result() {}
+
+// 1.24: the copy at this installation of the entity `entity_id` of the component `component_id`.
+type ReplicationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ComponentId   string                 `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
+	EntityId      string                 `protobuf:"bytes,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReplicationRequest) Reset() {
+	*x = ReplicationRequest{}
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReplicationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReplicationRequest) ProtoMessage() {}
+
+func (x *ReplicationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReplicationRequest.ProtoReflect.Descriptor instead.
+func (*ReplicationRequest) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *ReplicationRequest) GetComponentId() string {
+	if x != nil {
+		return x.ComponentId
+	}
+	return ""
+}
+
+func (x *ReplicationRequest) GetEntityId() string {
+	if x != nil {
+		return x.EntityId
+	}
+	return ""
+}
+
+type ReplicationStatus struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Home            *string                `protobuf:"bytes,1,opt,name=home,proto3,oneof" json:"home,omitempty"`
+	ReplicationSet  []string               `protobuf:"bytes,2,rep,name=replication_set,json=replicationSet,proto3" json:"replication_set,omitempty"`          // sorted
+	PendingHandover *string                `protobuf:"bytes,3,opt,name=pending_handover,json=pendingHandover,proto3,oneof" json:"pending_handover,omitempty"` // the installation a handover waiting goes to
+	Conflict        *string                `protobuf:"bytes,4,opt,name=conflict,proto3,oneof" json:"conflict,omitempty"`                                      // the other home, when in conflict
+	Position        int64                  `protobuf:"varint,5,opt,name=position,proto3" json:"position,omitempty"`                                           // records this copy's history holds
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ReplicationStatus) Reset() {
+	*x = ReplicationStatus{}
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReplicationStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReplicationStatus) ProtoMessage() {}
+
+func (x *ReplicationStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReplicationStatus.ProtoReflect.Descriptor instead.
+func (*ReplicationStatus) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *ReplicationStatus) GetHome() string {
+	if x != nil && x.Home != nil {
+		return *x.Home
+	}
+	return ""
+}
+
+func (x *ReplicationStatus) GetReplicationSet() []string {
+	if x != nil {
+		return x.ReplicationSet
+	}
+	return nil
+}
+
+func (x *ReplicationStatus) GetPendingHandover() string {
+	if x != nil && x.PendingHandover != nil {
+		return *x.PendingHandover
+	}
+	return ""
+}
+
+func (x *ReplicationStatus) GetConflict() string {
+	if x != nil && x.Conflict != nil {
+		return *x.Conflict
+	}
+	return ""
+}
+
+func (x *ReplicationStatus) GetPosition() int64 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+type ReplicationReply struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Result:
+	//
+	//	*ReplicationReply_Status
+	//	*ReplicationReply_Error
+	Result        isReplicationReply_Result `protobuf_oneof:"result"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReplicationReply) Reset() {
+	*x = ReplicationReply{}
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReplicationReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReplicationReply) ProtoMessage() {}
+
+func (x *ReplicationReply) ProtoReflect() protoreflect.Message {
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReplicationReply.ProtoReflect.Descriptor instead.
+func (*ReplicationReply) Descriptor() ([]byte, []int) {
+	return file_ankka_protocol_v1_client_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *ReplicationReply) GetResult() isReplicationReply_Result {
+	if x != nil {
+		return x.Result
+	}
+	return nil
+}
+
+func (x *ReplicationReply) GetStatus() *ReplicationStatus {
+	if x != nil {
+		if x, ok := x.Result.(*ReplicationReply_Status); ok {
+			return x.Status
+		}
+	}
+	return nil
+}
+
+func (x *ReplicationReply) GetError() *Error {
+	if x != nil {
+		if x, ok := x.Result.(*ReplicationReply_Error); ok {
+			return x.Error
+		}
+	}
+	return nil
+}
+
+type isReplicationReply_Result interface {
+	isReplicationReply_Result()
+}
+
+type ReplicationReply_Status struct {
+	Status *ReplicationStatus `protobuf:"bytes,1,opt,name=status,proto3,oneof"`
+}
+
+type ReplicationReply_Error struct {
+	Error *Error `protobuf:"bytes,2,opt,name=error,proto3,oneof"`
+}
+
+func (*ReplicationReply_Status) isReplicationReply_Result() {}
+
+func (*ReplicationReply_Error) isReplicationReply_Result() {}
+
 type IssueClientKeyReply_Issued struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -4056,7 +4528,7 @@ type IssueClientKeyReply_Issued struct {
 
 func (x *IssueClientKeyReply_Issued) Reset() {
 	*x = IssueClientKeyReply_Issued{}
-	mi := &file_ankka_protocol_v1_client_proto_msgTypes[52]
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4068,7 +4540,7 @@ func (x *IssueClientKeyReply_Issued) String() string {
 func (*IssueClientKeyReply_Issued) ProtoMessage() {}
 
 func (x *IssueClientKeyReply_Issued) ProtoReflect() protoreflect.Message {
-	mi := &file_ankka_protocol_v1_client_proto_msgTypes[52]
+	mi := &file_ankka_protocol_v1_client_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4414,13 +4886,57 @@ const file_ankka_protocol_v1_client_proto_rawDesc = "" +
 	"\x05reply\"4\n" +
 	"\fErasureAsked\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
-	"\x05state\x18\x02 \x01(\tR\x05state*N\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\"V\n" +
+	"\x10LifecycleRequest\x12!\n" +
+	"\fcomponent_id\x18\x01 \x01(\tR\vcomponentId\x12\x1f\n" +
+	"\vworkflow_id\x18\x02 \x01(\tR\n" +
+	"workflowId\"\xbb\x02\n" +
+	"\x11WorkflowLifecycle\x129\n" +
+	"\x06status\x18\x01 \x01(\x0e2!.ankka.protocol.v1.WorkflowStatusR\x06status\x12&\n" +
+	"\fpending_step\x18\x02 \x01(\tH\x00R\vpendingStep\x88\x01\x01\x12K\n" +
+	"\aretries\x18\x03 \x03(\v21.ankka.protocol.v1.WorkflowLifecycle.RetriesEntryR\aretries\x12\x1d\n" +
+	"\afailure\x18\x04 \x01(\tH\x01R\afailure\x88\x01\x01\x1a:\n" +
+	"\fRetriesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01B\x0f\n" +
+	"\r_pending_stepB\n" +
+	"\n" +
+	"\b_failure\"\x92\x01\n" +
+	"\x0eLifecycleReply\x12D\n" +
+	"\tlifecycle\x18\x01 \x01(\v2$.ankka.protocol.v1.WorkflowLifecycleH\x00R\tlifecycle\x120\n" +
+	"\x05error\x18\x02 \x01(\v2\x18.ankka.protocol.v1.ErrorH\x00R\x05errorB\b\n" +
+	"\x06result\"T\n" +
+	"\x12ReplicationRequest\x12!\n" +
+	"\fcomponent_id\x18\x01 \x01(\tR\vcomponentId\x12\x1b\n" +
+	"\tentity_id\x18\x02 \x01(\tR\bentityId\"\xed\x01\n" +
+	"\x11ReplicationStatus\x12\x17\n" +
+	"\x04home\x18\x01 \x01(\tH\x00R\x04home\x88\x01\x01\x12'\n" +
+	"\x0freplication_set\x18\x02 \x03(\tR\x0ereplicationSet\x12.\n" +
+	"\x10pending_handover\x18\x03 \x01(\tH\x01R\x0fpendingHandover\x88\x01\x01\x12\x1f\n" +
+	"\bconflict\x18\x04 \x01(\tH\x02R\bconflict\x88\x01\x01\x12\x1a\n" +
+	"\bposition\x18\x05 \x01(\x03R\bpositionB\a\n" +
+	"\x05_homeB\x13\n" +
+	"\x11_pending_handoverB\v\n" +
+	"\t_conflict\"\x8e\x01\n" +
+	"\x10ReplicationReply\x12>\n" +
+	"\x06status\x18\x01 \x01(\v2$.ankka.protocol.v1.ReplicationStatusH\x00R\x06status\x120\n" +
+	"\x05error\x18\x02 \x01(\v2\x18.ankka.protocol.v1.ErrorH\x00R\x05errorB\b\n" +
+	"\x06result*N\n" +
 	"\bOverflow\x12\r\n" +
 	"\tDROP_HEAD\x10\x00\x12\r\n" +
 	"\tDROP_TAIL\x10\x01\x12\f\n" +
 	"\bDROP_NEW\x10\x02\x12\f\n" +
 	"\bDROP_ALL\x10\x03\x12\b\n" +
-	"\x04FAIL\x10\x042\xf6\x0e\n" +
+	"\x04FAIL\x10\x04*v\n" +
+	"\x0eWorkflowStatus\x12\x1f\n" +
+	"\x1bWORKFLOW_STATUS_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vNOT_STARTED\x10\x01\x12\v\n" +
+	"\aRUNNING\x10\x02\x12\n" +
+	"\n" +
+	"\x06PAUSED\x10\x03\x12\r\n" +
+	"\tCOMPLETED\x10\x04\x12\n" +
+	"\n" +
+	"\x06FAILED\x10\x052\xa6\x10\n" +
 	"\x06Client\x12J\n" +
 	"\x06Invoke\x12 .ankka.protocol.v1.InvokeRequest\x1a\x1e.ankka.protocol.v1.InvokeReply\x12R\n" +
 	"\fInvokeStream\x12 .ankka.protocol.v1.InvokeRequest\x1a\x1e.ankka.protocol.v1.StreamToken0\x01\x12G\n" +
@@ -4444,7 +4960,9 @@ const file_ankka_protocol_v1_client_proto_rawDesc = "" +
 	"\x0eSubjectNotices\x12(.ankka.protocol.v1.SubjectNoticesRequest\x1a .ankka.protocol.v1.SubjectNotice0\x01\x12a\n" +
 	"\x10AckSubjectNotice\x12#.ankka.protocol.v1.SubjectNoticeAck\x1a(.ankka.protocol.v1.SubjectNoticeAckReply\x12V\n" +
 	"\n" +
-	"AskErasure\x12$.ankka.protocol.v1.AskErasureRequest\x1a\".ankka.protocol.v1.AskErasureReplyB\xbf\x01\n" +
+	"AskErasure\x12$.ankka.protocol.v1.AskErasureRequest\x1a\".ankka.protocol.v1.AskErasureReply\x12S\n" +
+	"\tLifecycle\x12#.ankka.protocol.v1.LifecycleRequest\x1a!.ankka.protocol.v1.LifecycleReply\x12Y\n" +
+	"\vReplication\x12%.ankka.protocol.v1.ReplicationRequest\x1a#.ankka.protocol.v1.ReplicationReplyB\xbf\x01\n" +
 	"\x15com.ankka.protocol.v1B\vClientProtoP\x01Z3github.com/thinkmorestupidless/ankka-go/internal/pb\xa2\x02\x03APX\xaa\x02\x11Ankka.Protocol.V1\xca\x02\x11Ankka\\Protocol\\V1\xe2\x02\x1dAnkka\\Protocol\\V1\\GPBMetadata\xea\x02\x13Ankka::Protocol::V1b\x06proto3"
 
 var (
@@ -4459,197 +4977,215 @@ func file_ankka_protocol_v1_client_proto_rawDescGZIP() []byte {
 	return file_ankka_protocol_v1_client_proto_rawDescData
 }
 
-var file_ankka_protocol_v1_client_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_ankka_protocol_v1_client_proto_msgTypes = make([]protoimpl.MessageInfo, 56)
+var file_ankka_protocol_v1_client_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
+var file_ankka_protocol_v1_client_proto_msgTypes = make([]protoimpl.MessageInfo, 63)
 var file_ankka_protocol_v1_client_proto_goTypes = []any{
 	(Overflow)(0),                      // 0: ankka.protocol.v1.Overflow
-	(ServiceFailure_Reason)(0),         // 1: ankka.protocol.v1.ServiceFailure.Reason
-	(StorageRequest_Op)(0),             // 2: ankka.protocol.v1.StorageRequest.Op
-	(StorageRequest_Access)(0),         // 3: ankka.protocol.v1.StorageRequest.Access
-	(*IssueClientKeyRequest)(nil),      // 4: ankka.protocol.v1.IssueClientKeyRequest
-	(*IssueClientKeyReply)(nil),        // 5: ankka.protocol.v1.IssueClientKeyReply
-	(*ListClientKeysRequest)(nil),      // 6: ankka.protocol.v1.ListClientKeysRequest
-	(*ListClientKeysReply)(nil),        // 7: ankka.protocol.v1.ListClientKeysReply
-	(*ClientKeySummary)(nil),           // 8: ankka.protocol.v1.ClientKeySummary
-	(*RevokeClientKeyRequest)(nil),     // 9: ankka.protocol.v1.RevokeClientKeyRequest
-	(*RevokeClientKeyReply)(nil),       // 10: ankka.protocol.v1.RevokeClientKeyReply
-	(*AwaitEndRequest)(nil),            // 11: ankka.protocol.v1.AwaitEndRequest
-	(*InvokeRequest)(nil),              // 12: ankka.protocol.v1.InvokeRequest
-	(*InvokeReply)(nil),                // 13: ankka.protocol.v1.InvokeReply
-	(*StreamToken)(nil),                // 14: ankka.protocol.v1.StreamToken
-	(*ApprovalAwaited)(nil),            // 15: ankka.protocol.v1.ApprovalAwaited
-	(*ApprovalRequest)(nil),            // 16: ankka.protocol.v1.ApprovalRequest
-	(*DecideRequest)(nil),              // 17: ankka.protocol.v1.DecideRequest
-	(*QueryRequest)(nil),               // 18: ankka.protocol.v1.QueryRequest
-	(*QueryReply)(nil),                 // 19: ankka.protocol.v1.QueryReply
-	(*RowFrame)(nil),                   // 20: ankka.protocol.v1.RowFrame
-	(*WatchedRow)(nil),                 // 21: ankka.protocol.v1.WatchedRow
-	(*Removed)(nil),                    // 22: ankka.protocol.v1.Removed
-	(*Ended)(nil),                      // 23: ankka.protocol.v1.Ended
-	(*WatchRequest)(nil),               // 24: ankka.protocol.v1.WatchRequest
-	(*Named)(nil),                      // 25: ankka.protocol.v1.Named
-	(*ScheduleRequest)(nil),            // 26: ankka.protocol.v1.ScheduleRequest
-	(*CancelRequest)(nil),              // 27: ankka.protocol.v1.CancelRequest
-	(*ScheduleRecurringRequest)(nil),   // 28: ankka.protocol.v1.ScheduleRecurringRequest
-	(*ScheduleRecurringReply)(nil),     // 29: ankka.protocol.v1.ScheduleRecurringReply
-	(*GetSecretRequest)(nil),           // 30: ankka.protocol.v1.GetSecretRequest
-	(*GetSecretReply)(nil),             // 31: ankka.protocol.v1.GetSecretReply
-	(*PutSecretRequest)(nil),           // 32: ankka.protocol.v1.PutSecretRequest
-	(*PutSecretReply)(nil),             // 33: ankka.protocol.v1.PutSecretReply
-	(*DeleteSecretRequest)(nil),        // 34: ankka.protocol.v1.DeleteSecretRequest
-	(*DeleteSecretReply)(nil),          // 35: ankka.protocol.v1.DeleteSecretReply
-	(*ServiceRequest)(nil),             // 36: ankka.protocol.v1.ServiceRequest
-	(*ServiceReply)(nil),               // 37: ankka.protocol.v1.ServiceReply
-	(*ServiceFailure)(nil),             // 38: ankka.protocol.v1.ServiceFailure
-	(*StorageRequest)(nil),             // 39: ankka.protocol.v1.StorageRequest
-	(*StorageReply)(nil),               // 40: ankka.protocol.v1.StorageReply
-	(*ErasedObjects)(nil),              // 41: ankka.protocol.v1.ErasedObjects
-	(*StoredObject)(nil),               // 42: ankka.protocol.v1.StoredObject
-	(*ObjectInfo)(nil),                 // 43: ankka.protocol.v1.ObjectInfo
-	(*ObjectEntries)(nil),              // 44: ankka.protocol.v1.ObjectEntries
-	(*ObjectEntry)(nil),                // 45: ankka.protocol.v1.ObjectEntry
-	(*SubjectKeyRequest)(nil),          // 46: ankka.protocol.v1.SubjectKeyRequest
-	(*SubjectKeyReply)(nil),            // 47: ankka.protocol.v1.SubjectKeyReply
-	(*SubjectNoticesRequest)(nil),      // 48: ankka.protocol.v1.SubjectNoticesRequest
-	(*SubjectNotice)(nil),              // 49: ankka.protocol.v1.SubjectNotice
-	(*SubjectNoticeAck)(nil),           // 50: ankka.protocol.v1.SubjectNoticeAck
-	(*SubjectNoticeAckReply)(nil),      // 51: ankka.protocol.v1.SubjectNoticeAckReply
-	(*AskErasureRequest)(nil),          // 52: ankka.protocol.v1.AskErasureRequest
-	(*AskErasureReply)(nil),            // 53: ankka.protocol.v1.AskErasureReply
-	(*ErasureAsked)(nil),               // 54: ankka.protocol.v1.ErasureAsked
-	nil,                                // 55: ankka.protocol.v1.IssueClientKeyRequest.AttributesEntry
-	(*IssueClientKeyReply_Issued)(nil), // 56: ankka.protocol.v1.IssueClientKeyReply.Issued
-	nil,                                // 57: ankka.protocol.v1.ClientKeySummary.AttributesEntry
-	nil,                                // 58: ankka.protocol.v1.QueryRequest.ValuesEntry
-	nil,                                // 59: ankka.protocol.v1.Named.ValuesEntry
-	(*Metadata)(nil),                   // 60: ankka.protocol.v1.Metadata
-	(*Error)(nil),                      // 61: ankka.protocol.v1.Error
-	(Kind)(0),                          // 62: ankka.protocol.v1.Kind
-	(*Payload)(nil),                    // 63: ankka.protocol.v1.Payload
-	(*Outcome_Reply)(nil),              // 64: ankka.protocol.v1.Outcome.Reply
-	(*Empty)(nil),                      // 65: ankka.protocol.v1.Empty
-	(*HttpRequest_Pair)(nil),           // 66: ankka.protocol.v1.HttpRequest.Pair
-	(*HttpResponse)(nil),               // 67: ankka.protocol.v1.HttpResponse
+	(WorkflowStatus)(0),                // 1: ankka.protocol.v1.WorkflowStatus
+	(ServiceFailure_Reason)(0),         // 2: ankka.protocol.v1.ServiceFailure.Reason
+	(StorageRequest_Op)(0),             // 3: ankka.protocol.v1.StorageRequest.Op
+	(StorageRequest_Access)(0),         // 4: ankka.protocol.v1.StorageRequest.Access
+	(*IssueClientKeyRequest)(nil),      // 5: ankka.protocol.v1.IssueClientKeyRequest
+	(*IssueClientKeyReply)(nil),        // 6: ankka.protocol.v1.IssueClientKeyReply
+	(*ListClientKeysRequest)(nil),      // 7: ankka.protocol.v1.ListClientKeysRequest
+	(*ListClientKeysReply)(nil),        // 8: ankka.protocol.v1.ListClientKeysReply
+	(*ClientKeySummary)(nil),           // 9: ankka.protocol.v1.ClientKeySummary
+	(*RevokeClientKeyRequest)(nil),     // 10: ankka.protocol.v1.RevokeClientKeyRequest
+	(*RevokeClientKeyReply)(nil),       // 11: ankka.protocol.v1.RevokeClientKeyReply
+	(*AwaitEndRequest)(nil),            // 12: ankka.protocol.v1.AwaitEndRequest
+	(*InvokeRequest)(nil),              // 13: ankka.protocol.v1.InvokeRequest
+	(*InvokeReply)(nil),                // 14: ankka.protocol.v1.InvokeReply
+	(*StreamToken)(nil),                // 15: ankka.protocol.v1.StreamToken
+	(*ApprovalAwaited)(nil),            // 16: ankka.protocol.v1.ApprovalAwaited
+	(*ApprovalRequest)(nil),            // 17: ankka.protocol.v1.ApprovalRequest
+	(*DecideRequest)(nil),              // 18: ankka.protocol.v1.DecideRequest
+	(*QueryRequest)(nil),               // 19: ankka.protocol.v1.QueryRequest
+	(*QueryReply)(nil),                 // 20: ankka.protocol.v1.QueryReply
+	(*RowFrame)(nil),                   // 21: ankka.protocol.v1.RowFrame
+	(*WatchedRow)(nil),                 // 22: ankka.protocol.v1.WatchedRow
+	(*Removed)(nil),                    // 23: ankka.protocol.v1.Removed
+	(*Ended)(nil),                      // 24: ankka.protocol.v1.Ended
+	(*WatchRequest)(nil),               // 25: ankka.protocol.v1.WatchRequest
+	(*Named)(nil),                      // 26: ankka.protocol.v1.Named
+	(*ScheduleRequest)(nil),            // 27: ankka.protocol.v1.ScheduleRequest
+	(*CancelRequest)(nil),              // 28: ankka.protocol.v1.CancelRequest
+	(*ScheduleRecurringRequest)(nil),   // 29: ankka.protocol.v1.ScheduleRecurringRequest
+	(*ScheduleRecurringReply)(nil),     // 30: ankka.protocol.v1.ScheduleRecurringReply
+	(*GetSecretRequest)(nil),           // 31: ankka.protocol.v1.GetSecretRequest
+	(*GetSecretReply)(nil),             // 32: ankka.protocol.v1.GetSecretReply
+	(*PutSecretRequest)(nil),           // 33: ankka.protocol.v1.PutSecretRequest
+	(*PutSecretReply)(nil),             // 34: ankka.protocol.v1.PutSecretReply
+	(*DeleteSecretRequest)(nil),        // 35: ankka.protocol.v1.DeleteSecretRequest
+	(*DeleteSecretReply)(nil),          // 36: ankka.protocol.v1.DeleteSecretReply
+	(*ServiceRequest)(nil),             // 37: ankka.protocol.v1.ServiceRequest
+	(*ServiceReply)(nil),               // 38: ankka.protocol.v1.ServiceReply
+	(*ServiceFailure)(nil),             // 39: ankka.protocol.v1.ServiceFailure
+	(*StorageRequest)(nil),             // 40: ankka.protocol.v1.StorageRequest
+	(*StorageReply)(nil),               // 41: ankka.protocol.v1.StorageReply
+	(*ErasedObjects)(nil),              // 42: ankka.protocol.v1.ErasedObjects
+	(*StoredObject)(nil),               // 43: ankka.protocol.v1.StoredObject
+	(*ObjectInfo)(nil),                 // 44: ankka.protocol.v1.ObjectInfo
+	(*ObjectEntries)(nil),              // 45: ankka.protocol.v1.ObjectEntries
+	(*ObjectEntry)(nil),                // 46: ankka.protocol.v1.ObjectEntry
+	(*SubjectKeyRequest)(nil),          // 47: ankka.protocol.v1.SubjectKeyRequest
+	(*SubjectKeyReply)(nil),            // 48: ankka.protocol.v1.SubjectKeyReply
+	(*SubjectNoticesRequest)(nil),      // 49: ankka.protocol.v1.SubjectNoticesRequest
+	(*SubjectNotice)(nil),              // 50: ankka.protocol.v1.SubjectNotice
+	(*SubjectNoticeAck)(nil),           // 51: ankka.protocol.v1.SubjectNoticeAck
+	(*SubjectNoticeAckReply)(nil),      // 52: ankka.protocol.v1.SubjectNoticeAckReply
+	(*AskErasureRequest)(nil),          // 53: ankka.protocol.v1.AskErasureRequest
+	(*AskErasureReply)(nil),            // 54: ankka.protocol.v1.AskErasureReply
+	(*ErasureAsked)(nil),               // 55: ankka.protocol.v1.ErasureAsked
+	(*LifecycleRequest)(nil),           // 56: ankka.protocol.v1.LifecycleRequest
+	(*WorkflowLifecycle)(nil),          // 57: ankka.protocol.v1.WorkflowLifecycle
+	(*LifecycleReply)(nil),             // 58: ankka.protocol.v1.LifecycleReply
+	(*ReplicationRequest)(nil),         // 59: ankka.protocol.v1.ReplicationRequest
+	(*ReplicationStatus)(nil),          // 60: ankka.protocol.v1.ReplicationStatus
+	(*ReplicationReply)(nil),           // 61: ankka.protocol.v1.ReplicationReply
+	nil,                                // 62: ankka.protocol.v1.IssueClientKeyRequest.AttributesEntry
+	(*IssueClientKeyReply_Issued)(nil), // 63: ankka.protocol.v1.IssueClientKeyReply.Issued
+	nil,                                // 64: ankka.protocol.v1.ClientKeySummary.AttributesEntry
+	nil,                                // 65: ankka.protocol.v1.QueryRequest.ValuesEntry
+	nil,                                // 66: ankka.protocol.v1.Named.ValuesEntry
+	nil,                                // 67: ankka.protocol.v1.WorkflowLifecycle.RetriesEntry
+	(*Metadata)(nil),                   // 68: ankka.protocol.v1.Metadata
+	(*Error)(nil),                      // 69: ankka.protocol.v1.Error
+	(Kind)(0),                          // 70: ankka.protocol.v1.Kind
+	(*Payload)(nil),                    // 71: ankka.protocol.v1.Payload
+	(*Outcome_Reply)(nil),              // 72: ankka.protocol.v1.Outcome.Reply
+	(*Empty)(nil),                      // 73: ankka.protocol.v1.Empty
+	(*HttpRequest_Pair)(nil),           // 74: ankka.protocol.v1.HttpRequest.Pair
+	(*HttpResponse)(nil),               // 75: ankka.protocol.v1.HttpResponse
 }
 var file_ankka_protocol_v1_client_proto_depIdxs = []int32{
-	55, // 0: ankka.protocol.v1.IssueClientKeyRequest.attributes:type_name -> ankka.protocol.v1.IssueClientKeyRequest.AttributesEntry
-	60, // 1: ankka.protocol.v1.IssueClientKeyRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	56, // 2: ankka.protocol.v1.IssueClientKeyReply.issued:type_name -> ankka.protocol.v1.IssueClientKeyReply.Issued
-	61, // 3: ankka.protocol.v1.IssueClientKeyReply.error:type_name -> ankka.protocol.v1.Error
-	60, // 4: ankka.protocol.v1.ListClientKeysRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	8,  // 5: ankka.protocol.v1.ListClientKeysReply.keys:type_name -> ankka.protocol.v1.ClientKeySummary
-	61, // 6: ankka.protocol.v1.ListClientKeysReply.error:type_name -> ankka.protocol.v1.Error
-	57, // 7: ankka.protocol.v1.ClientKeySummary.attributes:type_name -> ankka.protocol.v1.ClientKeySummary.AttributesEntry
-	60, // 8: ankka.protocol.v1.RevokeClientKeyRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	61, // 9: ankka.protocol.v1.RevokeClientKeyReply.error:type_name -> ankka.protocol.v1.Error
-	60, // 10: ankka.protocol.v1.AwaitEndRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	62, // 11: ankka.protocol.v1.InvokeRequest.kind:type_name -> ankka.protocol.v1.Kind
-	63, // 12: ankka.protocol.v1.InvokeRequest.payload:type_name -> ankka.protocol.v1.Payload
-	60, // 13: ankka.protocol.v1.InvokeRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	64, // 14: ankka.protocol.v1.InvokeReply.reply:type_name -> ankka.protocol.v1.Outcome.Reply
-	61, // 15: ankka.protocol.v1.InvokeReply.error:type_name -> ankka.protocol.v1.Error
-	15, // 16: ankka.protocol.v1.InvokeReply.approval:type_name -> ankka.protocol.v1.ApprovalAwaited
-	65, // 17: ankka.protocol.v1.StreamToken.completed:type_name -> ankka.protocol.v1.Empty
-	61, // 18: ankka.protocol.v1.StreamToken.failed:type_name -> ankka.protocol.v1.Error
-	15, // 19: ankka.protocol.v1.StreamToken.approval:type_name -> ankka.protocol.v1.ApprovalAwaited
-	65, // 20: ankka.protocol.v1.StreamToken.heartbeat:type_name -> ankka.protocol.v1.Empty
-	63, // 21: ankka.protocol.v1.StreamToken.ended:type_name -> ankka.protocol.v1.Payload
-	16, // 22: ankka.protocol.v1.ApprovalAwaited.requests:type_name -> ankka.protocol.v1.ApprovalRequest
-	62, // 23: ankka.protocol.v1.DecideRequest.kind:type_name -> ankka.protocol.v1.Kind
-	60, // 24: ankka.protocol.v1.DecideRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	63, // 25: ankka.protocol.v1.QueryRequest.payload:type_name -> ankka.protocol.v1.Payload
-	60, // 26: ankka.protocol.v1.QueryRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	58, // 27: ankka.protocol.v1.QueryRequest.values:type_name -> ankka.protocol.v1.QueryRequest.ValuesEntry
-	63, // 28: ankka.protocol.v1.QueryReply.rows:type_name -> ankka.protocol.v1.Payload
-	61, // 29: ankka.protocol.v1.QueryReply.error:type_name -> ankka.protocol.v1.Error
-	21, // 30: ankka.protocol.v1.RowFrame.row:type_name -> ankka.protocol.v1.WatchedRow
-	22, // 31: ankka.protocol.v1.RowFrame.removed:type_name -> ankka.protocol.v1.Removed
-	65, // 32: ankka.protocol.v1.RowFrame.caught_up:type_name -> ankka.protocol.v1.Empty
-	23, // 33: ankka.protocol.v1.RowFrame.ended:type_name -> ankka.protocol.v1.Ended
-	61, // 34: ankka.protocol.v1.RowFrame.failed:type_name -> ankka.protocol.v1.Error
-	63, // 35: ankka.protocol.v1.WatchedRow.payload:type_name -> ankka.protocol.v1.Payload
-	60, // 36: ankka.protocol.v1.WatchRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	25, // 37: ankka.protocol.v1.WatchRequest.named:type_name -> ankka.protocol.v1.Named
+	62, // 0: ankka.protocol.v1.IssueClientKeyRequest.attributes:type_name -> ankka.protocol.v1.IssueClientKeyRequest.AttributesEntry
+	68, // 1: ankka.protocol.v1.IssueClientKeyRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	63, // 2: ankka.protocol.v1.IssueClientKeyReply.issued:type_name -> ankka.protocol.v1.IssueClientKeyReply.Issued
+	69, // 3: ankka.protocol.v1.IssueClientKeyReply.error:type_name -> ankka.protocol.v1.Error
+	68, // 4: ankka.protocol.v1.ListClientKeysRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	9,  // 5: ankka.protocol.v1.ListClientKeysReply.keys:type_name -> ankka.protocol.v1.ClientKeySummary
+	69, // 6: ankka.protocol.v1.ListClientKeysReply.error:type_name -> ankka.protocol.v1.Error
+	64, // 7: ankka.protocol.v1.ClientKeySummary.attributes:type_name -> ankka.protocol.v1.ClientKeySummary.AttributesEntry
+	68, // 8: ankka.protocol.v1.RevokeClientKeyRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	69, // 9: ankka.protocol.v1.RevokeClientKeyReply.error:type_name -> ankka.protocol.v1.Error
+	68, // 10: ankka.protocol.v1.AwaitEndRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	70, // 11: ankka.protocol.v1.InvokeRequest.kind:type_name -> ankka.protocol.v1.Kind
+	71, // 12: ankka.protocol.v1.InvokeRequest.payload:type_name -> ankka.protocol.v1.Payload
+	68, // 13: ankka.protocol.v1.InvokeRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	72, // 14: ankka.protocol.v1.InvokeReply.reply:type_name -> ankka.protocol.v1.Outcome.Reply
+	69, // 15: ankka.protocol.v1.InvokeReply.error:type_name -> ankka.protocol.v1.Error
+	16, // 16: ankka.protocol.v1.InvokeReply.approval:type_name -> ankka.protocol.v1.ApprovalAwaited
+	73, // 17: ankka.protocol.v1.StreamToken.completed:type_name -> ankka.protocol.v1.Empty
+	69, // 18: ankka.protocol.v1.StreamToken.failed:type_name -> ankka.protocol.v1.Error
+	16, // 19: ankka.protocol.v1.StreamToken.approval:type_name -> ankka.protocol.v1.ApprovalAwaited
+	73, // 20: ankka.protocol.v1.StreamToken.heartbeat:type_name -> ankka.protocol.v1.Empty
+	71, // 21: ankka.protocol.v1.StreamToken.ended:type_name -> ankka.protocol.v1.Payload
+	17, // 22: ankka.protocol.v1.ApprovalAwaited.requests:type_name -> ankka.protocol.v1.ApprovalRequest
+	70, // 23: ankka.protocol.v1.DecideRequest.kind:type_name -> ankka.protocol.v1.Kind
+	68, // 24: ankka.protocol.v1.DecideRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	71, // 25: ankka.protocol.v1.QueryRequest.payload:type_name -> ankka.protocol.v1.Payload
+	68, // 26: ankka.protocol.v1.QueryRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	65, // 27: ankka.protocol.v1.QueryRequest.values:type_name -> ankka.protocol.v1.QueryRequest.ValuesEntry
+	71, // 28: ankka.protocol.v1.QueryReply.rows:type_name -> ankka.protocol.v1.Payload
+	69, // 29: ankka.protocol.v1.QueryReply.error:type_name -> ankka.protocol.v1.Error
+	22, // 30: ankka.protocol.v1.RowFrame.row:type_name -> ankka.protocol.v1.WatchedRow
+	23, // 31: ankka.protocol.v1.RowFrame.removed:type_name -> ankka.protocol.v1.Removed
+	73, // 32: ankka.protocol.v1.RowFrame.caught_up:type_name -> ankka.protocol.v1.Empty
+	24, // 33: ankka.protocol.v1.RowFrame.ended:type_name -> ankka.protocol.v1.Ended
+	69, // 34: ankka.protocol.v1.RowFrame.failed:type_name -> ankka.protocol.v1.Error
+	71, // 35: ankka.protocol.v1.WatchedRow.payload:type_name -> ankka.protocol.v1.Payload
+	68, // 36: ankka.protocol.v1.WatchRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	26, // 37: ankka.protocol.v1.WatchRequest.named:type_name -> ankka.protocol.v1.Named
 	0,  // 38: ankka.protocol.v1.WatchRequest.overflow:type_name -> ankka.protocol.v1.Overflow
-	59, // 39: ankka.protocol.v1.Named.values:type_name -> ankka.protocol.v1.Named.ValuesEntry
-	62, // 40: ankka.protocol.v1.ScheduleRequest.kind:type_name -> ankka.protocol.v1.Kind
-	63, // 41: ankka.protocol.v1.ScheduleRequest.payload:type_name -> ankka.protocol.v1.Payload
-	63, // 42: ankka.protocol.v1.ScheduleRecurringRequest.payload:type_name -> ankka.protocol.v1.Payload
-	61, // 43: ankka.protocol.v1.ScheduleRecurringReply.error:type_name -> ankka.protocol.v1.Error
-	65, // 44: ankka.protocol.v1.GetSecretReply.absent:type_name -> ankka.protocol.v1.Empty
-	61, // 45: ankka.protocol.v1.GetSecretReply.error:type_name -> ankka.protocol.v1.Error
-	61, // 46: ankka.protocol.v1.PutSecretReply.error:type_name -> ankka.protocol.v1.Error
-	61, // 47: ankka.protocol.v1.DeleteSecretReply.error:type_name -> ankka.protocol.v1.Error
-	66, // 48: ankka.protocol.v1.ServiceRequest.headers:type_name -> ankka.protocol.v1.HttpRequest.Pair
-	60, // 49: ankka.protocol.v1.ServiceRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	67, // 50: ankka.protocol.v1.ServiceReply.response:type_name -> ankka.protocol.v1.HttpResponse
-	38, // 51: ankka.protocol.v1.ServiceReply.failure:type_name -> ankka.protocol.v1.ServiceFailure
-	61, // 52: ankka.protocol.v1.ServiceReply.error:type_name -> ankka.protocol.v1.Error
-	1,  // 53: ankka.protocol.v1.ServiceFailure.reason:type_name -> ankka.protocol.v1.ServiceFailure.Reason
-	2,  // 54: ankka.protocol.v1.StorageRequest.op:type_name -> ankka.protocol.v1.StorageRequest.Op
-	3,  // 55: ankka.protocol.v1.StorageRequest.access:type_name -> ankka.protocol.v1.StorageRequest.Access
-	42, // 56: ankka.protocol.v1.StorageReply.object:type_name -> ankka.protocol.v1.StoredObject
-	43, // 57: ankka.protocol.v1.StorageReply.info:type_name -> ankka.protocol.v1.ObjectInfo
-	44, // 58: ankka.protocol.v1.StorageReply.entries:type_name -> ankka.protocol.v1.ObjectEntries
-	65, // 59: ankka.protocol.v1.StorageReply.done:type_name -> ankka.protocol.v1.Empty
-	61, // 60: ankka.protocol.v1.StorageReply.error:type_name -> ankka.protocol.v1.Error
-	41, // 61: ankka.protocol.v1.StorageReply.erased:type_name -> ankka.protocol.v1.ErasedObjects
-	45, // 62: ankka.protocol.v1.ObjectEntries.entries:type_name -> ankka.protocol.v1.ObjectEntry
-	60, // 63: ankka.protocol.v1.SubjectKeyRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	61, // 64: ankka.protocol.v1.SubjectKeyReply.error:type_name -> ankka.protocol.v1.Error
-	61, // 65: ankka.protocol.v1.SubjectNoticeAckReply.error:type_name -> ankka.protocol.v1.Error
-	60, // 66: ankka.protocol.v1.AskErasureRequest.metadata:type_name -> ankka.protocol.v1.Metadata
-	54, // 67: ankka.protocol.v1.AskErasureReply.ok:type_name -> ankka.protocol.v1.ErasureAsked
-	61, // 68: ankka.protocol.v1.AskErasureReply.error:type_name -> ankka.protocol.v1.Error
-	12, // 69: ankka.protocol.v1.Client.Invoke:input_type -> ankka.protocol.v1.InvokeRequest
-	12, // 70: ankka.protocol.v1.Client.InvokeStream:input_type -> ankka.protocol.v1.InvokeRequest
-	18, // 71: ankka.protocol.v1.Client.Query:input_type -> ankka.protocol.v1.QueryRequest
-	26, // 72: ankka.protocol.v1.Client.Schedule:input_type -> ankka.protocol.v1.ScheduleRequest
-	27, // 73: ankka.protocol.v1.Client.Cancel:input_type -> ankka.protocol.v1.CancelRequest
-	30, // 74: ankka.protocol.v1.Client.GetSecret:input_type -> ankka.protocol.v1.GetSecretRequest
-	32, // 75: ankka.protocol.v1.Client.PutSecret:input_type -> ankka.protocol.v1.PutSecretRequest
-	34, // 76: ankka.protocol.v1.Client.DeleteSecret:input_type -> ankka.protocol.v1.DeleteSecretRequest
-	36, // 77: ankka.protocol.v1.Client.Request:input_type -> ankka.protocol.v1.ServiceRequest
-	17, // 78: ankka.protocol.v1.Client.Decide:input_type -> ankka.protocol.v1.DecideRequest
-	28, // 79: ankka.protocol.v1.Client.ScheduleRecurring:input_type -> ankka.protocol.v1.ScheduleRecurringRequest
-	18, // 80: ankka.protocol.v1.Client.QueryStream:input_type -> ankka.protocol.v1.QueryRequest
-	24, // 81: ankka.protocol.v1.Client.Watch:input_type -> ankka.protocol.v1.WatchRequest
-	11, // 82: ankka.protocol.v1.Client.AwaitEnd:input_type -> ankka.protocol.v1.AwaitEndRequest
-	11, // 83: ankka.protocol.v1.Client.AwaitEndStream:input_type -> ankka.protocol.v1.AwaitEndRequest
-	4,  // 84: ankka.protocol.v1.Client.IssueClientKey:input_type -> ankka.protocol.v1.IssueClientKeyRequest
-	6,  // 85: ankka.protocol.v1.Client.ListClientKeys:input_type -> ankka.protocol.v1.ListClientKeysRequest
-	9,  // 86: ankka.protocol.v1.Client.RevokeClientKey:input_type -> ankka.protocol.v1.RevokeClientKeyRequest
-	46, // 87: ankka.protocol.v1.Client.GetSubjectKey:input_type -> ankka.protocol.v1.SubjectKeyRequest
-	48, // 88: ankka.protocol.v1.Client.SubjectNotices:input_type -> ankka.protocol.v1.SubjectNoticesRequest
-	50, // 89: ankka.protocol.v1.Client.AckSubjectNotice:input_type -> ankka.protocol.v1.SubjectNoticeAck
-	52, // 90: ankka.protocol.v1.Client.AskErasure:input_type -> ankka.protocol.v1.AskErasureRequest
-	13, // 91: ankka.protocol.v1.Client.Invoke:output_type -> ankka.protocol.v1.InvokeReply
-	14, // 92: ankka.protocol.v1.Client.InvokeStream:output_type -> ankka.protocol.v1.StreamToken
-	19, // 93: ankka.protocol.v1.Client.Query:output_type -> ankka.protocol.v1.QueryReply
-	65, // 94: ankka.protocol.v1.Client.Schedule:output_type -> ankka.protocol.v1.Empty
-	65, // 95: ankka.protocol.v1.Client.Cancel:output_type -> ankka.protocol.v1.Empty
-	31, // 96: ankka.protocol.v1.Client.GetSecret:output_type -> ankka.protocol.v1.GetSecretReply
-	33, // 97: ankka.protocol.v1.Client.PutSecret:output_type -> ankka.protocol.v1.PutSecretReply
-	35, // 98: ankka.protocol.v1.Client.DeleteSecret:output_type -> ankka.protocol.v1.DeleteSecretReply
-	37, // 99: ankka.protocol.v1.Client.Request:output_type -> ankka.protocol.v1.ServiceReply
-	13, // 100: ankka.protocol.v1.Client.Decide:output_type -> ankka.protocol.v1.InvokeReply
-	29, // 101: ankka.protocol.v1.Client.ScheduleRecurring:output_type -> ankka.protocol.v1.ScheduleRecurringReply
-	20, // 102: ankka.protocol.v1.Client.QueryStream:output_type -> ankka.protocol.v1.RowFrame
-	20, // 103: ankka.protocol.v1.Client.Watch:output_type -> ankka.protocol.v1.RowFrame
-	13, // 104: ankka.protocol.v1.Client.AwaitEnd:output_type -> ankka.protocol.v1.InvokeReply
-	14, // 105: ankka.protocol.v1.Client.AwaitEndStream:output_type -> ankka.protocol.v1.StreamToken
-	5,  // 106: ankka.protocol.v1.Client.IssueClientKey:output_type -> ankka.protocol.v1.IssueClientKeyReply
-	7,  // 107: ankka.protocol.v1.Client.ListClientKeys:output_type -> ankka.protocol.v1.ListClientKeysReply
-	10, // 108: ankka.protocol.v1.Client.RevokeClientKey:output_type -> ankka.protocol.v1.RevokeClientKeyReply
-	47, // 109: ankka.protocol.v1.Client.GetSubjectKey:output_type -> ankka.protocol.v1.SubjectKeyReply
-	49, // 110: ankka.protocol.v1.Client.SubjectNotices:output_type -> ankka.protocol.v1.SubjectNotice
-	51, // 111: ankka.protocol.v1.Client.AckSubjectNotice:output_type -> ankka.protocol.v1.SubjectNoticeAckReply
-	53, // 112: ankka.protocol.v1.Client.AskErasure:output_type -> ankka.protocol.v1.AskErasureReply
-	91, // [91:113] is the sub-list for method output_type
-	69, // [69:91] is the sub-list for method input_type
-	69, // [69:69] is the sub-list for extension type_name
-	69, // [69:69] is the sub-list for extension extendee
-	0,  // [0:69] is the sub-list for field type_name
+	66, // 39: ankka.protocol.v1.Named.values:type_name -> ankka.protocol.v1.Named.ValuesEntry
+	70, // 40: ankka.protocol.v1.ScheduleRequest.kind:type_name -> ankka.protocol.v1.Kind
+	71, // 41: ankka.protocol.v1.ScheduleRequest.payload:type_name -> ankka.protocol.v1.Payload
+	71, // 42: ankka.protocol.v1.ScheduleRecurringRequest.payload:type_name -> ankka.protocol.v1.Payload
+	69, // 43: ankka.protocol.v1.ScheduleRecurringReply.error:type_name -> ankka.protocol.v1.Error
+	73, // 44: ankka.protocol.v1.GetSecretReply.absent:type_name -> ankka.protocol.v1.Empty
+	69, // 45: ankka.protocol.v1.GetSecretReply.error:type_name -> ankka.protocol.v1.Error
+	69, // 46: ankka.protocol.v1.PutSecretReply.error:type_name -> ankka.protocol.v1.Error
+	69, // 47: ankka.protocol.v1.DeleteSecretReply.error:type_name -> ankka.protocol.v1.Error
+	74, // 48: ankka.protocol.v1.ServiceRequest.headers:type_name -> ankka.protocol.v1.HttpRequest.Pair
+	68, // 49: ankka.protocol.v1.ServiceRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	75, // 50: ankka.protocol.v1.ServiceReply.response:type_name -> ankka.protocol.v1.HttpResponse
+	39, // 51: ankka.protocol.v1.ServiceReply.failure:type_name -> ankka.protocol.v1.ServiceFailure
+	69, // 52: ankka.protocol.v1.ServiceReply.error:type_name -> ankka.protocol.v1.Error
+	2,  // 53: ankka.protocol.v1.ServiceFailure.reason:type_name -> ankka.protocol.v1.ServiceFailure.Reason
+	3,  // 54: ankka.protocol.v1.StorageRequest.op:type_name -> ankka.protocol.v1.StorageRequest.Op
+	4,  // 55: ankka.protocol.v1.StorageRequest.access:type_name -> ankka.protocol.v1.StorageRequest.Access
+	43, // 56: ankka.protocol.v1.StorageReply.object:type_name -> ankka.protocol.v1.StoredObject
+	44, // 57: ankka.protocol.v1.StorageReply.info:type_name -> ankka.protocol.v1.ObjectInfo
+	45, // 58: ankka.protocol.v1.StorageReply.entries:type_name -> ankka.protocol.v1.ObjectEntries
+	73, // 59: ankka.protocol.v1.StorageReply.done:type_name -> ankka.protocol.v1.Empty
+	69, // 60: ankka.protocol.v1.StorageReply.error:type_name -> ankka.protocol.v1.Error
+	42, // 61: ankka.protocol.v1.StorageReply.erased:type_name -> ankka.protocol.v1.ErasedObjects
+	46, // 62: ankka.protocol.v1.ObjectEntries.entries:type_name -> ankka.protocol.v1.ObjectEntry
+	68, // 63: ankka.protocol.v1.SubjectKeyRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	69, // 64: ankka.protocol.v1.SubjectKeyReply.error:type_name -> ankka.protocol.v1.Error
+	69, // 65: ankka.protocol.v1.SubjectNoticeAckReply.error:type_name -> ankka.protocol.v1.Error
+	68, // 66: ankka.protocol.v1.AskErasureRequest.metadata:type_name -> ankka.protocol.v1.Metadata
+	55, // 67: ankka.protocol.v1.AskErasureReply.ok:type_name -> ankka.protocol.v1.ErasureAsked
+	69, // 68: ankka.protocol.v1.AskErasureReply.error:type_name -> ankka.protocol.v1.Error
+	1,  // 69: ankka.protocol.v1.WorkflowLifecycle.status:type_name -> ankka.protocol.v1.WorkflowStatus
+	67, // 70: ankka.protocol.v1.WorkflowLifecycle.retries:type_name -> ankka.protocol.v1.WorkflowLifecycle.RetriesEntry
+	57, // 71: ankka.protocol.v1.LifecycleReply.lifecycle:type_name -> ankka.protocol.v1.WorkflowLifecycle
+	69, // 72: ankka.protocol.v1.LifecycleReply.error:type_name -> ankka.protocol.v1.Error
+	60, // 73: ankka.protocol.v1.ReplicationReply.status:type_name -> ankka.protocol.v1.ReplicationStatus
+	69, // 74: ankka.protocol.v1.ReplicationReply.error:type_name -> ankka.protocol.v1.Error
+	13, // 75: ankka.protocol.v1.Client.Invoke:input_type -> ankka.protocol.v1.InvokeRequest
+	13, // 76: ankka.protocol.v1.Client.InvokeStream:input_type -> ankka.protocol.v1.InvokeRequest
+	19, // 77: ankka.protocol.v1.Client.Query:input_type -> ankka.protocol.v1.QueryRequest
+	27, // 78: ankka.protocol.v1.Client.Schedule:input_type -> ankka.protocol.v1.ScheduleRequest
+	28, // 79: ankka.protocol.v1.Client.Cancel:input_type -> ankka.protocol.v1.CancelRequest
+	31, // 80: ankka.protocol.v1.Client.GetSecret:input_type -> ankka.protocol.v1.GetSecretRequest
+	33, // 81: ankka.protocol.v1.Client.PutSecret:input_type -> ankka.protocol.v1.PutSecretRequest
+	35, // 82: ankka.protocol.v1.Client.DeleteSecret:input_type -> ankka.protocol.v1.DeleteSecretRequest
+	37, // 83: ankka.protocol.v1.Client.Request:input_type -> ankka.protocol.v1.ServiceRequest
+	18, // 84: ankka.protocol.v1.Client.Decide:input_type -> ankka.protocol.v1.DecideRequest
+	29, // 85: ankka.protocol.v1.Client.ScheduleRecurring:input_type -> ankka.protocol.v1.ScheduleRecurringRequest
+	19, // 86: ankka.protocol.v1.Client.QueryStream:input_type -> ankka.protocol.v1.QueryRequest
+	25, // 87: ankka.protocol.v1.Client.Watch:input_type -> ankka.protocol.v1.WatchRequest
+	12, // 88: ankka.protocol.v1.Client.AwaitEnd:input_type -> ankka.protocol.v1.AwaitEndRequest
+	12, // 89: ankka.protocol.v1.Client.AwaitEndStream:input_type -> ankka.protocol.v1.AwaitEndRequest
+	5,  // 90: ankka.protocol.v1.Client.IssueClientKey:input_type -> ankka.protocol.v1.IssueClientKeyRequest
+	7,  // 91: ankka.protocol.v1.Client.ListClientKeys:input_type -> ankka.protocol.v1.ListClientKeysRequest
+	10, // 92: ankka.protocol.v1.Client.RevokeClientKey:input_type -> ankka.protocol.v1.RevokeClientKeyRequest
+	47, // 93: ankka.protocol.v1.Client.GetSubjectKey:input_type -> ankka.protocol.v1.SubjectKeyRequest
+	49, // 94: ankka.protocol.v1.Client.SubjectNotices:input_type -> ankka.protocol.v1.SubjectNoticesRequest
+	51, // 95: ankka.protocol.v1.Client.AckSubjectNotice:input_type -> ankka.protocol.v1.SubjectNoticeAck
+	53, // 96: ankka.protocol.v1.Client.AskErasure:input_type -> ankka.protocol.v1.AskErasureRequest
+	56, // 97: ankka.protocol.v1.Client.Lifecycle:input_type -> ankka.protocol.v1.LifecycleRequest
+	59, // 98: ankka.protocol.v1.Client.Replication:input_type -> ankka.protocol.v1.ReplicationRequest
+	14, // 99: ankka.protocol.v1.Client.Invoke:output_type -> ankka.protocol.v1.InvokeReply
+	15, // 100: ankka.protocol.v1.Client.InvokeStream:output_type -> ankka.protocol.v1.StreamToken
+	20, // 101: ankka.protocol.v1.Client.Query:output_type -> ankka.protocol.v1.QueryReply
+	73, // 102: ankka.protocol.v1.Client.Schedule:output_type -> ankka.protocol.v1.Empty
+	73, // 103: ankka.protocol.v1.Client.Cancel:output_type -> ankka.protocol.v1.Empty
+	32, // 104: ankka.protocol.v1.Client.GetSecret:output_type -> ankka.protocol.v1.GetSecretReply
+	34, // 105: ankka.protocol.v1.Client.PutSecret:output_type -> ankka.protocol.v1.PutSecretReply
+	36, // 106: ankka.protocol.v1.Client.DeleteSecret:output_type -> ankka.protocol.v1.DeleteSecretReply
+	38, // 107: ankka.protocol.v1.Client.Request:output_type -> ankka.protocol.v1.ServiceReply
+	14, // 108: ankka.protocol.v1.Client.Decide:output_type -> ankka.protocol.v1.InvokeReply
+	30, // 109: ankka.protocol.v1.Client.ScheduleRecurring:output_type -> ankka.protocol.v1.ScheduleRecurringReply
+	21, // 110: ankka.protocol.v1.Client.QueryStream:output_type -> ankka.protocol.v1.RowFrame
+	21, // 111: ankka.protocol.v1.Client.Watch:output_type -> ankka.protocol.v1.RowFrame
+	14, // 112: ankka.protocol.v1.Client.AwaitEnd:output_type -> ankka.protocol.v1.InvokeReply
+	15, // 113: ankka.protocol.v1.Client.AwaitEndStream:output_type -> ankka.protocol.v1.StreamToken
+	6,  // 114: ankka.protocol.v1.Client.IssueClientKey:output_type -> ankka.protocol.v1.IssueClientKeyReply
+	8,  // 115: ankka.protocol.v1.Client.ListClientKeys:output_type -> ankka.protocol.v1.ListClientKeysReply
+	11, // 116: ankka.protocol.v1.Client.RevokeClientKey:output_type -> ankka.protocol.v1.RevokeClientKeyReply
+	48, // 117: ankka.protocol.v1.Client.GetSubjectKey:output_type -> ankka.protocol.v1.SubjectKeyReply
+	50, // 118: ankka.protocol.v1.Client.SubjectNotices:output_type -> ankka.protocol.v1.SubjectNotice
+	52, // 119: ankka.protocol.v1.Client.AckSubjectNotice:output_type -> ankka.protocol.v1.SubjectNoticeAckReply
+	54, // 120: ankka.protocol.v1.Client.AskErasure:output_type -> ankka.protocol.v1.AskErasureReply
+	58, // 121: ankka.protocol.v1.Client.Lifecycle:output_type -> ankka.protocol.v1.LifecycleReply
+	61, // 122: ankka.protocol.v1.Client.Replication:output_type -> ankka.protocol.v1.ReplicationReply
+	99, // [99:123] is the sub-list for method output_type
+	75, // [75:99] is the sub-list for method input_type
+	75, // [75:75] is the sub-list for extension type_name
+	75, // [75:75] is the sub-list for extension extendee
+	0,  // [0:75] is the sub-list for field type_name
 }
 
 func init() { file_ankka_protocol_v1_client_proto_init() }
@@ -4735,13 +5271,23 @@ func file_ankka_protocol_v1_client_proto_init() {
 		(*AskErasureReply_Ok)(nil),
 		(*AskErasureReply_Error)(nil),
 	}
+	file_ankka_protocol_v1_client_proto_msgTypes[52].OneofWrappers = []any{}
+	file_ankka_protocol_v1_client_proto_msgTypes[53].OneofWrappers = []any{
+		(*LifecycleReply_Lifecycle)(nil),
+		(*LifecycleReply_Error)(nil),
+	}
+	file_ankka_protocol_v1_client_proto_msgTypes[55].OneofWrappers = []any{}
+	file_ankka_protocol_v1_client_proto_msgTypes[56].OneofWrappers = []any{
+		(*ReplicationReply_Status)(nil),
+		(*ReplicationReply_Error)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ankka_protocol_v1_client_proto_rawDesc), len(file_ankka_protocol_v1_client_proto_rawDesc)),
-			NumEnums:      4,
-			NumMessages:   56,
+			NumEnums:      5,
+			NumMessages:   63,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

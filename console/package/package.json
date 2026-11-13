@@ -52,8 +52,8 @@
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "jose": "^6.2.15",
-    "lucide-react": "^1.67.0",
+    "jose": "^6.2.17",
+    "lucide-react": "^1.71.0",
     "openid-client": "^6.8.9",
     "zod": "^4.6.7"
   },
@@ -73,7 +73,7 @@
     "@fontsource-variable/inter": "^5.3.0",
     "@react-router/dev": "^8.5.1",
     "@react-router/node": "^8.4.0",
-    "@tailwindcss/cli": "^4.3.4",
+    "@tailwindcss/cli": "^4.3.5",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -82,6 +82,6 @@
     "react-router": "^8.4.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.7"
   }
 }

@@ -34,7 +34,7 @@ object Dependencies {
     val logback = "1.6.6"
     val munit   = "1.3.6"
     // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
-    val gherkin             = "42.0.1"
+    val gherkin             = "43.0.0"
     val cucumberExpressions = "20.1.0"
     val testcontainers      = "2.0.5"
     val r2dbcPostgres       = "1.1.3.RELEASE"

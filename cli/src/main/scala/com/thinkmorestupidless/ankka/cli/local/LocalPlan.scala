@@ -225,6 +225,18 @@ object LocalPlan:
       companionPorts = Companions.unnamedPorts(project)
     )
 
+  /**
+   * What says a service is ready, for `up` and `status` alike; none before its ports are chosen.
+   */
+  def readyCheck(project: LocalProject, name: String, state: LocalState): Option[ReadyCheck] =
+    val spec = project.descriptor(name).service
+    // A web-hosted service's proxy has no runtime to ask: it is ready when its port answers.
+    if spec.isWebHosted then Some(ReadyCheck.Port(spec.port))
+    else
+      state.observability
+        .get(name)
+        .map(p => ReadyCheck.Observability(s"http://127.0.0.1:$p/observability/service", spec.http))
+
   /** The key of a process service's sidecar's host port in `state.json`'s process ports. */
   def sidecarKey(name: String): String = s"$name-sidecar"
 
@@ -304,15 +316,8 @@ object LocalPlan:
       case name if hasDatabase(project.descriptor(name)) =>
         Database(name, project.descriptor(name).service.runtime)
     } ++ needed.filter(_.database).map(c => Database(c.name, None, schema = false))
-    val ready = selected.map { name =>
-      val spec = project.descriptor(name).service
-      // A web-hosted service's proxy has no runtime to ask: it is ready when its port answers.
-      if spec.isWebHosted then name -> ReadyCheck.Port(spec.port)
-      else
-        name -> ReadyCheck.Observability(
-          s"http://127.0.0.1:${state.observability(name)}/observability/service",
-          spec.http
-        )
+    val ready = selected.flatMap { name =>
+      readyCheck(project, name, state).map(name -> _)
     }.toMap ++ needed.flatMap(c => Companions.ready(c, state).map(c.name -> _))
     val entries = selected
       .filterNot(name => project.descriptor(name).service.isWebHosted)

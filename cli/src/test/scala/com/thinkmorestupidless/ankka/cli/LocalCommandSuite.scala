@@ -725,7 +725,7 @@ class LocalCommandSuite extends munit.FunSuite:
     assertEquals(ups.last, "up ankka-shop billing --remove-orphans")
     val built = root.resolve(s"services/billing/$module").toAbsolutePath
     assert(composed(root).contains(s"$built:${LocalPlan.ModuleFile}:ro"), composed(root))
-    assert(calls.contains("logs ankka-shop billing"), calls)
+    assert(calls.contains("logs ankka-shop billing --follow"), calls)
   }
 
   test("logs shows both containers of a service that is two") {
@@ -867,6 +867,29 @@ class LocalCommandSuite extends munit.FunSuite:
         "orders ready http://127.0.0.1:9000 started by ankka local up",
         "billing not running"
       )
+    )
+  }
+
+  test("status asks a web-hosted service's port, as up does") {
+    val root = hostedBilling(
+      ""","hosting":"web","processPort":3000,"mounts":[{"path":"/api","service":"orders"}]"""
+    )
+    assertEquals(up(root)._1, 0)
+    val (code, out, err) = run("local", "status", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    val billing =
+      out.linesIterator.map(_.trim.replaceAll("\\s+", " ")).find(_.startsWith("billing"))
+    assertEquals(billing, Some("billing ready http://127.0.0.1:9001 started by ankka local up"))
+  }
+
+  test("logs --follow of a module service follows its runtime, not the run that gave the module") {
+    val root = hostedBilling(""","hosting":"wasm","protocol":"1.0"""")
+    assertEquals(up(root)._1, 0)
+    val (code, _, err) = run("local", "logs", "billing", "--follow", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    assertEquals(
+      calls.filter(_.startsWith("logs")),
+      Vector("logs ankka-shop billing-module", "logs ankka-shop billing --follow")
     )
   }
 

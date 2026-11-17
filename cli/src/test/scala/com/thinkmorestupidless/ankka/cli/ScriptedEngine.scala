@@ -126,7 +126,7 @@ final class ScriptedEngine extends Engine:
       follow: Boolean,
       to: PrintStream
   ): Int =
-    record(s"logs $project $service")
+    record(s"logs $project $service${if follow then " --follow" else ""}")
     logLines(service).foreach(to.println)
     0
 

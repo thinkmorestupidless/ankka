@@ -40,10 +40,12 @@ object LocalLogs:
             err.println(s"\"$name\" was not started by ankka local up")
             1
           else
-            // Following two logs at once would show only the first; follow the platform's.
-            mine.zipWithIndex
+            // Following two logs at once would show only the first; follow the platform's, the
+            // container named for the service in every hosting, after the others' logs so far.
+            val ordered = mine.filterNot(_ == name) ++ mine.filter(_ == name)
+            ordered.zipWithIndex
               .map((container, i) =>
-                engine.logs(composeId, container, tail, follow && i == mine.size - 1, out)
+                engine.logs(composeId, container, tail, follow && i == ordered.size - 1, out)
               )
               .find(_ != 0)
               .getOrElse(0)

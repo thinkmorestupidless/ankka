@@ -38,7 +38,7 @@ object LocalStatus:
           val spec    = project.descriptor(name).service
           val address = if spec.http then s"http://127.0.0.1:${spec.port}" else ""
           if containers.get(name).exists(_.running) then
-            val ready = observability(name).exists(answers)
+            val ready = LocalPlan.readyCheck(project, name, state).exists(probe)
             Row(name, if ready then "ready" else "running, not ready", address, Some(Started))
           else if fromSource(name) then Row(name, "ready", address, Some(FromSource))
           else Row(name, "not running", "", None)

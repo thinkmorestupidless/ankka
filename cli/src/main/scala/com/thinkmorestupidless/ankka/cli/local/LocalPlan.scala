@@ -60,7 +60,8 @@ object LocalPlan:
       holder: Int => Option[Holder] = _ => None
   )
 
-  final case class Database(name: String, schemaVersion: Option[String])
+  /** A database to make; `schemaVersion` absent is the CLI's own; a companion's has no schema. */
+  final case class Database(name: String, schemaVersion: Option[String], schema: Boolean = true)
 
   final case class BrokerTopic(name: String, partitions: Int, config: Map[String, String])
 
@@ -194,8 +195,11 @@ object LocalPlan:
         s"the context map names \"$other\", a service of another project; it is not run here"
       )
 
-    val environments = selected.map(name => name -> environment(project, name, state)).toMap
-    val services     = ListMap.from(selected.map { name =>
+    // Every service of the project is in the document, and only the selected are brought up: compose
+    // removes a service the document does not name as an orphan, and one left out is not that.
+    val environments =
+      project.services.map(name => name -> environment(project, name, state)).toMap
+    val services = ListMap.from(project.services.map { name =>
       val spec = project.descriptor(name).service
       name -> Compose.Service(
         image = spec.image,

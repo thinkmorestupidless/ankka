@@ -272,7 +272,9 @@ class LocalPlanSuite extends munit.FunSuite:
     val plan    = planOf(project, LocalPlan.Selection.Only(Vector("orders")))
     assertEquals(plan.services, Vector("orders"))
     assertEquals(plan.leftOut, Vector("billing"))
-    assert(!plan.compose.services.contains("billing"))
+    // In the document, so compose does not stop it as an orphan; not brought up.
+    assert(plan.compose.services.contains("billing"))
+    assert(!plan.databases.exists(_.name == "billing"))
     assert(
       plan
         .environment("orders")("JAVA_TOOL_OPTIONS")

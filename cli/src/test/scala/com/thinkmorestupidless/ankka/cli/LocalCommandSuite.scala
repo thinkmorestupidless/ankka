@@ -708,6 +708,105 @@ class LocalCommandSuite extends munit.FunSuite:
     assert(!ups.exists(_.contains("billing")), ups)
   }
 
+  // ── a project made outside the template (SC-008) ──────────────────────────
+
+  /** Every path under `dir` with its bytes, as one digest: what a run must leave as it found. */
+  private def digest(dir: Path): String =
+    val sha = java.security.MessageDigest.getInstance("SHA-256")
+    Files
+      .walk(dir)
+      .iterator()
+      .asScala
+      .filter(Files.isRegularFile(_))
+      .map(f => dir.relativize(f).toString -> f)
+      .toVector
+      .sortBy(_._1)
+      .foreach { (name, file) =>
+        sha.update(name.getBytes(UTF_8))
+        sha.update(Files.readAllBytes(file))
+      }
+    java.util.HexFormat.of().formatHex(sha.digest())
+
+  test(
+    "a project of twelve services made outside the template comes up once it gains its three files"
+  ) {
+    val root  = Files.createTempDirectory("outside")
+    val names = Vector(
+      "orders",
+      "billing",
+      "stock",
+      "pricing",
+      "search",
+      "accounts",
+      "shipping",
+      "returns",
+      "reviews",
+      "loyalty",
+      "notices",
+      "shopfront"
+    )
+    val process = Set("stock", "pricing", "search", "reviews")
+    val secret  = Set("billing", "accounts", "loyalty")
+    for (name, i) <- names.zipWithIndex do
+      val hosting =
+        if process(name) then ""","hosting":"process","protocol":"1.0""""
+        else if name == "shopfront" then
+          ""","hosting":"web","mounts":[{"path":"/api","service":"orders"}]"""
+        else ""
+      val env =
+        if secret(name) then """{"name":"API_KEY","secretKeyRef":{"name":"keys","key":"api"}}"""
+        else ""
+      LocalFixtures.write(
+        root,
+        s"services/$name/service.json",
+        LocalFixtures.Service(name, 9000 + i, extra = hosting, env = env).descriptor
+      )
+      LocalFixtures.write(root, s"services/$name/src/Main.txt", s"$name's own code")
+    val before = digest(root.resolve("services"))
+
+    // Descriptors alone are not a project.
+    val (refused, _, said) = up(root)
+    assertEquals(refused, 1)
+    assert(said.contains("holds no project"), said)
+    assertEquals(ups, Vector.empty)
+
+    // The three files the repository gains, and nothing else.
+    LocalFixtures.write(root, "contracts/order.v1.json", """{"type":"object"}""")
+    LocalFixtures.write(root, "contracts/stock.v1.json", """{"type":"object"}""")
+    LocalFixtures.project(
+      Vector.empty,
+      crossings = Vector(
+        """{"from":"orders","to":"billing","topic":"orders-placed","contract":"order.v1","schema":"contracts/order.v1.json"}""",
+        """{"from":"stock","to":"pricing","topic":"stock-levels","contract":"stock.v1","schema":"contracts/stock.v1.json"}"""
+      ),
+      root = root,
+      names = names
+    ): Unit
+    LocalFixtures.write(
+      root,
+      "topics.json",
+      """{"topics":[
+        |{"name":"orders-placed","partitions":3,"contract":"order.v1","schema":"contracts/order.v1.json"},
+        |{"name":"stock-levels","partitions":1,"contract":"stock.v1","schema":"contracts/stock.v1.json"}]}""".stripMargin
+    )
+    LocalFixtures.write(
+      root,
+      "local.json",
+      """{"values":{
+        |"billing":{"API_KEY":"test"},"accounts":{"API_KEY":"test","ISSUER":"{{companion.identity.url}}/realms/shop"},
+        |"loyalty":{"API_KEY":"test"},"orders":{"ISSUER":"{{companion.identity.url}}/realms/shop"}},
+        |"companions":[{"name":"identity","image":"keycloak","ports":[{"port":8080}],
+        |"ready":{"http":{"port":8080,"path":"/"}},"database":true,"neededBy":["orders","accounts"]}]}""".stripMargin
+    )
+
+    val (code, out, err) = up(root)
+    assertEquals(code, 0, out + err)
+    assert(ups.contains("up ankka-shop identity"), ups)
+    val started = ups.last.split(' ').toSet
+    for name <- names do assert(started(name), s"$name was not started: ${ups.last}")
+    assertEquals(digest(root.resolve("services")), before, "a service's files were touched")
+  }
+
   // ── status and logs (US6) ─────────────────────────────────────────────────
 
   test("status says of each service whether it is ready, where it answers and who started it") {

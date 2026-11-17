@@ -36,11 +36,13 @@ object LocalFixtures:
         """{"from":"orders","to":"billing","route":"POST /invoices"}"""
       ),
       name: String = "shop",
-      root: Path = Files.createTempDirectory("local-project")
+      root: Path = Files.createTempDirectory("local-project"),
+      /** Services the map names whose descriptors are already in `root`, written by the case. */
+      names: Vector[String] = Vector.empty
   ): Path =
     services.foreach(s => write(root, s"services/${s.name}/service.json", s.descriptor))
-    val entries = services.map { s =>
-      s"""{"name":"${s.name}","owns":"${s.name}","boundary":{"criterion":"ownership","why":"its team"}}"""
+    val entries = (services.map(_.name) ++ names).map { n =>
+      s"""{"name":"$n","owns":"$n","boundary":{"criterion":"ownership","why":"its team"}}"""
     }
     val text =
       s"""{"project":"$name","services":[${entries.mkString(",")}],"crossings":[${crossings

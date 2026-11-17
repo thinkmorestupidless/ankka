@@ -7,9 +7,10 @@ related: [reference/control-plane-api.md, reference/service-descriptor.md, platf
 
 # CLI
 
-`ankka` is the command-line client for an ankka control plane, plus three local tools: `ankka init`
-creates a service from a template, in Scala, Java, Kotlin, Python, TypeScript or Rust, or a web interface, `ankka local console` serves a console over the services
-running on your own machine, and `ankka mcp` serves the CLI's service commands, the local services and
+`ankka` is the command-line client for an ankka control plane, plus local tools: `ankka init`
+creates a service from a template, in Scala, Java, Kotlin, Python, TypeScript or Rust, or a web interface, `ankka local up`,
+`down`, `status`, `logs` and `run` run a whole project on your own machine, `ankka local console` serves a
+console over the services running there, and `ankka mcp` serves the CLI's service commands, the local services and
 this documentation to a coding agent over the Model Context Protocol
 ([Work with a coding agent](../get-started/coding-agents.md)). Every other command makes one HTTP call to the control plane and prints
 the result. The CLI holds no state of its own beyond a settings file and a credentials file.
@@ -47,6 +48,12 @@ Saved logins live in `credentials.json` in the same directory as the settings fi
 plane URL, so a login for one installation is never presented to another. The file is readable by its
 owner only, where the filesystem supports permissions. It is separate from the settings file because
 `ankka config get` prints the settings and a credential is never printed.
+
+`ankka local up` writes what it chose for a project in the project's own directory, under
+`.ankka/local/`: the compose document it renders (`compose.json`) and the ports and secret keys it keeps
+(`state.json`). Neither is committed, and `ankka local down --volumes` removes both. The platform's schema
+for each runtime version is cached under `~/.ankka/cache`; the system property `-Dankka.cache.dir` names
+another directory.
 
 Setting `HOME` for one command does not relocate either file, because the JVM resolves `~` once at
 start. Use `ANKKA_CONFIG` to isolate a run.
@@ -151,9 +158,33 @@ line per problem on standard error, with no `error: ` prefix, and exits `1`. It 
 - each crossing being a declared topic with a contract and a schema, or a route, and not both;
 - each schema a crossing names existing under the project and being JSON;
 - the names of topics and contracts, and routes written as `<METHOD> <path>`;
-- no crossing recorded twice, and `CONTEXT-MAP.md` being what `render` writes from the file.
+- no crossing recorded twice, and `CONTEXT-MAP.md` being what `render` writes from the file;
+- each topic a crossing names being declared in `topics.json`, with the crossing's contract and schema,
+  and `topics.json` itself being a valid file of declarations.
 
 `render` writes `CONTEXT-MAP.md` from the file and prints its path.
+
+## A project on one machine
+
+`ankka local up`, `down`, `status`, `logs` and `run` read the project in the directory `--dir` names or
+the current one, need Docker with Compose v2, and ask no control plane anything.
+
+- `up` refuses, with every problem it finds at once and nothing started, a project whose map, descriptors,
+  `topics.json` or `local.json` do not hold, a port in use, or an image that is neither on the machine nor
+  pullable. Otherwise it prints each service with its address and `started`, `restarted (<why>)` or
+  `running`, and returns when each is ready. `--without <service>` leaves a service out; names given
+  start only those and what they need; `--timeout` bounds each wait, `5m` by default.
+- `down` stops every container of the project and keeps the databases and topics; `--volumes` removes
+  them too.
+- `status` prints each service and companion as `ready`, `running, not ready` or `not running`, where it
+  answers, and whether `ankka local up` started it or it runs from its source.
+- `logs <service>` prints a service's or companion's log, `--tail <n>` lines of it, `--follow` until
+  interrupted.
+- `run <service>` runs one service from its source in the foreground, with what follows `--`, its entry
+  under `run` in `local.json`, or its language's own command, and exits with its exit code.
+
+Refusals are on standard error and exit `1`. No local value is printed. [Run a whole project on one
+machine](../build/local-projects.md) is the guide.
 
 ## Plugins
 

@@ -475,3 +475,7 @@ which default command runs each language from its source.
 ## Design finished
 
 2026-11-17: analyze reported nothing above LOW.
+
+## Found during implementation
+
+- 2026-11-17: the implementation goes into pull request #282, the branch's spec-only pull request; at the end it is retitled `feat(066)`, its body rewritten from the template, and it is a draft until its checks are green (Trevor).

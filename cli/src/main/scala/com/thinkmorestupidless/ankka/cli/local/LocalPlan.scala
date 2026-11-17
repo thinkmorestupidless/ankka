@@ -331,7 +331,7 @@ object LocalPlan:
         leftOut = leftOut,
         notices = elsewhere ++ droppedNotice,
         environment = environments,
-        containers = selected.map(n => n -> containerNames(project.descriptor(n))).toMap,
+        containers = project.services.map(n => n -> containerNames(project.descriptor(n))).toMap,
         neededBy = needed.map(c => c.name -> selected.filter(c.needed)).toMap
       )
     )

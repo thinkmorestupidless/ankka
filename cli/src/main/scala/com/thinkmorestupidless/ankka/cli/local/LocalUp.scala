@@ -151,13 +151,14 @@ object LocalUp:
       err.println(s"the database server and the broker of ${project.name} are left running")
       return Left(1)
     // A service left out that is running from its image is stopped, so it can be run from its
-    // source in its place (`local run` refuses while its container runs); its data is kept.
-    val leaving =
-      plan.containersOf(plan.leftOut).filter(c => before.exists(r => r.service == c && r.running))
+    // source in its place (`local run` refuses while its container runs); its data is kept. So is
+    // the sidecar a run of a service brought up now left behind: it holds the service's ports.
+    val leaving = (plan.containersOf(plan.leftOut) ++ plan.services.map(LocalPlan.sidecarKey))
+      .filter(c => before.exists(r => r.service == c && r.running))
     if leaving.nonEmpty then
       val stopped = engine.stop(composeId, leaving)
       if !stopped.ok then
-        err.println(s"the services left out of ${project.name} did not stop: ${stopped.err.trim}")
+        err.println(s"the services of ${project.name} left out did not stop: ${stopped.err.trim}")
         return Left(1)
       ConsoleEntries.remove(project.name, plan.leftOut)
     val gone = before.map(_.service).distinct.filterNot(plan.compose.services.contains)
@@ -286,8 +287,10 @@ private[local] object Machines:
       .toMap
     val linux   = sys.props.get("os.name").exists(_.toLowerCase.contains("linux"))
     val running = before.filter(_.running).map(_.service).toSet
-    val ours    = project.services
-      .filter(running)
+    // A service's port is its own when its container holds it, or the sidecar `local run` left
+    // behind for a process service run from its source.
+    val ours = project.services
+      .filter(n => running(n) || running(LocalPlan.sidecarKey(n)))
       .flatMap { n =>
         val s = project.descriptor(n).service
         (Option.when(s.http)(s.port).toVector ++ Option.when(s.grpc)(s.grpcPort)).map(_ -> n)

@@ -668,6 +668,25 @@ class LocalCommandSuite extends munit.FunSuite:
   private def composed(root: Path): String =
     Files.readString(root.resolve(".ankka/local/compose.json"), UTF_8)
 
+  test("a process service left out is stopped whole: its sidecar and its program") {
+    val root = hostedBilling(""","hosting":"process","protocol":"1.0"""")
+    assertEquals(up(root)._1, 0)
+    val (code, _, err) = up(root, "--without", "billing")
+    assertEquals(code, 0, err)
+    assert(calls.contains("stop ankka-shop billing billing-app"), calls)
+  }
+
+  test("after a process service ran from its source, up brings it up from its image") {
+    val root             = hostedBilling(""","hosting":"process","protocol":"1.0"""")
+    val (ran, out, said) = localRun(root, "billing", "--", "true")
+    assertEquals(ran, 0, out + said)
+    assert(engine.running("ankka-shop").contains("billing-sidecar"))
+    val (code, _, err) = up(root)
+    assertEquals(code, 0, err)
+    assert(calls.contains("stop ankka-shop billing-sidecar"), calls)
+    assert(engine.running("ankka-shop").contains("billing"))
+  }
+
   test("a process run from its source is given a sidecar that dials it on the host") {
     val root             = hostedBilling(""","hosting":"process","protocol":"1.0"""")
     val file             = root.resolve("env.txt")

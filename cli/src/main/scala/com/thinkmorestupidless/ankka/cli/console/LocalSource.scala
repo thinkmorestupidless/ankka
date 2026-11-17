@@ -191,12 +191,16 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
           case Some(entry) =>
             if alive(entry) then Some(entry)
             else
-              discard(file)
+              // An entry `ankka local up` owns is its to remove: the container may be starting.
+              if !owned(file) then discard(file)
               None
       }
 
   private def alive(entry: ServiceSummary): Boolean =
     get(s"${entry.observabilityAddress}/observability/service").isDefined
+
+  private def owned(file: Path): Boolean =
+    Try(Files.readString(file)).toOption.exists(json => field(json, "owner").isDefined)
 
   private def discard(file: Path): Unit =
     try Files.deleteIfExists(file): Unit

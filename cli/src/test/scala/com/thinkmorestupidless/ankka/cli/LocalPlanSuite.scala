@@ -404,3 +404,121 @@ class LocalPlanSuite extends munit.FunSuite:
     assertEquals(LocalPlan.composeProject("shop"), "ankka-shop")
     assertNotEquals(a.project, b.project)
   }
+
+  private def refusal(
+      project: LocalProject,
+      selection: LocalPlan.Selection = LocalPlan.Selection.All,
+      m: LocalPlan.Machine = machine
+  ): Vector[String] =
+    LocalPlan.of(project, selection, stateFor(project), m).left.getOrElse(fail("planned"))
+
+  test("a name on the command line that is not a service is refused") {
+    val project = readProject(LocalFixtures.project())
+    assertEquals(
+      refusal(project, LocalPlan.Selection.Only(Vector("orders", "payments"))),
+      Vector("\"payments\" is not a service of shop")
+    )
+    assertEquals(
+      refusal(project, LocalPlan.Selection.Without(Vector("payment"))),
+      Vector("\"payment\" is not a service of shop")
+    )
+  }
+
+  test("a name both given and left out is refused") {
+    assertEquals(
+      refusal(
+        readProject(LocalFixtures.project()),
+        LocalPlan.Selection.Only(Vector("orders"), without = Vector("orders"))
+      ),
+      Vector("\"orders\" is both named and left out")
+    )
+  }
+
+  test("two services naming one port are refused, for HTTP and gRPC alike") {
+    val http = readProject(
+      LocalFixtures.project(
+        Vector(LocalFixtures.Service("orders", 9000), LocalFixtures.Service("billing", 9000))
+      )
+    )
+    assertEquals(refusal(http), Vector("\"orders\" and \"billing\" both name port 9000"))
+    val grpc = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000, extra = ""","grpc":true,"grpcPort":9001"""),
+          LocalFixtures.Service("billing", 9001)
+        )
+      )
+    )
+    assertEquals(refusal(grpc), Vector("\"orders\" and \"billing\" both name port 9001"))
+  }
+
+  test("a port held by something else is refused, and one held by its own container is not") {
+    val project = readProject(LocalFixtures.project())
+    assertEquals(
+      refusal(
+        project,
+        m = machine.copy(holder = p => Option.when(p == 9001)(LocalPlan.Holder.Other))
+      ),
+      Vector("\"billing\" names port 9001, which is in use on this machine")
+    )
+    assertEquals(
+      refusal(
+        project,
+        m =
+          machine.copy(holder = p => Option.when(p == 9001)(LocalPlan.Holder.FromSource("billing")))
+      ),
+      Vector(
+        "\"billing\" names port 9001, which is in use on this machine; it is running from its source"
+      )
+    )
+    assert(
+      LocalPlan
+        .of(
+          project,
+          LocalPlan.Selection.All,
+          stateFor(project),
+          machine.copy(holder = p => Option.when(p == 9001)(LocalPlan.Holder.Ours("billing")))
+        )
+        .isRight
+    )
+    // A service left out may be held by its source run: that is what leaving it out is for.
+    assert(
+      LocalPlan
+        .of(
+          project,
+          LocalPlan.Selection.Without(Vector("billing")),
+          stateFor(project),
+          machine.copy(holder = p => Option.when(p == 9001)(LocalPlan.Holder.FromSource("billing")))
+        )
+        .isRight
+    )
+  }
+
+  test("a service named as the database server or the broker is refused") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(LocalFixtures.Service("orders", 9000), LocalFixtures.Service("ankka-kafka", 9001)),
+        crossings = Vector("""{"from":"orders","to":"ankka-kafka","route":"POST /x"}""")
+      )
+    )
+    assertEquals(
+      refusal(project),
+      Vector(
+        "\"ankka-kafka\" is the name of what the command line runs for every project; name the service something else"
+      )
+    )
+  }
+
+  test("three different problems come back in one answer") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(LocalFixtures.Service("orders", 9000), LocalFixtures.Service("billing", 9000))
+      )
+    )
+    val found = refusal(
+      project,
+      LocalPlan.Selection.Only(Vector("orders", "nobody")),
+      machine.copy(holder = p => Option.when(p == 9000)(LocalPlan.Holder.Other))
+    )
+    assertEquals(found.size, 3, found)
+  }

@@ -33,7 +33,9 @@ object LocalPlan:
   /** Which of a project's services a command brings up. */
   enum Selection:
     case All
-    case Only(names: Vector[String])
+
+    /** The services named, and what they need; `without` is only ever a usage mistake beside it. */
+    case Only(names: Vector[String], without: Vector[String] = Vector.empty)
     case Without(names: Vector[String])
 
     /** Every service but `name`, which the developer runs from its source. */
@@ -103,11 +105,74 @@ object LocalPlan:
   ): Either[Vector[String], LocalPlan] =
     val all      = project.services
     val selected = selection match
-      case Selection.All            => all
-      case Selection.Only(names)    => all.filter(names.contains)
+      case Selection.All                  => all
+      case Selection.Only(names, without) =>
+        all.filter(n => names.contains(n) && !without.contains(n))
       case Selection.Without(names) => all.filterNot(names.contains)
       case Selection.ForRun(name)   => all.filterNot(_ == name)
     val leftOut = all.filterNot(selected.contains)
+    val refused = problems(project, selection, selected, machine)
+    if refused.nonEmpty then Left(refused)
+    else build(project, selected, leftOut, state, machine)
+
+  /** The static problems (research R14), every one found. */
+  private def problems(
+      project: LocalProject,
+      selection: Selection,
+      selected: Vector[String],
+      machine: Machine
+  ): Vector[String] =
+    val all   = project.services
+    val named = selection match
+      case Selection.All                  => Vector.empty
+      case Selection.Only(names, without) => names ++ without
+      case Selection.Without(names)       => names
+      case Selection.ForRun(name)         => Vector(name)
+    val unknown = named.distinct
+      .filterNot(all.contains)
+      .map(n => s"\"$n\" is not a service of ${project.name}")
+    val both = selection match
+      case Selection.Only(names, without) =>
+        names.distinct.filter(without.contains).map(n => s"\"$n\" is both named and left out")
+      case _ => Vector.empty
+    val ports = all.flatMap(n => servicePorts(project.descriptor(n)).map((p, _) => p -> n))
+    val twice = ports
+      .groupBy(_._1)
+      .toVector
+      .sortBy(_._1)
+      .flatMap { (port, holders) =>
+        val names = holders.map(_._2).distinct
+        names.zip(names.drop(1)).headOption.map((a, b) => s"\"$a\" and \"$b\" both name port $port")
+      }
+    val taken = selected.flatMap { name =>
+      servicePorts(project.descriptor(name)).map(_._1).distinct.flatMap { port =>
+        machine.holder(port) match
+          case None | Some(Holder.Ours(_)) => None
+          case Some(Holder.FromSource(_))  =>
+            Some(
+              s"\"$name\" names port $port, which is in use on this machine; it is running from its source"
+            )
+          case Some(Holder.Other) =>
+            Some(s"\"$name\" names port $port, which is in use on this machine")
+      }
+    }
+    val reserved = all
+      .filter(Reserved.contains)
+      .map(n =>
+        s"\"$n\" is the name of what the command line runs for every project; name the service something else"
+      )
+    unknown ++ both ++ twice ++ taken ++ reserved
+
+  /** The names the command line gives its own containers. */
+  val Reserved: Set[String] = Set(Postgres, Kafka)
+
+  private def build(
+      project: LocalProject,
+      selected: Vector[String],
+      leftOut: Vector[String],
+      state: LocalState,
+      machine: Machine
+  ): Either[Vector[String], LocalPlan] =
 
     val dropped = selected.flatMap { name =>
       val names = literals(project.descriptor(name)).keys

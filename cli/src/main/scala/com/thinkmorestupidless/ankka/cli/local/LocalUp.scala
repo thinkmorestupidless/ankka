@@ -316,7 +316,12 @@ private[local] object Machines:
         val s = project.descriptor(n).service
         (Option.when(s.http)(s.port).toVector ++ Option.when(s.grpc)(s.grpcPort)).map(_ -> n)
       }
-      .toMap
+      .toMap ++
+      // A running companion's named host ports are its own as well.
+      project.local.companions
+        .filter(c => running(c.name))
+        .flatMap(c => c.ports.flatMap(_.host).map(_ -> c.name))
+        .toMap
     LocalPlan.Machine(
       cliVersion = cliVersion,
       gateway = if linux then engine.gatewayAddress else None,

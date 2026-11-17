@@ -478,6 +478,15 @@ class LocalCommandSuite extends munit.FunSuite:
     )
     root
 
+  test("a second up with a companion running finds the companion's port its own") {
+    val root = withCompanion(LocalFixtures.project())
+    assertEquals(up(root)._1, 0)
+    // The running companion holds its host port, as it does on a machine.
+    LocalSeams.isFree = _ != 8081
+    val (code, _, err) = up(root)
+    assertEquals(code, 0, err)
+  }
+
   test("companions are made after the databases and before the services, and listed") {
     val root             = withCompanion(LocalFixtures.project())
     val (code, out, err) = up(root)

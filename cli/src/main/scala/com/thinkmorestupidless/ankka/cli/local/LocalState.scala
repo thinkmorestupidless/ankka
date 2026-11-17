@@ -117,11 +117,16 @@ object LocalState:
 
   /** Whether nothing on this machine holds `port` on loopback or on every interface. */
   def isFree(port: Int): Boolean =
-    try
-      val socket = java.net.ServerSocket()
+    // With address reuse, as Docker binds: a connection lingering in TIME_WAIT (one a developer's
+    // request left a moment before `local down`) is not a holder, and a listener still is. On its
+    // own the wildcard bind would succeed beside a listener on loopback alone, so both are asked.
+    Vector("0.0.0.0", "127.0.0.1").forall { address =>
       try
-        socket.setReuseAddress(false)
-        socket.bind(java.net.InetSocketAddress("0.0.0.0", port))
-        true
-      finally socket.close()
-    catch case _: java.io.IOException => false
+        val socket = java.net.ServerSocket()
+        try
+          socket.setReuseAddress(true)
+          socket.bind(java.net.InetSocketAddress(address, port))
+          true
+        finally socket.close()
+      catch case _: java.io.IOException => false
+    }

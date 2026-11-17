@@ -339,7 +339,8 @@ DDL lives in `kustomization/components/postgres/ddl/` and is the single copy —
 fails only somewhere else: `SharedPostgres.DdlResources` (testkit), `CnpgRendering.SchemaFiles` (the per-project
 `ankka-schema` ConfigMap), `SchemaResourceSuite`, `CnpgRenderingSuite`, `SidecarClusterSuite`, and the
 postgres component's `kustomization.yaml` and `cluster.yaml`. Everything that globs the directory
-(compose, the sidecar image, the template) picks it up unchanged. A local database created before a file
+(the repository's compose, the sidecar image, the CLI's `ankka/ddl` resource that `ankka local up`
+applies to each local database) picks it up unchanged. A local database created before a file
 existed does not have it — Postgres runs `initdb.d` once.
 
 `modules/runtime/src/main/resources/ankka/ddl` and `operator/src/main/resources/ankka/ddl` are

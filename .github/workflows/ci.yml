@@ -234,6 +234,8 @@ jobs:
               - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
               # The suite brings the rendered project up with `ankka local up`.
               - 'cli/src/main/scala/**/cli/local/**'
+              - 'cli/src/main/scala/**/cli/Main.scala'
+              - 'cli/src/main/scala/**/cli/console/LocalSource.scala'
               - 'cli/src/test/resources/standin/**'
             # `ankka local up` against a real Docker: the command, the stand-in it runs, the suite, the
             # topic declarations, and the proxy and sidecar images it starts for the other hostings.
@@ -245,6 +247,8 @@ jobs:
               - 'cli/src/test/scala/**/cli/LocalUpSuite.scala'
               - 'cli/src/test/scala/**/cli/LocalSwitch.scala'
               - 'modules/core/src/main/scala/**/core/TopicDeclarations.scala'
+              - 'modules/core/src/main/scala/**/core/ContextMap.scala'
+              - 'kustomization/components/postgres/ddl/**'
               - 'proxy/**'
               - 'proxy-core/**'
               - 'sidecar/**'

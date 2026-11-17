@@ -535,6 +535,32 @@ class LocalCommandSuite extends munit.FunSuite:
     )
   }
 
+  test("a service run from its source announces itself where the command looks") {
+    val before = sys.props.get("ankka.running.dir")
+    try
+      sys.props("ankka.running.dir") = "/x/running"
+      assertEquals(
+        com.thinkmorestupidless.ankka.cli.local.LocalRun.runningDirectory(Some("-Xmx1g")),
+        Some("-Xmx1g -Dankka.running.dir=/x/running")
+      )
+      sys.props.remove("ankka.running.dir")
+      assertEquals(com.thinkmorestupidless.ankka.cli.local.LocalRun.runningDirectory(None), None)
+    finally before.foreach(sys.props("ankka.running.dir") = _)
+  }
+
+  test("a service left out of a project that is up is stopped, its data and the others kept") {
+    val root = LocalFixtures.project()
+    assertEquals(up(root)._1, 0)
+    val orders           = engine.running("ankka-shop")("orders").id
+    val (code, out, err) = up(root, "--without", "billing")
+    assertEquals(code, 0, err)
+    assert(calls.contains("stop ankka-shop billing"), calls)
+    assert(!calls.exists(_.startsWith("down")), calls)
+    assertEquals(engine.running("ankka-shop").get("billing"), None)
+    assertEquals(engine.running("ankka-shop")("orders").id, orders)
+    assert(out.contains("left out: billing"), out)
+  }
+
   test("only the services the developer names are started, with what they need") {
     val root           = LocalFixtures.project()
     val (code, _, err) = up(root, "billing")

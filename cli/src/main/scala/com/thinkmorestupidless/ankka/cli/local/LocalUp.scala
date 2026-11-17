@@ -150,6 +150,16 @@ object LocalUp:
       second.foreach(err.println)
       err.println(s"the database server and the broker of ${project.name} are left running")
       return Left(1)
+    // A service left out that is running from its image is stopped, so it can be run from its
+    // source in its place (`local run` refuses while its container runs); its data is kept.
+    val leaving =
+      plan.containersOf(plan.leftOut).filter(c => before.exists(r => r.service == c && r.running))
+    if leaving.nonEmpty then
+      val stopped = engine.stop(composeId, leaving)
+      if !stopped.ok then
+        err.println(s"the services left out of ${project.name} did not stop: ${stopped.err.trim}")
+        return Left(1)
+      ConsoleEntries.remove(project.name, plan.leftOut)
     val gone = before.map(_.service).distinct.filterNot(plan.compose.services.contains)
     gone.foreach(name =>
       err.println(

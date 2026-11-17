@@ -42,6 +42,17 @@ object ConsoleEntries:
       }
     }: Unit
 
+  /**
+   * Removes the entries the command wrote for `services` of `project`; a developer's own is kept.
+   */
+  def remove(project: String, services: Vector[String]): Unit =
+    services.map(fileFor(project, _)).foreach { f =>
+      Try {
+        val text = Files.readString(f, UTF_8)
+        if OwnerField.findFirstMatchIn(text).exists(_.group(1) == Owner) then Files.delete(f)
+      }
+    }
+
   /** Removes every entry the command wrote for `project`. */
   def remove(project: String): Unit =
     entriesOf(project).foreach(f => Try(Files.deleteIfExists(f)))

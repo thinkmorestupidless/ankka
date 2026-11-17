@@ -1,6 +1,6 @@
 ---
 title: Run a whole project on one machine
-description: Bring every service of a project up on one machine with ankka local up — each in its own database on one database server, one broker with the project's topics, the values only a developer's machine has, the containers a project needs beside its services — run one service from its source among the others, and what the command does not stand in for.
+description: Bring every service of a project up on one machine with ankka local up, give it values and containers only a developer's machine has, run one service from its source, and what one machine does not stand in for.
 kind: guide
 related: [build/projects.md, deploy/run-locally.md, build/topics.md, operate/local-console.md, reference/cli.md, reference/limitations.md]
 ---
@@ -134,7 +134,8 @@ ankka local run billing           # in the foreground; ctrl-c stops it
 database, the topics and its companions), gives the service the same name, port, database and
 values it has as a container, and leaves everything running when it ends. The services started by
 `up` find it by name, and it finds them. Its exit code is the service's. A service that is running
-as a container is refused: leave it out first. `up billing` starts only `billing` and what it
+as a container is refused: leave it out first. Leaving out a service that is running stops its containers and
+keeps its database and its topics' messages. `up billing` starts only `billing` and what it
 needs.
 
 The command it runs is, in order: what follows `--` (`ankka local run billing -- sbt billing/run`),

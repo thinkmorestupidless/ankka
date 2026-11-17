@@ -110,6 +110,11 @@ final class ScriptedEngine extends Engine:
     synchronized(containers -= project)
     Engine.Result(0, "", "")
 
+  def stop(project: String, services: Vector[String]): Engine.Result =
+    record(s"stop $project ${services.mkString(" ")}")
+    synchronized(containers += project -> (containers.getOrElse(project, Map.empty) -- services))
+    Engine.Result(0, "", "")
+
   def ps(project: String): Vector[Engine.Container] =
     record(s"ps $project")
     running(project).values.toVector.sortBy(_.service)

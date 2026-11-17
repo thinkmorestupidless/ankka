@@ -181,6 +181,17 @@ object LocalRun:
    * whatever it started go too (`npm start` and `sbt` run the service as a child), and the answer
    * is 130.
    */
+  /**
+   * A service's runtime announces itself to the local console in `-Dankka.running.dir`, and a JVM
+   * reads only its own properties: when this command was given another directory than the default,
+   * every JVM the service's command starts is given it too, or the service would announce itself
+   * where this command does not look.
+   */
+  private[cli] def runningDirectory(existing: Option[String]): Option[String] =
+    sys.props.get("ankka.running.dir").map { dir =>
+      (existing.toVector :+ s"-Dankka.running.dir=$dir").mkString(" ")
+    }
+
   private def foreground(
       command: SourceCommands.RunCommand,
       environment: Iterable[(String, String)]
@@ -190,6 +201,7 @@ object LocalRun:
       .inheritIO()
     val env = builder.environment()
     environment.foreach((k, v) => env.put(k, v): Unit)
+    runningDirectory(Option(env.get("JAVA_TOOL_OPTIONS"))).foreach(env.put("JAVA_TOOL_OPTIONS", _))
     val process         = builder.start()
     def stopAll(): Unit =
       process.descendants().forEach(_.destroy(): Unit)

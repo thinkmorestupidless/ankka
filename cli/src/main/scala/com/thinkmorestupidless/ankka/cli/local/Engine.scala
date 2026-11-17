@@ -29,6 +29,9 @@ trait Engine:
       removeOrphans: Boolean
   ): Engine.Result
   def down(project: String, volumes: Boolean): Engine.Result
+
+  /** Stops and removes the named services' containers, keeping every volume. */
+  def stop(project: String, services: Vector[String]): Engine.Result
   def ps(project: String): Vector[Engine.Container]
 
   /** A service's log written to `to` as Docker writes it; the exit code. */
@@ -118,6 +121,9 @@ final class DockerEngine(executable: String = sys.props.getOrElse("ankka.docker"
 
   def down(project: String, volumes: Boolean): Engine.Result =
     run(compose(project, "down") ++ Option.when(volumes)("-v"))
+
+  def stop(project: String, services: Vector[String]): Engine.Result =
+    run(compose(project, "rm", "--stop", "--force") ++ services)
 
   def ps(project: String): Vector[Engine.Container] =
     val answer = run(compose(project, "ps", "--all", "--format", "json"))

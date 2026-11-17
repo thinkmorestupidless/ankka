@@ -340,4 +340,12 @@ descriptors, `topics.json` and `local.json` (`LocalPlan.of`, pure), and every Do
   client is a silent no-op. In a client session, `set cli / Test / javaOptions += "-Dankka.local.tests=on"`.
 - **A Docker short of disk fails the suite as a service that never became ready** (2026-11-17), and the
   next case then finds the last one's ports held. Read two such failures in a row as the machine's.
-
+- **A GET of an entity nothing was recorded for answers 200, with an empty item** (2026-11-17). A
+  check of "the item is there" or "the item is gone" compares the body, never the status: two
+  template-suite steps passed or failed on the status alone while the thing they checked was false.
+- **`--without` must stop a running service, or `local run` cannot take its place** (2026-11-17):
+  `run` refuses a service whose container runs, so `up --without billing` after `up` stops billing's
+  containers (`compose rm --stop --force`), keeps its volumes and removes its owned console entry.
+- **A JVM reads only its own `-D` properties** (2026-11-17): the runtime announces itself in
+  `-Dankka.running.dir`, so `local run`, given that property, passes it on in `JAVA_TOOL_OPTIONS`, or a
+  service run from its source under a test's directory announces itself in `~/.ankka/running`.

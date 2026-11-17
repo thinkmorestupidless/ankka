@@ -765,7 +765,40 @@ object Main:
         }
       }
 
-      set.orElse(unset).orElse(list).orElse(schema)
+      val apply = Opts.subcommand(
+        "apply",
+        "Declare every topic topics.json names, as ankka local up makes them: each one sent as " +
+          "topics set sends it, and one already declared so is left unchanged. A topic the file " +
+          "does not name is not touched."
+      ) {
+        (
+          Opts
+            .option[String](
+              "dir",
+              "The project's directory, holding topics.json; defaults to the current directory."
+            )
+            .withDefault("."),
+          Opts
+            .flag(
+              "removes",
+              "Send a change that removes messages without asking: the confirmation a script gives."
+            )
+            .orFalse,
+          contextOpt
+        ).mapN { (dir, removes, ctx) => () =>
+          TopicsCommand.apply(
+            ctx.client,
+            ctx.project,
+            java.nio.file.Paths.get(dir),
+            removes,
+            Console.in,
+            Console.out
+          )
+          ""
+        }
+      }
+
+      set.orElse(apply).orElse(unset).orElse(list).orElse(schema)
     }
 
     val brokers = Opts.subcommand(
@@ -1626,7 +1659,6 @@ object Main:
         Projects.startSteps(
           target.toAbsolutePath.normalize,
           name,
-          names.head,
           Projects.specify(target)
         )
       else if services.nonEmpty then
@@ -1738,6 +1770,163 @@ object Main:
       }
     }
 
+  private val localDir =
+    Opts
+      .option[String](
+        "dir",
+        "The project's directory, holding context-map.json; defaults to the current directory."
+      )
+      .withDefault(".")
+
+  /** `ankka local up` (feature 066). */
+  private val localUp =
+    Opts.subcommand(
+      "up",
+      "Bring a project up on this machine: read context-map.json, each services/<name>/service.json, " +
+        "topics.json and local.json, start one database server and one broker in Docker, give each " +
+        "service its own database and the schema of its runtime, make the declared topics, start each " +
+        "service in a container, and wait until every one is ready. With names, only those services; " +
+        "with --without, every service but those."
+    ) {
+      (
+        Opts.arguments[String]("service").orEmpty,
+        Opts.options[String]("without", "Start every service but this one. Repeatable.").orEmpty,
+        Opts
+          .option[String]("timeout", "How long to wait for each to be ready (default 5m).")
+          .withDefault("5m")
+          .mapValidated(t => local.Durations.parse(t).toValidatedNel),
+        localDir
+      ).mapN { (names, without, timeout, dir) => () =>
+        if names.nonEmpty && without.nonEmpty then
+          Console.err.println(
+            "error: name the services to start, or those to leave out with --without, not both"
+          )
+          throw ExitWith(2)
+        val selection =
+          if names.nonEmpty then local.LocalPlan.Selection.Only(names.toVector)
+          else if without.nonEmpty then local.LocalPlan.Selection.Without(without.toVector)
+          else local.LocalPlan.Selection.All
+        throw ExitWith(
+          local.LocalUp.run(
+            java.nio.file.Paths.get(dir),
+            selection,
+            timeout,
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err,
+            local.LocalSeams.probe,
+            local.LocalSeams.isFree,
+            local.LocalSeams.cliVersion()
+          )
+        )
+      }
+    }
+
+  /** `ankka local run` (feature 066). */
+  private val localRun =
+    Opts.subcommand(
+      "run",
+      "Run one service from its source, in the foreground, among whatever of the project is up: " +
+        "its database server, broker, database, the project's topics and the companions it needs " +
+        "are started when they are not running, and left running when it ends. The command is " +
+        "what follows --, else local.json's run.<service>, else its language's own."
+    ) {
+      (
+        Opts.argument[String]("service"),
+        Opts
+          .option[String]("timeout", "How long to wait for what it needs to be ready (default 5m).")
+          .withDefault("5m")
+          .mapValidated(t => local.Durations.parse(t).toValidatedNel),
+        localDir,
+        Opts.arguments[String]("command").orEmpty
+      ).mapN { (service, timeout, dir, command) => () =>
+        throw ExitWith(
+          local.LocalRun.run(
+            java.nio.file.Paths.get(dir),
+            service,
+            command.toVector,
+            timeout,
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err,
+            local.LocalSeams.probe,
+            local.LocalSeams.isFree,
+            local.LocalSeams.cliVersion()
+          )
+        )
+      }
+    }
+
+  /** `ankka local status` (feature 066). */
+  private val localStatus =
+    Opts.subcommand(
+      "status",
+      "For each service of the project and each companion: whether it is ready, where it answers, " +
+        "and whether ankka local up started it or it runs from its source."
+    ) {
+      localDir.map { dir => () =>
+        throw ExitWith(
+          local.LocalStatus.run(
+            java.nio.file.Paths.get(dir),
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err,
+            local.LocalSeams.probe
+          )
+        )
+      }
+    }
+
+  /** `ankka local logs` (feature 066). */
+  private val localLogs =
+    Opts.subcommand(
+      "logs",
+      "The log of a service or companion ankka local up started, from its start or its last lines."
+    ) {
+      (
+        Opts.argument[String]("name"),
+        Opts.flag("follow", "Stay, showing what is written, until interrupted.").orFalse,
+        Opts.option[Int]("tail", "Only the last this many lines.").orNone,
+        localDir
+      ).mapN { (name, follow, tail, dir) => () =>
+        throw ExitWith(
+          local.LocalLogs.run(
+            java.nio.file.Paths.get(dir),
+            name,
+            tail,
+            follow,
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err
+          )
+        )
+      }
+    }
+
+  /** `ankka local down` (feature 066). */
+  private val localDown =
+    Opts.subcommand(
+      "down",
+      "Stop and remove every container ankka local up started for the project. What the services " +
+        "recorded is kept; with --volumes it is removed, every database and every topic's messages, " +
+        "with .ankka/local/."
+    ) {
+      (
+        Opts.flag("volumes", "Also remove what the services recorded.").orFalse,
+        localDir
+      ).mapN { (volumes, dir) => () =>
+        throw ExitWith(
+          local.LocalDown.run(
+            java.nio.file.Paths.get(dir),
+            volumes,
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err
+          )
+        )
+      }
+    }
+
   private val localCommand =
     Opts.subcommand("local", "Tools for services running on this machine.") {
       val erasures = Opts.subcommand(
@@ -1757,28 +1946,29 @@ object Main:
           }
         }
       }
-      erasures orElse localWeb orElse Opts.subcommand(
-        "console",
-        "Serve a console over the services running on this machine."
-      ) {
-        (
-          Opts
-            .option[Int]("port", s"Port to serve on; defaults to ${ConsoleServer.DefaultPort}.")
-            .withDefault(ConsoleServer.DefaultPort),
-          Opts.flag("no-open", "Do not open a browser.").orFalse
-        ).mapN { (port, noOpen) => () =>
-          val server = ConsoleServer.start(new LocalSource(), port, System.out)
-          if !noOpen then openBrowser(server.address)
-          // Serve until interrupted. The console is a foreground tool: a developer stops looking at
-          // it by pressing ctrl-c, which is also how they stop it.
-          val latch = java.util.concurrent.CountDownLatch(1)
-          Runtime.getRuntime.addShutdownHook(Thread { () =>
-            server.stop(); latch.countDown()
-          })
-          latch.await()
-          ""
+      erasures orElse localWeb orElse localUp orElse localRun orElse localDown orElse localStatus orElse localLogs orElse Opts
+        .subcommand(
+          "console",
+          "Serve a console over the services running on this machine."
+        ) {
+          (
+            Opts
+              .option[Int]("port", s"Port to serve on; defaults to ${ConsoleServer.DefaultPort}.")
+              .withDefault(ConsoleServer.DefaultPort),
+            Opts.flag("no-open", "Do not open a browser.").orFalse
+          ).mapN { (port, noOpen) => () =>
+            val server = ConsoleServer.start(new LocalSource(), port, System.out)
+            if !noOpen then openBrowser(server.address)
+            // Serve until interrupted. The console is a foreground tool: a developer stops looking at
+            // it by pressing ctrl-c, which is also how they stop it.
+            val latch = java.util.concurrent.CountDownLatch(1)
+            Runtime.getRuntime.addShutdownHook(Thread { () =>
+              server.stop(); latch.countDown()
+            })
+            latch.await()
+            ""
+          }
         }
-      }
     }
 
   /**

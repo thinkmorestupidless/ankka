@@ -558,6 +558,11 @@ announcements cannot be read, so it is told where another service is the same wa
 `JAVA_OPTS=-Dankka.local-services.carts=http://host.docker.internal:9000` in its environment. Each
 language's test kit passes environment variables to that container (`testkit.Env(...)` in Go), which is how a test does it.
 
+A project brought up with `ankka local up` needs none of this: the command gives each container the
+address of every other service of the project, and writes each container's announcement for the local
+console once the service is ready, so a service run from its source on the machine finds the containers,
+and they find it.
+
 ## Testing a component that calls another service
 
 A unit test gives the component a scripted set of services, which answer as the test says and record

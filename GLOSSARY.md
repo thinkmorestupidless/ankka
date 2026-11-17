@@ -3183,6 +3183,25 @@ and every crossing. It is one file in the project's repository, which the projec
 true against each service's descriptor and render for people to read. A design of several services
 starts with it.
 
+### local project
+A project's services, their databases, its topics and its companions, running on one developer's
+machine from one command of the command line. It is not an installation: no service in it has an
+identity, and nothing in it is rolled out.
+
+### topic declaration
+What a project's repository says of one of the project's topics: its name, its partitions, whether
+it is compacted, and its contract when it has one. A member applies it to an installation, where it
+makes a declared topic, and the command line applies it to a local project.
+
+### local values
+What a project's repository says a service's environment is on a developer's machine, where that
+differs from the service's descriptor or the descriptor reads it from a secret. They hold nothing
+that is a secret anywhere else.
+
+### companion
+Something a project declares that runs beside its services in a local project and is not a service
+of the project: an identity provider, an object store, a stand-in for something outside the project.
+
 ### boundary
 Where one service of a project ends and another begins, put there because the two
 differ in ownership, scaling or consistency. Only a crossing passes it.

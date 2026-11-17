@@ -1,10 +1,21 @@
 package com.thinkmorestupidless.ankka.cli
 
-import com.thinkmorestupidless.ankka.controlplane.api.{ContractDeclaration, TopicDeclarationRequest}
+import com.thinkmorestupidless.ankka.cli.local.TopicDeclarationRequests
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  CleanupPolicy,
+  CompactionLag,
+  ContractDeclaration,
+  ProjectTopic,
+  RetentionSize,
+  RetentionTime,
+  TimeSpan,
+  TopicDeclarationRequest
+}
+import com.thinkmorestupidless.ankka.core.{Contract, TopicDeclarations}
 import com.thinkmorestupidless.ankka.core.graph.GraphJson
 
 import java.io.BufferedReader
-import java.nio.file.{Files, Paths}
+import java.nio.file.{Files, Path, Paths}
 
 /**
  * `projects topics set --contract --schema` (feature 037): the document read, as the server reads
@@ -87,3 +98,75 @@ object TopicsCommand:
                 s"question, add --removes \"$removal\""
             )
           case Some(_) => throw ApiError(0, "nothing was sent")
+
+  /**
+   * `projects topics apply` (feature 066): every topic `topics.json` declares, sent as `set` sends
+   * it, in the file's order. One the project already declares the same way is said `unchanged` and
+   * not sent. The first refusal stops it, naming the topic; what was sent before it stays declared.
+   */
+  def apply(
+      client: ControlPlaneClient,
+      project: String,
+      root: Path,
+      removes: Boolean,
+      input: => BufferedReader,
+      output: java.io.PrintStream
+  ): Unit =
+    val declarations = TopicDeclarations.read(root) match
+      case Left(problems) => throw ApiError(0, problems.mkString("; "))
+      case Right(None)    => throw ApiError(0, s"$root holds no ${TopicDeclarations.FileName}")
+      case Right(Some(d)) => d
+    val problems = TopicDeclarations.problems(root, declarations)
+    if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+    val listed = client.listTopics(project).map(t => t.name -> t).toMap
+    declarations.topics.foreach { topic =>
+      val request = TopicDeclarationRequests
+        .of(root, topic)
+        .fold(p => throw ApiError(0, s"${topic.name}: ${p.mkString("; ")}"), identity)
+      if listed.get(topic.name).exists(unchanged(_, request)) then
+        output.println(s"${topic.name}: unchanged")
+      else
+        try
+          if removes then acknowledging(client, project, topic.name, request)
+          else declare(client, project, topic.name, request, input, output)
+        catch case e: ApiError => throw ApiError(e.status, s"${topic.name}: ${e.detail}")
+        output.println(s"${topic.name}: declared")
+    }
+
+  private def acknowledging(
+      client: ControlPlaneClient,
+      project: String,
+      name: String,
+      request: TopicDeclarationRequest
+  ): Unit =
+    try client.declareTopic(project, name, request)
+    catch
+      case e: ApiError if e.status == 400 && removalAsked(e.detail).isDefined =>
+        client.declareTopic(project, name, request.copy(removes = removalAsked(e.detail)))
+
+  /** Whether the project already declares `listed` as `request` would. */
+  private[cli] def unchanged(listed: ProjectTopic, request: TopicDeclarationRequest): Boolean =
+    def same[A](asked: Option[String], held: Option[String], parse: String => Either[String, A]) =
+      asked.forall(g => held.exists(h => parse(g).toOption.isDefined && parse(g) == parse(h)))
+    val contract = (request.contract, listed.contract) match
+      case (None, None)       => true
+      case (Some(c), Some(l)) =>
+        c.name == l.name && Contract
+          .fingerprint(com.github.plokhotnyuk.jsoniter_scala.core.writeToArray(c.schema))
+          .toOption
+          .contains(l.fingerprint)
+      case _ => false
+    val view     = listed.settings
+    val settings =
+      same(request.retention, view.map(_.retention), RetentionTime.parse) &&
+        same(request.retentionSize, view.map(_.retentionSize), RetentionSize.parse) &&
+        same(request.cleanup, view.map(_.cleanup), CleanupPolicy.parse) &&
+        same(request.tombstoneWindow, view.map(_.tombstoneWindow), TimeSpan.parse) &&
+        same(request.minCompactionLag, view.map(_.minCompactionLag), TimeSpan.parse) &&
+        same(request.maxCompactionLag, view.map(_.maxCompactionLag), CompactionLag.parse) &&
+        request.copies.forall(c => view.flatMap(_.copies).contains(c)) &&
+        request.minInSync.forall(c => view.flatMap(_.minInSync).contains(c))
+    // `compacted` is the short form of `cleanup: compact`; once `cleanup` is given it says the
+    // compaction, and `same` compares it.
+    val compaction = request.cleanup.isDefined || request.compacted == listed.compacted
+    request.partitions.contains(listed.partitions) && compaction && contract && settings

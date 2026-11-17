@@ -134,27 +134,31 @@ against the running services.
 ## Run every service on one machine
 
 ```bash
-docker compose up -d        # one Postgres and one Kafka, shared by every service
-sbt schema                  # ankka's schema, once and after every ankka upgrade
-scripts/run.sh orders       # in one terminal
-scripts/run.sh billing      # in another
+sbt Docker/publishLocal     # every service's image
+ankka local up              # one database server, one broker, the project's topics, every service
 ankka local console         # every running service, and the calls between them
+ankka local down            # stop it all; --volumes removes what the services recorded too
 ```
 
-`scripts/run.sh` makes a database for each service of the project, named for the service, and
-applies the schema to it. It then starts the service on the port its `service.json` names, in its
-own database, under its own name, with Kafka at `localhost:9092`. A service in another language is
-started with its sidecar or runtime from its own compose file, which reaches the same Postgres and
-Kafka from its container. Each Python, TypeScript or Go service has a process port of its own in that
-file, which the script exports as `ANKKA_PROCESS_PORT`, so several such services run side by side.
+`ankka local up` gives each service its own database, named for the service, starts it on the port
+its `service.json` names under its own name, and makes the topics `topics.json` declares before any
+service starts. The services find each other by name. To work on one service, leave it out and run
+it from its source among the others:
 
-A service started this way announces itself in a file under `~/.ankka/running/`, and a call to
-another service by name reaches the address that service announced. The announcement is a file, so
-services find each other whether or not `ankka local console` is running; the console only reads
-the same files to list them. A sidecar in a container cannot read those files, so it is told where
-another service is with a JVM option, as
-[calling other services on a developer's machine](calling-services.md#on-a-developers-machine)
-describes.
+```bash
+ankka local up --without billing
+ankka local run billing
+```
+
+[Run a whole project on one machine](local-projects.md) is the whole of it: what the command reads,
+`local.json` for the values and containers only a developer's machine has, each language's
+command from its source, and what one machine does not stand in for.
+
+A project made with an earlier template carries a `docker-compose.yml` and `scripts/run.sh` of its
+own. It can keep them, or delete them and use the command; not both at once, since both use the
+same ports. A service added to such a project now is given no compose file of its own, so a
+Python, TypeScript, Go or Rust service added after the upgrade runs only with `ankka local`. A project with topic crossings needs a `topics.json` declaring each topic, which
+`ankka context-map check` asks for.
 
 ## A test that crosses services
 

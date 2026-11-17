@@ -113,6 +113,15 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
     assertEquals(parsed.processPort, Rendering.DefaultProcessPort)
   }
 
+  test("the operator never sets the proxy's local mode") {
+    // The proxy's names (`Main.LocalVariable`, `LocalLocator.Variable`), written out: this suite
+    // cannot see the proxy module. With either set, a proxy on an installation would read no
+    // certificate and admit every caller as the machine.
+    val env = proxyEnvironment(web)
+    assertEquals(env("ANKKA_PROXY_LOCAL"), None)
+    assertEquals(env("ANKKA_PROXY_LOCAL_SERVICES"), None)
+  }
+
   test("the operator's variable names are the proxy's") {
     import ProxySettings.Variables as P
     assertEquals(

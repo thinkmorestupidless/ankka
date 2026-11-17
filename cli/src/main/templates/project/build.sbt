@@ -47,26 +47,3 @@ lazy val root = project
   .in(file("."))
   .aggregate((Seq[ProjectReference](shared, tests) ++ Services.names.map(LocalProject(_))): _*)
   .settings(publish / skip := true)
-
-// The platform's database schema, taken out of the ankka-runtime artifact into target/ddl, which
-// scripts/databases.sh applies to each service's database. `sbt schema` after every ankka upgrade.
-lazy val schema =
-  taskKey[File]("Writes ankka's database schema from the runtime artifact into target/ddl")
-schema := {
-  val log = streams.value.log
-  val jar = (tests / Test / dependencyClasspath).value
-    .map(_.data)
-    .find(f => f.getName.startsWith("ankka-runtime_") && f.getName.endsWith(".jar"))
-    .getOrElse(
-      sys.error("ankka-runtime is not on the classpath; is Services.ankkaVersion published?")
-    )
-  val out = target.value / "ddl"
-  IO.delete(out)
-  IO.createDirectory(out)
-  IO.unzip(jar, out, (entry: String) => entry.startsWith("ankka/ddl/") && entry.endsWith(".sql"))
-  val files = (out / "ankka" / "ddl").listFiles().toList.sortBy(_.getName)
-  files.foreach(f => IO.move(f, out / f.getName))
-  IO.delete(out / "ankka")
-  log.info(s"schema: ${files.map(_.getName).mkString(", ")} -> $out")
-  out
-}

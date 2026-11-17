@@ -46,6 +46,14 @@ val ankkaVersion = "0.16.2"
 The platform trusts the declaration and does not inspect the image, so a descriptor that declares one
 version while the image carries another is not caught at deploy time. Keep them equal.
 
+## A project's topics are declared in topics.json
+
+From this release `ankka context-map check` refuses a project whose context map has a topic crossing
+and which has no `topics.json`, and so does `ankka local up`. A project made with an earlier template
+adds a `topics.json` at its root declaring each topic its crossings name, with the crossing's contract
+and schema; [Topics](../build/topics.md) says what each field means. A CI step that runs the check
+fails until the file is there.
+
 ## Refresh the local schema
 
 The runtime's database schema ships inside the `ankka-runtime` library. After changing `ankkaVersion`,

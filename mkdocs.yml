@@ -219,6 +219,7 @@ nav:
       - HTTP endpoints: build/http-endpoints.md
       - Calling other services: build/calling-services.md
       - Build a project of several services: build/projects.md
+      - Run a whole project on one machine: build/local-projects.md
       - gRPC endpoints: build/grpc-endpoints.md
       - Calling components: build/component-client.md
       - Broker topics: build/topics.md

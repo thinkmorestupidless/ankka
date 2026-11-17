@@ -75,9 +75,10 @@ by component id alone, so two services sharing a database overwrite and delete e
 a database per service, locally as the platform does when deployed. See
 [Databases](../platform/databases.md) for the reasons.
 
-A project of several services does this for each of them: `scripts/run.sh <service>` makes a database
-named for the service, applies the schema to it, and starts the service on the port its `service.json`
-names. See [Build a project of several services](../build/projects.md#run-every-service-on-one-machine).
+A project of several services does this for each of them with one command: `ankka local up` makes a
+database named for each service in one database server, applies the schema to it, and starts the
+service on the port its `service.json` names. See
+[Run a whole project on one machine](../build/local-projects.md).
 
 The complete list of variables and settings is in [Runtime configuration](../reference/configuration.md).
 A service can also override any setting in its own `src/main/resources/application.conf`.
@@ -116,7 +117,8 @@ the address that service announced, so services started in any order find each o
 configured, whether or not `ankka local console` is running; the console lists the same files. Where
 those files cannot be read, as from a sidecar in a container, `ankka.local-services.<name>` names the
 address instead, as [calling other services](../build/calling-services.md#on-a-developers-machine)
-shows.
+shows. The services of a project brought up with `ankka local up` are found the same way: the command
+writes each container's file once it is ready, and tells each container where the others are.
 
 ## Run a Python service
 

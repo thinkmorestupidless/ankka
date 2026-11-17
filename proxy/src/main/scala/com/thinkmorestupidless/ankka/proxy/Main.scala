@@ -1,6 +1,12 @@
 package com.thinkmorestupidless.ankka.proxy
 
-import com.thinkmorestupidless.ankka.proxy.core.{Answer, ProxyEngine, ProxySettings, Sender}
+import com.thinkmorestupidless.ankka.proxy.core.{
+  Answer,
+  ProxyEngine,
+  ProxySettings,
+  Sender,
+  Transport
+}
 import com.thinkmorestupidless.ankka.runtime.RotatingTls
 import org.slf4j.LoggerFactory
 
@@ -27,14 +33,91 @@ object Main:
   val MountDirectoryProperty: String   = "ankka.proxy.mount-directory"
   val DefaultMountDirectory: String    = "/var/run/secrets/ankka/mount"
 
+  /** `on` runs the proxy on a developer's machine (feature 066); the operator never sets it. */
+  val LocalVariable: String = "ANKKA_PROXY_LOCAL"
+
   def main(args: Array[String]): Unit = sys.exit(run(args))
 
   def run(
       args: Array[String],
       env: String => Option[String] = sys.env.get,
-      report: String => Unit = message => log.error(message)
+      report: String => Unit = message => log.error(message),
+      started: ProxyEngine => Unit = _ => (),
+      /** A test's ports in place of the fixed probe and calling ports; the identity otherwise. */
+      adjust: ProxySettings => ProxySettings = identity
   ): Int =
     val _ = args
+    if env(LocalVariable).contains("on") then local(env, report, started, adjust)
+    else cluster(env, report)
+
+  /**
+   * The local mode: plain HTTP, no certificate read, every caller the local machine, and services
+   * where `ANKKA_PROXY_LOCAL_SERVICES` says. The project is `local` unless named; callers are not
+   * read, since every caller is the machine. The engine `ankka local web` runs, in this image.
+   */
+  private def local(
+      env: String => Option[String],
+      report: String => Unit,
+      started: ProxyEngine => Unit,
+      adjust: ProxySettings => ProxySettings
+  ): Int =
+    val localEnv: String => Option[String] = name =>
+      if name == ProxySettings.Variables.Callers then None
+      else if name == ProxySettings.Variables.Project then
+        env(name).filter(_.nonEmpty).orElse(Some("local"))
+      else env(name)
+    val settings = ProxySettings.fromEnvironment(localEnv).map(adjust)
+    val locator  = LocalLocator.parse(env(LocalLocator.Variable).getOrElse(""))
+    (settings, locator) match
+      case (Right(settings), Right(locator)) =>
+        try
+          val engine = ProxyEngine(
+            settings,
+            Transport.plain(ProxyEngine.EveryAddress),
+            events = logging,
+            locator = locator
+          )
+          engine.start()
+          started(engine)
+          log.info(
+            "serving {} on this machine on port {}; the process on {}; {} mount(s)",
+            settings.service,
+            engine.ports.public,
+            settings.processPort,
+            settings.mounts.size
+          )
+          awaitStop(engine)
+        catch
+          case error: Throwable =>
+            report(s"the proxy failed to start: ${error.getMessage}")
+            1
+      case (s, l) =>
+        (s.left.toOption.toVector.flatten ++ l.left.toOption.toVector.flatten)
+          .foreach(problem => report(s"refusing to start: $problem"))
+        1
+
+  private def awaitStop(engine: ProxyEngine): Int =
+    val stopped = new CountDownLatch(1)
+    val hook    = new Thread(() =>
+      log.info("stopping: letting requests in flight finish")
+      engine.stop()
+      stopped.countDown()
+    )
+    Runtime.getRuntime.addShutdownHook(hook)
+    try
+      stopped.await()
+      0
+    catch
+      case _: InterruptedException =>
+        engine.stop()
+        try Runtime.getRuntime.removeShutdownHook(hook): Unit
+        catch case _: IllegalStateException => ()
+        0
+
+  private def cluster(
+      env: String => Option[String],
+      report: String => Unit
+  ): Int =
     ProxySettings.fromEnvironment(env) match
       case Left(problems) =>
         problems.foreach(problem => report(s"refusing to start: $problem"))

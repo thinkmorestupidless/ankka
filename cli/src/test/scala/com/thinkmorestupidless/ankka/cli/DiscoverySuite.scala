@@ -127,3 +127,23 @@ final class DiscoverySuite extends FunSuite:
         sys.props.put("ankka.running.dir", _)
       ): Unit
   }
+
+  private def writeOwned(name: String, port: Int): Path =
+    val file = directory.resolve(s"shop.$name.json")
+    Files.writeString(
+      file,
+      s"""{"name":"$name","instanceId":"shop/$name","observabilityAddress":"http://127.0.0.1:$port",""" +
+        s""""owner":"ankka local up","project":"shop","startedAt":"2026-11-17T12:00:00Z"}"""
+    )
+    file
+
+  test("an entry ankka local up owns that nothing answers for is not listed, and its file stays") {
+    val owned = writeOwned("orders", port = 1)
+    assertEquals(LocalSource(directory).services(), Vector.empty)
+    assert(Files.exists(owned), "the command removes its own entries, at down")
+  }
+
+  test("an entry ankka local up owns that answers is listed") {
+    val _ = writeOwned("orders", runningService("orders"))
+    assertEquals(LocalSource(directory).services().map(_.name), Vector("orders"))
+  }

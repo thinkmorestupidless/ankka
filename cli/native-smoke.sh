@@ -72,9 +72,50 @@ for file in context-map.json CONTEXT-MAP.md build.sbt services/orders/service.js
   .github/workflows/deploy.yml .specify/extensions.yml .claude/skills/speckit-design/SKILL.md; do
   [ -f "$work/project/shop/$file" ] || fail "ankka init --project wrote no $file: the image is missing ankka/templates/project"
 done
-[ -x "$work/project/shop/scripts/run.sh" ] || fail "ankka init --project wrote scripts/run.sh without its execute bit"
+[ -x "$work/project/shop/scripts/changed-services.sh" ] || fail "ankka init --project wrote scripts/changed-services.sh without its execute bit"
+[ -f "$work/project/shop/topics.json" ] || fail "ankka init --project wrote no topics.json"
 "$bin" context-map check --dir "$work/project/shop" || fail "ankka context-map check refused the project ankka init made"
 echo "init       renders a project of several services, and its context map checks"
+
+# `ankka local up` refuses a directory with no project: in the no-project words where Docker answers,
+# and in Docker's where it does not (a runner without Docker).
+mkdir -p "$work/empty"
+if "$bin" local up --dir "$work/empty" > "$work/up-empty.out" 2>&1; then
+  fail "ankka local up succeeded in an empty directory"
+fi
+grep -q -e "holds no project" -e "docker is not running" -e "docker compose is not installed" "$work/up-empty.out" \
+  || fail "ankka local up in an empty directory said: $(cat "$work/up-empty.out")"
+echo "local up   refuses a directory that holds no project"
+
+# The binary carries the platform's schema: a docker that records every call and its input, and
+# answers as an empty, healthy Docker would, so the command reaches the point where it applies the
+# schema to each service's database, which only the binary's own ankka/ddl/ can supply.
+calls="$work/docker-calls.log"
+cat > "$work/docker" <<FAKE
+#!/usr/bin/env bash
+echo "docker \$*" >> "$calls"
+case "\$*" in
+  *psql*) cat >> "$calls" ;;
+esac
+case "\$*" in
+  *" ps --all --format json"*)
+    echo '{"Service":"ankka-postgres","State":"running","Health":"healthy","ID":"p1"}'
+    echo '{"Service":"ankka-kafka","State":"running","Health":"healthy","ID":"k1"}' ;;
+  "inspect --format"*) echo "p1 postgres"; echo "k1 kafka" ;;
+  "network inspect"*) echo "172.17.0.1" ;;
+esac
+exit 0
+FAKE
+chmod +x "$work/docker"
+"$bin" -Dankka.docker="$work/docker" -Dankka.running.dir="$work/running" -Dankka.cache.dir="$work/cache" \
+  local up --timeout 2s --dir "$work/project/shop" > "$work/up.out" 2>&1 || true
+ddl="$(dirname "$0")/../kustomization/components/postgres/ddl"
+first="$(ls "$ddl" | grep '\.sql$' | sort | head -1)"
+table="$(grep -m1 -o 'CREATE TABLE IF NOT EXISTS [a-z_]*' "$ddl/$first")"
+[ -n "$table" ] || fail "no table found in $ddl/$first"
+grep -q "$table" "$calls" \
+  || fail "ankka local up applied no schema holding '$table': the image is missing ankka/ddl ($(tail -5 "$work/up.out"))"
+echo "local up   applies the schema the binary carries"
 
 mkdir -p "$work/existing"
 "$bin" mcp install --scope project --dir "$work/existing" > /dev/null \

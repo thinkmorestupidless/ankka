@@ -174,6 +174,8 @@ lazy val commonSettings = Seq(
   Test / javaOptions ++= Seq(
     "ankka.cluster.tests",
     "ankka.template.tests",
+    // LocalUpSuite (feature 066): `on` runs it and fails without Docker, `off` skips it.
+    "ankka.local.tests",
     // `ankka init --project` runs spec-kit's installer when it is on PATH; `off` keeps a suite from
     // downloading spec-kit (feature 062).
     "ankka.init.specify",
@@ -1107,6 +1109,26 @@ lazy val cli = project
         )
         index +: copied
       }
+    }.taskValue,
+    // The schema every runtime version applies (feature 066): `ankka local up` gives a service's
+    // database the schema of the CLI's own version from this copy, so a project made from the
+    // template pulls no sidecar image for it. Every file of the canonical directory, by glob, onto
+    // the classpath at ankka/ddl/ with an index, as the templates are.
+    Compile / resourceGenerators += Def.task {
+      val ddl =
+        (ThisBuild / baseDirectory).value / "kustomization" / "components" / "postgres" / "ddl"
+      val out   = (Compile / resourceManaged).value / "ankka" / "ddl"
+      val files = (ddl * "*.sql").get.sortBy(_.getName)
+      if (files.isEmpty) sys.error(s"$ddl holds no schema file")
+      IO.delete(out)
+      val copied = files.map { f =>
+        val target = out / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+      val index = out / "index.txt"
+      IO.write(index, files.map(_.getName).mkString("", "\n", "\n"))
+      index +: copied
     }.taskValue,
     // TemplateSuite expands the template into a build outside this one, which resolves ankka from
     // ~/.ivy2/local — so the artifacts have to be there first. A build-level task dependency, the

@@ -3,9 +3,10 @@
 > Every `ankka` command and option, how the CLI resolves its settings and credentials, its output formats and its exit codes.
 
 Source: https://docs.ankka.cloud/reference/cli/
-`ankka` is the command-line client for an ankka control plane, plus three local tools: `ankka init`
-creates a service from a template, in Scala, Java, Kotlin, Python, TypeScript or Rust, or a web interface, `ankka local console` serves a console over the services
-running on your own machine, and `ankka mcp` serves the CLI's service commands, the local services and
+`ankka` is the command-line client for an ankka control plane, plus local tools: `ankka init`
+creates a service from a template, in Scala, Java, Kotlin, Python, TypeScript or Rust, or a web interface, `ankka local up`,
+`down`, `status`, `logs` and `run` run a whole project on your own machine, `ankka local console` serves a
+console over the services running there, and `ankka mcp` serves the CLI's service commands, the local services and
 this documentation to a coding agent over the Model Context Protocol
 ([Work with a coding agent](../get-started/coding-agents.md)). Every other command makes one HTTP call to the control plane and prints
 the result. The CLI holds no state of its own beyond a settings file and a credentials file.
@@ -43,6 +44,12 @@ Saved logins live in `credentials.json` in the same directory as the settings fi
 plane URL, so a login for one installation is never presented to another. The file is readable by its
 owner only, where the filesystem supports permissions. It is separate from the settings file because
 `ankka config get` prints the settings and a credential is never printed.
+
+`ankka local up` writes what it chose for a project in the project's own directory, under
+`.ankka/local/`: the compose document it renders (`compose.json`) and the ports and secret keys it keeps
+(`state.json`). Neither is committed, and `ankka local down --volumes` removes both. The platform's schema
+for each runtime version is cached under `~/.ankka/cache`; the system property `-Dankka.cache.dir` names
+another directory.
 
 Setting `HOME` for one command does not relocate either file, because the JVM resolves `~` once at
 start. Use `ANKKA_CONFIG` to isolate a run.
@@ -147,9 +154,33 @@ line per problem on standard error, with no `error: ` prefix, and exits `1`. It 
 - each crossing being a declared topic with a contract and a schema, or a route, and not both;
 - each schema a crossing names existing under the project and being JSON;
 - the names of topics and contracts, and routes written as `<METHOD> <path>`;
-- no crossing recorded twice, and `CONTEXT-MAP.md` being what `render` writes from the file.
+- no crossing recorded twice, and `CONTEXT-MAP.md` being what `render` writes from the file;
+- each topic a crossing names being declared in `topics.json`, with the crossing's contract and schema,
+  and `topics.json` itself being a valid file of declarations.
 
 `render` writes `CONTEXT-MAP.md` from the file and prints its path.
+
+## A project on one machine
+
+`ankka local up`, `down`, `status`, `logs` and `run` read the project in the directory `--dir` names or
+the current one, need Docker with Compose v2, and ask no control plane anything.
+
+- `up` refuses, with every problem it finds at once and nothing started, a project whose map, descriptors,
+  `topics.json` or `local.json` do not hold, a port in use, or an image that is neither on the machine nor
+  pullable. Otherwise it prints each service with its address and `started`, `restarted (<why>)` or
+  `running`, and returns when each is ready. `--without <service>` leaves a service out; names given
+  start only those and what they need; `--timeout` bounds each wait, `5m` by default.
+- `down` stops every container of the project and keeps the databases and topics; `--volumes` removes
+  them too.
+- `status` prints each service and companion as `ready`, `running, not ready` or `not running`, where it
+  answers, and whether `ankka local up` started it or it runs from its source.
+- `logs <service>` prints a service's or companion's log, `--tail <n>` lines of it, `--follow` until
+  interrupted.
+- `run <service>` runs one service from its source in the foreground, with what follows `--`, its entry
+  under `run` in `local.json`, or its language's own command, and exits with its exit code.
+
+Refusals are on standard error and exit `1`. No local value is printed. [Run a whole project on one
+machine](../build/local-projects.md) is the guide.
 
 ## Plugins
 
@@ -1812,6 +1843,7 @@ Options and flags:
 ```text
 Usage:
     ankka projects topics set
+    ankka projects topics apply
     ankka projects topics unset
     ankka projects topics list
     ankka projects topics schema
@@ -1825,6 +1857,8 @@ Options and flags:
 Subcommands:
     set
         Declare a topic on the project, or change it. A topic is never given fewer partitions. A new topic takes every setting left out from the installation's defaults; a topic already declared keeps what is left out. --compacted is --cleanup compact; --contract and --schema declare what the topic carries, which every side must state. A change that removes messages is an owner's, and asks before it is sent.
+    apply
+        Declare every topic topics.json names, as ankka local up makes them: each one sent as topics set sends it, and one already declared so is left unchanged. A topic the file does not name is not touched.
     unset
         Stop declaring a topic. The topic and what was published to it stay on the broker.
     list
@@ -1869,6 +1903,30 @@ Options and flags:
         How many copies must hold a message before it is acknowledged; fixed once declared.
     --removes <string>
         What a change that removes messages removes, in the control plane's words: the confirmation a script gives instead of answering the question.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects topics apply`
+
+```text
+Usage: ankka projects topics apply [--dir <string>] [--removes] [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+Declare every topic topics.json names, as ankka local up makes them: each one sent as topics set sends it, and one already declared so is left unchanged. A topic the file does not name is not touched.
+
+Options and flags:
+    --help
+        Display this help text.
+    --dir <string>
+        The project's directory, holding topics.json; defaults to the current directory.
+    --removes
+        Send a change that removes messages without asking: the confirmation a script gives.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>
@@ -3119,6 +3177,11 @@ Options and flags:
 Usage:
     ankka local erasures
     ankka local web
+    ankka local up
+    ankka local run
+    ankka local down
+    ankka local status
+    ankka local logs
     ankka local console
 
 Tools for services running on this machine.
@@ -3132,6 +3195,16 @@ Subcommands:
         Erasures against the local keyring of services running on this machine (development only).
     web
         Run a web-hosted service's process on this machine as the platform would in a cluster: its mounts answer at their paths, and it calls services by name.
+    up
+        Bring a project up on this machine: read context-map.json, each services/<name>/service.json, topics.json and local.json, start one database server and one broker in Docker, give each service its own database and the schema of its runtime, make the declared topics, start each service in a container, and wait until every one is ready. With names, only those services; with --without, every service but those.
+    run
+        Run one service from its source, in the foreground, among whatever of the project is up: its database server, broker, database, the project's topics and the companions it needs are started when they are not running, and left running when it ends. The command is what follows --, else local.json's run.<service>, else its language's own.
+    down
+        Stop and remove every container ankka local up started for the project. What the services recorded is kept; with --volumes it is removed, every database and every topic's messages, with .ankka/local/.
+    status
+        For each service of the project and each companion: whether it is ready, where it answers, and whether ankka local up started it or it runs from its source.
+    logs
+        The log of a service or companion ankka local up started, from its start or its last lines.
     console
         Serve a console over the services running on this machine.
 ```
@@ -3184,6 +3257,88 @@ Options and flags:
         Where to listen (default 3000).
     --service <string>
         Where a service is, as name=url, for one that is not running under the local console's eye. Repeatable.
+```
+
+### `ankka local up`
+
+```text
+Usage: ankka local up [--without <string>]... [--timeout <string>] [--dir <string>] [<service>...]
+
+Bring a project up on this machine: read context-map.json, each services/<name>/service.json, topics.json and local.json, start one database server and one broker in Docker, give each service its own database and the schema of its runtime, make the declared topics, start each service in a container, and wait until every one is ready. With names, only those services; with --without, every service but those.
+
+Options and flags:
+    --help
+        Display this help text.
+    --without <string>
+        Start every service but this one. Repeatable.
+    --timeout <string>
+        How long to wait for each to be ready (default 5m).
+    --dir <string>
+        The project's directory, holding context-map.json; defaults to the current directory.
+```
+
+### `ankka local run`
+
+```text
+Usage: ankka local run [--timeout <string>] [--dir <string>] <service> [<command>...]
+
+Run one service from its source, in the foreground, among whatever of the project is up: its database server, broker, database, the project's topics and the companions it needs are started when they are not running, and left running when it ends. The command is what follows --, else local.json's run.<service>, else its language's own.
+
+Options and flags:
+    --help
+        Display this help text.
+    --timeout <string>
+        How long to wait for what it needs to be ready (default 5m).
+    --dir <string>
+        The project's directory, holding context-map.json; defaults to the current directory.
+```
+
+### `ankka local down`
+
+```text
+Usage: ankka local down [--volumes] [--dir <string>]
+
+Stop and remove every container ankka local up started for the project. What the services recorded is kept; with --volumes it is removed, every database and every topic's messages, with .ankka/local/.
+
+Options and flags:
+    --help
+        Display this help text.
+    --volumes
+        Also remove what the services recorded.
+    --dir <string>
+        The project's directory, holding context-map.json; defaults to the current directory.
+```
+
+### `ankka local status`
+
+```text
+Usage: ankka local status [--dir <string>]
+
+For each service of the project and each companion: whether it is ready, where it answers, and whether ankka local up started it or it runs from its source.
+
+Options and flags:
+    --help
+        Display this help text.
+    --dir <string>
+        The project's directory, holding context-map.json; defaults to the current directory.
+```
+
+### `ankka local logs`
+
+```text
+Usage: ankka local logs [--follow] [--tail <integer>] [--dir <string>] <name>
+
+The log of a service or companion ankka local up started, from its start or its last lines.
+
+Options and flags:
+    --help
+        Display this help text.
+    --follow
+        Stay, showing what is written, until interrupted.
+    --tail <integer>
+        Only the last this many lines.
+    --dir <string>
+        The project's directory, holding context-map.json; defaults to the current directory.
 ```
 
 ### `ankka local console`

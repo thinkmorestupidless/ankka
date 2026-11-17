@@ -33,6 +33,12 @@ directory, asks each entry whether it is still answering, and removes entries fo
 gone. A service run with `sbt run`, from a test, or as a Python process beside a local sidecar all
 appear.
 
+A service in a container cannot write to the machine's directory, so `ankka local up` writes each
+container's entry itself once the service is ready, with an `owner` naming the command, and
+`ankka local down` removes them. The console keeps an entry the command owns while the service does
+not answer, rather than removing it, since the command rewrites it when the service comes back
+(`ankka local status` does too). A web-hosted service of such a project has no entry, and is not listed.
+
 A service is listed under the name it was started with. For a Scala service that is the name passed to
 `start`, which defaults to `ankka`, so give each service its own when you run several:
 

@@ -82,6 +82,10 @@ A handler that may change state: persist events, update state, or start a workfl
 Replacing the oldest messages of an agent session with a summary, so a long conversation fits a model's
 context window. It runs in the background after a turn, and recent messages stay verbatim.
 
+### Companion
+Something a project declares that runs beside its services in a local project and is not a service
+of the project: an identity provider, an object store, a stand-in for something outside the project.
+
 ### Compensation
 
 The step a workflow fails over to when a step fails past its retries, to undo or make good what earlier
@@ -284,6 +288,16 @@ The one-word summary of what the platform last observed about a service: `Ready`
 A web page, started with `ankka local console`, that shows every ankka service running on your machine: its
 components and routes, the traces of requests it served, entity state through its declared queries, and agent
 sessions.
+
+### Local project
+A project's services, their databases, its topics and its companions, running on one developer's
+machine from one command of the command line. It is not an installation: no service in it has an
+identity, and nothing in it is rolled out.
+
+### Local values
+What a project's repository says a service's environment is on a developer's machine, where that
+differs from the service's descriptor or the descriptor reads it from a secret. They hold nothing
+that is a secret anywhere else.
 
 ### Manifest
 
@@ -573,6 +587,11 @@ back to the model; a tool that requires approval waits for a person's decision f
 ### Topic
 
 A named stream on a message broker, Kafka, that a view or consumer can read from and a consumer can publish to.
+
+### Topic declaration
+What a project's repository says of one of the project's topics: its name, its partitions, whether
+it is compacted, and its contract when it has one. A member applies it to an installation, where it
+makes a declared topic, and the command line applies it to a local project.
 
 ### Trace
 

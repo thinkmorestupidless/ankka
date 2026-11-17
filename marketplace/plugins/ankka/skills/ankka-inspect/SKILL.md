@@ -48,7 +48,7 @@ Run the project's own tests first; a service whose tests fail is not inspected.
 | TypeScript | `npm test` | `docker compose up -d`, then `npm start` |
 | Go | `go vet ./...`, `go test ./...`, then `ANKKA_SLOW=1 go test ./...` | `docker compose up -d`, then `go run .` |
 | Rust | `cargo test` | `cargo module`, then `docker compose up -d runtime` |
-| A project of several services | `sbt test` (every Scala service, then `sbt tests/test` for the crossings and the map), and each other service's own | `docker compose up -d` and `sbt schema` at the project's root, then `scripts/run.sh <service>` for each service, each in its own terminal |
+| A project of several services | `sbt test` (every Scala service, then `sbt tests/test` for the crossings and the map), and each other service's own | `sbt Docker/publishLocal`, then `ankka local up` at the project's root; for one service from its source, `ankka local up --without <service>`, then `ankka local run <service>` |
 
 Run the service in the background and keep its output. Then call `list_local_services`: the service must
 be listed, under the name it was started with, which every later tool takes as `service`. A service that
@@ -200,6 +200,7 @@ Open the one a task needs; each is one topic and stands alone.
 ### Build
 
 - `references/build/projects.md` — Start a project of several services with ankka init, add a service in any language, keep the context map true, run every service on one machine, test across services, and release one service at a time with a service tag.
+- `references/build/local-projects.md` — Bring every service of a project up on one machine with ankka local up, give it values and containers only a developer's machine has, run one service from its source, and what one machine does not stand in for.
 - `references/build/testing.md` — Test ankka components at two levels in every language, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy

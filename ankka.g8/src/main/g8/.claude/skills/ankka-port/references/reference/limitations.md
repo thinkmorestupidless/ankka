@@ -141,6 +141,25 @@ feature also says what that feature does not do.
   change made a moment ago. Checks that depend on a count — "the project has no services" before it is
   deleted — use the same projections, so they guard against the obvious mistake rather than every race.
 
+## A project on one machine
+
+- **One machine is not an installation.** A project brought up with `ankka local up` runs the same
+  images, but a service has no identity and no certificate, every caller is the local machine, a topic
+  is not authorised, nothing is exposed through a gateway, there is one instance of each service, and
+  nothing is rolled out, rolled back or scaled.
+- **No contract is checked.** A message published on a project on one machine is not checked against
+  its topic's contract.
+- **A web-hosted service is not in the local console.** It has no observability endpoint, so the
+  command writes no entry for it.
+- **Docker with Compose v2 is needed.** The command runs every container through `docker compose`, and
+  refuses before reading anything when Docker or Compose v2 does not answer.
+- **Images are not built.** Every service's image must be on the machine or pullable before `up`; the
+  command runs images and builds none.
+- **From its source on Linux, a sidecar cannot reach a process on loopback.** A Python, TypeScript or
+  Go service run with `ankka local run` listens on `127.0.0.1` by default, and its sidecar, a
+  container, reaches the host through the bridge's gateway, which on Linux is not the host's loopback.
+  There such a process listens on every interface; on macOS and Windows the default answers.
+
 ## Web-hosted services
 
 - **No upgraded connections.** The proxy speaks HTTP/1.1 and passes a request asking to upgrade its

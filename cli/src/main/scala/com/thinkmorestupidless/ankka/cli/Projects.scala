@@ -26,9 +26,6 @@ object Projects:
   /** The first port a service of a project is given locally. */
   val FirstPort: Int = 9000
 
-  /** The first process port; `ANKKA_PROCESS_PORT`'s default, which a single service keeps. */
-  val FirstProcessPort: Int = 9010
-
   /** spec-kit's own setup, which the project template carries no copy of. */
   val SpecifyCommand: Vector[String] =
     Vector("specify", "init", "--here", "--ai", "claude", "--ai-skills")
@@ -147,15 +144,6 @@ object Projects:
     Iterator.from(FirstPort).find(p => !used(p)).get
 
   /**
-   * The smallest even port from 9010 that no process service's compose file dials: a Python,
-   * TypeScript or Go process listens on it, and its sidecar's observe port is the one above, so two
-   * such services run side by side.
-   */
-  def nextProcessPort(root: Path): Int =
-    val used = composes(root).flatMap(processPortOf).toSet
-    Iterator.from(FirstProcessPort, 2).find(p => !used(p)).get
-
-  /**
    * Writes `services/<name>/`, appends it to the map and renders the map again; returns its
    * directory.
    */
@@ -169,26 +157,15 @@ object Projects:
         val pkg = request.pkg.getOrElse(projectPackage(root))
         writeSkeleton(root, name, "plain", port, pkg, version, name, name)
       case language =>
-        // Chosen before the language's own compose file is written, which names the default port.
-        val process = nextProcessPort(root)
-        val values  = Scaffold.tokens(request, version)
+        val values = Scaffold.tokens(request, version)
         write(language.id, service, values, keep, identity)
         withPort(service.resolve("service.json"), port)
         stripDeploy(service.resolve("README.md"))
-        val compose = service.resolve("docker-compose.yml")
-        language match
-          case Language.Python | Language.TypeScript | Language.Go =>
-            Files.writeString(compose, sidecarCompose(name, port, process, version)): Unit
-            withProcessPort(service.resolve("README.md"), process)
-          case Language.Rust =>
-            Files.writeString(
-              compose,
-              runtimeCompose(name, port, version, Scaffold.module(request).replace('-', '_'))
-            ): Unit
-          case Language.Web =>
-            Files.deleteIfExists(compose): Unit
-            mountOn(service, readMap(root).services.map(_.name).headOption.getOrElse("backend"))
-          case _ => Files.deleteIfExists(compose): Unit
+        // A service of a project runs with the project (`ankka local up`), never from a compose
+        // file of its own.
+        Files.deleteIfExists(service.resolve("docker-compose.yml")): Unit
+        if language == Language.Web then
+          mountOn(service, readMap(root).services.map(_.name).headOption.getOrElse("backend"))
     writeMap(root, appendService(readMap(root), name))
     service
 
@@ -240,15 +217,15 @@ object Projects:
       .exists(dir => Files.isExecutable(Path.of(dir).resolve(program)))
 
   /** The next steps printed once a project is written. */
-  def startSteps(where: Path, name: String, first: String, specify: Specify): String =
+  def startSteps(where: Path, name: String, specify: Specify): String =
     val setup = specify match
       case Specify.Ran       => Vector.empty
       case Specify.Failed(c) =>
         Vector(SpecifyCommand.mkString(" ") + s"   # specify init exited with $c")
       case Specify.Skipped => Vector(SpecifyCommand.mkString(" "))
     val steps = Vector(s"cd $name") ++ setup ++ Vector(
-      "docker compose up -d",
-      s"scripts/run.sh $first",
+      "sbt Docker/publishLocal",
+      "ankka local up",
       "sbt test",
       "ankka context-map check"
     )
@@ -258,17 +235,17 @@ object Projects:
   def addSteps(service: Path, name: String, language: Language): String =
     val dir   = s"services/$name"
     val steps = language match
-      case Language.Scala  => Vector(s"sbt $name/test", s"scripts/run.sh $name")
+      case Language.Scala  => Vector(s"sbt $name/test", s"ankka local run $name")
       case Language.Python =>
-        Vector(s"(cd $dir && uv sync && uv run pytest -q -rs)", s"scripts/run.sh $name")
+        Vector(s"(cd $dir && uv sync && uv run pytest -q -rs)", s"ankka local run $name")
       case Language.TypeScript =>
-        Vector(s"(cd $dir && npm install && npm test)", s"scripts/run.sh $name")
-      case Language.Rust => Vector(s"(cd $dir && cargo test)", s"scripts/run.sh $name")
+        Vector(s"(cd $dir && npm install && npm test)", s"ankka local run $name")
+      case Language.Rust => Vector(s"(cd $dir && cargo test)", s"ankka local run $name")
       case Language.Go   =>
-        Vector(s"(cd $dir && go mod tidy && go test ./...)", s"scripts/run.sh $name")
-      case Language.Java   => Vector(s"(cd $dir && ./mvnw test)", s"scripts/run.sh $name")
-      case Language.Kotlin => Vector(s"(cd $dir && ./gradlew test)", s"scripts/run.sh $name")
-      case Language.Web => Vector(s"(cd $dir && npm install && npm test)", s"scripts/run.sh $name")
+        Vector(s"(cd $dir && go mod tidy && go test ./...)", s"ankka local run $name")
+      case Language.Java   => Vector(s"(cd $dir && ./mvnw test)", s"ankka local run $name")
+      case Language.Kotlin => Vector(s"(cd $dir && ./gradlew test)", s"ankka local run $name")
+      case Language.Web => Vector(s"(cd $dir && npm install && npm test)", s"ankka local run $name")
     val mount = language match
       case Language.Web =>
         s"\n\n$dir/service.json mounts the project's first service at /api; change it to the service " +
@@ -366,15 +343,6 @@ object Projects:
       .map(_.group(1).toInt)
       .getOrElse(FirstPort)
 
-  // The process ports the project's compose files dial.
-  private def composes(root: Path): Vector[Path] =
-    descriptors(root).map(_.resolveSibling("docker-compose.yml")).filter(Files.isRegularFile(_))
-
-  private def processPortOf(compose: Path): Option[Int] =
-    "ANKKA_PROCESS_ADDRESS:\\s*host\\.docker\\.internal:(\\d+)".r
-      .findFirstMatchIn(Files.readString(compose))
-      .map(_.group(1).toInt)
-
   // A web service's template mounts a service called `backend`; inside a project that is the project's
   // first service, the one the interface most likely fronts.
   private def mountOn(service: Path, backend: String): Unit =
@@ -383,15 +351,6 @@ object Projects:
       val path = service.resolve(file)
       if Files.isRegularFile(path) then
         Files.writeString(path, Files.readString(path).replace("backend", backend)): Unit
-
-  // A language's README says its process listens on 9010; inside a project it is this service's port.
-  private def withProcessPort(readme: Path, process: Int): Unit =
-    if Files.isRegularFile(readme) then
-      val text = Files.readString(readme)
-      Files.writeString(
-        readme,
-        text.replace(s"port $FirstProcessPort", s"port $process (ANKKA_PROCESS_PORT=$process)")
-      ): Unit
 
   private def withPort(descriptor: Path, port: Int): Unit =
     val text = Files.readString(descriptor)
@@ -435,68 +394,3 @@ object Projects:
             .filter(_.nonEmpty)
         }
     found.getOrElse(Scaffold.jvmPackage(Init.Request(readMap(root).project)))
-
-  private def sidecar(version: String): String =
-    "${ANKKA_SIDECAR_IMAGE:-ghcr.io/thinkmorestupidless/ankka-sidecar:" + version + "}"
-
-  private def database(name: String, port: Int): String =
-    s"""      ANKKA_SERVICE_NAME: $name
-       |      ANKKA_HTTP_PORT: "$port"
-       |      ANKKA_DB_HOST: host.docker.internal
-       |      ANKKA_DB_PORT: "5432"
-       |      ANKKA_DB_NAME: $name
-       |      ANKKA_DB_USER: ankka
-       |      ANKKA_DB_PASSWORD: ankka
-       |      ANKKA_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9094
-       |      ANKKA_SECRET_KEY: $${ANKKA_SECRET_KEY:-}
-       |      ANKKA_OTLP_ENDPOINT: $${ANKKA_OTLP_ENDPOINT:-}
-       |      ANKKA_OTLP_HEADERS: $${ANKKA_OTLP_HEADERS:-}""".stripMargin
-
-  /**
-   * A process service's sidecar, on the project's Postgres and Kafka: no Postgres of its own. It
-   * dials the process on `process`, a port of this service's own, and its observe port is the one
-   * above, so the project's process services run side by side; `scripts/run.sh` reads the process
-   * port from this file.
-   */
-  def sidecarCompose(name: String, port: Int, process: Int, version: String): String =
-    s"""# $name's sidecar, beside the project's Postgres and Kafka (the docker-compose.yml at the project's
-       |# root): it owns the journal, the views and HTTP, in the database "$name", and dials this
-       |# service's process on port $process. scripts/run.sh $name starts it, then the process on that port.
-       |services:
-       |  sidecar:
-       |    image: ${sidecar(version)}
-       |    environment:
-       |      ANKKA_PROCESS_ADDRESS: host.docker.internal:$process
-       |      ANKKA_SIDECAR_BIND: 0.0.0.0
-       |${database(name, port)}
-       |    extra_hosts:
-       |      - "host.docker.internal:host-gateway"
-       |    ports:
-       |      - "$port:$port"
-       |      - "127.0.0.1:${process + 1}:9011"
-       |""".stripMargin
-
-  /** A WebAssembly service's runtime, on the project's Postgres and Kafka. */
-  def runtimeCompose(name: String, port: Int, version: String, module: String): String =
-    s"""# $name's runtime, beside the project's Postgres and Kafka (the docker-compose.yml at the
-       |# project's root): the module `cargo module` builds, loaded into the sidecar image, in the
-       |# database "$name". scripts/run.sh $name builds the module and starts it.
-       |services:
-       |  runtime:
-       |    profiles: ["wasm"]
-       |    image: ${sidecar(version)}
-       |    environment:
-       |      ANKKA_WASM_MODULE: /module/service.wasm
-       |${database(name, port)}
-       |    extra_hosts:
-       |      - "host.docker.internal:host-gateway"
-       |    ports:
-       |      - "$port:$port"
-       |    volumes:
-       |      - type: bind
-       |        source: ./target/wasm32-unknown-unknown/release/$module.wasm
-       |        target: /module/service.wasm
-       |        read_only: true
-       |        bind:
-       |          create_host_path: false
-       |""".stripMargin

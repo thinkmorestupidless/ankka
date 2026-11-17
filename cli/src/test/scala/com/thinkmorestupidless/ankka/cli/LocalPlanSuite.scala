@@ -374,6 +374,25 @@ class LocalPlanSuite extends munit.FunSuite:
     )
   }
 
+  test("a descriptor's own database password read from a secret is not used, and needs no value") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service(
+            "orders",
+            9000,
+            env =
+              """{"name":"ANKKA_DB_PASSWORD","secretKeyRef":{"name":"orders-db","key":"password"}}"""
+          ),
+          LocalFixtures.Service("billing", 9001)
+        )
+      )
+    )
+    val plan = planOf(project)
+    assertEquals(plan.environment("orders")("ANKKA_DB_PASSWORD"), "ankka")
+    assert(plan.notices.exists(_.contains("orders ANKKA_DB_PASSWORD")), plan.notices)
+  }
+
   test("two services on different runtime versions each ask for their own version's schema") {
     val project = readProject(
       LocalFixtures.project(

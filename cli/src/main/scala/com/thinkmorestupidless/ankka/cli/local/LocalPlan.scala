@@ -204,7 +204,10 @@ object LocalPlan:
     val secrets = all.flatMap { name =>
       val values = local.valuesFor(name)
       project.descriptor(name).service.env.collect {
-        case e if e.secretKeyRef.isDefined && !values.contains(e.name) =>
+        // A database's or a broker's own variable is not used here, read from a secret or not.
+        case e
+            if e.secretKeyRef.isDefined && !values.contains(e.name) &&
+              !LocalVariables.isInstallationOnly(e.name) =>
           s"\"$name\" reads ${e.name} from a secret and local.json gives it no value"
       }
     }
@@ -249,9 +252,13 @@ object LocalPlan:
   ): Either[Vector[String], LocalPlan] =
 
     val dropped = selected.flatMap { name =>
-      val names = literals(project.descriptor(name)).keys
+      val names = project
+        .descriptor(name)
+        .service
+        .env
+        .map(_.name)
         .filter(LocalVariables.isInstallationOnly)
-        .toVector
+        .distinct
       Option.when(names.nonEmpty)(s"$name ${names.mkString(", ")}")
     }
     val droppedNotice = Option

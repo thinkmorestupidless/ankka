@@ -48,7 +48,7 @@ Run the project's own tests first; a service whose tests fail is not inspected.
 | TypeScript | `npm test` | `docker compose up -d`, then `npm start` |
 | Go | `go vet ./...`, `go test ./...`, then `ANKKA_SLOW=1 go test ./...` | `docker compose up -d`, then `go run .` |
 | Rust | `cargo test` | `cargo module`, then `docker compose up -d runtime` |
-| A project of several services | `sbt test` (every Scala service, then `sbt tests/test` for the crossings and the map), and each other service's own | `docker compose up -d` and `sbt schema` at the project's root, then `scripts/run.sh <service>` for each service, each in its own terminal |
+| A project of several services | `sbt test` (every Scala service, then `sbt tests/test` for the crossings and the map), and each other service's own | `sbt Docker/publishLocal`, then `ankka local up` at the project's root; for one service from its source, `ankka local up --without <service>`, then `ankka local run <service>` |
 
 Run the service in the background and keep its output. Then call `list_local_services`: the service must
 be listed, under the name it was started with, which every later tool takes as `service`. A service that

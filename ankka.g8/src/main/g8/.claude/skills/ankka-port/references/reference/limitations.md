@@ -155,6 +155,10 @@ feature also says what that feature does not do.
   refuses before reading anything when Docker or Compose v2 does not answer.
 - **Images are not built.** Every service's image must be on the machine or pullable before `up`; the
   command runs images and builds none.
+- **From its source on Linux, a sidecar cannot reach a process on loopback.** A Python, TypeScript or
+  Go service run with `ankka local run` listens on `127.0.0.1` by default, and its sidecar, a
+  container, reaches the host through the bridge's gateway, which on Linux is not the host's loopback.
+  There such a process listens on every interface; on macOS and Windows the default answers.
 
 ## Web-hosted services
 

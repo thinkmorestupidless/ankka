@@ -179,7 +179,8 @@ ankka local up
 ```
 
 Nothing about a service's own files changes: the command reads the descriptors and runs the images
-they name.
+they name. Ignore `.ankka/` in the project's version control, as the template's `.gitignore` does:
+it holds each service's secret key on this machine.
 
 ## What it does not stand in for
 

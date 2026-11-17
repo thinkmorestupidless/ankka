@@ -156,7 +156,8 @@ command from its source, and what one machine does not stand in for.
 
 A project made with an earlier template carries a `docker-compose.yml` and `scripts/run.sh` of its
 own. It can keep them, or delete them and use the command; not both at once, since both use the
-same ports. A project with topic crossings needs a `topics.json` declaring each topic, which
+same ports. A service added to such a project now is given no compose file of its own, so a
+Python, TypeScript, Go or Rust service added after the upgrade runs only with `ankka local`. A project with topic crossings needs a `topics.json` declaring each topic, which
 `ankka context-map check` asks for.
 
 ## A test that crosses services

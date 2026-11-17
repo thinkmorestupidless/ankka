@@ -765,7 +765,40 @@ object Main:
         }
       }
 
-      set.orElse(unset).orElse(list).orElse(schema)
+      val apply = Opts.subcommand(
+        "apply",
+        "Declare every topic topics.json names, as ankka local up makes them: each one sent as " +
+          "topics set sends it, and one already declared so is left unchanged. A topic the file " +
+          "does not name is not touched."
+      ) {
+        (
+          Opts
+            .option[String](
+              "dir",
+              "The project's directory, holding topics.json; defaults to the current directory."
+            )
+            .withDefault("."),
+          Opts
+            .flag(
+              "removes",
+              "Send a change that removes messages without asking: the confirmation a script gives."
+            )
+            .orFalse,
+          contextOpt
+        ).mapN { (dir, removes, ctx) => () =>
+          TopicsCommand.apply(
+            ctx.client,
+            ctx.project,
+            java.nio.file.Paths.get(dir),
+            removes,
+            Console.in,
+            Console.out
+          )
+          ""
+        }
+      }
+
+      set.orElse(apply).orElse(unset).orElse(list).orElse(schema)
     }
 
     val brokers = Opts.subcommand(

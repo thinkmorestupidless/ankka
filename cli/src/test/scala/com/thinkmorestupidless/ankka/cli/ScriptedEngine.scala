@@ -24,6 +24,9 @@ final class ScriptedEngine extends Engine:
     Engine.Result(0, "", "")
   @volatile var upAnswer: Vector[String] => Engine.Result = _ => Engine.Result(0, "", "")
 
+  /** Services whose container the next `up` replaces, and whether with another image. */
+  @volatile var replace: Map[String, Boolean] = Map.empty
+
   private var recorded   = Vector.empty[String]
   private var containers = Map.empty[String, Map[String, Engine.Container]]
   private var next       = 0
@@ -70,14 +73,37 @@ final class ScriptedEngine extends Engine:
       synchronized {
         val now     = containers.getOrElse(project, Map.empty)
         val started = services.map { s =>
-          s -> now
-            .get(s)
-            .filter(_.running)
-            .getOrElse(Engine.Container(s, "running", "healthy", newId(), s"image-$s"))
+          val kept = now.get(s).filter(_.running)
+          s -> (replace.get(s) match
+            case Some(newImage) =>
+              val image = kept.map(_.imageId).getOrElse(s"image-$s")
+              Engine.Container(
+                s,
+                "running",
+                "healthy",
+                newId(),
+                if newImage then image + "'" else image
+              )
+            case None =>
+              kept.getOrElse(Engine.Container(s, "running", "healthy", newId(), s"image-$s")))
         }
-        containers += project -> (now ++ started)
+        replace = replace -- services
+        // What compose does with --remove-orphans: a container the file no longer names goes.
+        val all       = now ++ started
+        val remaining = if removeOrphans then all.filter((s, _) => named(file)(s)) else all
+        containers += project -> remaining
       }
     answer
+
+  private def named(file: Path)(service: String): Boolean =
+    try
+      com.github.plokhotnyuk.jsoniter_scala.core
+        .readFromString[com.thinkmorestupidless.ankka.cli.local.Compose](
+          java.nio.file.Files.readString(file)
+        )
+        .services
+        .contains(service)
+    catch case _: Exception => true
 
   def down(project: String, volumes: Boolean): Engine.Result =
     record(s"down $project${if volumes then " -v" else ""}")

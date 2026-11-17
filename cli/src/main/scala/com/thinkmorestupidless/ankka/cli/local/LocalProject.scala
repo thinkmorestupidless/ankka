@@ -17,7 +17,9 @@ final case class LocalProject(
     map: ContextMap,
     descriptors: Map[String, ServiceDescriptor],
     topics: TopicDeclarations,
-    local: LocalFile
+    local: LocalFile,
+    /** What the context map's check found, refused with the plan's own problems. */
+    checked: Vector[String] = Vector.empty
 ):
   def name: String = map.project
 
@@ -46,14 +48,16 @@ object LocalProject:
             // A missing descriptor is the context map's check's line; it is not said twice.
             Option.when(Files.isRegularFile(file))(name -> descriptor(name, file))
           }
-          val read     = descriptors.collect { case (name, Right(d)) => name -> d }.toMap
-          val unread   = descriptors.collect { case (_, Left(problems)) => problems }.flatten
-          val topics   = TopicDeclarations.read(root)
-          val local    = LocalFile.read(root)
-          val problems =
-            (checked ++ unread ++ topics.left.getOrElse(Vector.empty) ++
-              local.left.getOrElse(Vector.empty)).distinct
-          if problems.nonEmpty then Left(problems)
+          val read       = descriptors.collect { case (name, Right(d)) => name -> d }.toMap
+          val unread     = descriptors.collect { case (_, Left(problems)) => problems }.flatten
+          val topics     = TopicDeclarations.read(root)
+          val local      = LocalFile.read(root)
+          val unreadable =
+            unread ++ topics.left.getOrElse(Vector.empty) ++ local.left.getOrElse(Vector.empty)
+          val missing = map.services.map(_.name).distinct.filterNot(read.contains)
+          // Only what cannot be read stops the read; what the map's check finds is said beside the
+          // plan's own problems, so a developer sees every problem in one answer (SC-006).
+          if unreadable.nonEmpty || missing.nonEmpty then Left((checked ++ unreadable).distinct)
           else
             Right(
               LocalProject(
@@ -61,7 +65,8 @@ object LocalProject:
                 map,
                 read,
                 topics.toOption.flatten.getOrElse(TopicDeclarations(Vector.empty)),
-                local.toOption.getOrElse(LocalFile())
+                local.toOption.getOrElse(LocalFile()),
+                checked.distinct
               )
             )
 

@@ -25,7 +25,9 @@ final case class LocalPlan(
     leftOut: Vector[String],
     notices: Vector[String],
     /** Each service container's environment, kept for a suite to assert; never printed. */
-    environment: Map[String, ListMap[String, String]]
+    environment: Map[String, ListMap[String, String]],
+    /** Each companion started, and the selected services that wait for it. */
+    neededBy: Map[String, Vector[String]] = Map.empty
 )
 
 object LocalPlan:
@@ -162,7 +164,41 @@ object LocalPlan:
       .map(n =>
         s"\"$n\" is the name of what the command line runs for every project; name the service something else"
       )
-    unknown ++ both ++ twice ++ taken ++ reserved
+    // Each declaration held to the rules the control plane holds it to, as `topics apply` sends it.
+    val declared = project.topics.topics.flatMap(t =>
+      TopicDeclarationRequests.of(project.root, t).left.getOrElse(Vector.empty)
+    )
+    project.checked ++ unknown ++ both ++ twice ++ taken ++ reserved ++ valueProblems(project) ++
+      declared ++ Companions.problems(project, machine)
+
+  /** What is wrong with the local values (contracts/project-files.md). */
+  private def valueProblems(project: LocalProject): Vector[String] =
+    val all     = project.services
+    val local   = project.local
+    val nowhere = (local.values.keys.filterNot(_ == LocalFile.EveryService) ++ local.run.keys)
+      .filterNot(all.contains)
+      .toVector
+      .distinct
+      .sorted
+      .map(n => s"local.json gives values to \"$n\", which is not a service of ${project.name}")
+    val owned = all.flatMap { name =>
+      local.valuesFor(name).keys.toVector.sorted.collect {
+        case v if LocalVariables.isCommandOwned(v) =>
+          s"local.json gives \"$name\" $v, which the command line sets itself"
+      }
+    }
+    val secrets = all.flatMap { name =>
+      val values = local.valuesFor(name)
+      project.descriptor(name).service.env.collect {
+        case e if e.secretKeyRef.isDefined && !values.contains(e.name) =>
+          s"\"$name\" reads ${e.name} from a secret and local.json gives it no value"
+      }
+    }
+    nowhere ++ owned ++ secrets.distinct
+
+  /** What a plan of `project` needs chosen: every service, and each companion's unnamed ports. */
+  def wanted(project: LocalProject): LocalState.Wanted =
+    LocalState.Wanted(project.services, companionPorts = Companions.unnamedPorts(project))
 
   /** The names the command line gives its own containers. */
   val Reserved: Set[String] = Set(Postgres, Kafka)
@@ -214,24 +250,29 @@ object LocalPlan:
         memLimit = Some(memory(project.descriptor(name)))
       )
     })
+    // Every companion is in the document too, for the reason every service is.
+    val companionServices = ListMap.from(project.local.companions.distinctBy(_.name).map { c =>
+      c.name -> Companions.service(project, c, state, published(machine, _))
+    })
+    val needed  = Companions.needed(project, selected)
     val compose = Compose(
       composeProject(project.name),
       ListMap(
         Postgres -> postgres(machine, state),
         Kafka    -> kafka(machine, state)
-      ) ++ services,
+      ) ++ companionServices ++ services,
       ListMap("pgdata" -> Compose.Volume(), "kafkadata" -> Compose.Volume())
     )
     val databases = selected.collect {
       case name if !project.descriptor(name).service.hasNoDatabase =>
         Database(name, project.descriptor(name).service.runtime)
-    }
+    } ++ needed.filter(_.database).map(c => Database(c.name, None, schema = false))
     val ready = selected.map { name =>
       name -> ReadyCheck.Observability(
         s"http://127.0.0.1:${state.observability(name)}/observability/service",
         project.descriptor(name).service.http
       )
-    }.toMap
+    }.toMap ++ needed.flatMap(c => Companions.ready(c, state).map(c.name -> _))
     val entries =
       selected.map(name => ConsoleEntry(name, s"http://127.0.0.1:${state.observability(name)}"))
     Right(
@@ -239,15 +280,16 @@ object LocalPlan:
         project = project.name,
         compose = compose,
         databases = databases,
-        topics = Vector.empty,
+        topics = BrokerTopics.wanted(project.name, project.topics),
         infrastructure = Vector(Postgres, Kafka),
-        companions = Vector.empty,
+        companions = needed.map(_.name),
         services = selected,
         ready = ready,
         entries = entries,
         leftOut = leftOut,
         notices = elsewhere ++ droppedNotice,
-        environment = environments
+        environment = environments,
+        neededBy = needed.map(c => c.name -> selected.filter(c.needed)).toMap
       )
     )
 
@@ -285,8 +327,13 @@ object LocalPlan:
   ): ListMap[String, String] =
     val descriptor = project.descriptor(name)
     val spec       = descriptor.service
-    val declared   = literals(descriptor).filterNot((k, _) => LocalVariables.isInstallationOnly(k))
-    val database   =
+    // The descriptor's literals, then the local values over them (research R9).
+    val local = project.local
+      .valuesFor(name)
+      .map((k, v) => k -> LocalFile.fill(v, Companions.forService(project, state)))
+    val declared = (literals(descriptor) ++ local)
+      .filterNot((k, _) => LocalVariables.isInstallationOnly(k))
+    val database =
       if spec.hasNoDatabase then ListMap("ANKKA_DATABASE" -> "none")
       else
         ListMap(

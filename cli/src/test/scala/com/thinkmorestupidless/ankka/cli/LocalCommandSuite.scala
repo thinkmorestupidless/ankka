@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.cli
 
-import com.thinkmorestupidless.ankka.cli.local.{Engine, LocalSeams}
+import com.thinkmorestupidless.ankka.cli.local.{Engine, LocalPlan, LocalSeams}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
@@ -51,14 +51,29 @@ class LocalCommandSuite extends munit.FunSuite:
               case other => Engine.Result(1, "", s"unexpected: $other")
       }
 
+  /** The broker's topic tool: what `--describe` prints, and every creation asked of it. */
+  final class Broker:
+    @volatile var described: String                  = ""
+    @volatile var created: Vector[String]            = Vector.empty
+    def answer(words: Vector[String]): Engine.Result = synchronized {
+      if words.contains("--describe") then Engine.Result(0, described, "")
+      else
+        created :+= words.mkString(" ")
+        Engine.Result(0, "", "")
+    }
+
   private var engine: ScriptedEngine = null
   private var databases: Databases   = null
+  private var broker: Broker         = null
   private var cache: Path            = null
 
   override def beforeEach(context: BeforeEach): Unit =
     engine = ScriptedEngine()
     databases = Databases()
-    engine.execAnswer = databases.answer
+    broker = Broker()
+    engine.execAnswer = (service, words, stdin) =>
+      if service == LocalPlan.Kafka then broker.answer(words)
+      else databases.answer(service, words, stdin)
     cache = Files.createTempDirectory("cache")
     for version <- Vector("0.15.0", "0.17.5", "1.0.0") do
       Files.createDirectories(cache.resolve(s"ddl/$version"))
@@ -111,6 +126,52 @@ class LocalCommandSuite extends munit.FunSuite:
     assertEquals(databases.made, Set("orders", "billing"))
     assert(Files.isRegularFile(root.resolve(".ankka/local/compose.json")))
     assert(Files.isRegularFile(root.resolve(".ankka/local/state.json")))
+  }
+
+  private val Topics =
+    """{"topics":[{"name":"orders-placed","partitions":6},{"name":"customers","partitions":3,"compacted":true}]}"""
+
+  test("the declared topics are made after the broker is healthy and before any service") {
+    val root = LocalFixtures.project()
+    LocalFixtures.write(root, "topics.json", Topics)
+    val (code, _, err) = up(root)
+    assertEquals(code, 0, err)
+    val c        = calls
+    val describe =
+      c.indexWhere(l => l.startsWith("exec ankka-shop ankka-kafka") && l.contains("--describe"))
+    val create =
+      c.indexWhere(l => l.startsWith("exec ankka-shop ankka-kafka") && l.contains("--create"))
+    assert(c.indexOf("up ankka-shop ankka-postgres ankka-kafka") < describe, c)
+    assert(describe < create && create < c.indexOf(ups.last), c)
+    assertEquals(broker.created.size, 1)
+    assert(
+      broker.created.head.contains("--topic shop.orders-placed --partitions 6"),
+      broker.created
+    )
+    assert(
+      broker.created.head.contains(
+        "--topic shop.customers --partitions 3 --replication-factor 1 --config cleanup.policy=compact"
+      ),
+      broker.created
+    )
+  }
+
+  test("a topic that exists otherwise than declared starts no service, and says so") {
+    val root = LocalFixtures.project()
+    LocalFixtures.write(root, "topics.json", Topics)
+    broker.described =
+      "Topic: shop.orders-placed\tTopicId: x\tPartitionCount: 1\tReplicationFactor: 1\tConfigs: \n"
+    val (code, _, err) = up(root)
+    assertEquals(code, 1)
+    assert(
+      err.contains(
+        "the topic \"shop.orders-placed\" has 1 partition on the local broker and 6 declared; ankka local down --volumes removes it"
+      ),
+      err
+    )
+    assert(err.contains("the database server and the broker of shop are left running"), err)
+    assertEquals(ups, Vector("up ankka-shop ankka-postgres ankka-kafka"))
+    assertEquals(broker.created, Vector.empty)
   }
 
   test("nothing is started when a static problem exists") {
@@ -343,4 +404,112 @@ class LocalCommandSuite extends munit.FunSuite:
     )
     assert(!engine.running("ankka-shop").contains("payments"))
     assert(databases.made.contains("payments"))
+  }
+
+  test("the project's local values are never printed") {
+    val root = LocalFixtures.project(
+      Vector(
+        LocalFixtures.Service(
+          "orders",
+          9000,
+          env = """{"name":"PAYMENT_KEY","secretKeyRef":{"name":"payments","key":"key"}}"""
+        ),
+        LocalFixtures.Service("billing", 9001)
+      )
+    )
+    LocalFixtures.write(root, "local.json", """{"values":{"orders":{"PAYMENT_KEY":"test-key"}}}""")
+    def said(r: (Int, String, String)): String = r._2 + r._3
+    val printed                                = Vector.newBuilder[String]
+    printed += said(up(root))
+    // `local status` joins these once it exists (T035).
+    LocalSeams.probe = _ => false
+    printed += said(up(root, "--timeout", "10ms"))
+    LocalSeams.probe = _ => true
+    printed += said(up(root, "payments"))
+    printed.result().foreach(text => assert(!text.contains("test-key"), text))
+    // The value did reach the container, so the test is not passing on a value never used.
+    assert(Files.readString(root.resolve(".ankka/local/compose.json"), UTF_8).contains("test-key"))
+  }
+
+  test(
+    "a missing local value, a taken port and an undeclared topic are refused together, and nothing starts"
+  ) {
+    val root = LocalFixtures.project(
+      Vector(
+        LocalFixtures.Service(
+          "orders",
+          9000,
+          env = """{"name":"PAYMENT_KEY","secretKeyRef":{"name":"payments","key":"key"}}"""
+        ),
+        LocalFixtures.Service("billing", 9001)
+      ),
+      crossings = Vector("""{"from":"orders","to":"billing","topic":"orders-placed"}""")
+    )
+    LocalFixtures.write(root, "topics.json", """{"topics":[]}""")
+    LocalSeams.isFree = _ != 9001
+    val (code, _, err) = up(root)
+    assertEquals(code, 1)
+    assert(
+      err.contains("\"orders\" reads PAYMENT_KEY from a secret and local.json gives it no value"),
+      err
+    )
+    assert(err.contains("\"billing\" names port 9001, which is in use on this machine"), err)
+    assert(
+      err.contains(
+        "the crossing from \"orders\" to \"billing\" names the topic \"orders-placed\", which topics.json does not declare"
+      ),
+      err
+    )
+    assertEquals(ups, Vector.empty)
+  }
+
+  private def withCompanion(root: Path): Path =
+    LocalFixtures.write(
+      root,
+      "local.json",
+      """{"companions":[{"name":"identity","image":"keycloak","ports":[{"port":8080,"host":8081}],
+        |"ready":{"http":{"port":8080,"path":"/"}},"database":true,"neededBy":["orders"]}]}""".stripMargin
+    )
+    root
+
+  test("companions are made after the databases and before the services, and listed") {
+    val root             = withCompanion(LocalFixtures.project())
+    val (code, out, err) = up(root)
+    assertEquals(code, 0, err)
+    assertEquals(
+      ups,
+      Vector(
+        "up ankka-shop ankka-postgres ankka-kafka",
+        "up ankka-shop identity",
+        "up ankka-shop orders billing --remove-orphans"
+      )
+    )
+    assertEquals(databases.made, Set("orders", "billing", "identity"))
+    assert(
+      !databases.applied.exists(_._1 == "identity"),
+      "a companion's database is given no schema"
+    )
+    assert(
+      out.linesIterator.exists(l => l.contains("identity") && l.contains("127.0.0.1:8081")),
+      out
+    )
+  }
+
+  test(
+    "a companion that is not ready is named with its log, and holds back only the services that need it"
+  ) {
+    val root = withCompanion(LocalFixtures.project())
+    LocalSeams.probe = {
+      case LocalPlan.ReadyCheck.Http(8081, _) => false
+      case _                                  => true
+    }
+    val (code, _, err) = up(root, "--timeout", "10ms")
+    assertEquals(code, 1)
+    assert(err.contains("\"identity\" was not ready within 10ms; the end of its log:"), err)
+    assert(err.contains("identity logged"), err)
+    assert(
+      err.contains("\"orders\" is not started: it needs \"identity\", which is not ready"),
+      err
+    )
+    assertEquals(ups.last, "up ankka-shop billing --remove-orphans")
   }

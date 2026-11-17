@@ -174,7 +174,7 @@ class LocalPlanSuite extends munit.FunSuite:
     LocalProject.read(root).fold(p => fail(p.mkString("; ")), identity)
 
   private def stateFor(project: LocalProject): LocalState =
-    LocalState.completed(LocalState(), LocalState.Wanted(project.services), choices())
+    LocalState.completed(LocalState(), LocalPlan.wanted(project), choices())
 
   private def planOf(
       project: LocalProject,
@@ -523,4 +523,207 @@ class LocalPlanSuite extends munit.FunSuite:
       machine.copy(holder = p => Option.when(p == 9000)(LocalPlan.Holder.Other))
     )
     assertEquals(found.size, 3, found)
+  }
+
+  private def withLocal(root: java.nio.file.Path, json: String): LocalProject =
+    LocalFixtures.write(root, "local.json", json)
+    readProject(root)
+
+  private val secretOrders = LocalFixtures.Service(
+    "orders",
+    9000,
+    env = """{"name":"PAYMENT_KEY","secretKeyRef":{"name":"payments","key":"key"}}"""
+  )
+
+  test("a service is started with the literal environment its descriptor declares") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000, env = """{"name":"CURRENCY","value":"EUR"}"""),
+          LocalFixtures.Service("billing", 9001)
+        )
+      )
+    )
+    assertEquals(planOf(project).environment("orders")("CURRENCY"), "EUR")
+  }
+
+  test(
+    "a variable the descriptor reads from a secret takes the value the project's local values give it"
+  ) {
+    val project = withLocal(
+      LocalFixtures.project(Vector(secretOrders, LocalFixtures.Service("billing", 9001))),
+      """{"values":{"orders":{"PAYMENT_KEY":"test-key"}}}"""
+    )
+    assertEquals(planOf(project).environment("orders")("PAYMENT_KEY"), "test-key")
+  }
+
+  test(
+    "a variable read from a secret with no local value is refused before anything starts, naming the service and the variable"
+  ) {
+    val project = readProject(
+      LocalFixtures.project(Vector(secretOrders, LocalFixtures.Service("billing", 9001)))
+    )
+    assertEquals(
+      refusal(project),
+      Vector("\"orders\" reads PAYMENT_KEY from a secret and local.json gives it no value")
+    )
+  }
+
+  test("a local value replaces a literal the descriptor declares") {
+    val project = withLocal(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000, env = """{"name":"CURRENCY","value":"EUR"}"""),
+          LocalFixtures.Service("billing", 9001)
+        )
+      ),
+      """{"values":{"*":{"CURRENCY":"USD"},"orders":{"CURRENCY":"GBP"}}}"""
+    )
+    val plan = planOf(project)
+    assertEquals(plan.environment("orders")("CURRENCY"), "GBP")
+    assertEquals(plan.environment("billing")("CURRENCY"), "USD")
+  }
+
+  test("a variable the platform sets is not taken from the descriptor or the local values") {
+    val project =
+      withLocal(LocalFixtures.project(), """{"values":{"orders":{"ANKKA_DB_NAME":"other"}}}""")
+    assertEquals(
+      refusal(project),
+      Vector("local.json gives \"orders\" ANKKA_DB_NAME, which the command line sets itself")
+    )
+  }
+
+  test("values for a name that is no service are refused") {
+    val project = withLocal(
+      LocalFixtures.project(),
+      """{"values":{"payments":{"A":"b"}},"run":{"refunds":["sbt","run"]}}"""
+    )
+    assertEquals(
+      refusal(project),
+      Vector(
+        "local.json gives values to \"payments\", which is not a service of shop",
+        "local.json gives values to \"refunds\", which is not a service of shop"
+      )
+    )
+  }
+
+  test(
+    "the plan makes each declared topic under the project's prefix, the prefix every service is told"
+  ) {
+    val root = LocalFixtures.project()
+    LocalFixtures.write(
+      root,
+      "topics.json",
+      """{"topics":[{"name":"orders-placed","partitions":6}]}"""
+    )
+    val plan = planOf(readProject(root))
+    assertEquals(plan.topics, Vector(LocalPlan.BrokerTopic("shop.orders-placed", 6, Map.empty)))
+    assertEquals(plan.environment("orders")("ANKKA_KAFKA_TOPIC_PREFIX"), "shop.")
+    assertEquals(plan.environment("billing")("ANKKA_KAFKA_TOPIC_PREFIX"), "shop.")
+  }
+
+  test("a declaration the control plane would refuse is refused before anything starts") {
+    val root = LocalFixtures.project()
+    LocalFixtures.write(
+      root,
+      "topics.json",
+      """{"topics":[{"name":"audit","partitions":1,"retention":"soon"}]}"""
+    )
+    val found = refusal(readProject(root))
+    assertEquals(found.size, 1, found)
+    assert(found.head.startsWith("topic 'audit': retention \"soon\" is not "), found)
+  }
+
+  private val Identity =
+    """{"name":"identity","image":"quay.io/keycloak/keycloak:26.0","command":["start-dev","--import-realm"],
+      |"env":{"KC_DB":"postgres","KC_DB_URL":"{{database.jdbc}}","KC_DB_USERNAME":"{{database.user}}","KC_DB_PASSWORD":"{{database.password}}"},
+      |"ports":[{"port":8080,"host":8081}],"files":[{"from":"local/realm.json","to":"/opt/keycloak/data/import/realm.json"}],
+      |"ready":{"http":{"port":8080,"path":"/realms/shop"}},"database":true,"neededBy":["orders"]}""".stripMargin
+
+  private def withIdentity(companion: String = Identity, values: String = ""): java.nio.file.Path =
+    val root = LocalFixtures.project()
+    LocalFixtures.write(root, "local/realm.json", "{}")
+    LocalFixtures.write(root, "local.json", s"""{$values"companions":[$companion]}""")
+    root
+
+  test("a companion renders as its own container, with its database, its files and its check") {
+    val root = withIdentity(
+      values = """"values":{"orders":{"ISSUER":"{{companion.identity.url}}/realms/shop"}},"""
+    )
+    val plan = planOf(readProject(root))
+    val c    = plan.compose.services("identity")
+    assertEquals(c.image, "quay.io/keycloak/keycloak:26.0")
+    assertEquals(c.command, Vector("start-dev", "--import-realm"))
+    assertEquals(c.environment("KC_DB_URL"), "jdbc:postgresql://ankka-postgres:5432/identity")
+    assertEquals(c.environment("KC_DB_USERNAME"), "ankka")
+    assert(c.ports.contains("127.0.0.1:8081:8080"), c.ports)
+    assertEquals(
+      c.volumes,
+      Vector(
+        s"${root.resolve("local/realm.json").toAbsolutePath.normalize}:/opt/keycloak/data/import/realm.json:ro"
+      )
+    )
+    assertEquals(c.dependsOn.keySet, Set("ankka-postgres"))
+    assert(
+      plan.databases.contains(LocalPlan.Database("identity", None, schema = false)),
+      plan.databases
+    )
+    assertEquals(plan.companions, Vector("identity"))
+    assertEquals(plan.ready("identity"), LocalPlan.ReadyCheck.Http(8081, "/realms/shop"))
+    assertEquals(plan.neededBy, Map("identity" -> Vector("orders")))
+    assertEquals(
+      plan.environment("orders")("ISSUER"),
+      "http://host.docker.internal:8081/realms/shop"
+    )
+  }
+
+  test("a companion's port left to the command is chosen and kept") {
+    val root  = withIdentity(Identity.replace("""{"port":8080,"host":8081}""", """{"port":8080}"""))
+    val state = stateFor(readProject(root))
+    val port  = state.companionPorts("identity")("8080")
+    assertEquals(
+      planOf(readProject(root)).ready("identity"),
+      LocalPlan.ReadyCheck.Http(port, "/realms/shop")
+    )
+  }
+
+  test("a companion only services left out need is not started") {
+    val plan = planOf(readProject(withIdentity()), LocalPlan.Selection.Without(Vector("orders")))
+    assertEquals(plan.companions, Vector.empty)
+    assert(plan.compose.services.contains("identity"))
+  }
+
+  test("every problem of a companion is refused, together") {
+    val bad =
+      """{"name":"orders","image":"x","ports":[],"ready":{"tcp":1},"env":{"A":"{{database.url}}"}},
+        |{"name":"Mail","image":"x","ports":[{"port":25,"host":9000}],"files":[{"from":"nowhere","to":"/x"}]},
+        |{"name":"cache","image":"x","ports":[{"port":6379,"host":30001}],"ready":{"tcp":6379},"neededBy":["payments"]},
+        |{"name":"cache","image":"x","ports":[{"port":1}],"ready":{"tcp":1}}""".stripMargin
+    val root = LocalFixtures.project()
+    LocalFixtures.write(
+      root,
+      "local.json",
+      s"""{"values":{"billing":{"MAIL":"{{companion.smtp}}"}},"companions":[$bad]}"""
+    )
+    val found = refusal(
+      readProject(root),
+      m = machine.copy(holder = p => Option.when(p == 30001)(LocalPlan.Holder.Other))
+    )
+    assertEquals(
+      found,
+      Vector(
+        "the companion \"cache\" is named twice",
+        "the companion \"orders\" has the name of a service",
+        "the companion \"orders\" declares no port",
+        "the companion \"orders\" is asked whether it is ready on port 1, which it does not declare",
+        "the companion \"orders\" uses {{database...}} and asks for no database",
+        "the companion \"Mail\" is not a valid name",
+        "the companion \"Mail\" declares no ready check",
+        "the companion \"Mail\" mounts nowhere, which does not exist",
+        "the companion \"Mail\" names port 9000, which \"orders\" also names",
+        "the companion \"cache\" names port 30001, which is in use on this machine",
+        "local.json names \"payments\" as needing the companion \"cache\", which is not a service of shop",
+        "local.json names the companion \"smtp\" in a value of \"billing\", and declares no such companion"
+      )
+    )
   }

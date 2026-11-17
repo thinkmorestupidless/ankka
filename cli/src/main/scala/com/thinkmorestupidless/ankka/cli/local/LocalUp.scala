@@ -68,7 +68,7 @@ object LocalUp:
     val kept  = LocalState.read(root)
     val state = LocalState.completed(
       kept,
-      LocalState.Wanted(project.services),
+      LocalPlan.wanted(project),
       LocalState.Choices(
         // A port this project's own containers hold is theirs to keep.
         isFree = p => kept.ports.contains(p) || isFree(p),
@@ -120,7 +120,9 @@ object LocalUp:
     if unhealthy.nonEmpty then
       unhealthy.foreach(name => notReady(composeId, name, timeout, engine, err))
       return 1
-    val second = plan.databases.flatMap(d => Databases.ensure(composeId, d, machine, engine, err))
+    val second =
+      plan.databases.flatMap(d => Databases.ensure(composeId, d, machine, engine, err)) ++
+        Topics.ensure(composeId, plan.topics, engine)
     if second.nonEmpty then
       second.foreach(err.println)
       err.println(s"the database server and the broker of ${project.name} are left running")
@@ -131,14 +133,39 @@ object LocalUp:
         s"\"$name\" is no longer in the context map; it is stopped, and its database is kept"
       )
     )
-    val started = engine.up(file, composeId, plan.services, removeOrphans = true)
+    // Companions next, each waited for by its own check; a service is created only after the
+    // companions it needs have answered (research R15).
+    val companionsFailed =
+      if plan.companions.isEmpty then Vector.empty
+      else
+        val companions = engine.up(file, composeId, plan.companions, removeOrphans = false)
+        if !companions.ok then
+          err.println(s"the companions of ${project.name} did not start: ${companions.err.trim}")
+          return 1
+        val failed = waitReady(plan.companions.map(n => n -> plan.ready(n)), timeout, probe)
+        failed.foreach(name => notReady(composeId, name, timeout, engine, err))
+        failed
+    val heldBack = plan.services.filter(s =>
+      companionsFailed.exists(c => plan.neededBy.getOrElse(c, Vector.empty).contains(s))
+    )
+    heldBack.foreach { s =>
+      val waiting =
+        companionsFailed.filter(c => plan.neededBy.getOrElse(c, Vector.empty).contains(s))
+      err.println(
+        s"\"$s\" is not started: it needs ${waiting.map(c => s"\"$c\"").mkString(" and ")}, which is not ready"
+      )
+    }
+    val starting = plan.services.filterNot(heldBack.contains)
+    val started  =
+      if starting.isEmpty then Engine.Result(0, "", "")
+      else engine.up(file, composeId, starting, removeOrphans = true)
     if !started.ok then
       err.println(s"the services of ${project.name} did not start: ${started.err.trim}")
       return 1
-    val unready = waitReady(plan.services.map(n => n -> plan.ready(n)), timeout, probe)
+    val unready = waitReady(starting.map(n => n -> plan.ready(n)), timeout, probe)
     unready.foreach(name => notReady(composeId, name, timeout, engine, err))
     val after = engine.ps(composeId)
-    if unready.isEmpty then
+    if unready.isEmpty && companionsFailed.isEmpty then
       out.println(s"${project.name} is up")
       Table.print(project, plan, previous, before, after, out)
       0
@@ -402,13 +429,22 @@ private[local] object Table:
       after: Vector[Engine.Container],
       out: PrintStream
   ): Unit =
-    val was  = before.map(c => c.service -> c).toMap
-    val now  = after.map(c => c.service -> c).toMap
-    val rows = plan.services.map { name =>
-      val spec    = project.descriptor(name).service
-      val address =
-        (Option.when(spec.http)(s"http://127.0.0.1:${spec.port}").toVector ++
-          Option.when(spec.grpc)(s"grpc 127.0.0.1:${spec.grpcPort}")).mkString("  ")
+    val was                           = before.map(c => c.service -> c).toMap
+    val now                           = after.map(c => c.service -> c).toMap
+    def address(name: String): String =
+      project.descriptors.get(name) match
+        case Some(d) =>
+          val spec = d.service
+          (Option.when(spec.http)(s"http://127.0.0.1:${spec.port}").toVector ++
+            Option.when(spec.grpc)(s"grpc 127.0.0.1:${spec.grpcPort}")).mkString("  ")
+        case None =>
+          plan.compose.services
+            .get(name)
+            .flatMap(_.ports.headOption)
+            .map(p => s"127.0.0.1:${p.split(':').dropRight(1).last}")
+            .getOrElse("")
+    val rows = (plan.companions ++ plan.services).map { name =>
+      val shown  = address(name)
       val status = (was.get(name).filter(_.running), now.get(name)) match
         case (None, _)                                    => "started"
         case (Some(b), Some(a)) if b.id == a.id           => "running"
@@ -418,10 +454,39 @@ private[local] object Table:
             .flatMap(_.services.get(name))
             .forall(old => old.environment != plan.compose.services(name).environment)
           if changed then "restarted (its environment changed)" else "restarted"
-      (name, if address.isEmpty then "-" else address, status)
+      (name, if shown.isEmpty then "-" else shown, status)
     }
     val nameWidth    = rows.map(_._1.length).maxOption.getOrElse(0)
     val addressWidth = rows.map(_._2.length).maxOption.getOrElse(0)
     rows.foreach { (name, address, status) =>
       out.println(s"  ${name.padTo(nameWidth, ' ')}  ${address.padTo(addressWidth, ' ')}  $status")
     }
+
+/** The declared topics made on the project's broker before anything that uses them starts. */
+object Topics:
+
+  /** Every topic made that was missing, or why one that exists cannot be used. */
+  def ensure(
+      composeId: String,
+      wanted: Vector[LocalPlan.BrokerTopic],
+      engine: Engine
+  ): Vector[String] =
+    if wanted.isEmpty then Vector.empty
+    else
+      val described = engine.exec(composeId, LocalPlan.Kafka, BrokerTopics.describeCommand, None)
+      if !described.ok then
+        Vector(s"the topics on the local broker could not be read: ${described.err.trim}")
+      else
+        val (toCreate, problems) =
+          BrokerTopics.diff(wanted, BrokerTopics.parseDescribe(described.out))
+        if problems.nonEmpty then problems
+        else if toCreate.isEmpty then Vector.empty
+        else
+          val made =
+            engine.exec(composeId, LocalPlan.Kafka, BrokerTopics.createCommand(toCreate), None)
+          Option
+            .when(!made.ok)(
+              s"the topics ${toCreate.map(_.name).mkString(", ")} could not be made on the local " +
+                s"broker: ${made.err.trim}"
+            )
+            .toVector

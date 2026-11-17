@@ -84,7 +84,7 @@ class ProjectTemplateSuite extends munit.FunSuite:
         "project/Services.scala",
         "shared/src/main/scala/com/example/shop/contracts/OrdersV1.scala",
         "contracts/orders.v1.json",
-        "docker-compose.yml",
+        "topics.json",
         "tests/src/test/scala/com/example/shop/ItemAddedIsRecordedSuite.scala",
         "tests/src/test/scala/com/example/shop/ContextMapSuite.scala",
         s"$ordersCode/OrdersService.scala",
@@ -347,7 +347,255 @@ class ProjectTemplateSuite extends munit.FunSuite:
     )
   }
 
+  // ── the project on one machine (feature 066) ─────────────────────────────────────────────────
+
+  private val http = java.net.http.HttpClient.newHttpClient()
+
+  private def request(method: String, port: Int, path: String, body: String = ""): (Int, String) =
+    val publisher =
+      if body.isEmpty then java.net.http.HttpRequest.BodyPublishers.noBody()
+      else java.net.http.HttpRequest.BodyPublishers.ofString(body)
+    try
+      val answer = http.send(
+        java.net.http.HttpRequest
+          .newBuilder(java.net.URI.create(s"http://127.0.0.1:$port$path"))
+          .header("Content-Type", "application/json")
+          .method(method, publisher)
+          .build(),
+        java.net.http.HttpResponse.BodyHandlers.ofString()
+      )
+      (answer.statusCode, answer.body)
+    catch case _: java.io.IOException => (0, "")
+
+  /** `probe` until it holds, for at most `within`; its last answer otherwise. */
+  private def eventually(within: FiniteDuration)(probe: => (Int, String))(
+      holds: ((Int, String)) => Boolean
+  ): (Int, String) =
+    val deadline = within.fromNow
+    var last     = probe
+    while !holds(last) && deadline.hasTimeLeft() do
+      Thread.sleep(1000)
+      last = probe
+    last
+
+  private def local(args: String*): (Int, String, String) =
+    cli((Vector("local") ++ args ++ Vector("--dir", project.toString))*)
+
+  private def localOk(args: String*): String =
+    val (code, out, err) = local(args*)
+    assertEquals(code, 0, out + err)
+    out
+
+  private var ports: Map[String, Int] = Map.empty
+
+  private def compose(words: String*): (Int, String) =
+    run(("docker" +: "compose" +: "-p" +: "ankka-shop" +: words)*)
+
+  private def containerId(service: String): String =
+    compose("ps", "-q", service)._2.trim
+
+  private def psql(database: String, sql: String): String =
+    compose(
+      "exec",
+      "-T",
+      "ankka-postgres",
+      "psql",
+      "-U",
+      "ankka",
+      "-d",
+      database,
+      "-tAc",
+      sql
+    )._2.trim
+
+  private def addItem(id: String): Unit =
+    val (code, body) =
+      request("POST", ports("orders"), s"/orders/$id", """{"name":"pen","count":2}""")
+    assert(code < 300, s"$code $body")
+
+  /**
+   * orders' answer to the request that crosses to billing, once billing has recorded `id`: an
+   * entity nothing was recorded for answers 200 too, empty, so the wait is for the item itself.
+   */
+  private def crossing(id: String): (Int, String) =
+    eventually(90.seconds)(request("GET", ports("orders"), s"/orders/$id/billing"))(r =>
+      r._1 == 200 && r._2.contains("\"pen\"")
+    )
+
+  /** `ankka local run <service>` as a process of its own, stopped after `body`. */
+  private def fromSource[A](service: String)(body: => A): A =
+    val launcher = Path.of(sys.props("java.home"), "bin", "java").toString
+    val process  = new ProcessBuilder(
+      launcher,
+      "-cp",
+      sys.props("java.class.path"),
+      s"-Dankka.running.dir=${sys.props("ankka.running.dir")}",
+      s"-Dankka.cache.dir=${sys.props("ankka.cache.dir")}",
+      "com.thinkmorestupidless.ankka.cli.Main",
+      "local",
+      "run",
+      service,
+      "--dir",
+      project.toString
+    ).directory(project.toFile)
+      .redirectErrorStream(true)
+      .redirectOutput(workspace.resolve(s"run-$service.log").toFile)
+      .start()
+    try body
+    finally
+      process.destroy()
+      process.waitFor(60, java.util.concurrent.TimeUnit.SECONDS): Unit
+
+  test(
+    "12. the project holds topics.json and no compose file or run script, and both images build"
+  ) {
+    for gone <- Vector("docker-compose.yml", "scripts/run.sh", "scripts/databases.sh") do
+      assert(!Files.exists(project.resolve(gone)), gone)
+    assert(read("topics.json").contains("\"orders-events\""), read("topics.json"))
+    // The python service step 7 added has no image; the project on one machine is the template's two.
+    Files
+      .walk(project.resolve("services/stock"))
+      .iterator()
+      .asScala
+      .toVector
+      .reverse
+      .foreach(p => Files.delete(p))
+    val map = ContextMap.read(project).fold(p => fail(p.mkString("; ")), identity)
+    val two = map.copy(services = map.services.filterNot(_.name == "stock"))
+    Files.writeString(project.resolve(ContextMap.FileName), ContextMap.write(two))
+    Files.writeString(project.resolve(ContextMap.RenderingName), ContextMap.render(two))
+    // Ports no developer's own services use, so the suite runs beside them.
+    ports = Vector("orders" -> 9000, "billing" -> 9001).map { (service, port) =>
+      val free = Iterator
+        .continually(com.thinkmorestupidless.ankka.cli.local.LocalState.freePort())
+        .find(_ > 20000)
+        .get
+      val file = project.resolve(s"services/$service/service.json")
+      Files.writeString(
+        file,
+        Files.readString(file).replace(s"\"port\": $port", s"\"port\": $free")
+      )
+      service -> free
+    }.toMap
+    sys.props("ankka.running.dir") = workspace.resolve("running").toString
+    sys.props("ankka.cache.dir") = workspace.resolve("cache").toString
+    assertEquals(cli("context-map", "check", "--dir", project.toString)._1, 0)
+    val (code, out) = sbt("Docker/publishLocal")
+    assertEquals(code, 0, out.takeRight(3000))
+  }
+
+  test("13. ankka local up alone answers a request that crosses from orders to billing") {
+    val out = localOk("up")
+    assert(out.contains("shop is up"), out)
+    addItem("a")
+    val (status, body) = crossing("a")
+    assertEquals(status, 200, body)
+    assert(body.contains("\"pen\""), body)
+    // The trace of that request holds the call to billing.
+    val served = com.thinkmorestupidless.ankka.cli.console.ConsoleServer.start(
+      com.thinkmorestupidless.ankka.cli.console.LocalSource(workspace.resolve("running")),
+      0,
+      PrintStream(ByteArrayOutputStream())
+    )
+    try
+      val traces = eventually(30.seconds)(request("GET", served.port, "/api/traces/orders"))(
+        _._2.contains("billing")
+      )
+      assert(traces._2.contains("billing"), traces._2.take(2000))
+    finally served.stop()
+  }
+
+  test("14. the two services' databases are different, and each holds a journal") {
+    val databases = psql("postgres", "select datname from pg_database").linesIterator.toSet
+    assert(databases("orders") && databases("billing"), databases)
+    for database <- Vector("orders", "billing") do
+      assertEquals(
+        psql(
+          database,
+          "select count(*) from information_schema.tables where table_name = 'event_journal'"
+        ),
+        "1",
+        database
+      )
+    assert(psql("orders", "select count(*) from event_journal").toInt > 0)
+  }
+
+  test("15. an item survives down and up, and is gone after down --volumes and up") {
+    // An entity nothing was recorded for answers 200 too, empty: what is compared is the item.
+    localOk("down")
+    localOk("up")
+    val kept = request("GET", ports("orders"), "/orders/a")
+    assertEquals(kept._1, 200, kept._2)
+    assert(kept._2.contains("\"pen\""), kept._2)
+    localOk("down", "--volumes")
+    localOk("up")
+    val gone = request("GET", ports("orders"), "/orders/a")
+    assertEquals(gone._1, 200, gone._2)
+    assert(!gone._2.contains("\"pen\""), gone._2)
+  }
+
+  test("16. one service run from its source answers among the others, theirs unchanged") {
+    for (source, other) <- Vector("billing" -> "orders", "orders" -> "billing") do
+      localOk("up", "--without", source)
+      val before = containerId(other)
+      assert(before.nonEmpty, s"$other is not running")
+      fromSource(source) {
+        val id = s"from-$source"
+        eventually(5.minutes)(request("GET", ports(source), s"/$source/"))(_._1 == 200): Unit
+        addItem(id)
+        assertEquals(crossing(id)._1, 200, s"$source run from its source")
+        val status = localOk("status")
+        assert(
+          status.linesIterator.exists(l => l.contains(source) && l.contains("run from its source")),
+          status
+        )
+        assert(
+          status.linesIterator.exists(l =>
+            l.contains(other) && l.contains("started by ankka local up")
+          ),
+          status
+        )
+        // The console lists the one run from its source as it lists the containers.
+        val served = com.thinkmorestupidless.ankka.cli.console.ConsoleServer.start(
+          com.thinkmorestupidless.ankka.cli.console.LocalSource(workspace.resolve("running")),
+          0,
+          PrintStream(ByteArrayOutputStream())
+        )
+        try
+          for service <- Vector("orders", "billing") do
+            val (code, body) = request("GET", served.port, s"/api/service/$service")
+            assertEquals(code, 200, s"$service: $body")
+            assert(body.contains("ItemEntity") || body.contains("item"), s"$service: $body")
+            assert(body.contains(s"/$service/{id}"), s"$service: $body")
+        finally served.stop()
+      }
+      assertEquals(containerId(other), before, s"$other was restarted")
+      localOk("up")
+  }
+
+  test("17. without its context map or its topics the project is refused, and comes up with both") {
+    localOk("down")
+    def without(file: String)(check: String => Unit): Unit =
+      val path  = project.resolve(file)
+      val moved = workspace.resolve(file + ".aside")
+      Files.move(path, moved)
+      try
+        val (code, _, err) = local("up")
+        assertEquals(code, 1, err)
+        check(err)
+      finally Files.move(moved, path): Unit
+    without("context-map.json")(err => assert(err.contains("holds no project"), err))
+    without("topics.json")(err =>
+      assert(err.contains("has topic crossings and no topics.json"), err)
+    )
+    assert(localOk("up").contains("shop is up"))
+  }
+
   override def afterAll(): Unit =
+    if workspace != null && sys.props.contains("ankka.running.dir") then
+      local("down", "--volumes"): Unit
+      sys.props.remove("ankka.running.dir")
+      sys.props.remove("ankka.cache.dir"): Unit
     if workspace != null then
       Files
         .walk(workspace)

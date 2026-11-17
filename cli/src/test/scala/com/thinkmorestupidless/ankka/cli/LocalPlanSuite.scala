@@ -129,3 +129,41 @@ class LocalPlanSuite extends munit.FunSuite:
     LocalState.write(root, state)
     assertEquals(LocalState.read(root), state)
   }
+
+  test("the compose document is written in compose's own words, leaving out what is empty") {
+    val compose = Compose(
+      "ankka-shop",
+      scala.collection.immutable.ListMap(
+        "orders" -> Compose.Service(
+          image = "orders:1",
+          environment = scala.collection.immutable.ListMap("ANKKA_SERVICE_NAME" -> "orders"),
+          ports = Vector(Compose.publish("127.0.0.1", 9000, 9000)),
+          dependsOn = scala.collection.immutable
+            .ListMap("ankka-postgres" -> Compose.Dependency(Compose.Healthy)),
+          extraHosts = Vector(Compose.HostGateway),
+          memLimit = Some("512m")
+        )
+      ),
+      scala.collection.immutable.ListMap("pgdata" -> Compose.Volume())
+    )
+    val json = Compose.json(compose)
+    for field <- Vector(
+        "\"depends_on\"",
+        "\"extra_hosts\"",
+        "\"mem_limit\"",
+        "\"127.0.0.1:9000:9000\""
+      )
+    do assert(json.contains(field), json)
+    for empty <- Vector(
+        "\"command\"",
+        "\"labels\"",
+        "\"network_mode\"",
+        "\"healthcheck\"",
+        "\"volumes\": ["
+      )
+    do assert(!json.contains(empty), json)
+    assertEquals(
+      com.github.plokhotnyuk.jsoniter_scala.core.readFromString[Compose](json),
+      compose
+    )
+  }

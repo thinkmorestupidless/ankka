@@ -167,3 +167,240 @@ class LocalPlanSuite extends munit.FunSuite:
       compose
     )
   }
+
+  private val machine = LocalPlan.Machine(cliVersion = "0.17.0")
+
+  private def readProject(root: java.nio.file.Path): LocalProject =
+    LocalProject.read(root).fold(p => fail(p.mkString("; ")), identity)
+
+  private def stateFor(project: LocalProject): LocalState =
+    LocalState.completed(LocalState(), LocalState.Wanted(project.services), choices())
+
+  private def planOf(
+      project: LocalProject,
+      selection: LocalPlan.Selection = LocalPlan.Selection.All,
+      m: LocalPlan.Machine = machine
+  ): LocalPlan =
+    LocalPlan
+      .of(project, selection, stateFor(project), m)
+      .fold(p => fail(p.mkString("; ")), identity)
+
+  test(
+    "each service is told who it is, where its database and broker are, and where the others are"
+  ) {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000, env = """{"name":"CURRENCY","value":"EUR"}"""),
+          LocalFixtures.Service("billing", 9001, extra = ""","grpc":true,"grpcPort":9091""")
+        )
+      )
+    )
+    val plan  = planOf(project)
+    val state = stateFor(project)
+    val env   = plan.environment("orders")
+    assertEquals(env("CURRENCY"), "EUR")
+    assertEquals(env("ANKKA_SERVICE_NAME"), "orders")
+    assertEquals(env("ANKKA_HTTP_PORT"), "9000")
+    assertEquals(env("ANKKA_DB_HOST"), "ankka-postgres")
+    assertEquals(env("ANKKA_DB_PORT"), "5432")
+    assertEquals(env("ANKKA_DB_NAME"), "orders")
+    assertEquals(env("ANKKA_DB_USER"), "ankka")
+    assertEquals(env("ANKKA_DB_PASSWORD"), "ankka")
+    assertEquals(env("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), "ankka-kafka:9094")
+    assertEquals(env("ANKKA_KAFKA_TOPIC_PREFIX"), "shop.")
+    assertEquals(env("ANKKA_SECRET_KEY"), state.secretKeys("orders"))
+    assertEquals(env("ANKKA_OBSERVABILITY_ADDRESS"), "0.0.0.0:7630")
+    assertEquals(
+      env("JAVA_TOOL_OPTIONS"),
+      "-Dankka.local-services.billing=http://host.docker.internal:9001 " +
+        "-Dankka.local-grpc-services.billing=host.docker.internal:9091"
+    )
+    assert(!env.contains("ANKKA_GRPC_PORT"))
+    assertEquals(plan.environment("billing")("ANKKA_GRPC_PORT"), "9091")
+    val orders = plan.compose.services("orders")
+    assertEquals(orders.image, "orders:1")
+    assertEquals(
+      orders.ports,
+      Vector("127.0.0.1:9000:9000", s"127.0.0.1:${state.observability("orders")}:7630")
+    )
+    assertEquals(orders.extraHosts, Vector("host.docker.internal:host-gateway"))
+    assertEquals(orders.memLimit, Some("512m"))
+    assertEquals(
+      plan.compose.services("billing").ports.take(2),
+      Vector("127.0.0.1:9001:9001", "127.0.0.1:9091:9091")
+    )
+    assertEquals(plan.infrastructure, Vector("ankka-postgres", "ankka-kafka"))
+    assertEquals(plan.services, Vector("orders", "billing"))
+    assertEquals(
+      plan.databases,
+      Vector(LocalPlan.Database("orders", None), LocalPlan.Database("billing", None))
+    )
+    assertEquals(plan.entries.map(_.name), Vector("orders", "billing"))
+    assertEquals(
+      plan.ready("orders"),
+      LocalPlan.ReadyCheck.Observability(
+        s"http://127.0.0.1:${state.observability("orders")}/observability/service",
+        servesHttp = true
+      )
+    )
+  }
+
+  test("the database server and the broker are as the contract says") {
+    val plan     = planOf(readProject(LocalFixtures.project()))
+    val postgres = plan.compose.services("ankka-postgres")
+    assertEquals(postgres.image, "postgres:17-alpine")
+    assertEquals(postgres.ports, Vector("127.0.0.1:5432:5432"))
+    assertEquals(postgres.volumes, Vector("pgdata:/var/lib/postgresql/data"))
+    assert(postgres.healthcheck.exists(_.test.mkString(" ").contains("pg_isready")))
+    val kafka = plan.compose.services("ankka-kafka")
+    assertEquals(kafka.image, "apache/kafka:3.8.0")
+    assertEquals(kafka.environment("KAFKA_AUTO_CREATE_TOPICS_ENABLE"), "false")
+    assertEquals(kafka.environment("KAFKA_HEAP_OPTS"), "-Xmx512m -Xms512m")
+    assert(kafka.environment("KAFKA_LISTENERS").contains("HOST://"))
+    assert(kafka.environment("KAFKA_ADVERTISED_LISTENERS").contains("HOST://localhost:9092"))
+    assert(
+      kafka.environment("KAFKA_ADVERTISED_LISTENERS").contains("CONTAINERS://ankka-kafka:9094")
+    )
+    assertEquals(kafka.ports, Vector("127.0.0.1:9092:9092"))
+    assertEquals(plan.compose.volumes.keys.toVector, Vector("pgdata", "kafkadata"))
+    assertEquals(plan.compose.name, "ankka-shop")
+  }
+
+  test("every container is told where every other service is, whoever is selected") {
+    val project = readProject(LocalFixtures.project())
+    val plan    = planOf(project, LocalPlan.Selection.Only(Vector("orders")))
+    assertEquals(plan.services, Vector("orders"))
+    assertEquals(plan.leftOut, Vector("billing"))
+    assert(!plan.compose.services.contains("billing"))
+    assert(
+      plan
+        .environment("orders")("JAVA_TOOL_OPTIONS")
+        .contains("-Dankka.local-services.billing=http://host.docker.internal:9001")
+    )
+    val without = planOf(project, LocalPlan.Selection.Without(Vector("orders")))
+    assert(
+      without
+        .environment("billing")("JAVA_TOOL_OPTIONS")
+        .contains("-Dankka.local-services.orders=http://host.docker.internal:9000")
+    )
+  }
+
+  test("a JAVA_TOOL_OPTIONS the descriptor gives is kept, with the addresses after it") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures
+            .Service("orders", 9000, env = """{"name":"JAVA_TOOL_OPTIONS","value":"-Xss2m"}"""),
+          LocalFixtures.Service("billing", 9001)
+        )
+      )
+    )
+    assertEquals(
+      planOf(project).environment("orders")("JAVA_TOOL_OPTIONS"),
+      "-Xss2m -Dankka.local-services.billing=http://host.docker.internal:9001"
+    )
+  }
+
+  test("no CPU limit is set, only memory") {
+    val json = Compose.json(planOf(readProject(LocalFixtures.project())).compose)
+    assert(!json.contains("cpu"), json)
+  }
+
+  test("a service with no database is told so and is given none") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000),
+          LocalFixtures.Service("billing", 9001, extra = ""","database":"none"""")
+        )
+      )
+    )
+    val plan = planOf(project)
+    assertEquals(plan.environment("billing")("ANKKA_DATABASE"), "none")
+    assert(!plan.environment("billing").contains("ANKKA_DB_HOST"))
+    assertEquals(plan.databases.map(_.name), Vector("orders"))
+  }
+
+  test("ports are published on the bridge's gateway only when the machine names one") {
+    val project = readProject(LocalFixtures.project())
+    assert(!planOf(project).compose.services("orders").ports.exists(_.startsWith("172.17.0.1:")))
+    val linux = planOf(project, m = machine.copy(gateway = Some("172.17.0.1")))
+    assert(linux.compose.services("orders").ports.contains("172.17.0.1:9000:9000"))
+    assert(linux.compose.services("orders").ports.contains("127.0.0.1:9000:9000"))
+  }
+
+  test("a service of another project the crossings name is a notice, not a failure") {
+    val project = readProject(
+      LocalFixtures.project(
+        crossings = Vector(
+          """{"from":"orders","to":"billing","route":"POST /invoices"}""",
+          """{"from":"orders","to":"bank/ledger","route":"POST /entries"}"""
+        )
+      )
+    )
+    val plan = planOf(project)
+    assertEquals(
+      plan.notices,
+      Vector(
+        "the context map names \"bank/ledger\", a service of another project; it is not run here"
+      )
+    )
+  }
+
+  test("a descriptor's own database and broker are not used, and that is said once") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service(
+            "orders",
+            9000,
+            env =
+              """{"name":"ANKKA_DB_HOST","value":"db.example"},{"name":"ANKKA_KAFKA_BOOTSTRAP_SERVERS","value":"k:1"}"""
+          ),
+          LocalFixtures.Service("billing", 9001)
+        )
+      )
+    )
+    val plan = planOf(project)
+    assertEquals(plan.environment("orders")("ANKKA_DB_HOST"), "ankka-postgres")
+    assertEquals(plan.environment("orders")("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), "ankka-kafka:9094")
+    assertEquals(plan.notices.size, 1)
+    assert(
+      plan.notices.head.contains("orders ANKKA_DB_HOST, ANKKA_KAFKA_BOOTSTRAP_SERVERS"),
+      plan.notices
+    )
+  }
+
+  test("two services on different runtime versions each ask for their own version's schema") {
+    val project = readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000, extra = ""","runtime":"0.16.3""""),
+          LocalFixtures.Service("billing", 9001, extra = ""","runtime":"0.17.0"""")
+        )
+      )
+    )
+    assertEquals(
+      planOf(project).databases,
+      Vector(
+        LocalPlan.Database("orders", Some("0.16.3")),
+        LocalPlan.Database("billing", Some("0.17.0"))
+      )
+    )
+  }
+
+  test("two projects on one machine share no compose project, volume, server, topic or entry") {
+    val shop = readProject(LocalFixtures.project())
+    val bank = readProject(LocalFixtures.project(name = "bank"))
+    val a    = planOf(shop)
+    val b    = planOf(bank)
+    assertNotEquals(a.compose.name, b.compose.name)
+    // Compose scopes a volume and the network to its project: `ankka-shop_pgdata`, `ankka-bank_pgdata`.
+    assert(a.compose.volumes.values.forall(_.name.isEmpty))
+    assert(b.compose.volumes.values.forall(_.name.isEmpty))
+    assertEquals(a.environment("orders")("ANKKA_KAFKA_TOPIC_PREFIX"), "shop.")
+    assertEquals(b.environment("orders")("ANKKA_KAFKA_TOPIC_PREFIX"), "bank.")
+    assertEquals(LocalPlan.composeProject("shop"), "ankka-shop")
+    assertNotEquals(a.project, b.project)
+  }

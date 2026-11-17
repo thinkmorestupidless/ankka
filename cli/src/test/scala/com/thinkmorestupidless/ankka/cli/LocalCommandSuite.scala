@@ -879,6 +879,15 @@ class LocalCommandSuite extends munit.FunSuite:
     )
   }
 
+  test("a database's schema moves forward within a major, and to any development build") {
+    import com.thinkmorestupidless.ankka.cli.local.Databases.movable
+    assert(movable("0.16.2", "0.16.3"))
+    assert(movable("0.15.0", "0.16.0"))
+    assert(!movable("0.16.3", "0.16.2"))
+    assert(movable("0.16.3", "0.16.3+44-412d4c1b-SNAPSHOT"))
+    assert(movable("0.16.3+44-412d4c1b-SNAPSHOT", "0.16.3+51-5aba576c-SNAPSHOT"))
+  }
+
   test("a state file that does not read is refused, not replaced, and nothing starts") {
     val root = LocalFixtures.project()
     assertEquals(up(root)._1, 0)

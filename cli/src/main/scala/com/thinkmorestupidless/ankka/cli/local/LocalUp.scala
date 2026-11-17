@@ -336,7 +336,7 @@ private[local] object Machines:
     )
 
 /** A local database and its schema (research R6). */
-private[local] object Databases:
+private[cli] object Databases:
 
   private def psql(
       project: String,
@@ -423,15 +423,16 @@ private[local] object Databases:
   /**
    * Whether a database of `old` may be given the schema of `next`: the same, or newer of one major.
    */
-  private[local] def movable(old: String, next: String): Boolean =
+  private[cli] def movable(old: String, next: String): Boolean =
     if old == next then true
     else
       (Release.parse(old), Release.parse(next)) match
         case (Some(o), Some(n)) =>
           o.major == n.major && (n.minor > o.minor || (n.minor == o.minor && n.patch > o.patch))
-        // A development build's version names no release: its schema is taken to be the newest.
-        case (Some(_), None) => true
-        case _               => false
+        // A development build's version names no release: its schema is taken to be the newest,
+        // after a release or after another development build (each commit is one).
+        case (_, None) => true
+        case _         => false
 
 /** How a duration is written on the command line and in a refusal: `90s`, `5m`. */
 object Durations:

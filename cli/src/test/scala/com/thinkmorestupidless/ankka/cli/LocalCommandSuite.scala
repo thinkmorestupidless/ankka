@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.cli.local.{Engine, LocalPlan, LocalSeams}
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
+import scala.jdk.CollectionConverters.*
 
 /**
  * `ankka local up` and `down` through `Main.run` (feature 066), over an engine that runs nothing:
@@ -66,6 +67,7 @@ class LocalCommandSuite extends munit.FunSuite:
   private var databases: Databases   = null
   private var broker: Broker         = null
   private var cache: Path            = null
+  private var running: Path          = null
 
   override def beforeEach(context: BeforeEach): Unit =
     engine = ScriptedEngine()
@@ -83,6 +85,9 @@ class LocalCommandSuite extends munit.FunSuite:
         UTF_8
       )
     sys.props("ankka.cache.dir") = cache.toString
+    // The console's entries go into a directory of the suite's, never the developer's own.
+    running = Files.createTempDirectory("running")
+    sys.props("ankka.running.dir") = running.toString
     LocalSeams.engine = () => engine
     LocalSeams.probe = _ => true
     LocalSeams.isFree = _ => true
@@ -91,6 +96,7 @@ class LocalCommandSuite extends munit.FunSuite:
   override def afterEach(context: AfterEach): Unit =
     LocalSeams.reset()
     sys.props.remove("ankka.cache.dir"): Unit
+    sys.props.remove("ankka.running.dir"): Unit
 
   private def run(args: String*): (Int, String, String) =
     val out  = ByteArrayOutputStream()
@@ -512,4 +518,154 @@ class LocalCommandSuite extends munit.FunSuite:
       err
     )
     assertEquals(ups.last, "up ankka-shop billing --remove-orphans")
+  }
+
+  // ── one service from its source (US5) ─────────────────────────────────────
+
+  test("a service the developer leaves out is not started, and the command says how to run it") {
+    val root             = LocalFixtures.project()
+    val (code, out, err) = up(root, "--without", "orders")
+    assertEquals(code, 0, err)
+    assertEquals(ups.last, "up ankka-shop billing --remove-orphans")
+    assert(
+      out.linesIterator.contains(
+        "left out: orders — run it from its source with: ankka local run orders"
+      ),
+      out
+    )
+  }
+
+  test("only the services the developer names are started, with what they need") {
+    val root           = LocalFixtures.project()
+    val (code, _, err) = up(root, "billing")
+    assertEquals(code, 0, err)
+    assertEquals(ups.head, "up ankka-shop ankka-postgres ankka-kafka")
+    assertEquals(ups.last, "up ankka-shop billing --remove-orphans")
+    assertEquals(databases.made, Set("billing"))
+  }
+
+  test("the console is given an entry for each service once it is ready, and down removes them") {
+    val root           = LocalFixtures.project()
+    val (code, _, err) = up(root)
+    assertEquals(code, 0, err)
+    def entries =
+      Option(running.toFile.list()).toVector.flatten.filter(_.endsWith(".json")).sorted
+    assertEquals(entries, Vector("shop.billing.json", "shop.orders.json"))
+    assert(Files.readString(running.resolve("shop.orders.json")).contains("\"owner\""))
+    assertEquals(run("local", "down", "--dir", root.toString)._1, 0)
+    assertEquals(entries, Vector.empty)
+  }
+
+  private def localRun(root: Path, args: String*): (Int, String, String) =
+    run((Vector("local", "run") ++ args.take(1) ++ Vector("--dir", root.toString) ++ args.drop(1))*)
+
+  /** What a command run from its source was given, as `env` printed it. */
+  private def envOf(file: Path): Map[String, String] =
+    Files
+      .readAllLines(file, UTF_8)
+      .asScala
+      .toVector
+      .flatMap(line =>
+        line.split("=", 2) match
+          case Array(k, v) => Some(k -> v)
+          case _           => None
+      )
+      .toMap
+
+  test(
+    "a service run from its source is given its own database, port, name, prefix and local values"
+  ) {
+    val root = LocalFixtures.project()
+    LocalFixtures.write(
+      root,
+      "local.json",
+      """{"values":{"billing":{"CURRENCY":"GBP"},"orders":{"OTHER":"x"}}}"""
+    )
+    val file             = root.resolve("env.txt")
+    val (code, out, err) = localRun(root, "billing", "--", "sh", "-c", s"env > $file")
+    assertEquals(code, 0, out + err)
+    val env = envOf(file)
+    assertEquals(env.get("ANKKA_SERVICE_NAME"), Some("billing"))
+    assertEquals(env.get("ANKKA_HTTP_PORT"), Some("9001"))
+    assertEquals(env.get("ANKKA_DB_HOST"), Some("localhost"))
+    assertEquals(env.get("ANKKA_DB_NAME"), Some("billing"))
+    assert(env.get("ANKKA_DB_PORT").exists(_.toIntOption.isDefined), env)
+    assert(env.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS").exists(_.startsWith("localhost:")), env)
+    assertEquals(env.get("ANKKA_KAFKA_TOPIC_PREFIX"), Some("shop."))
+    assertEquals(env.get("CURRENCY"), Some("GBP"))
+    assert(!env.contains("OTHER"), "another service's values are not given")
+    assert(!env.contains("ANKKA_OBSERVABILITY_ADDRESS"), env)
+    // What it needs is made, and no service container is brought up.
+    assertEquals(databases.made, Set("billing"))
+    assert(!ups.exists(u => u.contains("orders") || u.contains(" billing")), ups)
+  }
+
+  test("a service that is a container is refused with the contract's words") {
+    val root = LocalFixtures.project()
+    assertEquals(up(root)._1, 0)
+    val (code, _, err) = localRun(root, "orders", "--", "true")
+    assertEquals(code, 1)
+    assertEquals(
+      err.trim,
+      "\"orders\" is running from its image; leave it out with: ankka local up --without orders"
+    )
+  }
+
+  test("a service whose command cannot be told is refused") {
+    val root           = LocalFixtures.project()
+    val (code, _, err) = localRun(root, "orders")
+    assertEquals(code, 1)
+    assertEquals(
+      err.trim,
+      "cannot tell how to run \"orders\" from its source; give the command after --, or name it " +
+        "under \"run\" in local.json"
+    )
+    assert(calls.forall(c => c == "available" || c.startsWith("ps ")), calls)
+  }
+
+  test("the command named under run in local.json is the one run, with the service's exit code") {
+    val root = LocalFixtures.project()
+    LocalFixtures.write(root, "local.json", """{"run":{"billing":["sh","-c","exit 7"]}}""")
+    assertEquals(localRun(root, "billing")._1, 7)
+  }
+
+  // ── status and logs (US6) ─────────────────────────────────────────────────
+
+  test("status says of each service whether it is ready, where it answers and who started it") {
+    val root = LocalFixtures.project()
+    assertEquals(up(root)._1, 0)
+    engine.change("ankka-shop", "billing")(_.copy(state = "exited"))
+    val (code, out, err) = run("local", "status", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    val lines = out.linesIterator.map(_.trim.replaceAll("\\s+", " ")).toVector
+    assertEquals(
+      lines,
+      Vector(
+        "orders ready http://127.0.0.1:9000 started by ankka local up",
+        "billing not running"
+      )
+    )
+  }
+
+  test("status of a directory that holds no project is refused") {
+    val (code, _, err) =
+      run("local", "status", "--dir", Files.createTempDirectory("empty").toString)
+    assertEquals(code, 1)
+    assert(err.contains("holds no project"), err)
+  }
+
+  test("logs shows a service's log by its name, and refuses what is not the command's") {
+    val root = LocalFixtures.project()
+    assertEquals(
+      run("local", "logs", "orders", "--dir", root.toString)._3.trim,
+      "\"orders\" was not started by ankka local up"
+    )
+    assertEquals(up(root)._1, 0)
+    val (code, out, err) = run("local", "logs", "orders", "--tail", "5", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    assertEquals(out.trim, "orders logged")
+    assert(calls.contains("logs ankka-shop orders"), calls)
+    val (unknown, _, said) = run("local", "logs", "payments", "--dir", root.toString)
+    assertEquals(unknown, 1)
+    assertEquals(said.trim, "\"payments\" is not a service or companion of shop")
   }

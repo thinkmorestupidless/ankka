@@ -1823,6 +1823,87 @@ object Main:
       }
     }
 
+  /** `ankka local run` (feature 066). */
+  private val localRun =
+    Opts.subcommand(
+      "run",
+      "Run one service from its source, in the foreground, among whatever of the project is up: " +
+        "its database server, broker, database, the project's topics and the companions it needs " +
+        "are started when they are not running, and left running when it ends. The command is " +
+        "what follows --, else local.json's run.<service>, else its language's own."
+    ) {
+      (
+        Opts.argument[String]("service"),
+        Opts
+          .option[String]("timeout", "How long to wait for what it needs to be ready (default 5m).")
+          .withDefault("5m")
+          .mapValidated(t => local.Durations.parse(t).toValidatedNel),
+        localDir,
+        Opts.arguments[String]("command").orEmpty
+      ).mapN { (service, timeout, dir, command) => () =>
+        throw ExitWith(
+          local.LocalRun.run(
+            java.nio.file.Paths.get(dir),
+            service,
+            command.toVector,
+            timeout,
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err,
+            local.LocalSeams.probe,
+            local.LocalSeams.isFree,
+            local.LocalSeams.cliVersion()
+          )
+        )
+      }
+    }
+
+  /** `ankka local status` (feature 066). */
+  private val localStatus =
+    Opts.subcommand(
+      "status",
+      "For each service of the project and each companion: whether it is ready, where it answers, " +
+        "and whether ankka local up started it or it runs from its source."
+    ) {
+      localDir.map { dir => () =>
+        throw ExitWith(
+          local.LocalStatus.run(
+            java.nio.file.Paths.get(dir),
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err,
+            local.LocalSeams.probe
+          )
+        )
+      }
+    }
+
+  /** `ankka local logs` (feature 066). */
+  private val localLogs =
+    Opts.subcommand(
+      "logs",
+      "The log of a service or companion ankka local up started, from its start or its last lines."
+    ) {
+      (
+        Opts.argument[String]("name"),
+        Opts.flag("follow", "Stay, showing what is written, until interrupted.").orFalse,
+        Opts.option[Int]("tail", "Only the last this many lines.").orNone,
+        localDir
+      ).mapN { (name, follow, tail, dir) => () =>
+        throw ExitWith(
+          local.LocalLogs.run(
+            java.nio.file.Paths.get(dir),
+            name,
+            tail,
+            follow,
+            local.LocalSeams.engine(),
+            Console.out,
+            Console.err
+          )
+        )
+      }
+    }
+
   /** `ankka local down` (feature 066). */
   private val localDown =
     Opts.subcommand(
@@ -1866,28 +1947,29 @@ object Main:
           }
         }
       }
-      erasures orElse localWeb orElse localUp orElse localDown orElse Opts.subcommand(
-        "console",
-        "Serve a console over the services running on this machine."
-      ) {
-        (
-          Opts
-            .option[Int]("port", s"Port to serve on; defaults to ${ConsoleServer.DefaultPort}.")
-            .withDefault(ConsoleServer.DefaultPort),
-          Opts.flag("no-open", "Do not open a browser.").orFalse
-        ).mapN { (port, noOpen) => () =>
-          val server = ConsoleServer.start(new LocalSource(), port, System.out)
-          if !noOpen then openBrowser(server.address)
-          // Serve until interrupted. The console is a foreground tool: a developer stops looking at
-          // it by pressing ctrl-c, which is also how they stop it.
-          val latch = java.util.concurrent.CountDownLatch(1)
-          Runtime.getRuntime.addShutdownHook(Thread { () =>
-            server.stop(); latch.countDown()
-          })
-          latch.await()
-          ""
+      erasures orElse localWeb orElse localUp orElse localRun orElse localDown orElse localStatus orElse localLogs orElse Opts
+        .subcommand(
+          "console",
+          "Serve a console over the services running on this machine."
+        ) {
+          (
+            Opts
+              .option[Int]("port", s"Port to serve on; defaults to ${ConsoleServer.DefaultPort}.")
+              .withDefault(ConsoleServer.DefaultPort),
+            Opts.flag("no-open", "Do not open a browser.").orFalse
+          ).mapN { (port, noOpen) => () =>
+            val server = ConsoleServer.start(new LocalSource(), port, System.out)
+            if !noOpen then openBrowser(server.address)
+            // Serve until interrupted. The console is a foreground tool: a developer stops looking at
+            // it by pressing ctrl-c, which is also how they stop it.
+            val latch = java.util.concurrent.CountDownLatch(1)
+            Runtime.getRuntime.addShutdownHook(Thread { () =>
+              server.stop(); latch.countDown()
+            })
+            latch.await()
+            ""
+          }
         }
-      }
     }
 
   /**

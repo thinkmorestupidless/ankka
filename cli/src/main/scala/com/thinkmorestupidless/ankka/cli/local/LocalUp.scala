@@ -19,6 +19,11 @@ object LocalUp:
   /** How a check of readiness is asked of the host. A suite answers it without a network. */
   type Probe = LocalPlan.ReadyCheck => Boolean
 
+  /**
+   * What runs once everything a plan brings up is ready, in place of the summary: `local run`'s.
+   */
+  type Finish = (LocalProject, LocalPlan, LocalState) => Int
+
   val DefaultTimeout: FiniteDuration = 5.minutes
   val LogLines: Int                  = 40
 
@@ -33,7 +38,8 @@ object LocalUp:
       err: PrintStream,
       probe: Probe = Probes.host,
       isFree: Int => Boolean = LocalState.isFree,
-      cliVersion: String = com.thinkmorestupidless.ankka.core.BuildInfo.version
+      cliVersion: String = com.thinkmorestupidless.ankka.core.BuildInfo.version,
+      finish: Option[Finish] = None
   ): Int =
     engine.available match
       case Left(refusal) =>
@@ -45,7 +51,7 @@ object LocalUp:
             problems.foreach(err.println)
             1
           case Right(project) =>
-            up(project, selection, timeout, engine, out, err, probe, isFree, cliVersion)
+            up(project, selection, timeout, engine, out, err, probe, isFree, cliVersion, finish)
 
   private def up(
       project: LocalProject,
@@ -56,7 +62,8 @@ object LocalUp:
       err: PrintStream,
       probe: Probe,
       isFree: Int => Boolean,
-      cliVersion: String
+      cliVersion: String,
+      finish: Option[Finish]
   ): Int =
     val root      = project.root
     val composeId = LocalPlan.composeProject(project.name)
@@ -77,7 +84,11 @@ object LocalUp:
         reserved = reserved
       )
     )
-    val machine = Machines.of(project, before, engine, isFree, cliVersion)
+    val fromSource = ConsoleEntries.sourceRun(
+      project.services,
+      address => probe(LocalPlan.ReadyCheck.Observability(s"$address/observability/service", false))
+    )
+    val machine = Machines.of(project, before, engine, isFree, cliVersion, fromSource)
     LocalPlan.of(project, selection, state, machine) match
       case Left(problems) =>
         problems.foreach(err.println)
@@ -94,39 +105,51 @@ object LocalUp:
           val file = composeFile(root)
           Files.createDirectories(file.getParent)
           Files.writeString(file, Compose.json(plan.compose), UTF_8)
-          start(project, plan, previous, before, file, timeout, engine, out, err, probe, machine)
+          start(project, plan, before, file, timeout, engine, err, probe, machine)
+            .fold(
+              identity,
+              _ =>
+                finish.fold {
+                  out.println(s"${project.name} is up")
+                  Table.print(project, plan, previous, before, engine.ps(composeId), out)
+                  plan.leftOut.foreach(name =>
+                    out.println(
+                      s"left out: $name — run it from its source with: ankka local run $name"
+                    )
+                  )
+                  0
+                }(_(project, plan, state))
+            )
 
   private def start(
       project: LocalProject,
       plan: LocalPlan,
-      previous: Option[Compose],
       before: Vector[Engine.Container],
       file: Path,
       timeout: FiniteDuration,
       engine: Engine,
-      out: PrintStream,
       err: PrintStream,
       probe: Probe,
       machine: LocalPlan.Machine
-  ): Int =
+  ): Either[Int, Unit] =
     val composeId = LocalPlan.composeProject(project.name)
     val infra     = engine.up(file, composeId, plan.infrastructure, removeOrphans = false)
     if !infra.ok then
       err.println(
         s"the database server and the broker of ${project.name} did not start: ${infra.err.trim}"
       )
-      return 1
+      return Left(1)
     val unhealthy = waitHealthy(composeId, plan.infrastructure, timeout, engine)
     if unhealthy.nonEmpty then
       unhealthy.foreach(name => notReady(composeId, name, timeout, engine, err))
-      return 1
+      return Left(1)
     val second =
       plan.databases.flatMap(d => Databases.ensure(composeId, d, machine, engine, err)) ++
         Topics.ensure(composeId, plan.topics, engine)
     if second.nonEmpty then
       second.foreach(err.println)
       err.println(s"the database server and the broker of ${project.name} are left running")
-      return 1
+      return Left(1)
     val gone = before.map(_.service).distinct.filterNot(plan.compose.services.contains)
     gone.foreach(name =>
       err.println(
@@ -141,7 +164,7 @@ object LocalUp:
         val companions = engine.up(file, composeId, plan.companions, removeOrphans = false)
         if !companions.ok then
           err.println(s"the companions of ${project.name} did not start: ${companions.err.trim}")
-          return 1
+          return Left(1)
         val failed = waitReady(plan.companions.map(n => n -> plan.ready(n)), timeout, probe)
         failed.foreach(name => notReady(composeId, name, timeout, engine, err))
         failed
@@ -161,15 +184,15 @@ object LocalUp:
       else engine.up(file, composeId, starting, removeOrphans = true)
     if !started.ok then
       err.println(s"the services of ${project.name} did not start: ${started.err.trim}")
-      return 1
+      return Left(1)
     val unready = waitReady(starting.map(n => n -> plan.ready(n)), timeout, probe)
     unready.foreach(name => notReady(composeId, name, timeout, engine, err))
-    val after = engine.ps(composeId)
-    if unready.isEmpty && companionsFailed.isEmpty then
-      out.println(s"${project.name} is up")
-      Table.print(project, plan, previous, before, after, out)
-      0
-    else 1
+    // The console lists what is ready; an owned entry nothing answers for yet is kept, not swept.
+    ConsoleEntries.write(
+      project.name,
+      plan.entries.filter(e => starting.contains(e.name) && !unready.contains(e.name))
+    )
+    if unready.isEmpty && companionsFailed.isEmpty then Right(()) else Left(1)
 
   /** Each image present or pulled; what could be neither, named by the service that names it. */
   private def imageProblems(plan: LocalPlan, engine: Engine): Vector[String] =
@@ -240,8 +263,16 @@ private[local] object Machines:
       before: Vector[Engine.Container],
       engine: Engine,
       isFree: Int => Boolean,
-      cliVersion: String
+      cliVersion: String,
+      fromSource: Set[String] = Set.empty
   ): LocalPlan.Machine =
+    val source = project.services
+      .filter(fromSource)
+      .flatMap { n =>
+        val s = project.descriptor(n).service
+        (Option.when(s.http)(s.port).toVector ++ Option.when(s.grpc)(s.grpcPort)).map(_ -> n)
+      }
+      .toMap
     val linux   = sys.props.get("os.name").exists(_.toLowerCase.contains("linux"))
     val running = before.filter(_.running).map(_.service).toSet
     val ours    = project.services
@@ -260,6 +291,7 @@ private[local] object Machines:
         ours
           .get(port)
           .map(LocalPlan.Holder.Ours(_))
+          .orElse(source.get(port).filterNot(_ => isFree(port)).map(LocalPlan.Holder.FromSource(_)))
           .orElse(Option.when(!isFree(port))(LocalPlan.Holder.Other))
     )
 
@@ -438,11 +470,14 @@ private[local] object Table:
           (Option.when(spec.http)(s"http://127.0.0.1:${spec.port}").toVector ++
             Option.when(spec.grpc)(s"grpc 127.0.0.1:${spec.grpcPort}")).mkString("  ")
         case None =>
-          plan.compose.services
-            .get(name)
-            .flatMap(_.ports.headOption)
-            .map(p => s"127.0.0.1:${p.split(':').dropRight(1).last}")
-            .getOrElse("")
+          plan.ready.get(name) match
+            case Some(LocalPlan.ReadyCheck.Http(port, _)) => s"http://127.0.0.1:$port"
+            case _                                        =>
+              plan.compose.services
+                .get(name)
+                .flatMap(_.ports.headOption)
+                .map(p => s"127.0.0.1:${p.split(':').dropRight(1).last}")
+                .getOrElse("")
     val rows = (plan.companions ++ plan.services).map { name =>
       val shown  = address(name)
       val status = (was.get(name).filter(_.running), now.get(name)) match
@@ -454,7 +489,8 @@ private[local] object Table:
             .flatMap(_.services.get(name))
             .forall(old => old.environment != plan.compose.services(name).environment)
           if changed then "restarted (its environment changed)" else "restarted"
-      (name, if shown.isEmpty then "-" else shown, status)
+      val marked = if plan.companions.contains(name) then s"$status      (a companion)" else status
+      (name, if shown.isEmpty then "-" else shown, marked)
     }
     val nameWidth    = rows.map(_._1.length).maxOption.getOrElse(0)
     val addressWidth = rows.map(_._2.length).maxOption.getOrElse(0)

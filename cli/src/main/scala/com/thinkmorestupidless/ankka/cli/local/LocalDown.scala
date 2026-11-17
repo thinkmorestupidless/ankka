@@ -23,6 +23,7 @@ object LocalDown:
           case Right(project) =>
             val composeId = LocalPlan.composeProject(project.name)
             val local     = project.root.resolve(LocalState.Directory)
+            ConsoleEntries.remove(project.name)
             if engine.ps(composeId).isEmpty then
               // Nothing runs, and still the developer asked for what was recorded to go.
               if volumes then

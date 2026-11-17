@@ -35,11 +35,15 @@ private[local] object Companions:
 
   private def first(companion: Companion): Option[Int] = companion.ports.headOption.map(_.port)
 
-  /** A token in a service's value, written as the service's container reaches the companion. */
-  def forService(project: LocalProject, state: LocalState)(token: Token): Option[String] =
+  /**
+   * A token in a service's value, written as the service reaches the companion from `host`'s side.
+   */
+  def forService(project: LocalProject, state: LocalState, host: String = LocalPlan.HostAddress)(
+      token: Token
+  ): Option[String] =
     def address(name: String) =
       project.local.companions.find(_.name == name).flatMap { c =>
-        first(c).flatMap(hostPort(state, c, _)).map(p => s"host.docker.internal:$p")
+        first(c).flatMap(hostPort(state, c, _)).map(p => s"$host:$p")
       }
     token match
       case Token.CompanionAddress(name) => address(name)

@@ -40,7 +40,7 @@ object LocalPlan:
     case Only(names: Vector[String], without: Vector[String] = Vector.empty)
     case Without(names: Vector[String])
 
-    /** Every service but `name`, which the developer runs from its source. */
+    /** What `name` needs to run from its source on the host, and no service container. */
     case ForRun(name: String)
 
   /** What holds a port on the machine, when something does. */
@@ -112,11 +112,23 @@ object LocalPlan:
       case Selection.Only(names, without) =>
         all.filter(n => names.contains(n) && !without.contains(n))
       case Selection.Without(names) => all.filterNot(names.contains)
-      case Selection.ForRun(name)   => all.filterNot(_ == name)
+      case Selection.ForRun(name)   => all.filter(_ == name)
     val leftOut = all.filterNot(selected.contains)
     val refused = problems(project, selection, selected, machine)
     if refused.nonEmpty then Left(refused)
-    else build(project, selected, leftOut, state, machine)
+    else
+      selection match
+        case Selection.ForRun(_) =>
+          // What the service needs and nothing else (research R12): its database, the topics and
+          // its companions; the service itself runs on the host, so no container is brought up.
+          build(project, selected, Vector.empty, state, machine).map(plan =>
+            plan.copy(
+              services = Vector.empty,
+              entries = Vector.empty,
+              ready = plan.ready.filter((n, _) => plan.companions.contains(n))
+            )
+          )
+        case _ => build(project, selected, leftOut, state, machine)
 
   /** The static problems (research R14), every one found. */
   private def problems(
@@ -323,22 +335,27 @@ object LocalPlan:
   private[local] def environment(
       project: LocalProject,
       name: String,
-      state: LocalState
+      state: LocalState,
+      onHost: Boolean = false
   ): ListMap[String, String] =
     val descriptor = project.descriptor(name)
     val spec       = descriptor.service
+    // Where the service runs decides every address it is given: a container reaches the database
+    // server and the broker by their names, a process on the host by what the command published.
+    val reach = if onHost then "localhost" else HostAddress
     // The descriptor's literals, then the local values over them (research R9).
     val local = project.local
       .valuesFor(name)
-      .map((k, v) => k -> LocalFile.fill(v, Companions.forService(project, state)))
+      .map((k, v) => k -> LocalFile.fill(v, Companions.forService(project, state, reach)))
     val declared = (literals(descriptor) ++ local)
       .filterNot((k, _) => LocalVariables.isInstallationOnly(k))
     val database =
       if spec.hasNoDatabase then ListMap("ANKKA_DATABASE" -> "none")
       else
         ListMap(
-          "ANKKA_DB_HOST"     -> Postgres,
-          "ANKKA_DB_PORT"     -> PostgresPort.toString,
+          "ANKKA_DB_HOST" -> (if onHost then "localhost" else Postgres),
+          "ANKKA_DB_PORT" ->
+            (if onHost then state.postgresPort.getOrElse(PostgresPort) else PostgresPort).toString,
           "ANKKA_DB_NAME"     -> name,
           "ANKKA_DB_USER"     -> DatabaseUser,
           "ANKKA_DB_PASSWORD" -> DatabasePassword
@@ -348,16 +365,22 @@ object LocalPlan:
       Option.when(spec.grpc)(PlatformVariables.GrpcPort -> spec.grpcPort.toString) ++
       database ++
       ListMap(
-        "ANKKA_KAFKA_BOOTSTRAP_SERVERS"        -> s"$Kafka:$KafkaContainersPort",
-        "ANKKA_KAFKA_TOPIC_PREFIX"             -> s"${project.name}.",
-        PlatformVariables.SecretKey            -> state.secretKeys(name),
-        PlatformVariables.LocalEndpointAddress -> s"0.0.0.0:$ObservabilityPort"
-      )
-    val options = project.services.filterNot(_ == name).flatMap { other =>
-      val o = project.descriptor(other).service
-      Vector(s"-Dankka.local-services.$other=http://$HostAddress:${o.port}") ++
-        Option.when(o.grpc)(s"-Dankka.local-grpc-services.$other=$HostAddress:${o.grpcPort}")
-    }
+        "ANKKA_KAFKA_BOOTSTRAP_SERVERS" ->
+          (if onHost then s"localhost:${state.kafkaPort.getOrElse(KafkaHostPort)}"
+           else s"$Kafka:$KafkaContainersPort"),
+        "ANKKA_KAFKA_TOPIC_PREFIX"  -> s"${project.name}.",
+        PlatformVariables.SecretKey -> state.secretKeys(name)
+      ) ++
+      // On the host the runtime chooses its own console port and announces itself, as it always has.
+      Option.when(!onHost)(PlatformVariables.LocalEndpointAddress -> s"0.0.0.0:$ObservabilityPort")
+    // On the host the services the command started are found through the console's entries.
+    val options = if onHost then Vector.empty
+    else
+      project.services.filterNot(_ == name).flatMap { other =>
+        val o = project.descriptor(other).service
+        Vector(s"-Dankka.local-services.$other=http://$HostAddress:${o.port}") ++
+          Option.when(o.grpc)(s"-Dankka.local-grpc-services.$other=$HostAddress:${o.grpcPort}")
+      }
     val tool = (declared.get(JavaToolOptions).toVector ++ options).mkString(" ")
     val base = (declared -- own.keys - JavaToolOptions) ++ own
     if tool.isEmpty then base else base + (JavaToolOptions -> tool)

@@ -64,7 +64,11 @@ object LocalPlan:
       gateway: Option[String] = None,
       sidecarImage: Option[String] = None,
       proxyImage: Option[String] = None,
-      holder: Int => Option[Holder] = _ => None
+      holder: Int => Option[Holder] = _ => None,
+      /** Process services whose run from source left its sidecar running after the run ended. */
+      endedRuns: Set[String] = Set.empty,
+      /** Process services running from their source now, through a sidecar of the command's. */
+      liveRuns: Set[String] = Set.empty
   )
 
   /** A database to make; `schemaVersion` absent is the CLI's own; a companion's has no schema. */

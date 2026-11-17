@@ -694,6 +694,40 @@ class LocalCommandSuite extends munit.FunSuite:
     assertEquals(code, 0, err)
     assert(calls.contains("stop ankka-shop billing-sidecar"), calls)
     assert(engine.running("ankka-shop").contains("billing"))
+    assert(!err.contains("no longer in the context map"), err)
+  }
+
+  test(
+    "while a process service runs from its source, up is refused naming it, and its sidecar kept"
+  ) {
+    val root             = hostedBilling(""","hosting":"process","protocol":"1.0"""")
+    val (ran, out, said) = localRun(root, "billing", "--", "true")
+    assertEquals(ran, 0, out + said)
+    // The run's process holds the port chosen for it: the run is live.
+    val process = LocalState.read(root).processPorts("billing")
+    LocalSeams.isFree = p => p != process && p != 9001
+    val (code, _, err) = up(root)
+    assertEquals(code, 1)
+    assert(
+      err.contains(
+        "\"billing\" names port 9001, which is in use on this machine; it is running from its source"
+      ),
+      err
+    )
+    assert(!calls.exists(_.startsWith("stop")), calls)
+    assert(engine.running("ankka-shop").contains("billing-sidecar"))
+  }
+
+  test("up without a service running from its source keeps its run's sidecar") {
+    val root             = hostedBilling(""","hosting":"process","protocol":"1.0"""")
+    val (ran, out, said) = localRun(root, "billing", "--", "true")
+    assertEquals(ran, 0, out + said)
+    val process = LocalState.read(root).processPorts("billing")
+    LocalSeams.isFree = p => p != process && p != 9001
+    val (code, _, err) = up(root, "--without", "billing")
+    assertEquals(code, 0, err)
+    assertEquals(ups.last, "up ankka-shop orders")
+    assert(engine.running("ankka-shop").contains("billing-sidecar"))
   }
 
   test("a process run from its source is given a sidecar that dials it on the host") {
@@ -932,6 +966,8 @@ class LocalCommandSuite extends munit.FunSuite:
     val billing =
       out.linesIterator.map(_.trim.replaceAll("\\s+", " ")).find(_.startsWith("billing"))
     assertEquals(billing, Some("billing ready http://127.0.0.1:9001 started by ankka local up"))
+    // It has no observability endpoint, so the console is given no entry for it.
+    assert(!Files.exists(running.resolve("shop.billing.json")), running.toFile.list().toVector)
   }
 
   test("logs --follow of a module service follows its runtime, not the run that gave the module") {

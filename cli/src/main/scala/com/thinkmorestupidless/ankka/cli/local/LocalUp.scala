@@ -92,14 +92,19 @@ object LocalUp:
       project.services,
       address => probe(LocalPlan.ReadyCheck.Observability(s"$address/observability/service", false))
     )
-    val machine = Machines.of(project, before, engine, isFree, cliVersion, fromSource)
+    val machine =
+      Machines.of(project, before, engine, isFree, cliVersion, fromSource, kept.processPorts)
     // The ports the command chose once are checked as the descriptors' are: held by anything but
     // what they were chosen for, the run would fail part-way at Docker's refusal.
     val running = before.filter(_.running).map(_.service).toSet
     val chosen  = kept.postgresPort.map(_ -> LocalPlan.Postgres).toVector ++
       kept.kafkaPort.map(_ -> LocalPlan.Kafka) ++
       kept.observability.toVector
-        .filter((n, _) => project.services.contains(n) && !fromSource(n))
+        // A web-hosted service's observability port is chosen and never published.
+        .filter((n, _) =>
+          project.services.contains(n) && !fromSource(n) &&
+            !project.descriptor(n).service.isWebHosted
+        )
         .map((n, p) => p -> n) ++
       kept.companionPorts.toVector.flatMap((c, ports) => ports.values.map(_ -> c))
     val stateTaken = chosen
@@ -173,8 +178,9 @@ object LocalUp:
       return Left(1)
     // A service left out that is running from its image is stopped, so it can be run from its
     // source in its place (`local run` refuses while its container runs); its data is kept. So is
-    // the sidecar a run of a service brought up now left behind: it holds the service's ports.
-    val leaving = (plan.containersOf(plan.leftOut) ++ plan.services.map(LocalPlan.sidecarKey))
+    // the sidecar an ended run of a service brought up now left behind: it holds the service's ports.
+    val leaving = (plan.containersOf(plan.leftOut) ++
+      plan.services.filter(machine.endedRuns).map(LocalPlan.sidecarKey))
       .filter(c => before.exists(r => r.service == c && r.running))
     if leaving.nonEmpty then
       val stopped = engine.stop(composeId, leaving)
@@ -182,7 +188,14 @@ object LocalUp:
         err.println(s"the services of ${project.name} left out did not stop: ${stopped.err.trim}")
         return Left(1)
       ConsoleEntries.remove(project.name, plan.leftOut)
-    val gone = before.map(_.service).distinct.filterNot(plan.compose.services.contains)
+    // A run's sidecar is not in the document and is not a service the map dropped: a live run's is
+    // kept, an ended run's was stopped above.
+    val runSidecars = project.services.map(LocalPlan.sidecarKey).toSet
+    val gone        = before
+      .map(_.service)
+      .distinct
+      .filterNot(plan.compose.services.contains)
+      .filterNot(runSidecars)
     gone.foreach(name =>
       err.println(
         s"\"$name\" is no longer in the context map; it is stopped, and its database is kept"
@@ -213,7 +226,15 @@ object LocalUp:
     val starting = plan.services.filterNot(heldBack.contains)
     val started  =
       if starting.isEmpty then Engine.Result(0, "", "")
-      else engine.up(file, composeId, plan.containersOf(starting), removeOrphans = true)
+      else if machine.liveRuns.isEmpty then
+        engine.up(file, composeId, plan.containersOf(starting), removeOrphans = true)
+      else
+        // Removing orphans would remove a live run's sidecar, which the document does not name: what
+        // the map dropped is stopped by name instead.
+        val dropped =
+          if gone.isEmpty then Engine.Result(0, "", "") else engine.stop(composeId, gone)
+        if !dropped.ok then dropped
+        else engine.up(file, composeId, plan.containersOf(starting), removeOrphans = false)
     if !started.ok then
       err.println(s"the services of ${project.name} did not start: ${started.err.trim}")
       return Left(1)
@@ -297,7 +318,8 @@ private[local] object Machines:
       engine: Engine,
       isFree: Int => Boolean,
       cliVersion: String,
-      fromSource: Set[String] = Set.empty
+      fromSource: Set[String] = Set.empty,
+      processPorts: Map[String, Int] = Map.empty
   ): LocalPlan.Machine =
     val source = project.services
       .filter(fromSource)
@@ -308,10 +330,19 @@ private[local] object Machines:
       .toMap
     val linux   = sys.props.get("os.name").exists(_.toLowerCase.contains("linux"))
     val running = before.filter(_.running).map(_.service).toSet
-    // A service's port is its own when its container holds it, or the sidecar `local run` left
-    // behind for a process service run from its source.
+    // The sidecar `local run` starts for a process service outlives the run. Its run is live while
+    // the process port chosen for it is held, and has ended once that port is free.
+    val runs          = project.services.filter(n => running(LocalPlan.sidecarKey(n)))
+    val (live, ended) =
+      runs.partition(n => processPorts.get(n).exists(p => !isFree(p)))
+    def portsOf(n: String) =
+      val s = project.descriptor(n).service
+      Option.when(s.http)(s.port).toVector ++ Option.when(s.grpc)(s.grpcPort)
+    val runningFromSource = live.flatMap(n => portsOf(n).map(_ -> n)).toMap
+    // A service's port is its own when its container holds it, or a sidecar left by a run that
+    // has ended holds it.
     val ours = project.services
-      .filter(n => running(n) || running(LocalPlan.sidecarKey(n)))
+      .filter(n => running(n) || ended.contains(n))
       .flatMap { n =>
         val s = project.descriptor(n).service
         (Option.when(s.http)(s.port).toVector ++ Option.when(s.grpc)(s.grpcPort)).map(_ -> n)
@@ -331,8 +362,11 @@ private[local] object Machines:
         ours
           .get(port)
           .map(LocalPlan.Holder.Ours(_))
+          .orElse(runningFromSource.get(port).map(LocalPlan.Holder.FromSource(_)))
           .orElse(source.get(port).filterNot(_ => isFree(port)).map(LocalPlan.Holder.FromSource(_)))
-          .orElse(Option.when(!isFree(port))(LocalPlan.Holder.Other))
+          .orElse(Option.when(!isFree(port))(LocalPlan.Holder.Other)),
+      endedRuns = ended.toSet,
+      liveRuns = live.toSet
     )
 
 /** A local database and its schema (research R6). */

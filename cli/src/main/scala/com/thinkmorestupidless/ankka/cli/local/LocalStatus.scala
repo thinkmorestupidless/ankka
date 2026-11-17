@@ -65,7 +65,9 @@ object LocalStatus:
         ConsoleEntries.write(
           project.name,
           services
+            // A web-hosted service has no observability endpoint, so the console lists it not.
             .filter(r => r.status == "ready" && r.by.contains(Started))
+            .filterNot(r => project.descriptor(r.name).service.isWebHosted)
             .flatMap(r => observability(r.name).map(LocalPlan.ConsoleEntry(r.name, _)))
         )
         0

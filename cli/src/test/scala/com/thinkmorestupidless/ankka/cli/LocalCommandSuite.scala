@@ -870,6 +870,40 @@ class LocalCommandSuite extends munit.FunSuite:
     )
   }
 
+  test("a state file that does not read is refused, not replaced, and nothing starts") {
+    val root = LocalFixtures.project()
+    assertEquals(up(root)._1, 0)
+    val file = LocalState.file(root)
+    val keys = LocalState.read(root).secretKeys
+    Files.writeString(file, "{not json", UTF_8)
+    val started        = ups.size
+    val (code, _, err) = up(root)
+    assertEquals(code, 1)
+    assert(err.startsWith(".ankka/local/state.json is not readable: "), err)
+    assert(err.contains("ankka local down --volumes removes it with what was recorded"), err)
+    assertEquals(Files.readString(file, UTF_8), "{not json")
+    assert(keys.nonEmpty)
+    assertEquals(ups.size, started, calls)
+  }
+
+  test(
+    "a port the command chose once, held by something else since, is refused before anything starts"
+  ) {
+    val root = LocalFixtures.project()
+    assertEquals(up(root)._1, 0)
+    val postgres = LocalState.read(root).postgresPort.get
+    assertEquals(run("local", "down", "--dir", root.toString)._1, 0)
+    LocalSeams.isFree = _ != postgres
+    val started        = ups.size
+    val (code, _, err) = up(root)
+    assertEquals(code, 1)
+    assertEquals(
+      err.trim,
+      s"\"ankka-postgres\" names port $postgres, which is in use on this machine"
+    )
+    assertEquals(ups.size, started, calls)
+  }
+
   test("status asks a web-hosted service's port, as up does") {
     val root = hostedBilling(
       ""","hosting":"web","processPort":3000,"mounts":[{"path":"/api","service":"orders"}]"""

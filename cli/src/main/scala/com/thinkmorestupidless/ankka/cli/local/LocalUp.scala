@@ -72,7 +72,11 @@ object LocalUp:
       val s = project.descriptor(n).service
       Option.when(s.http)(s.port).toVector ++ Option.when(s.grpc)(s.grpcPort)
     }.toSet
-    val kept  = LocalState.read(root)
+    val kept = LocalState.readChecked(root) match
+      case Right(state)  => state
+      case Left(refusal) =>
+        err.println(refusal)
+        return 1
     val state = LocalState.completed(
       kept,
       LocalPlan.wanted(project),
@@ -89,9 +93,26 @@ object LocalUp:
       address => probe(LocalPlan.ReadyCheck.Observability(s"$address/observability/service", false))
     )
     val machine = Machines.of(project, before, engine, isFree, cliVersion, fromSource)
+    // The ports the command chose once are checked as the descriptors' are: held by anything but
+    // what they were chosen for, the run would fail part-way at Docker's refusal.
+    val running = before.filter(_.running).map(_.service).toSet
+    val chosen  = kept.postgresPort.map(_ -> LocalPlan.Postgres).toVector ++
+      kept.kafkaPort.map(_ -> LocalPlan.Kafka) ++
+      kept.observability.toVector
+        .filter((n, _) => project.services.contains(n) && !fromSource(n))
+        .map((n, p) => p -> n) ++
+      kept.companionPorts.toVector.flatMap((c, ports) => ports.values.map(_ -> c))
+    val stateTaken = chosen
+      .filterNot((_, owner) => running(owner) || running(LocalPlan.sidecarKey(owner)))
+      .filterNot((port, _) => isFree(port))
+      .sortBy(_._1)
+      .map((port, owner) => s"\"$owner\" names port $port, which is in use on this machine")
     LocalPlan.of(project, selection, state, machine) match
       case Left(problems) =>
-        problems.foreach(err.println)
+        (problems ++ stateTaken).foreach(err.println)
+        1
+      case Right(_) if stateTaken.nonEmpty =>
+        stateTaken.foreach(err.println)
         1
       case Right(plan) =>
         val images = imageProblems(plan, engine)

@@ -49,6 +49,23 @@ object LocalState:
       try readFromString[LocalState](Files.readString(at, UTF_8))
       catch case _: JsonReaderException => LocalState()
 
+  /**
+   * The state at `root` for a command that chooses from it: one that does not read is refused, not
+   * replaced, since a new choice would give every service a new secret key and a store kept under
+   * the old one would no longer read.
+   */
+  def readChecked(root: Path): Either[String, LocalState] =
+    val at = file(root)
+    if !Files.isRegularFile(at) then Right(LocalState())
+    else
+      try Right(readFromString[LocalState](Files.readString(at, UTF_8)))
+      catch
+        case e: JsonReaderException =>
+          Left(
+            s"$Directory/$FileName is not readable: ${e.getMessage.linesIterator.nextOption().getOrElse("")}; " +
+              "ankka local down --volumes removes it with what was recorded"
+          )
+
   def write(root: Path, state: LocalState): Unit =
     val at = file(root)
     Files.createDirectories(at.getParent)

@@ -13,6 +13,7 @@ Brings the project up (research R15) and returns when everything it started is r
 | Rule | Message on refusal (stderr, one line each, exit 1, nothing started) |
 |---|---|
 | Docker answers and has Compose v2 | `docker is not running on this machine` / `docker compose is not installed (Compose v2 is needed)` — checked before anything is read |
+| `.ankka/local/state.json` reads, when it exists | `.ankka/local/state.json is not readable: <why>; ankka local down --volumes removes it with what was recorded` — the file is never replaced, since the secret keys it holds are what each service's kept secret store reads |
 | `<dir>` holds `context-map.json` | `<dir> holds no project: a project's directory holds context-map.json and services/<name>/service.json for each service` |
 | the context map is true of the project | each line of `ankka context-map check`, unchanged |
 | every service has a descriptor that reads and is valid | `services/<name>/service.json: <the descriptor's problem>` |
@@ -20,7 +21,7 @@ Brings the project up (research R15) and returns when everything it started is r
 | a name on the command line, or after `--without`, is a service of the project | `"<name>" is not a service of <project>` |
 | a name is not both given and left out | `"<name>" is both named and left out` |
 | no two services name one port | `"<a>" and "<b>" both name port <n>` |
-| no port is held by something else | `"<name>" names port <n>, which is in use on this machine` (and `; it is running from its source` when the project's own service holds it) |
+| no port is held by something else, the ports the command chose once included | `"<name>" names port <n>, which is in use on this machine` (and `; it is running from its source` when the project's own service holds it); for a chosen port, `<name>` is what it was chosen for: `ankka-postgres`, `ankka-kafka`, a service or a companion |
 | the environment | `"<service>" reads <VARIABLE> from a secret and local.json gives it no value`; `local.json gives "<service>" <VARIABLE>, which the command line sets itself` |
 | every image is on the machine or can be pulled | `"<name>" names the image <image>, which is not on this machine and could not be pulled` |
 

@@ -480,4 +480,5 @@ which default command runs each language from its source.
 
 - 2026-11-17: `up --without <service>` on a project that is up stops and removes that service's containers (its database and topics kept), and removes its console entry, so `local run` can take its place; without it `run` refused the still-running container and Story 5's independent test could not pass. FR-009 and the contract said only what is started; this is what follows from Story 5, not a new decision.
 - 2026-11-17: `local run` hands its own `-Dankka.running.dir`, when set, to the service's JVM through `JAVA_TOOL_OPTIONS`, so the console entry the runtime writes lands where `status` and the console look.
+- 2026-11-17: an unreadable `.ankka/local/state.json` is refused, naming the file and `down --volumes`, never replaced (Trevor, from the review); contracts/cli.md gained the row, and the port row now covers the ports the command chose once.
 - 2026-11-17: the implementation goes into pull request #282, the branch's spec-only pull request; at the end it is retitled `feat(066)`, its body rewritten from the template, and it is a draft until its checks are green (Trevor).

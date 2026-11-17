@@ -71,11 +71,13 @@ object Compose:
     def e(text: String): String = text.replace("$", "$$")
     compose.copy(services = compose.services.map { (name, s) =>
       name -> s.copy(
+        image = e(s.image),
         command = s.command.map(e),
         entrypoint = s.entrypoint.map(e),
         environment = s.environment.map((k, v) => k -> e(v)),
         healthcheck = s.healthcheck.map(h => h.copy(test = h.test.map(e))),
-        labels = s.labels.map((k, v) => k -> e(v))
+        labels = s.labels.map((k, v) => k -> e(v)),
+        volumes = s.volumes.map(e)
       )
     })
 

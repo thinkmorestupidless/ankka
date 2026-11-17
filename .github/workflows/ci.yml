@@ -38,6 +38,7 @@ jobs:
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
       template-java: ${{ steps.filter.outputs.template-java == 'true' || github.event_name == 'workflow_dispatch' }}
       template-project: ${{ steps.filter.outputs.template-project == 'true' || github.event_name == 'workflow_dispatch' }}
+      local-up: ${{ steps.filter.outputs.local-up == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-kotlin: ${{ steps.filter.outputs.sdk-kotlin == 'true' || github.event_name == 'workflow_dispatch' }}
       features: ${{ steps.filter.outputs.features == 'true' || github.event_name == 'workflow_dispatch' }}
       web: ${{ steps.filter.outputs.web == 'true' || github.event_name == 'workflow_dispatch' }}
@@ -231,6 +232,22 @@ jobs:
               - '.claude/skills/speckit-*/**'
               - 'cli/src/test/scala/**/cli/ProjectTemplateSuite.scala'
               - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
+              # The suite brings the rendered project up with `ankka local up`.
+              - 'cli/src/main/scala/**/cli/local/**'
+              - 'cli/src/test/resources/standin/**'
+            # `ankka local up` against a real Docker: the command, the stand-in it runs, the suite, the
+            # topic declarations, and the proxy and sidecar images it starts for the other hostings.
+            local-up:
+              - *workflow
+              - 'build.sbt'
+              - 'cli/src/main/scala/**/cli/local/**'
+              - 'cli/src/test/resources/standin/**'
+              - 'cli/src/test/scala/**/cli/LocalUpSuite.scala'
+              - 'cli/src/test/scala/**/cli/LocalSwitch.scala'
+              - 'modules/core/src/main/scala/**/core/TopicDeclarations.scala'
+              - 'proxy/**'
+              - 'proxy-core/**'
+              - 'sidecar/**'
             # `ankka init --language java`: the Maven template, the command that renders it, the suite,
             # and everything the rendered project resolves from ~/.m2 (the JVM modules, the Java SDK
             # and its test kit, which the build publishes with publishM2 first).
@@ -337,7 +354,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off ${{ matrix.command }}
+      # LocalUpSuite is the local-up job's: it needs the images that job builds first.
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off -Dankka.local.tests=off ${{ matrix.command }}
 
   # The check branch protection requires for the Scala build, in place of the matrix's own names,
   # for the reason `template-scala` has one: a matrix skipped by the path filter never reports its
@@ -427,6 +445,27 @@ jobs:
           cache: sbt
       - uses: sbt/setup-sbt@v1
       - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=project 'cli/testOnly *ProjectTemplateSuite'
+
+  # `ankka local up` against the runner's Docker (feature 066): a project of two stand-in services
+  # brought up, asked and brought down, and the process- and web-hosted cases against the sidecar and
+  # proxy images of this commit, built first so those cases run rather than skip. `on` fails the suite
+  # without Docker, and fails a case whose image is missing under `CI`.
+  local-up:
+    needs: changes
+    if: needs.changes.outputs.local-up == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # sbt-dynver derives the version from tags; a shallow clone sees none
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - run: sbt sidecar/Docker/publishLocal proxy/Docker/publishLocal
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off -Dankka.local.tests=on 'cli/testOnly *LocalUpSuite'
 
   # The Kotlin SDK: its fixtures are the protocol's, its build and tests pass against this commit's
   # Java SDK (published to ~/.m2 first by the script), the conformance suite passes against the Kotlin

@@ -105,6 +105,7 @@ Open the one a task needs; each is one topic and stands alone.
 ### Build
 
 - `references/build/projects.md` — Start a project of several services with ankka init, add a service in any language, keep the context map true, run every service on one machine, test across services, and release one service at a time with a service tag.
+- `references/build/local-projects.md` — Bring every service of a project up on one machine with ankka local up, give it values and containers only a developer's machine has, run one service from its source, and what one machine does not stand in for.
 
 ### Run and deploy
 

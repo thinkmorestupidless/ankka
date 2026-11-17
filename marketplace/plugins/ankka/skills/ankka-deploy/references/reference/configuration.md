@@ -651,6 +651,15 @@ such a service fails with `operator has no proxy image`; and `ANKKA_HTTPS_PORT`,
 reached on, from which the proxy states the address a request from the internet was sent to. The
 installation's overlays set both. [The web hosting reference](web-hosting.md) is what the process is told.
 
+`ankka local up` runs the same proxy on a developer's machine, in its local mode, which two more variables
+choose and which the operator never sets:
+
+- `ANKKA_PROXY_LOCAL=on` makes the proxy serve plain HTTP, read no certificate and treat every caller as
+  the machine. Its project is `local` unless `ANKKA_PROXY_PROJECT` names one, and `ANKKA_PROXY_CALLERS` is
+  not read.
+- `ANKKA_PROXY_LOCAL_SERVICES` lists where each service its mounts and its process call is, as
+  `name=url` pairs separated by commas. A service it does not list is answered 503, naming it.
+
 ## Settings without a variable
 
 These are overridden in the service's `application.conf` or with a system property.

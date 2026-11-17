@@ -738,6 +738,25 @@ with more partitions grows it; with fewer, is refused, since a topic is never ma
 broker cannot hold, or partitions outside 1 to 1000, are refused too, naming the topic. `--contract` and
 `--schema` go together, and declaring the topic without them removes its contract.
 
+A project of several services keeps its declarations in `topics.json` at its root, one entry per topic,
+each field the `set` option of the same name:
+
+```json
+{
+  "topics": [
+    {"name": "orders", "partitions": 3,
+     "contract": "order.v1", "schema": "schemas/order.v1.json"},
+    {"name": "cart-deltas", "partitions": 3, "cleanup": "compact"}
+  ]
+}
+```
+
+`ankka projects topics apply -p money` sends every declaration in the file, in order, as `set` sends one,
+and prints whether each was declared or unchanged. It stops at the first refusal, naming the topic, and
+removes no topic the file does not name. The same file is what `ankka local up` makes on the broker of a
+[project run on one machine](local-projects.md), and `ankka context-map check` holds it to the project's
+crossings.
+
 ### How long a topic keeps, and how it is cleaned
 
 Every setting of a topic is stated on the broker, so none is the broker's own default and every one can be

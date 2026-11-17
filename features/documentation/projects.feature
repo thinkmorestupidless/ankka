@@ -21,3 +21,9 @@ Feature: The documentation of projects of several services
     When a reader reads how to run a project on their own machine
     Then the documentation says how to run every service of the project together
     And the documentation says how each service finds the others, with the local console running and without it
+
+  Scenario: the documentation says how to bring a project up on one machine, what the command reads and what it does not stand in for
+    When a reader reads the documentation of running a project on one machine
+    Then it says how to bring a project up and down with one command
+    And it says that the command reads the context map, each descriptor, the topic declarations, the local values and each companion
+    And it says that a project brought up this way gives no service an identity and rolls nothing out

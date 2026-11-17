@@ -38,3 +38,9 @@ Feature: Starting a project from the project template
     Then the command line refuses
     And it says that the directory holds no project started from the project template
     And nothing is written
+
+  Scenario: a project made from the template is brought up with one command and nothing else
+    Given a project "shop" started from the project template with the services "orders" and "billing"
+    When the developer brings "shop" up
+    Then a request to "orders" is answered
+    And the developer ran no other command

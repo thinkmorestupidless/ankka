@@ -18,3 +18,8 @@ Feature: The services the local console lists
     Given a service "cart" running on a developer's machine with an MCP endpoint at "/mcp" whose tools are "get_cart" and "add_item"
     When a developer reads the service "cart" in the local console
     Then the local console lists the MCP endpoint "/mcp" with the tools "get_cart" and "add_item" beside the routes of "cart"
+
+  Scenario: the local console lists the services a project was brought up with
+    Given a project "shop" with the services "orders" and "billing", brought up on a developer's machine
+    When the developer starts the local console
+    Then the local console lists "orders" and "billing"

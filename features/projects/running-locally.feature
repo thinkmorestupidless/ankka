@@ -15,3 +15,8 @@ Feature: Running every service of a project on one machine
     Given "orders" and "billing" running on the developer's machine
     When the developer starts the local console
     Then the local console lists "orders" and "billing"
+
+  Scenario: one service of a project still runs on its own with nothing configured
+    When the developer runs "billing" from its source on their machine with nothing configured
+    Then a request to "billing" is answered
+    And no other service of "shop" is running

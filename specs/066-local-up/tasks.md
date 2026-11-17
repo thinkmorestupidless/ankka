@@ -169,7 +169,7 @@ see it fail.
 - [X] T052 [P] `CLAUDE.md`: the two test commands in the Commands block; `.claude/rules/control-plane.md` (or `web-hosting.md` for the proxy): each item of research's verify-at-implementation list that cost time, dated, and the standing ones (a container's entry is written by the command because every container's pid is 1; `JAVA_TOOL_OPTIONS`, not `JAVA_OPTS`; ports published on the gateway on Linux; the stand-in proves orchestration only)
 - [ ] T053 Quickstart §6 by hand on this Mac (OrbStack), each step and each of the four failures, fixing what it finds
 - [ ] T054 The measurements of quickstart §7, written to `specs/066-local-up/runs/measurements.md` with the date, machine and Docker runtime; a figure missed is asked of the person through the build's question rule, never changed silently
-- [ ] T055 `sbt scalafmtCheckAll`, and the full offline run of quickstart §1 to §5
+- [X] T055 `sbt scalafmtCheckAll`, and the full offline run of quickstart §1 to §5
 
 ---
 

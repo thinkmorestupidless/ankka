@@ -77,3 +77,55 @@ class LocalPlanSuite extends munit.FunSuite:
     assert(problems.exists(_.startsWith("services/orders/service.json: ")), problems)
     assert(problems.exists(_.startsWith("services/billing/service.json: ")), problems)
   }
+
+  private def choices(taken: Set[Int] = Set.empty): LocalState.Choices =
+    var next = 40000
+    var key  = 0
+    LocalState.Choices(
+      isFree = p => !taken(p),
+      freePort = () => { next += 1; next },
+      newKey = () => { key += 1; s"key-$key" }
+    )
+
+  test("a port once chosen is never changed, and what is new is chosen") {
+    val first = LocalState.completed(
+      LocalState(),
+      LocalState.Wanted(Vector("orders")),
+      choices()
+    )
+    assertEquals(first.postgresPort, Some(5432))
+    assertEquals(first.kafkaPort, Some(9092))
+    val second = LocalState.completed(
+      first,
+      LocalState.Wanted(Vector("orders", "billing")),
+      choices(taken = Set(5432, 9092))
+    )
+    assertEquals(second.postgresPort, first.postgresPort)
+    assertEquals(second.observability("orders"), first.observability("orders"))
+    assert(second.observability.contains("billing"))
+    assertEquals(second.secretKeys("orders"), first.secretKeys("orders"))
+  }
+
+  test("a taken 5432 is replaced by a free port, and no two choices are the same") {
+    val state = LocalState.completed(
+      LocalState(),
+      LocalState.Wanted(Vector("orders", "billing"), companionPorts = Map("mail" -> Vector(1025))),
+      choices(taken = Set(5432))
+    )
+    assertNotEquals(state.postgresPort, Some(5432))
+    assertEquals(state.ports.size, 5)
+  }
+
+  test("each service has a secret key of its own") {
+    val state =
+      LocalState.completed(LocalState(), LocalState.Wanted(Vector("orders", "billing")), choices())
+    assertNotEquals(state.secretKeys("orders"), state.secretKeys("billing"))
+    assertEquals(java.util.Base64.getDecoder.decode(LocalState.randomKey()).length, 32)
+  }
+
+  test("the state reads back as it was written") {
+    val root  = java.nio.file.Files.createTempDirectory("state")
+    val state = LocalState.completed(LocalState(), LocalState.Wanted(Vector("orders")), choices())
+    LocalState.write(root, state)
+    assertEquals(LocalState.read(root), state)
+  }

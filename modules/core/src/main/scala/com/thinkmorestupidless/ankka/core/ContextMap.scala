@@ -214,6 +214,12 @@ object ContextMap:
       .toVector
       .sorted
       .map((from, to, by) => s"the crossing from \"$from\" to \"$to\" by \"$by\" is recorded twice")
+    // Feature 066: the topics the crossings name are the ones topics.json declares.
+    val declared = TopicDeclarations.read(root) match
+      case Left(problems)      => problems
+      case Right(declarations) =>
+        declarations.toVector.flatMap(TopicDeclarations.problems(root, _)) ++
+          TopicDeclarations.crossingProblems(map, declarations)
     val rendering         = root.resolve(RenderingName)
     val renderingProblems =
       if !Files.isRegularFile(rendering) then
@@ -222,9 +228,11 @@ object ContextMap:
         Vector(s"$RenderingName is out of step with $FileName; run ankka context-map render")
       else Vector.empty
 
-    project ++ criteria ++ namedTwice ++ withoutDirectory ++ notNamed ++ misnamed ++ unresolved ++
+    // A topic named badly in both files is said once.
+    (project ++ criteria ++ namedTwice ++ withoutDirectory ++ notNamed ++ misnamed ++ unresolved ++
       neither ++
-      both ++ missingSchema ++ notJson ++ contracts ++ topics ++ routes ++ twice ++ renderingProblems
+      both ++ missingSchema ++ notJson ++ contracts ++ topics ++ routes ++ twice ++ declared ++
+      renderingProblems).distinct
 
   // A table cell holds no line break and no unescaped bar.
   private def cell(text: String): String = text.replace("\n", " ").replace("|", "\\|")

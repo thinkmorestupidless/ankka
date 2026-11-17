@@ -1,0 +1,10 @@
+{
+  "topics": [
+    {
+      "name": "{{first}}-events",
+      "partitions": 1,
+      "contract": "{{first}}.v1",
+      "schema": "contracts/{{first}}.v1.json"
+    }
+  ]
+}

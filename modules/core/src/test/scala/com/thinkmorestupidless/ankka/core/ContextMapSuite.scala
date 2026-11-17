@@ -67,9 +67,22 @@ class ContextMapSuite extends munit.FunSuite:
       """{"name":"billing","service":{"image":"billing:1"}}"""
     )
     write(root, "contracts/order.v1.json", """{"type":"object"}""")
+    write(root, TopicDeclarations.FileName, declarationsOf(map))
     write(root, ContextMap.FileName, ContextMap.write(map))
     write(root, ContextMap.RenderingName, ContextMap.render(map))
     root
+
+  /** `topics.json` declaring each topic the map's crossings name, as they name it (feature 066). */
+  private def declarationsOf(map: ContextMap): String =
+    val topics = map.crossings
+      .filter(c => c.topic.isDefined && !c.from.contains('/'))
+      .distinctBy(_.topic)
+      .map { c =>
+        val contract = c.contract.fold("")(n => s""","contract":"$n"""")
+        val schema   = c.schema.fold("")(n => s""","schema":"$n"""")
+        s"""{"name":"${c.topic.get}","partitions":1$contract$schema}"""
+      }
+    s"""{"topics":[${topics.mkString(",")}]}"""
 
   /** The problems of `map` over a project otherwise true of the sample, rendering refreshed. */
   private def problems(map: ContextMap, tweak: Path => Unit = _ => ()): Vector[String] =
@@ -230,14 +243,20 @@ class ContextMapSuite extends munit.FunSuite:
     assertEquals(
       found,
       Vector(
-        "the crossing \"orders-placed\" names the schema contracts/order.v1.json, which does not exist"
+        "the crossing \"orders-placed\" names the schema contracts/order.v1.json, which does not exist",
+        // topics.json declares the topic with the same schema, and is told so too.
+        "the topic \"orders-placed\" names the schema contracts/order.v1.json, which does not exist"
       )
     )
   }
 
   test("a schema that is not JSON") {
     val found = problems(sample, root => write(root, "contracts/order.v1.json", "{ not json"))
-    assertEquals(found.size, 1, found)
+    assertEquals(found.size, 2, found)
+    assertEquals(
+      found(1),
+      "the topic \"orders-placed\" names the schema contracts/order.v1.json, which is not a JSON document"
+    )
     assert(
       found.head.startsWith("the schema contracts/order.v1.json is not a JSON document: "),
       found.head
@@ -248,7 +267,10 @@ class ContextMapSuite extends munit.FunSuite:
     val bad = sample.crossings.head.copy(contract = Some("Order V1"))
     assertEquals(
       problems(crossing(bad)),
-      Vector(s"the contract \"Order V1\" is not a valid contract name: ${Contract.NameRule}")
+      Vector(
+        s"the contract \"Order V1\" is not a valid contract name: ${Contract.NameRule}",
+        s"the topic \"orders-placed\" names the contract \"Order V1\", which is not a valid contract name: ${Contract.NameRule}"
+      )
     )
   }
 
@@ -309,4 +331,89 @@ class ContextMapSuite extends munit.FunSuite:
       ContextMap.topicCrossings(sample, "billing").read.flatMap(_.topic),
       Vector("orders-placed")
     )
+  }
+
+  test("a topic crossing must name a topic topics.json declares") {
+    val found = problems(
+      sample,
+      root =>
+        write(
+          root,
+          TopicDeclarations.FileName,
+          """{"topics":[{"name":"returns","partitions":1}]}"""
+        )
+    )
+    assertEquals(
+      found,
+      Vector(
+        "the crossing from \"orders\" to \"billing\" names the topic \"orders-placed\", which topics.json does not declare"
+      )
+    )
+  }
+
+  test("a topic crossing carries the contract and schema topics.json declares") {
+    val found = problems(
+      sample,
+      root =>
+        write(root, "contracts/order.v2.json", """{"type":"object"}""")
+        write(
+          root,
+          TopicDeclarations.FileName,
+          """{"topics":[{"name":"orders-placed","partitions":1,"contract":"order.v2","schema":"contracts/order.v2.json"}]}"""
+        )
+    )
+    assertEquals(
+      found,
+      Vector(
+        "the crossing from \"orders\" to \"billing\" carries \"order.v1\" on \"orders-placed\", and topics.json declares \"order.v2\""
+      )
+    )
+    val schema = problems(
+      sample,
+      root =>
+        write(root, "contracts/other.json", """{"type":"object"}""")
+        write(
+          root,
+          TopicDeclarations.FileName,
+          """{"topics":[{"name":"orders-placed","partitions":1,"contract":"order.v1","schema":"contracts/other.json"}]}"""
+        )
+    )
+    assertEquals(
+      schema,
+      Vector(
+        "the crossing from \"orders\" to \"billing\" names the schema contracts/order.v1.json for \"orders-placed\", and topics.json names contracts/other.json"
+      )
+    )
+  }
+
+  test("topic crossings and no topics.json is one line") {
+    val found = problems(sample, root => Files.delete(root.resolve(TopicDeclarations.FileName)))
+    assertEquals(
+      found,
+      Vector("shop has topic crossings and no topics.json; declare each topic there")
+    )
+  }
+
+  test("a crossing sent by another project's service is not held to topics.json") {
+    val theirs = ContextMap.Crossing(
+      "bank/ledger",
+      "orders",
+      topic = Some("entries"),
+      contract = Some("entry.v1"),
+      schema = Some("contracts/order.v1.json")
+    )
+    assertEquals(problems(sample.copy(crossings = sample.crossings :+ theirs)), Vector.empty)
+  }
+
+  test("a declared topic no crossing names is no problem") {
+    val found = problems(
+      sample,
+      root =>
+        write(
+          root,
+          TopicDeclarations.FileName,
+          """{"topics":[{"name":"orders-placed","partitions":1,"contract":"order.v1","schema":"contracts/order.v1.json"},{"name":"audit","partitions":3}]}"""
+        )
+    )
+    assertEquals(found, Vector.empty)
   }

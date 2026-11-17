@@ -39,7 +39,8 @@ in `~/.ankka/running`; a schema cache in `~/.ankka/cache`. Nothing new in the pl
 no DDL file added.
 
 **Testing**: `TopicDeclarationsSuite`, `ContextMapSuite` (core); `LocalFileSuite`,
-`LocalPlanSuite`, `LocalCommandSuite`, `DiscoverySuite`, `CliReferenceSuite`, `LocalUpSuite`
+`LocalPlanSuite`, `SchemasSuite`, `BrokerTopicsSuite`, `SourceCommandsSuite`,
+`LocalCommandSuite`, `DiscoverySuite`, `CliReferenceSuite`, `InitSuite`, `LocalUpSuite`
 (Docker, `-Dankka.local.tests`), `ProjectTemplateSuite` (cli);
 `LocalModeSuite` (proxy); `ProxyEnvironmentSuite`, `TopicsApplySuite` (controlPlane);
 `ProjectsDocumentationSuite` (testkit); `just features`, `just docs`, `cli/native-smoke.sh`; the
@@ -74,7 +75,7 @@ container is given must be something they already read.
 **Scale/Scope**: five `local` subcommands, one `projects topics` subcommand, three new problems in
 the context map's check; about ten new source files in `cli/local`, one in `core`, a mode in
 `proxy/Main`; the CLI's resources gain the schema files; the template loses three files and gains
-one; one new page and nine edited; seven suites new and five extended; one CI job.
+one; one new page and nine edited; ten suites new and seven extended; one CI job.
 
 ## Constitution Check
 

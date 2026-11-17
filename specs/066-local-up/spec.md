@@ -253,9 +253,11 @@ topic declarations the refusal asked for are added.
   the image and starts nothing; it does not start the rest.
 - A service's descriptor names an ankka runtime other than the one whose schema the command would
   apply: each service's database is given the schema of that service's own runtime.
-- A service is upgraded to a runtime whose schema differs from what its database holds: the
-  command says so, naming the service, and what removes that service's database; it does not
-  remove it itself.
+- A service is moved to a newer runtime of the same major version, whose schema only adds to
+  what its database holds: the command applies what is new and says so, naming the service.
+- A service is moved to a runtime whose schema its database cannot be brought to by adding to
+  it (an older runtime, or another major version): the command says so, naming the service, and
+  what removes that service's database; it does not remove it itself.
 - The project is up and a service is added to the context map: the next `ankka local up` gives it
   a database and starts it, and restarts nothing else.
 - The project is up and a service is removed from the context map: the next `ankka local up` stops

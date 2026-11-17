@@ -471,3 +471,7 @@ which default command runs each language from its source.
 - Building images from `local up`: FR-034. The page says `sbt Docker/publishLocal` (or the
   service's own build) comes first, and a missing image is the refusal that names it.
 - Telemetry containers: the spec's assumption; the console is the telemetry.
+
+## Design finished
+
+2026-11-17: analyze reported nothing above LOW.

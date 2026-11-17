@@ -23,8 +23,9 @@ started); `LocalCommandSuite` holds what is printed and that no local value is.
 sbt -Dankka.cluster.tests=off -Dankka.template.tests=off -Dankka.local.tests=on 'cli/testOnly *LocalUpSuite'
 ```
 
-Expected: every scenario of `local-up.feature` (but the two about a service run from its source),
-`local-topics.feature` and `local-companions.feature` as a test of its name, green, and no
+Expected: every scenario of `local-up.feature`, `local-topics.feature` and
+`local-companions.feature` as a test of its name (the two about a service run from its source
+with the stand-in run on the host; the real runtime's half is §3), green, and no
 container, network or volume named `ankka-shop-*` left when the suite ends. With Docker stopped
 the same command fails, naming Docker; it does not skip.
 

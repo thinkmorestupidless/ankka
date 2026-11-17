@@ -143,6 +143,15 @@ class TopicsApplySuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("a topic compacted by its cleanup policy alone is unchanged on a second run") {
+    val p    = project()
+    val root = topics("""{"topics":[{"name":"cart-deltas","partitions":3,"cleanup":"compact"}]}""")
+    assertEquals(apply(root, p)._2.linesIterator.toVector, Vector("cart-deltas: declared"))
+    val (again, out, err) = apply(root, p)
+    assertEquals(again, 0, err)
+    assertEquals(out.linesIterator.toVector, Vector("cart-deltas: unchanged"))
+  }
+
   test("fewer partitions for one is refused naming it, and the other stays declared") {
     val p = project()
     assertEquals(apply(topics(Two), p)._1, 0)

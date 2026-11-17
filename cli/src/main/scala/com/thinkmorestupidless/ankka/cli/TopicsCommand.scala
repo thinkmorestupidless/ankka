@@ -166,5 +166,7 @@ object TopicsCommand:
         same(request.maxCompactionLag, view.map(_.maxCompactionLag), CompactionLag.parse) &&
         request.copies.forall(c => view.flatMap(_.copies).contains(c)) &&
         request.minInSync.forall(c => view.flatMap(_.minInSync).contains(c))
-    request.partitions.contains(listed.partitions) && request.compacted == listed.compacted &&
-    contract && settings
+    // `compacted` is the short form of `cleanup: compact`; once `cleanup` is given it says the
+    // compaction, and `same` compares it.
+    val compaction = request.cleanup.isDefined || request.compacted == listed.compacted
+    request.partitions.contains(listed.partitions) && compaction && contract && settings

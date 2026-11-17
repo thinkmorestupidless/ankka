@@ -30,7 +30,7 @@ object {{Service}}Service:
   /**
    * Runs the service until it is stopped. It starts under its own name, which is how the local console
    * lists it and how another service of the project finds it. `ProjectionRuntime.fromEnv()` reads the
-   * broker from the environment: `scripts/run.sh {{service}}` names the project's Kafka, and a deployed
+   * broker from the environment: `ankka local up` names the project's Kafka, and a deployed
    * service is told of the installation's.
    */
   def start(): Unit =

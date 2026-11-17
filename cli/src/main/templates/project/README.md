@@ -16,18 +16,25 @@ each service owns, why each boundary is where it is, and every crossing between 
 
 ## Run it
 
-Docker, a JDK 21 and sbt are needed.
+Docker with Compose v2, a JDK 21, sbt and the `ankka` CLI are needed.
 
 ```bash
-docker compose up -d          # one Postgres and one Kafka for every service
-sbt schema                    # ankka's schema, which scripts/run.sh applies to each service's database
-scripts/run.sh {{first}}             # in one terminal
-scripts/run.sh {{second}}            # in another
+sbt Docker/publishLocal       # every service's image
+ankka local up                # the database server, the broker, each service's database, the topics, every service
 ankka local console           # every service the project runs, and the calls between them
+ankka local down              # stop it all; add --volumes to remove what the services recorded
+```
+
+To change one service and run it from its source among the others:
+
+```bash
+ankka local up --without {{second}}
+ankka local run {{second}}           # in the foreground, found by name by the services already up
 ```
 
 Each service runs on the port its `service.json` names, in its own database, under its own name, so
-the others find it by that name.
+the others find it by that name. The topics the services share are declared in `topics.json`; values
+a service needs on this machine go in `local.json`.
 
 ## Test it
 

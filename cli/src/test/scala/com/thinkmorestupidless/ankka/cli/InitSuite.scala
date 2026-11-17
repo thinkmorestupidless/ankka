@@ -355,7 +355,11 @@ class InitSuite extends munit.FunSuite:
     val map = com.thinkmorestupidless.ankka.core.ContextMap.read(root).toOption.get
     assertEquals(map.services.map(_.name), Vector("orders", "billing", "stock"))
     assertEquals(com.thinkmorestupidless.ankka.core.ContextMap.check(root, map), Vector.empty)
-    assert(Files.isExecutable(root.resolve("scripts/run.sh")))
+    // The project is brought up by `ankka local up`: it declares its topics and holds no compose
+    // file or run script of its own.
+    assert(Files.isRegularFile(root.resolve("topics.json")))
+    for gone <- Vector("docker-compose.yml", "scripts/run.sh", "scripts/databases.sh") do
+      assert(!Files.exists(root.resolve(gone)), gone)
     assert(
       Files.isRegularFile(
         root.resolve("shared/src/main/scala/com/example/shop/contracts/OrdersV1.scala")
@@ -391,6 +395,7 @@ class InitSuite extends munit.FunSuite:
     "a service added inside a project gets the next port and an entry in the map, and nothing else"
   ) {
     val root   = started()
+    val topics = Files.readString(root.resolve("topics.json"))
     val before = Files.walk(root).iterator().asScala.map(root.relativize(_).toString).toSet
     val (code, out, err) = cli("init", "stock", "--dir", root.toString)
     assertEquals(code, 0, err)
@@ -401,21 +406,18 @@ class InitSuite extends munit.FunSuite:
     assert(Files.readString(root.resolve("services/stock/service.json")).contains("\"port\": 9002"))
     assert(Files.readString(root.resolve("context-map.json")).contains("\"stock\""))
     assert(Files.readString(root.resolve("CONTEXT-MAP.md")).contains("| stock |"))
+    assertEquals(Files.readString(root.resolve("topics.json")), topics)
+    assert(out.contains("ankka local run stock"), out)
   }
 
-  test(
-    "a python service inside a project keeps a compose file of its own, on the project's database and broker"
-  ) {
-    val root           = started()
-    val (code, _, err) = cli("init", "stock", "--language", "python", "--dir", root.toString)
+  test("a python service inside a project has no compose file of its own; the project runs it") {
+    val root             = started()
+    val (code, out, err) = cli("init", "stock", "--language", "python", "--dir", root.toString)
     assertEquals(code, 0, err)
     val service = root.resolve("services/stock")
-    val compose = Files.readString(service.resolve("docker-compose.yml"))
-    assert(!compose.contains("postgres:"), compose)
-    assert(compose.contains("ANKKA_DB_HOST: host.docker.internal"), compose)
-    assert(compose.contains("ANKKA_DB_NAME: stock"), compose)
-    assert(compose.contains("ANKKA_KAFKA_BOOTSTRAP_SERVERS: host.docker.internal:9094"), compose)
-    assert(compose.contains("\"9002:9002\""), compose)
+    assert(!Files.exists(service.resolve("docker-compose.yml")))
+    assert(Files.readString(service.resolve("service.json")).contains("\"port\": 9002"))
+    assert(out.contains("ankka local run stock"), out)
     for owned <- Vector(".github", ".githooks", ".claude", ".mcp.json") do
       assert(!Files.exists(service.resolve(owned)), owned)
     assert(!Files.readString(service.resolve("README.md")).contains("## Deploy"))
@@ -439,32 +441,6 @@ class InitSuite extends munit.FunSuite:
       Files.readString(root.resolve("services/shopfront/test/api.test.ts")).contains("backend")
     )
     assert(out.contains("mounts the project's first service"), out)
-  }
-
-  test(
-    "two process services in one project listen on different ports, each dialled by its sidecar"
-  ) {
-    val root = started()
-    assertEquals(Projects.nextProcessPort(root), 9010)
-    for (name, language) <- Vector("stock" -> "python", "pricing" -> "typescript") do
-      val (code, _, err) = cli("init", name, "--language", language, "--dir", root.toString)
-      assertEquals(code, 0, err)
-    val stock   = Files.readString(root.resolve("services/stock/docker-compose.yml"))
-    val pricing = Files.readString(root.resolve("services/pricing/docker-compose.yml"))
-    assert(stock.contains("ANKKA_PROCESS_ADDRESS: host.docker.internal:9010"), stock)
-    assert(stock.contains("\"127.0.0.1:9011:9011\""), stock)
-    assert(pricing.contains("ANKKA_PROCESS_ADDRESS: host.docker.internal:9012"), pricing)
-    assert(pricing.contains("\"127.0.0.1:9013:9011\""), pricing)
-    assert(!pricing.contains("9010"), pricing)
-    assertEquals(Projects.nextProcessPort(root), 9014)
-    assert(
-      Files
-        .readString(root.resolve("services/pricing/README.md"))
-        .contains("ANKKA_PROCESS_PORT=9012")
-    )
-    // run.sh exports the port the compose file names, before it starts the process.
-    val run = Files.readString(root.resolve("scripts/run.sh"))
-    assert(run.contains("ANKKA_PROCESS_ADDRESS") && run.contains("export ANKKA_PROCESS_PORT"), run)
   }
 
   test(
@@ -523,17 +499,16 @@ class InitSuite extends munit.FunSuite:
     val steps = Projects.startSteps(
       java.nio.file.Path.of("/x/shop"),
       "shop",
-      "orders",
       Projects.Specify.Skipped
     )
     assert(
       steps.contains(
-        "  cd shop\n  specify init --here --ai claude --ai-skills\n  docker compose up -d"
+        "  cd shop\n  specify init --here --ai claude --ai-skills\n  sbt Docker/publishLocal\n  ankka local up"
       ),
       steps
     )
     val ran =
-      Projects.startSteps(java.nio.file.Path.of("/x/shop"), "shop", "orders", Projects.Specify.Ran)
+      Projects.startSteps(java.nio.file.Path.of("/x/shop"), "shop", Projects.Specify.Ran)
     assert(!ran.contains("specify"), ran)
     assert(ran.contains("ankka context-map check"), ran)
   }

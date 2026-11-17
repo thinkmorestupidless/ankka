@@ -1659,7 +1659,6 @@ object Main:
         Projects.startSteps(
           target.toAbsolutePath.normalize,
           name,
-          names.head,
           Projects.specify(target)
         )
       else if services.nonEmpty then

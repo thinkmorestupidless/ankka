@@ -312,3 +312,32 @@ may call) and reads each service's completion from it. Its routes are `/projects
   "every service the keyring knows" is then satisfied by the kit alone. Name the services a request
   waits on (`TestKeyringAdmin`'s connected list, a descriptor declaring `"personal": true`) and filter
   the kit's own out of assertions on completions.
+
+## A project on one machine
+
+Feature 066. `ankka local up` (`cli/local/`) renders one compose document from the context map, the
+descriptors, `topics.json` and `local.json` (`LocalPlan.of`, pure), and every Docker call goes through the
+`Engine` seam, so `LocalCommandSuite` drives the whole command against `ScriptedEngine` and only
+`LocalUpSuite` needs Docker.
+
+- **A container's console entry is written by the command, not the service** (2026-11-17). Every
+  container's pid is 1 and its `~/.ankka/running` is not the machine's, so the command writes
+  `<project>.<service>.json` with `"owner":"ankka local up"` once the service is ready, and
+  `LocalSource` keeps an owned entry that does not answer rather than deleting it.
+- **`JAVA_TOOL_OPTIONS`, not `JAVA_OPTS`**, carries `-Dankka.local-services.<name>` into a container:
+  every JVM reads it, whatever its start script.
+- **On Linux a published port is reached at `host.docker.internal` only through `host-gateway`**, so
+  every service and companion carries that extra host.
+- **The stand-in proves orchestration only.** `Standin.java` is a JDK HTTP server; that the runtime
+  itself finds the services is `ProjectTemplateSuite`'s, on a rendered project.
+- **A free-port check binds with `SO_REUSEADDR`, on both `0.0.0.0` and `127.0.0.1`** (2026-11-17). Down
+  then up found a just-freed port "in use" from its TIME_WAIT connections; a listener on loopback alone
+  was missed by a bind on the wildcard address.
+- **A descriptor's `ANKKA_DB_` and `ANKKA_KAFKA_` variables are an installation's only** (2026-11-17).
+  Locally they are dropped, with a notice; the local broker's `ANKKA_KAFKA_` variables go to a process
+  service's sidecar and its process both, and the first version gave the process none.
+- **`sbt --client -D…` does not reach the server's JVM** (2026-11-17), so `-Dankka.local.tests=on` from a
+  client is a silent no-op. In a client session, `set cli / Test / javaOptions += "-Dankka.local.tests=on"`.
+- **A Docker short of disk fails the suite as a service that never became ready** (2026-11-17), and the
+  next case then finds the last one's ports held. Read two such failures in a row as the machine's.
+

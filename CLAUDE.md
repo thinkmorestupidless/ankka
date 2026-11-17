@@ -74,6 +74,9 @@ GRAALVM_HOME=... sbt cli/GraalVMNativeImage/packageBin   # the CLI as one execut
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
 sbt proxyCore/test proxy/test     # a web-hosted service's proxy: rules and engine (JDK only), then TLS
 sbt -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'   # `ankka init --language web`; needs node, npm
+sbt 'cli/testOnly *LocalPlanSuite *LocalCommandSuite'   # `ankka local up`, `run`, `status`, `logs` against a scripted engine
+sbt -Dankka.local.tests=on 'cli/testOnly *LocalUpSuite'   # `ankka local up` against Docker (~30 min); build
+                                   # sidecar/Docker/publishLocal and proxy/Docker/publishLocal first
 caffeinate -i sbt 'set controlPlane / Test / logBuffered := false' 'controlPlane/testOnly *BrokerKeptFeatures'
                                    # features/broker on k3s, one suite per file (Broker<File>Features):
                                    # Strimzi, one Kafka, real carts, a probe holding a service's certificate

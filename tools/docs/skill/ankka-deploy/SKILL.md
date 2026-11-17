@@ -22,6 +22,7 @@ pages:
   - deploy/scaling-and-rollouts.md
   - deploy/ci.md
   - build/projects.md
+  - build/local-projects.md
   - deploy/upgrading.md
   - operate/local-console.md
   - operate/status-and-history.md

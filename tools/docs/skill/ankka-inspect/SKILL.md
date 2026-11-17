@@ -9,6 +9,7 @@ pages:
   - build/testing.md
   - concepts/projects.md
   - build/projects.md
+  - build/local-projects.md
 ---
 
 # Inspecting a running service against its specification

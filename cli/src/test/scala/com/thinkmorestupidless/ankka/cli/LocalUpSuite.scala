@@ -563,3 +563,67 @@ class LocalUpSuite extends munit.FunSuite:
       assert(body.contains("\"orders\"") && body.contains("\"billing\""), body)
     finally console.stop()
   }
+
+  // ── the other hostings (research R10) ─────────────────────────────────────
+
+  /**
+   * `image` on the machine, or the case is skipped saying why; never skipped in CI with the local
+   * tests on, where a skip would pass a job that ran nothing.
+   */
+  private def requireImage(image: String): Unit =
+    val present = docker("image", "inspect", image)._1 == 0
+    if !present && sys.props.get("ankka.local.tests").contains("on") && sys.env.contains("CI") then
+      fail(s"$image is not on the machine; build it before the local tests")
+    assume(present, s"$image is not on the machine; build it with sbt Docker/publishLocal")
+
+  /** A project of the orders stand-in and one other service, `extra` its descriptor's hosting. */
+  private def hostedShop(other: String, extra: String, crossings: Vector[String]): Shop =
+    val orders = freePort()
+    val port   = freePort()
+    val root   = LocalFixtures.project(
+      Vector(
+        LocalFixtures.Service("orders", orders, image = tag),
+        LocalFixtures.Service(other, port, image = billingTag, extra = extra)
+      ),
+      crossings = crossings,
+      root = Files.createDirectories(home.resolve(s"shop-$other"))
+    )
+    Shop(root, orders, port)
+
+  test("a process-hosted service is its sidecar and its process, in one network namespace") {
+    requireImage("ankka-sidecar:latest")
+    // The stand-in as the process: it speaks no protocol, so the sidecar is never ready, and what
+    // is proved is what the command composes, not the runtime's half.
+    shop = hostedShop(
+      "billing",
+      ""","hosting":"process","protocol":"1.0"""",
+      Vector("""{"from":"orders","to":"billing","route":"POST /invoices"}""")
+    )
+    // The bound covers the database server's first start too, and the sidecar is never ready.
+    val (_, out, err) = up("--timeout", "90s")
+    val ids           = containers()
+    assert(ids.contains("billing") && ids.contains("billing-app"), out + err + ids)
+    val (_, mode) =
+      docker("inspect", "-f", "{{.HostConfig.NetworkMode}}", ids("billing-app"))
+    val (_, sidecarId) = docker("inspect", "-f", "{{.Id}}", ids("billing"))
+    assertEquals(mode.trim, s"container:${sidecarId.trim}")
+    // The sidecar's schema is in its database, made by the command from the sidecar's own files.
+    assertEquals(
+      psql(
+        "billing",
+        "select count(*) from information_schema.tables where table_name = 'event_journal'"
+      ),
+      "1"
+    )
+  }
+
+  test("a web-hosted service's proxy serves a mount to the service it names") {
+    requireImage("ankka-proxy:latest")
+    shop = hostedShop(
+      "front",
+      ""","hosting":"web","processPort":8080,"mounts":[{"path":"/api","service":"orders"}]""",
+      Vector("""{"from":"front","to":"orders","route":"GET /env/{name}"}""")
+    )
+    upOk(): Unit
+    assertEquals(get(shop.billing, "/api/env/ANKKA_SERVICE_NAME"), (200, "orders"))
+  }

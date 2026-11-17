@@ -232,9 +232,45 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
       "build/projects.md",
       page("build/projects.md"),
       "## Run every service on one machine",
-      "scripts/run.sh orders",
-      "a call to another service by name reaches the address that service announced",
-      "services find each other whether or not `ankka local console` is running"
+      "ankka local up # one database server, one broker, the project's topics, every service",
+      "The services find each other by name."
+    )
+    says(
+      "deploy/run-locally.md",
+      page("deploy/run-locally.md"),
+      "A call to another service by name reaches the address that service announced",
+      "whether or not `ankka local console` is running"
+    )
+  }
+
+  test(
+    "the documentation says how to bring a project up on one machine, what the command reads and what it does not stand in for"
+  ) {
+    val text = page("build/local-projects.md")
+    // it says how to bring a project up and down with one command
+    says(
+      "build/local-projects.md",
+      text,
+      "ankka local up # everything",
+      "ankka local down # stop it all"
+    )
+    // it says that the command reads the context map, each descriptor, the topic declarations, the
+    // local values and each companion
+    says(
+      "build/local-projects.md",
+      text,
+      "| `context-map.json` |",
+      "| `services/<name>/service.json` |",
+      "| `topics.json` | the topics the project's services share |",
+      "| `local.json` | what is true only on a developer's machine: values, commands, companions |",
+      "**Companions** are the containers a project needs beside its services"
+    )
+    // it says that a project brought up this way gives no service an identity and rolls nothing out
+    says(
+      "build/local-projects.md",
+      text,
+      "a service has no identity and no certificate;",
+      "nothing is rolled out, rolled back or scaled."
     )
   }
 
@@ -421,23 +457,22 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
   test(
     "every service of a project runs on one machine with nothing configured, and each finds the others"
   ) {
-    val run = read(s"$template/scripts/run.sh")
-    assert(
-      run.contains("""export ANKKA_DB_NAME="$service""""),
-      "each service is not given its own database"
+    // What the command does with them is ProjectTemplateSuite's; here, that the template holds
+    // what the command reads and says how to run it.
+    val readme = read(s"$template/README.md").replaceAll("\\s+", " ")
+    says(
+      s"$template/README.md",
+      readme,
+      "ankka local up # the database server, the broker, each service's database, the topics, every service"
     )
     assert(
-      run.contains("""export ANKKA_HTTP_PORT="${port:-9000}""""),
-      "the port is not the descriptor's"
+      read(s"$template/topics.json").contains("\"{{first}}-events\""),
+      "topics.json declares no topic"
     )
-    assert(
-      run.contains("""export ANKKA_SERVICE_NAME="$service""""),
-      "the service is not run under its name"
-    )
-    val compose = read(s"$template/docker-compose.yml")
-    assert(
-      compose.contains("postgres:") && compose.contains("apache/kafka:"),
-      "the compose file lacks Postgres or Kafka"
+    says(
+      "build/local-projects.md",
+      page("build/local-projects.md"),
+      "Each service answers on the port its `service.json` names, and finds the others by name."
     )
     says(
       "deploy/run-locally.md",
@@ -452,12 +487,35 @@ class ProjectsDocumentationSuite extends munit.FunSuite:
     )
   }
 
+  test("one service of a project still runs on its own with nothing configured") {
+    says(
+      "build/local-projects.md",
+      page("build/local-projects.md"),
+      "ankka local up --without billing ankka local run billing",
+      "gives the service the same name, port, database and values it has as a container"
+    )
+    says(s"$template/README.md", read(s"$template/README.md"), "ankka local run {{second}}")
+  }
+
+  test("a project made from the template is brought up with one command and nothing else") {
+    for gone <- Vector("docker-compose.yml", "scripts/run.sh", "scripts/databases.sh") do
+      assert(!Files.exists(root.resolve(s"$template/$gone")), s"the template still holds $gone")
+    val readme = read(s"$template/README.md")
+    val run    = readme.substring(readme.indexOf("## Run it"))
+    val first  = run.linesIterator.find(l => l.startsWith("ankka ")).getOrElse("")
+    assert(first.startsWith("ankka local up"), s"the README's first command is: $first")
+  }
+
   test("the local console lists every service of a running project") {
     says(
       "build/projects.md",
       page("build/projects.md"),
-      "ankka local console # every running service, and the calls between them",
-      "the console only reads the same files to list them"
+      "ankka local console # every running service, and the calls between them"
+    )
+    says(
+      "operate/local-console.md",
+      page("operate/local-console.md"),
+      "`ankka local up` writes each container's entry itself once the service is ready"
     )
   }
 

@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.cli.local
 
-import com.thinkmorestupidless.ankka.controlplane.api.{InstanceType, ServiceDescriptor}
+import com.thinkmorestupidless.ankka.controlplane.api.{InstanceType, ServiceDescriptor, ServiceSpec}
 import com.thinkmorestupidless.ankka.core.PlatformVariables
 
 import scala.collection.immutable.ListMap
@@ -27,8 +27,13 @@ final case class LocalPlan(
     /** Each service container's environment, kept for a suite to assert; never printed. */
     environment: Map[String, ListMap[String, String]],
     /** Each companion started, and the selected services that wait for it. */
-    neededBy: Map[String, Vector[String]] = Map.empty
-)
+    neededBy: Map[String, Vector[String]] = Map.empty,
+    /** The compose services each selected service is, in the order they are brought up. */
+    containers: Map[String, Vector[String]] = Map.empty
+):
+  /** The compose services `names` are. */
+  def containersOf(names: Vector[String]): Vector[String] =
+    names.flatMap(n => containers.getOrElse(n, Vector(n)))
 
 object LocalPlan:
 
@@ -118,15 +123,12 @@ object LocalPlan:
     if refused.nonEmpty then Left(refused)
     else
       selection match
-        case Selection.ForRun(_) =>
+        case Selection.ForRun(name) =>
           // What the service needs and nothing else (research R12): its database, the topics and
-          // its companions; the service itself runs on the host, so no container is brought up.
+          // its companions. What of the service is the platform's runs as a container still: a
+          // process's sidecar, a module's runtime; the developer's own code runs on the host.
           build(project, selected, Vector.empty, state, machine).map(plan =>
-            plan.copy(
-              services = Vector.empty,
-              entries = Vector.empty,
-              ready = plan.ready.filter((n, _) => plan.companions.contains(n))
-            )
+            forRun(project, name, state, machine, plan)
           )
         case _ => build(project, selected, leftOut, state, machine)
 
@@ -210,7 +212,30 @@ object LocalPlan:
 
   /** What a plan of `project` needs chosen: every service, and each companion's unnamed ports. */
   def wanted(project: LocalProject): LocalState.Wanted =
-    LocalState.Wanted(project.services, companionPorts = Companions.unnamedPorts(project))
+    LocalState.Wanted(
+      project.services,
+      // A process service run from its source listens on a port of the host's, and its sidecar
+      // calls back on another; both are chosen once, as every other port is.
+      processServices = project.services
+        .filter(n => project.descriptor(n).service.isProcessHosted)
+        .flatMap(n => Vector(n, sidecarKey(n))),
+      companionPorts = Companions.unnamedPorts(project)
+    )
+
+  /** The key of a process service's sidecar's host port in `state.json`'s process ports. */
+  def sidecarKey(name: String): String = s"$name-sidecar"
+
+  /** Where `cargo module` writes a Rust service's module, as the Rust template's build says. */
+  def builtModule(project: LocalProject, name: String): java.nio.file.Path =
+    val dir   = project.root.resolve("services").resolve(name)
+    val crate = scala.util
+      .Try(
+        java.nio.file.Files.readAllLines(dir.resolve("Cargo.toml")).toArray.toVector.map(_.toString)
+      )
+      .toOption
+      .flatMap(_.collectFirst { case s"name = \"$n\"" => n })
+      .getOrElse(name)
+    dir.resolve(s"target/wasm32-unknown-unknown/release/${crate.replace('-', '_')}.wasm")
 
   /** The names the command line gives its own containers. */
   val Reserved: Set[String] = Set(Postgres, Kafka)
@@ -247,20 +272,8 @@ object LocalPlan:
     // removes a service the document does not name as an orphan, and one left out is not that.
     val environments =
       project.services.map(name => name -> environment(project, name, state)).toMap
-    val services = ListMap.from(project.services.map { name =>
-      val spec = project.descriptor(name).service
-      name -> Compose.Service(
-        image = spec.image,
-        environment = environments(name),
-        ports = published(machine, servicePorts(project.descriptor(name))) ++
-          published(machine, Vector(state.observability(name) -> ObservabilityPort)),
-        dependsOn = ListMap(
-          Postgres -> Compose.Dependency(Compose.Healthy),
-          Kafka    -> Compose.Dependency(Compose.Healthy)
-        ),
-        extraHosts = Vector(Compose.HostGateway),
-        memLimit = Some(memory(project.descriptor(name)))
-      )
+    val services = ListMap.from(project.services.flatMap { name =>
+      containers(project, name, state, machine, environments(name))
     })
     // Every companion is in the document too, for the reason every service is.
     val companionServices = ListMap.from(project.local.companions.distinctBy(_.name).map { c =>
@@ -273,20 +286,30 @@ object LocalPlan:
         Postgres -> postgres(machine, state),
         Kafka    -> kafka(machine, state)
       ) ++ companionServices ++ services,
-      ListMap("pgdata" -> Compose.Volume(), "kafkadata" -> Compose.Volume())
+      ListMap("pgdata" -> Compose.Volume(), "kafkadata" -> Compose.Volume()) ++
+        ListMap.from(
+          project.services
+            .filter(n => project.descriptor(n).service.hosting == ServiceSpec.Wasm)
+            .map(n => moduleVolume(n) -> Compose.Volume())
+        )
     )
     val databases = selected.collect {
-      case name if !project.descriptor(name).service.hasNoDatabase =>
+      case name if hasDatabase(project.descriptor(name)) =>
         Database(name, project.descriptor(name).service.runtime)
     } ++ needed.filter(_.database).map(c => Database(c.name, None, schema = false))
     val ready = selected.map { name =>
-      name -> ReadyCheck.Observability(
-        s"http://127.0.0.1:${state.observability(name)}/observability/service",
-        project.descriptor(name).service.http
-      )
+      val spec = project.descriptor(name).service
+      // A web-hosted service's proxy has no runtime to ask: it is ready when its port answers.
+      if spec.isWebHosted then name -> ReadyCheck.Port(spec.port)
+      else
+        name -> ReadyCheck.Observability(
+          s"http://127.0.0.1:${state.observability(name)}/observability/service",
+          spec.http
+        )
     }.toMap ++ needed.flatMap(c => Companions.ready(c, state).map(c.name -> _))
-    val entries =
-      selected.map(name => ConsoleEntry(name, s"http://127.0.0.1:${state.observability(name)}"))
+    val entries = selected
+      .filterNot(name => project.descriptor(name).service.isWebHosted)
+      .map(name => ConsoleEntry(name, s"http://127.0.0.1:${state.observability(name)}"))
     Right(
       LocalPlan(
         project = project.name,
@@ -301,9 +324,58 @@ object LocalPlan:
         leftOut = leftOut,
         notices = elsewhere ++ droppedNotice,
         environment = environments,
+        containers = selected.map(n => n -> containerNames(project.descriptor(n))).toMap,
         neededBy = needed.map(c => c.name -> selected.filter(c.needed)).toMap
       )
     )
+
+  private def forRun(
+      project: LocalProject,
+      name: String,
+      state: LocalState,
+      machine: Machine,
+      plan: LocalPlan
+  ): LocalPlan =
+    val spec      = project.descriptor(name).service
+    val companion = plan.ready.filter((n, _) => plan.companions.contains(n))
+    val none      = plan.copy(services = Vector.empty, entries = Vector.empty, ready = companion)
+    spec.hosting match
+      case ServiceSpec.Process =>
+        // The sidecar dials the process on the host and is called back on a port of its own. It is
+        // not waited for: it is ready only once the process it waits for has started.
+        val sidecar = plan.compose.services(name)
+        val process = state.processPorts(name)
+        val back    = state.processPorts(sidecarKey(name))
+        val running = sidecar.copy(
+          environment = sidecar.environment ++ ListMap(
+            "ANKKA_PROCESS_ADDRESS" -> s"$HostAddress:$process",
+            "ANKKA_SIDECAR_BIND"    -> "0.0.0.0",
+            "ANKKA_SIDECAR_PORT"    -> SidecarPort.toString
+          ),
+          ports = sidecar.ports ++ published(machine, Vector(back -> SidecarPort))
+        )
+        val key = sidecarKey(name)
+        none.copy(
+          compose = plan.compose.copy(services = plan.compose.services + (key -> running)),
+          services = Vector(name),
+          containers = Map(name -> Vector(key)),
+          entries = plan.entries.filter(_.name == name)
+        )
+      case ServiceSpec.Wasm =>
+        // The module `cargo module` built, bound read-only where the runtime loads one from.
+        val runtime = plan.compose.services(name)
+        val loaded  = runtime.copy(
+          volumes = Vector(s"${builtModule(project, name).toAbsolutePath}:$ModuleFile:ro"),
+          dependsOn = runtime.dependsOn - s"$name-module"
+        )
+        none.copy(
+          compose = plan.compose.copy(services = plan.compose.services + (name -> loaded)),
+          services = Vector(name),
+          containers = Map(name -> Vector(name)),
+          ready = companion ++ plan.ready.get(name).map(name -> _),
+          entries = plan.entries.filter(_.name == name)
+        )
+      case _ => none
 
   /** A descriptor's variables that are written out, in its order. */
   private def literals(descriptor: ServiceDescriptor): ListMap[String, String] =
@@ -340,17 +412,12 @@ object LocalPlan:
   ): ListMap[String, String] =
     val descriptor = project.descriptor(name)
     val spec       = descriptor.service
-    // Where the service runs decides every address it is given: a container reaches the database
-    // server and the broker by their names, a process on the host by what the command published.
-    val reach = if onHost then "localhost" else HostAddress
-    // The descriptor's literals, then the local values over them (research R9).
-    val local = project.local
-      .valuesFor(name)
-      .map((k, v) => k -> LocalFile.fill(v, Companions.forService(project, state, reach)))
-    val declared = (literals(descriptor) ++ local)
-      .filterNot((k, _) => LocalVariables.isInstallationOnly(k))
+    // The descriptor's literals, then the local values over them (research R9). Where the service
+    // runs decides every address it is given: a container reaches the database server and the
+    // broker by their names, a process on the host by what the command published.
+    val declared = declaredValues(project, name, state, onHost)
     val database =
-      if spec.hasNoDatabase then ListMap("ANKKA_DATABASE" -> "none")
+      if !hasDatabase(descriptor) then ListMap("ANKKA_DATABASE" -> "none")
       else
         ListMap(
           "ANKKA_DB_HOST" -> (if onHost then "localhost" else Postgres),
@@ -386,6 +453,172 @@ object LocalPlan:
     if tool.isEmpty then base else base + (JavaToolOptions -> tool)
 
   val JavaToolOptions: String = "JAVA_TOOL_OPTIONS"
+
+  /** A web-hosted service has no database on an installation, and has none here either. */
+  private def hasDatabase(descriptor: ServiceDescriptor): Boolean =
+    !descriptor.service.hasNoDatabase && !descriptor.service.isWebHosted
+
+  /** The compose services a service is (contracts/local-project.md), in the order they start. */
+  private def containerNames(descriptor: ServiceDescriptor): Vector[String] =
+    val name = descriptor.name
+    descriptor.service.hosting match
+      case ServiceSpec.Process | ServiceSpec.Web => Vector(name, s"$name-app")
+      case ServiceSpec.Wasm                      => Vector(s"$name-module", name)
+      case _                                     => Vector(name)
+
+  private def moduleVolume(name: String): String = s"$name-module"
+
+  /** The pod's loopback ports between a sidecar and its process, the operator's. */
+  val ProcessPort: Int = 9010
+  val SidecarPort: Int = 9011
+
+  /** Where a module is written by its image and loaded from by the runtime, the operator's. */
+  val ModuleMount: String = "/ankka/module"
+  val ModuleFile: String  = s"$ModuleMount/service.wasm"
+
+  /** The proxy's local listener for its program's calls, the operator's calling port. */
+  val CallingPort: Int = 7630
+
+  /** Each compose service of `name`, as the operator composes its pod (research R10). */
+  private def containers(
+      project: LocalProject,
+      name: String,
+      state: LocalState,
+      machine: Machine,
+      environment: ListMap[String, String]
+  ): Vector[(String, Compose.Service)] =
+    val descriptor = project.descriptor(name)
+    val spec       = descriptor.service
+    val runtime    = Compose.Service(
+      image = spec.image,
+      environment = environment,
+      ports = published(machine, servicePorts(descriptor)) ++
+        published(machine, Vector(state.observability(name) -> ObservabilityPort)),
+      dependsOn = ListMap(
+        Postgres -> Compose.Dependency(Compose.Healthy),
+        Kafka    -> Compose.Dependency(Compose.Healthy)
+      ),
+      extraHosts = Vector(Compose.HostGateway),
+      memLimit = Some(memory(descriptor))
+    )
+    val sidecar =
+      Schemas.sidecarImage(spec.runtime.getOrElse(machine.cliVersion), machine.sidecarImage)
+    spec.hosting match
+      case ServiceSpec.Process =>
+        // The descriptor's own variables are split as the operator splits them: the platform's
+        // program's to the sidecar, the broker's to both, everything else to the process.
+        val declared               = declaredValues(project, name, state, onHost = false)
+        def processOnly(k: String) = declared.contains(k) && !PlatformVariables.runtimeOnly(k)
+        val forSidecar             =
+          environment.filterNot((k, _) => processOnly(k) && !PlatformVariables.shared(k))
+        val forProcess = environment.filter((k, _) => PlatformVariables.shared(k)) ++
+          declared.filter((k, _) => !PlatformVariables.runtimeOnly(k))
+        Vector(
+          name -> runtime.copy(
+            image = sidecar,
+            environment = forSidecar ++ ListMap(
+              "ANKKA_PROCESS_ADDRESS" -> s"127.0.0.1:$ProcessPort",
+              "ANKKA_SIDECAR_PORT"    -> SidecarPort.toString
+            )
+          ),
+          s"$name-app" -> Compose.Service(
+            image = spec.image,
+            environment = forProcess ++ ListMap(
+              "ANKKA_PROCESS_PORT"    -> ProcessPort.toString,
+              "ANKKA_SIDECAR_ADDRESS" -> s"127.0.0.1:$SidecarPort"
+            ),
+            networkMode = Some(s"service:$name"),
+            memLimit = Some(
+              spec.resources.process
+                .map(p => composeMemory(p.memory))
+                .getOrElse(DefaultProcessMemory)
+            )
+          )
+        )
+      case ServiceSpec.Wasm =>
+        // The module's image has one job, to write the module and exit; the runtime starts after.
+        Vector(
+          s"$name-module" -> Compose.Service(
+            image = spec.image,
+            volumes = Vector(s"${moduleVolume(name)}:$ModuleMount"),
+            restart = Some("no")
+          ),
+          name -> runtime.copy(
+            image = sidecar,
+            environment = environment + ("ANKKA_WASM_MODULE" -> ModuleFile),
+            volumes = Vector(s"${moduleVolume(name)}:$ModuleMount:ro"),
+            dependsOn = runtime.dependsOn +
+              (s"$name-module" -> Compose.Dependency(Compose.CompletedSuccessfully))
+          )
+        )
+      case ServiceSpec.Web =>
+        val processPort = spec.processPort.getOrElse(ServiceSpec.DefaultProcessPort)
+        val others      = project.services.filterNot(_ == name).flatMap { other =>
+          val o = project.descriptor(other).service
+          Option.when(o.http)(s"$other=http://$HostAddress:${o.port}")
+        }
+        Vector(
+          name -> Compose.Service(
+            image = proxyImage(machine),
+            environment = ListMap(
+              "ANKKA_PROXY_LOCAL"        -> "on",
+              "ANKKA_PROXY_SERVICE"      -> name,
+              "ANKKA_PROXY_PORT"         -> spec.port.toString,
+              "ANKKA_PROXY_PROCESS_PORT" -> processPort.toString,
+              "ANKKA_PROXY_MOUNTS" -> spec.mounts.map(m => s"${m.path}=${m.service}").mkString(","),
+              "ANKKA_PROXY_LOCAL_SERVICES" -> others.mkString(",")
+            ),
+            ports = published(machine, Vector(spec.port -> spec.port)),
+            extraHosts = Vector(Compose.HostGateway),
+            memLimit = Some(ProxyMemory)
+          ),
+          s"$name-app" -> Compose.Service(
+            image = spec.image,
+            environment = declaredValues(project, name, state, onHost = false) ++ ListMap(
+              PlatformVariables.WebPort     -> processPort.toString,
+              PlatformVariables.ServicesUrl -> s"http://127.0.0.1:$CallingPort"
+            ),
+            networkMode = Some(s"service:$name")
+          )
+        )
+      case _ => Vector(name -> runtime)
+
+  private val DefaultProcessMemory = "128m"
+
+  /** A Kubernetes quantity as compose writes one: `256Mi` is `256m`, `1Gi` is `1g`. */
+  private[local] def composeMemory(quantity: String): String =
+    quantity match
+      case s"${n}Mi" => s"${n}m"
+      case s"${n}Gi" => s"${n}g"
+      case s"${n}Ki" => s"${n}k"
+      case s"${n}M"  =>
+        s"${(BigDecimal(n) * 1000000 / 1048576).setScale(0, BigDecimal.RoundingMode.CEILING)}m"
+      case s"${n}G" =>
+        s"${(BigDecimal(n) * 1000 * 1000000 / 1048576).setScale(0, BigDecimal.RoundingMode.CEILING)}m"
+      case other => other
+  private val ProxyMemory = "192m"
+
+  /** The proxy's image: named by the developer, else the CLI's release, else a local build's. */
+  def proxyImage(machine: Machine): String =
+    machine.proxyImage.getOrElse(
+      if com.thinkmorestupidless.ankka.cli.Release.parse(machine.cliVersion).isEmpty then
+        "ankka-proxy:latest"
+      else s"ghcr.io/thinkmorestupidless/ankka-proxy:${machine.cliVersion}"
+    )
+
+  /** The descriptor's literals with the local values over them, the command's own taken out. */
+  private[local] def declaredValues(
+      project: LocalProject,
+      name: String,
+      state: LocalState,
+      onHost: Boolean
+  ): ListMap[String, String] =
+    val reach = if onHost then "localhost" else HostAddress
+    val local = project.local
+      .valuesFor(name)
+      .map((k, v) => k -> LocalFile.fill(v, Companions.forService(project, state, reach)))
+    (literals(project.descriptor(name)) ++ local)
+      .filterNot((k, _) => LocalVariables.isInstallationOnly(k))
 
   private def postgres(machine: Machine, state: LocalState): Compose.Service =
     Compose.Service(

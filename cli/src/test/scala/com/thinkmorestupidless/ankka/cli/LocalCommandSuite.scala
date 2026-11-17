@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.cli
 
-import com.thinkmorestupidless.ankka.cli.local.{Engine, LocalPlan, LocalSeams}
+import com.thinkmorestupidless.ankka.cli.local.{Engine, LocalPlan, LocalSeams, LocalState}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets.UTF_8
@@ -627,6 +627,85 @@ class LocalCommandSuite extends munit.FunSuite:
     val root = LocalFixtures.project()
     LocalFixtures.write(root, "local.json", """{"run":{"billing":["sh","-c","exit 7"]}}""")
     assertEquals(localRun(root, "billing")._1, 7)
+  }
+
+  // ── one service from its source, each hosting (research R12) ──────────────
+
+  private def hostedBilling(extra: String, port: Int = 9001): Path =
+    LocalFixtures.project(
+      Vector(
+        LocalFixtures.Service("orders", 9000),
+        LocalFixtures.Service("billing", port, extra = extra)
+      )
+    )
+
+  private def composed(root: Path): String =
+    Files.readString(root.resolve(".ankka/local/compose.json"), UTF_8)
+
+  test("a process run from its source is given a sidecar that dials it on the host") {
+    val root             = hostedBilling(""","hosting":"process","protocol":"1.0"""")
+    val file             = root.resolve("env.txt")
+    val (code, out, err) = localRun(root, "billing", "--", "sh", "-c", s"env > $file")
+    assertEquals(code, 0, out + err)
+    val state   = LocalState.read(root)
+    val process = state.processPorts("billing")
+    val back    = state.processPorts(LocalPlan.sidecarKey("billing"))
+    // The sidecar is a container of the command's; the process is the developer's, on the host.
+    assertEquals(ups.last, "up ankka-shop billing-sidecar --remove-orphans")
+    val compose = composed(root)
+    assert(compose.contains(s"host.docker.internal:$process"), compose)
+    assert(compose.contains("ANKKA_SIDECAR_BIND"), compose)
+    assert(compose.contains(s"127.0.0.1:$back:${LocalPlan.SidecarPort}"), compose)
+    val env = envOf(file)
+    assertEquals(env.get("ANKKA_PROCESS_PORT"), Some(process.toString))
+    assertEquals(env.get("ANKKA_SIDECAR_ADDRESS"), Some(s"127.0.0.1:$back"))
+    // What is the runtime's goes to the sidecar, not to the process; the broker's to both.
+    assert(!env.contains("ANKKA_DB_NAME"), env)
+    assert(env.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS").exists(_.startsWith("localhost:")), env)
+  }
+
+  test("a module run from its source is built, then loaded by its runtime read-only") {
+    val root               = hostedBilling(""","hosting":"wasm","protocol":"1.0"""")
+    val module             = "target/wasm32-unknown-unknown/release/billing.wasm"
+    val (refused, _, said) = localRun(root, "billing", "--", "true")
+    assertEquals(refused, 1)
+    assertEquals(
+      said.trim,
+      s"\"billing\" has no module at services/billing/$module; its command did not build one"
+    )
+    assert(!ups.exists(_.contains("billing")), ups)
+    val build            = s"mkdir -p ${module.split('/').init.mkString("/")} && touch $module"
+    val (code, out, err) = localRun(root, "billing", "--", "sh", "-c", build)
+    assertEquals(code, 0, out + err)
+    assertEquals(ups.last, "up ankka-shop billing --remove-orphans")
+    val built = root.resolve(s"services/billing/$module").toAbsolutePath
+    assert(composed(root).contains(s"$built:${LocalPlan.ModuleFile}:ro"), composed(root))
+    assert(calls.contains("logs ankka-shop billing"), calls)
+  }
+
+  test("logs shows both containers of a service that is two") {
+    val root = hostedBilling(""","hosting":"process","protocol":"1.0"""")
+    assertEquals(up(root)._1, 0)
+    assertEquals(ups.last, "up ankka-shop orders billing billing-app --remove-orphans")
+    val (code, _, err) = run("local", "logs", "billing", "--dir", root.toString)
+    assertEquals(code, 0, err)
+    assert(calls.contains("logs ankka-shop billing"), calls)
+    assert(calls.contains("logs ankka-shop billing-app"), calls)
+  }
+
+  test("a web-hosted program run from its source runs behind the proxy's engine on the machine") {
+    val port = locally {
+      val socket = java.net.ServerSocket(0)
+      try socket.getLocalPort
+      finally socket.close()
+    }
+    val root = hostedBilling(
+      s""","hosting":"web","processPort":${port + 1},"mounts":[{"path":"/api","service":"orders"}]""",
+      port = port
+    )
+    val (code, out, err) = localRun(root, "billing", "--", "sh", "-c", "exit 3")
+    assertEquals(code, 3, out + err)
+    assert(!ups.exists(_.contains("billing")), ups)
   }
 
   // ── status and logs (US6) ─────────────────────────────────────────────────

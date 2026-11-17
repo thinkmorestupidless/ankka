@@ -43,7 +43,9 @@ object LocalWeb:
       file: String,
       port: Int,
       services: Map[String, String],
-      command: Vector[String]
+      command: Vector[String],
+      /** Where the command runs; the working directory when absent. */
+      directory: Option[java.nio.file.Path] = None
   )
 
   /**
@@ -109,7 +111,8 @@ object LocalWeb:
     try
       if options.command.nonEmpty then
         val builder = new ProcessBuilder(options.command.asJava).inheritIO()
-        val env     = builder.environment()
+        options.directory.foreach(d => builder.directory(d.toFile): Unit)
+        val env = builder.environment()
         literal.foreach((k, v) => env.put(k, v))
         env.put("PORT", processPort.toString)
         env.put("ANKKA_SERVICES_URL", engine.callingUrl)

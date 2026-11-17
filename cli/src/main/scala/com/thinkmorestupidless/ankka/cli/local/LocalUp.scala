@@ -181,11 +181,11 @@ object LocalUp:
     val starting = plan.services.filterNot(heldBack.contains)
     val started  =
       if starting.isEmpty then Engine.Result(0, "", "")
-      else engine.up(file, composeId, starting, removeOrphans = true)
+      else engine.up(file, composeId, plan.containersOf(starting), removeOrphans = true)
     if !started.ok then
       err.println(s"the services of ${project.name} did not start: ${started.err.trim}")
       return Left(1)
-    val unready = waitReady(starting.map(n => n -> plan.ready(n)), timeout, probe)
+    val unready = waitReady(starting.flatMap(n => plan.ready.get(n).map(n -> _)), timeout, probe)
     unready.foreach(name => notReady(composeId, name, timeout, engine, err))
     // The console lists what is ready; an owned entry nothing answers for yet is kept, not swept.
     ConsoleEntries.write(
@@ -196,7 +196,8 @@ object LocalUp:
 
   /** Each image present or pulled; what could be neither, named by the service that names it. */
   private def imageProblems(plan: LocalPlan, engine: Engine): Vector[String] =
-    val wanted = (plan.infrastructure ++ plan.companions ++ plan.services).distinct
+    val wanted =
+      (plan.infrastructure ++ plan.companions ++ plan.containersOf(plan.services)).distinct
     wanted
       .flatMap(name => plan.compose.services.get(name).map(name -> _.image))
       .distinctBy(_._2)

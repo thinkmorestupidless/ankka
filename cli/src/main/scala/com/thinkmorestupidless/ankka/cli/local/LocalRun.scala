@@ -1,5 +1,8 @@
 package com.thinkmorestupidless.ankka.cli.local
 
+import com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec
+import com.thinkmorestupidless.ankka.core.PlatformVariables
+
 import java.io.PrintStream
 import java.nio.file.Path
 import scala.concurrent.duration.FiniteDuration
@@ -67,22 +70,92 @@ object LocalRun:
                   )
                   1
                 case Some(chosen) =>
-                  LocalUp.run(
-                    dir,
-                    LocalPlan.Selection.ForRun(service),
-                    timeout,
-                    engine,
-                    out,
-                    err,
-                    probe,
-                    isFree,
-                    cliVersion,
-                    finish = Some((project, _, state) =>
-                      val environment =
-                        LocalPlan.environment(project, service, state, onHost = true)
-                      foreground(chosen, environment)
+                  val built = buildModule(project, service, chosen, err)
+                  if built != 0 then built
+                  else
+                    LocalUp.run(
+                      dir,
+                      LocalPlan.Selection.ForRun(service),
+                      timeout,
+                      engine,
+                      out,
+                      err,
+                      probe,
+                      isFree,
+                      cliVersion,
+                      finish = Some((project, _, state) =>
+                        inForeground(project, service, chosen, state, engine, out, err)
+                      )
                     )
-                  )
+
+  /** A module service's command builds the module before its runtime starts; 0 for any other. */
+  private def buildModule(
+      project: LocalProject,
+      service: String,
+      chosen: SourceCommands.RunCommand,
+      err: PrintStream
+  ): Int =
+    if project.descriptor(service).service.hosting != ServiceSpec.Wasm then 0
+    else
+      val code   = foreground(chosen, Vector.empty)
+      val module = LocalPlan.builtModule(project, service)
+      if code != 0 then code
+      else if !java.nio.file.Files.isRegularFile(module) then
+        err.println(
+          s"\"$service\" has no module at ${project.root.relativize(module)}; " +
+            "its command did not build one"
+        )
+        1
+      else 0
+
+  /** The service's own code in the foreground, as its hosting runs it (research R12). */
+  private def inForeground(
+      project: LocalProject,
+      service: String,
+      chosen: SourceCommands.RunCommand,
+      state: LocalState,
+      engine: Engine,
+      out: PrintStream,
+      err: PrintStream
+  ): Int =
+    val descriptor = project.descriptor(service)
+    descriptor.service.hosting match
+      case ServiceSpec.Process =>
+        // The process speaks to the sidecar started for it, over the ports chosen for them.
+        val broker = LocalPlan
+          .environment(project, service, state, onHost = true)
+          .filter((k, _) => PlatformVariables.shared(k))
+        val own = broker ++ LocalPlan
+          .declaredValues(project, service, state, onHost = true)
+          .filter((k, _) => !PlatformVariables.runtimeOnly(k))
+        foreground(
+          chosen,
+          own ++ Vector(
+            "ANKKA_PROCESS_PORT"    -> state.processPorts(service).toString,
+            "ANKKA_SIDECAR_ADDRESS" ->
+              s"127.0.0.1:${state.processPorts(LocalPlan.sidecarKey(service))}"
+          )
+        )
+      case ServiceSpec.Wasm =>
+        // The runtime is the container; what is in the foreground is its log, until interrupted.
+        try engine.logs(LocalPlan.composeProject(project.name), service, None, follow = true, out)
+        catch case _: InterruptedException => 130
+      case ServiceSpec.Web =>
+        // Behind the proxy's engine on this machine, the project's services found by their entries.
+        LocalWeb.run(
+          descriptor,
+          LocalWeb.Options(
+            file = project.root.resolve(s"services/$service/service.json").toString,
+            port = descriptor.service.port,
+            services = Map.empty,
+            command = chosen.words,
+            directory = Some(chosen.directory)
+          ),
+          out,
+          err
+        )
+      case _ =>
+        foreground(chosen, LocalPlan.environment(project, service, state, onHost = true))
 
   /** The command, in the contract's order: after `--`, `local.json`'s `run`, the language's own. */
   def commandFor(

@@ -727,3 +727,102 @@ class LocalPlanSuite extends munit.FunSuite:
       )
     )
   }
+
+  // ── the other hostings (research R10) ─────────────────────────────────────
+
+  private def hosted(extra: String, env: String = ""): LocalProject =
+    readProject(
+      LocalFixtures.project(
+        Vector(
+          LocalFixtures.Service("orders", 9000),
+          LocalFixtures.Service("billing", 9001, extra = extra, env = env)
+        )
+      )
+    )
+
+  test("a process-hosted service is its sidecar and its process, sharing one network") {
+    val project = hosted(
+      ""","hosting":"process","protocol":"1.0","runtime":"0.17.0","resources":{"process":{"cpu":"250m","memory":"256Mi"}}""",
+      env = """{"name":"ANTHROPIC_API_KEY","value":"k"},{"name":"GREETING","value":"hi"},""" +
+        """{"name":"ANKKA_KAFKA_CLIENT_ID","value":"c"}"""
+    )
+    val plan    = planOf(project)
+    val sidecar = plan.compose.services("billing")
+    val app     = plan.compose.services("billing-app")
+    assertEquals(sidecar.image, "ghcr.io/thinkmorestupidless/ankka-sidecar:0.17.0")
+    assertEquals(sidecar.environment.get("ANKKA_PROCESS_ADDRESS"), Some("127.0.0.1:9010"))
+    assertEquals(sidecar.environment.get("ANKKA_SIDECAR_PORT"), Some("9011"))
+    assertEquals(sidecar.environment.get("ANKKA_DB_NAME"), Some("billing"))
+    assertEquals(app.image, "billing:1")
+    assertEquals(app.networkMode, Some("service:billing"))
+    assertEquals(app.environment.get("ANKKA_PROCESS_PORT"), Some("9010"))
+    assertEquals(app.environment.get("ANKKA_SIDECAR_ADDRESS"), Some("127.0.0.1:9011"))
+    assertEquals(app.memLimit, Some("256m"))
+    assertEquals(app.ports, Vector.empty)
+    // The runtime's own reaches the sidecar and not the process, the process's the reverse, the
+    // broker's both.
+    assertEquals(sidecar.environment.get("ANTHROPIC_API_KEY"), Some("k"))
+    assert(!app.environment.contains("ANTHROPIC_API_KEY"), app.environment)
+    assertEquals(app.environment.get("GREETING"), Some("hi"))
+    assert(!sidecar.environment.contains("GREETING"), sidecar.environment)
+    // The local broker's to both; a broker of the descriptor's own is the installation's only.
+    val bootstrap = sidecar.environment.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS")
+    assert(bootstrap.isDefined, sidecar.environment)
+    assertEquals(app.environment.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), bootstrap)
+    assert(!app.environment.contains("ANKKA_KAFKA_CLIENT_ID"), app.environment)
+    assert(!sidecar.environment.contains("ANKKA_KAFKA_CLIENT_ID"), sidecar.environment)
+    assert(!app.environment.contains("ANKKA_DB_NAME"), app.environment)
+    assertEquals(plan.containersOf(Vector("billing")), Vector("billing", "billing-app"))
+  }
+
+  test(
+    "a module-hosted service is its module, run once into a volume, and the runtime that loads it"
+  ) {
+    val project = hosted(""","hosting":"wasm","protocol":"1.0"""")
+    val plan    = planOf(project)
+    val module  = plan.compose.services("billing-module")
+    val runtime = plan.compose.services("billing")
+    assertEquals(module.image, "billing:1")
+    assertEquals(module.volumes, Vector("billing-module:/ankka/module"))
+    assertEquals(runtime.image, "ghcr.io/thinkmorestupidless/ankka-sidecar:0.17.0")
+    assertEquals(runtime.volumes, Vector("billing-module:/ankka/module:ro"))
+    assertEquals(runtime.environment.get("ANKKA_WASM_MODULE"), Some("/ankka/module/service.wasm"))
+    assertEquals(
+      runtime.dependsOn.get("billing-module").map(_.condition),
+      Some("service_completed_successfully")
+    )
+    assert(plan.compose.volumes.contains("billing-module"), plan.compose.volumes)
+  }
+
+  test(
+    "a web-hosted service is the proxy in its local mode and its program in the proxy's network"
+  ) {
+    val project = hosted(
+      ""","hosting":"web","processPort":3000,"mounts":[{"path":"/api","service":"orders"}]""",
+      env = """{"name":"TITLE","value":"Shop"}"""
+    )
+    val plan  = planOf(project)
+    val proxy = plan.compose.services("billing")
+    val app   = plan.compose.services("billing-app")
+    assertEquals(proxy.image, "ghcr.io/thinkmorestupidless/ankka-proxy:0.17.0")
+    assertEquals(
+      proxy.environment,
+      scala.collection.immutable.ListMap(
+        "ANKKA_PROXY_LOCAL"          -> "on",
+        "ANKKA_PROXY_SERVICE"        -> "billing",
+        "ANKKA_PROXY_PORT"           -> "9001",
+        "ANKKA_PROXY_PROCESS_PORT"   -> "3000",
+        "ANKKA_PROXY_MOUNTS"         -> "/api=orders",
+        "ANKKA_PROXY_LOCAL_SERVICES" -> "orders=http://host.docker.internal:9000"
+      )
+    )
+    assertEquals(proxy.ports, Vector("127.0.0.1:9001:9001"))
+    assertEquals(proxy.memLimit, Some("192m"))
+    assertEquals(app.networkMode, Some("service:billing"))
+    assertEquals(app.environment.get("PORT"), Some("3000"))
+    assertEquals(app.environment.get("ANKKA_SERVICES_URL"), Some("http://127.0.0.1:7630"))
+    assertEquals(app.environment.get("TITLE"), Some("Shop"))
+    assertEquals(plan.ready("billing"), LocalPlan.ReadyCheck.Port(9001))
+    assertEquals(plan.entries.map(_.name), Vector("orders"))
+    assert(!plan.databases.exists(_.name == "billing"), plan.databases)
+  }

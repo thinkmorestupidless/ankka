@@ -374,6 +374,24 @@ class LocalPlanSuite extends munit.FunSuite:
     )
   }
 
+  test("a value holding a dollar sign reaches the container as it was written") {
+    val compose = Compose(
+      "ankka-shop",
+      scala.collection.immutable.ListMap(
+        "orders" -> Compose.Service(
+          "orders:latest",
+          command = Vector("run", "$HOME"),
+          environment = scala.collection.immutable.ListMap("HASH" -> "$2b$10$abc")
+        )
+      )
+    )
+    val json = Compose.json(compose)
+    assert(json.contains("\"$$2b$$10$$abc\""), json)
+    assert(json.contains("\"$$HOME\""), json)
+    // The plan's own value is untouched: only the file compose reads is escaped.
+    assertEquals(compose.services("orders").environment("HASH"), "$2b$10$abc")
+  }
+
   test("a descriptor's own database password read from a secret is not used, and needs no value") {
     val project = readProject(
       LocalFixtures.project(

@@ -58,9 +58,26 @@ object Compose:
     CodecMakerConfig.withFieldNameMapper(JsonCodecMaker.enforce_snake_case)
   )
 
-  /** The document as the file holds it: two-space indented, a newline at the end. */
+  /**
+   * The document as the file holds it: two-space indented, a newline at the end. Compose
+   * interpolates `$VAR` in every string it reads, and nothing here means one, so each `$` a value
+   * holds (a local value, a descriptor's literal, a companion's command) is written as `$$`, which
+   * compose reads back as the `$` it was.
+   */
   def json(compose: Compose): String =
-    writeToString(compose, WriterConfig.withIndentionStep(2)) + "\n"
+    writeToString(escaped(compose), WriterConfig.withIndentionStep(2)) + "\n"
+
+  private def escaped(compose: Compose): Compose =
+    def e(text: String): String = text.replace("$", "$$")
+    compose.copy(services = compose.services.map { (name, s) =>
+      name -> s.copy(
+        command = s.command.map(e),
+        entrypoint = s.entrypoint.map(e),
+        environment = s.environment.map((k, v) => k -> e(v)),
+        healthcheck = s.healthcheck.map(h => h.copy(test = h.test.map(e))),
+        labels = s.labels.map((k, v) => k -> e(v))
+      )
+    })
 
   /** A port published on `address` of the host at `host`, for `container` in the container. */
   def publish(address: String, host: Int, container: Int): String = s"$address:$host:$container"

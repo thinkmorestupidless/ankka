@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-17
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "`ankka local up`: start every service of a project on a developer's
 machine with one command. It looks for the project's definition in the local directory and composes

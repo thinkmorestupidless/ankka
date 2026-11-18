@@ -63,7 +63,7 @@ Feature: A route description says what a route's types do not
     Examples:
       | contradiction                                      | named                       |
       | gives the body a different shape                   | the body's two shapes       |
-      | names a path parameter "emailId"                   | the path parameter "emailId" |
+      | names a query parameter "playerId", a path parameter's name | the parameter "playerId" |
       | names the query parameter "page" twice             | the query parameter "page"  |
 
   Scenario: describing a route changes nothing of how it answers

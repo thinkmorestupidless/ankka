@@ -54,7 +54,7 @@ shapes, the same query parameter twice, the same status twice are contradictions
 
 Contradictions, each a problem naming the route (FR-015): a described body or answer shape where
 the type gives a different one; a described body on a route with no body; a query parameter named
-twice; a single-route field in a scope with more than one route; a `Raw` that is not a JSON object.
+twice, or named as one of the path's parameters; a single-route field in a scope with more than one route; a `Raw` that is not a JSON object.
 
 ## Document (`http.openapi.Document`)
 

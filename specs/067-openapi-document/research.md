@@ -332,3 +332,7 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   type, which is the contract's own example. Each pair is one `inline` method: a type left out
   (inferred `Any`) carries no shape, a type named is summoned its `ShapeOf` and refused at
   compile time without one. Every call the contract shows is written as it shows it.
+- **T019, "a path parameter the path does not have"** (Trevor, 2026-11-18): `Description` names
+  no path parameter (its types are the handler's), so FR-015's case could not be written. The
+  contradiction is a described query parameter whose name is one of the path's parameters: one
+  name in two places. The outline row, FR-015 and data-model.md say so; the contract is unchanged.

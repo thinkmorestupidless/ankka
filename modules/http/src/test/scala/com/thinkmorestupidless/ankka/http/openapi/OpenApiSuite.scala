@@ -23,6 +23,11 @@ object OpenApiFixtures:
 
   final case class AnkkaProblem(reason: String)
 
+  final case class EditProfile(name: String)
+  final case class AddEmail(address: String)
+  final case class OtherEmail(address: String, primary: Boolean)
+  final case class Refusal(code: String, message: String)
+
 /** The document `OpenApi.build` writes (feature 067); cases named after their scenarios. */
 class OpenApiSuite extends munit.FunSuite:
   import OpenApiFixtures.*
@@ -32,6 +37,7 @@ class OpenApiSuite extends munit.FunSuite:
   private given playerCodec: JsonValueCodec[players.Profile]   = Codecs.make
   private given reportCodec: JsonValueCodec[reporting.Profile] = Codecs.make
   private given JsonValueCodec[AnkkaProblem]                   = Codecs.make
+  private given JsonValueCodec[AddEmail]                       = Codecs.make
 
   private def document(endpoints: HttpEndpoint*): Document =
     OpenApi.build("cart", "1.0.0", endpoints) match
@@ -443,6 +449,254 @@ class OpenApiSuite extends munit.FunSuite:
     val under =
       HttpServer.of(_ => Mixed(), _ => Carts()).document("openapi", Map("prefixes" -> "/mixed"))
     assert(under.flatMap(_.toOption).exists(d => !d.contains("/carts")), under)
+  }
+
+  // T019: described content and contradictions (describing.feature).
+
+  private def ref(name: String) = s"""{"$$ref":"#/components/schemas/$name"}"""
+
+  private def problemsOf(endpoints: HttpEndpoint*): Vector[String] =
+    OpenApi.build("players", "", endpoints).left.getOrElse(fail("a document was built"))
+
+  private def op(d: Document, path: String, method: String): GraphJson =
+    at(json(d), "paths", path, method)
+
+  test("a text body described with a shape has that shape in the document") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.body[EditProfile]) {
+        patchBody("/{playerId}")((_: String, text: String) => text.length)
+      }
+    val d    = document(Players())
+    val body = at(op(d, "/players/{playerId}", "patch"), "requestBody", "content")
+    assertEquals(Shapes.write(at(body, "text/plain", "schema")), ref("EditProfile"))
+    assert(!has(op(d, "/players/{playerId}", "patch"), "x-ankka-incomplete"))
+    assertEquals(parserMessages(d), Vector.empty)
+  }
+
+  test("an answer of bytes described with a shape has that shape in the document") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.answers[players.Profile](200)) {
+        get("/{playerId}")((_: String) => Bytes("application/json", "{}".getBytes))
+      }
+    val answer = at(op(document(Players()), "/players/{playerId}", "get"), "responses", "200")
+    assertEquals(Shapes.write(at(answer, "content", "application/json", "schema")), ref("Profile"))
+  }
+
+  test("a described refusal stands beside the answer the route's type gives") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.refuses(404, "not found")) {
+        get("/{playerId}")((_: String) => players.Profile("p"))
+      }
+    val answers = at(op(document(Players()), "/players/{playerId}", "get"), "responses")
+    assertEquals(
+      Shapes.write(at(answers, "200", "content", "application/json", "schema")),
+      ref("Profile")
+    )
+    assertEquals(Shapes.write(at(answers, "404", "description")), "\"not found\"")
+  }
+
+  test("a described refusal given no shape has the shape of the platform's own refusals") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.refuses(404, "not found")) {
+        get("/{playerId}")((_: String) => players.Profile("p"))
+      }
+    val refusal = at(op(document(Players()), "/players/{playerId}", "get"), "responses", "404")
+    assertEquals(
+      Shapes.write(at(refusal, "content", "application/json", "schema")),
+      ref("AnkkaProblem")
+    )
+  }
+
+  test("an endpoint that writes refusals of its own gives their shape once for all its routes") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl                       = Acl.AllowAll
+      override protected def description = Description.none.refusalShape[Refusal]
+      described(_.refuses(404, "not found")) {
+        get("/{playerId}")((_: String) => players.Profile("p"))
+      }
+      get("/{playerId}/name")((id: String) => id)
+    val d       = document(Players())
+    val answers = at(op(d, "/players/{playerId}", "get"), "responses")
+    assertEquals(
+      Shapes.write(at(answers, "404", "content", "application/json", "schema")),
+      ref("Refusal")
+    )
+    assertEquals(
+      Shapes.write(at(answers, "default", "content", "application/json", "schema")),
+      ref("Refusal")
+    )
+    val other = at(op(d, "/players/{playerId}/name", "get"), "responses", "default")
+    assertEquals(Shapes.write(at(other, "content", "application/json", "schema")), ref("Refusal"))
+    assert(
+      !has(json(d), "components", "schemas", "AnkkaProblem"),
+      "AnkkaProblem is reached by nothing"
+    )
+  }
+
+  test("a described query parameter is in the document with its type and whether it is required") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.query[Int]("page").queryRequired[String]("status")) {
+        get("/{playerId}/messages")((id: String) => id)
+      }
+    val parameters =
+      at(op(document(Players()), "/players/{playerId}/messages", "get"), "parameters")
+    assertEquals(
+      Shapes.write(parameters),
+      """[{"name":"playerId","in":"path","required":true,"schema":{"type":"string"}},""" +
+        """{"name":"page","in":"query","required":false,"schema":{"type":"integer"}},""" +
+        """{"name":"status","in":"query","required":true,"schema":{"type":"string"}}]"""
+    )
+  }
+
+  test("a shape described by a type is the named shape a typed route would have") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.answers[players.Profile](200)) {
+        get("/{playerId}")((_: String) => Bytes("application/json", "{}".getBytes))
+      }
+      get("/{playerId}/summary")((_: String) => players.Profile("p"))
+    val d = document(Players())
+    for path <- Seq("/players/{playerId}", "/players/{playerId}/summary") do
+      assertEquals(
+        Shapes.write(
+          at(op(d, path, "get"), "responses", "200", "content", "application/json", "schema")
+        ),
+        ref("Profile")
+      )
+    assertEquals(
+      at(json(d), "components", "schemas") match
+        case GraphJson.Obj(fields) => fields.map(_._1).count(_ == "Profile")
+        case _                     => 0
+      ,
+      1
+    )
+  }
+
+  test("a shape described as JSON Schema is in the document as it was given") {
+    val schema = """{"type":"object","properties":{"z":{"type":"string"},"a":{"type":"integer"}}}"""
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.answers(200, schema)) {
+        get("/{playerId}")((_: String) => Bytes("application/json", "{}".getBytes))
+      }
+    val answer = at(op(document(Players()), "/players/{playerId}", "get"), "responses", "200")
+    assertEquals(
+      Shapes.write(at(answer, "content", "application/json", "schema")),
+      """{"properties":{"a":{"type":"integer"},"z":{"type":"string"}},"type":"object"}"""
+    )
+  }
+
+  private final class Emails(describe: Description => Description) extends HttpEndpoint("/players"):
+    val acl: Acl = Acl.AllowAll
+    described(describe) {
+      postBody("/{playerId}/emails")((_: String, email: AddEmail) => email.address)
+    }
+
+  test("a description that contradicts the route: gives the body a different shape") {
+    val problems = problemsOf(Emails(_.body[OtherEmail]))
+    assertEquals(problems.size, 1, problems)
+    assert(
+      problems.head.startsWith("POST /players/{playerId}/emails: the body's two shapes"),
+      problems
+    )
+    assert(problems.head.contains("AddEmail") && problems.head.contains("OtherEmail"), problems)
+  }
+
+  test(
+    "a description that contradicts the route: names a query parameter \"playerId\", a path parameter's name"
+  ) {
+    val problems = problemsOf(Emails(_.query[String]("playerId")))
+    assertEquals(
+      problems,
+      Vector(
+        "POST /players/{playerId}/emails: the parameter \"playerId\" is described as a query parameter and is one of the path's"
+      )
+    )
+  }
+
+  test("a description that contradicts the route: names the query parameter \"page\" twice") {
+    val problems = problemsOf(Emails(_.query[Int]("page").query[Int]("page")))
+    assertEquals(
+      problems,
+      Vector("POST /players/{playerId}/emails: the query parameter \"page\" is described twice")
+    )
+  }
+
+  test("a description that agrees with the route's type is no contradiction") {
+    document(Emails(_.body[AddEmail].summary("Add an email"))): Unit
+  }
+
+  test("a single-route field in a scope holding two routes is refused") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.summary("A player")) {
+        get("/{playerId}")((_: String) => players.Profile("p"))
+        get("/{playerId}/summary")((_: String) => players.Profile("p"))
+      }
+    val problems = problemsOf(Players())
+    assertEquals(problems.size, 2, problems)
+    assert(problems.forall(_.contains("described for 2 routes at once")), problems)
+  }
+
+  test("a described body on a route with no body is refused") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.body[EditProfile]) {
+        get("/{playerId}")((_: String) => players.Profile("p"))
+      }
+    assertEquals(
+      problemsOf(Players()),
+      Vector("GET /players/{playerId}: a body is described for a route that takes none")
+    )
+  }
+
+  test("a JSON Schema that is not a JSON object is refused, naming the route") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.answers(200, "[1, 2]")) {
+        get("/{playerId}")((_: String) => Bytes("application/json", "[]".getBytes))
+      }
+    val problems = problemsOf(Players())
+    assertEquals(problems.size, 1, problems)
+    assert(problems.head.startsWith("GET /players/{playerId}: "), problems)
+  }
+
+  test("an endpoint's route tags and refusals are carried by each of its routes") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl                       = Acl.AllowAll
+      override protected def description =
+        Description.none.tag("player").refuses(403, "wrong brand")
+      described(_.tag("profile")) {
+        get("/{playerId}")((_: String) => players.Profile("p"))
+      }
+      get("/{playerId}/name")((id: String) => id)
+    val d       = document(Players())
+    val profile = op(d, "/players/{playerId}", "get")
+    assertEquals(Shapes.write(at(profile, "tags")), """["player","profile"]""")
+    assertEquals(Shapes.write(at(profile, "responses", "403", "description")), "\"wrong brand\"")
+    val name = op(d, "/players/{playerId}/name", "get")
+    assertEquals(Shapes.write(at(name, "tags")), """["player"]""")
+    assert(has(name, "responses", "403"))
+  }
+
+  test("a handler-decided answer that is described takes the default slot's place") {
+    final class Players extends HttpEndpoint("/players"):
+      val acl: Acl = Acl.AllowAll
+      described(_.answers[players.Profile](201).answers(409)) {
+        get("/{playerId}")((_: String) => Respond(players.Profile("p"), 201))
+      }
+    val answers = at(op(document(Players()), "/players/{playerId}", "get"), "responses")
+    assertEquals(
+      Shapes.write(at(answers, "201", "content", "application/json", "schema")),
+      ref("Profile")
+    )
+    assert(!has(answers, "409", "content"))
+    assertEquals(Shapes.write(at(answers, "default", "description")), "\"refused\"")
   }
 
 /** An endpoint whose constructor reads a cart: it needs the running service to be built. */

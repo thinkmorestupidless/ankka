@@ -330,7 +330,8 @@ document with the Scala one's, route by route.
 - **FR-014**: A description MUST add to what is derived: a described answer for a status the
   handler's type does not give stands beside the derived one.
 - **FR-015**: A description that contradicts what is derived (a different schema for a typed body
-  or a typed answer, a path parameter the path does not have, the same query parameter twice) MUST
+  or a typed answer, a query parameter named as one of the path's parameters, the same query
+  parameter twice) MUST
   be refused when the document is built, naming the route and the contradiction, and no document
   written.
 - **FR-016**: Describing a route MUST NOT change what the route does for any request.

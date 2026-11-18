@@ -342,3 +342,13 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   what that operation states from the server's own rendered document. A second record of the same
   facts beside the document would be a copy to keep in step, so `DocumentCheck` has the three calls
   of R10 and nothing more.
+
+- **T025: what "an answer the description does not name" leaves out.** Every operation carries
+  the `default` answer (R6), which would name every status and make the violation unreachable. The
+  check therefore reads only the statuses an operation names. Any route may also answer the
+  platform's own 400, 401, 403, 413, 500, 503 and 504, and an operation that names no status (its
+  handler decides) may answer anything. Bodies are checked only under a named status, because a
+  `default` shaped by the endpoint's `refusalShape` would refuse the platform's own problem body.
+  A text body whose shape is a plain string is the text itself and is not parsed. The violation is
+  `NotHeldToDocument`, a `RuntimeException`, because a `Future` boxes an `AssertionError` as
+  "Boxed Exception" and hides its words.

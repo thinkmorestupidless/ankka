@@ -39,12 +39,17 @@ object OpenApiFeatureFixtures:
   final case class OtherEmail(address: String, primary: Boolean)
   final case class Refusal(code: String, message: String)
 
+  final case class Messages(items: List[String], total: Int)
+
+  /** How the messages route of `held-to-document.feature` answers, set by its scenario. */
+  val messagesAnswer = java.util.concurrent.atomic.AtomicReference("as described")
+
   given JsonValueCodec[Profile]  = Codecs.make
   given JsonValueCodec[AddEmail] = Codecs.make
 
   /** What a players route of `describing.feature` is: how it takes its body and answers. */
   enum Kind:
-    case TextBody, AnswersBytes, AnswersProfile, TakesEmail, AnswersStream
+    case TextBody, AnswersBytes, AnswersProfile, TakesEmail, AnswersStream, AnswersMessages
 
   /**
    * The players endpoint of `describing.feature`: each route of the kind its scenario gave, inside
@@ -66,8 +71,18 @@ object OpenApiFeatureFixtures:
             patchBody(template)((_: String, text: String) => text.length)
           case Kind.AnswersBytes =>
             get(template)((_: String) => Bytes("application/json", """{"name":"p"}""".getBytes))
-          case Kind.AnswersProfile => get(template)((_: String) => Profile("p"))
-          case Kind.AnswersStream  =>
+          case Kind.AnswersProfile  => get(template)((_: String) => Profile("p"))
+          case Kind.AnswersMessages =>
+            get(template) { (_: String) =>
+              val whole = """{"items":["hello"],"total":1}"""
+              messagesAnswer.get match
+                case "conflict" => throw HttpProblem.conflict("conflict")
+                case "lacking"  => Bytes("application/json", """{"items":[]}""".getBytes)
+                case read       =>
+                  if read.startsWith("read ") then query.raw(read.stripPrefix("read ")): Unit
+                  Bytes("application/json", whole.getBytes)
+            }
+          case Kind.AnswersStream =>
             get(template)((_: String) =>
               Streamed("application/octet-stream", None, java.io.InputStream.nullInputStream())
             )
@@ -155,18 +170,10 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   override val munitTimeout = 3.minutes
 
   override protected lazy val ranElsewhere: Map[String, String] =
-    val held      = "HeldToDocumentSuite (T025)"
     val serving   = "OpenApiServedSuite (T027, T028)"
     val languages = "the Java and Kotlin document suites (T029 to T034)"
     Map(
       "a kept document that no longer matches the code is found, and nothing is written" -> "OpenApiCommandSuite (T023)",
-      "an answer the description does not name fails the test"           -> held,
-      "an answer body its shape refuses fails the test"                  -> held,
-      "a body the handler accepts that its shape refuses fails the test" -> held,
-      "a query parameter the route did not declare fails the test when the handler reads it" -> held,
-      "a service that answers as its document says passes"                  -> held,
-      "a test that does not hold the service to its document is unaffected" -> held,
-      "an incomplete route is held only to what it states"                  -> held,
       "describing a route changes nothing of how it answers" -> "RouteShapeSuite (T018)",
       "a caller the service names is given the document, the same as the one written from its code" -> serving,
       "a caller the service does not name is refused as that ACL refuses" -> serving,
@@ -193,6 +200,8 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   private var focus: Option[String]                           = None
   private var players: Option[Vector[(String, Kind, Description => Description)]] = None
   private var endpointDescription: Description                                    = Description.none
+  private var holding: Boolean                                                    = false
+  private var seen: Vector[String]                                                = Vector.empty
   private var selection: Map[String, String]                                      = Map.empty
 
   // ── what writing it gave ──────────────────────────────────────────────────
@@ -207,6 +216,8 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
     service = "cart"; routes = Set.empty; acl = Acl.AllowAll; sockets = false
     others = Vector.empty; beside = Vector.empty; focus = None
     players = None; endpointDescription = Description.none; selection = Map.empty
+    holding = false; seen = Vector.empty; messagesAnswer.set("as described")
+    HeldToDocument.clear()
     status = -1; problems = Vector.empty; text = None; earlier = None
 
   private def factories: Vector[EndpointClients => HttpEndpoint] =
@@ -299,7 +310,8 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   /** The scenario's endpoint, running; `use` is given its address. */
   private def running[A](use: String => A): A =
-    val server = HttpServer.at("127.0.0.1", 0)(factories*)
+    val plain  = HttpServer.at("127.0.0.1", 0)(factories*)
+    val server = if holding then HeldToDocument.server(plain) else plain
     val kit    = AnkkaTestKit.start(Seq.empty, Seq(server))
     try use(s"http://127.0.0.1:${server.boundPort.getOrElse(fail("did not bind"))}")
     finally kit.stop()
@@ -805,4 +817,105 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   Then("the route {string} is not an incomplete route") { (route: String) =>
     assert(!operation(route).has("x-ankka-incomplete"), json(operation(route)))
+  }
+
+  // ── held-to-document.feature ──────────────────────────────────────────────
+
+  private val Messages = "GET /players/{playerId}/messages"
+
+  Given(
+    "the route {string} whose route description gives its answer the shape of {string}, names the refusal {string} and names the query parameter {string}"
+  ) { (route: String, name: String, reason: String, parameter: String) =>
+    assertEquals((route, name), (Messages, "Messages"))
+    player(
+      route,
+      Kind.AnswersMessages,
+      _.answers[OpenApiFeatureFixtures.Messages](200)
+        .refuses(404, reason)
+        .query[Int](parameter)
+    )
+  }
+
+  Given("a test that holds the service to its document") { () => holding = true }
+
+  Given("a test that does not hold the service to its document") { () => holding = false }
+
+  /** Requests made against the running service, and what the check recorded of them. */
+  private def requests(made: (String, String, String, Option[String])*): Unit =
+    running { base =>
+      made.foreach((method, path, _, body) => send(base, method, path, body): Unit)
+    }
+    seen = HeldToDocument.violations
+    HeldToDocument.clear()
+
+  private def messages(answer: String, query: String = ""): Unit =
+    messagesAnswer.set(answer)
+    requests(("GET", s"/players/p1/messages$query", "", None))
+
+  When("the route answers with the refusal {string}") { (reason: String) =>
+    assertEquals(reason, "conflict"); messages("conflict")
+  }
+
+  When("the route answers a body that lacks a part {string} requires") { (name: String) =>
+    assertEquals(name, "Messages"); messages("lacking")
+  }
+
+  Given("the route {string} whose route description gives the body the shape of {string}") {
+    (route: String, name: String) =>
+      assertEquals(name, "EditProfile")
+      player(route, Kind.TextBody, _.body[EditProfile])
+      focus = Some(Messages)
+  }
+
+  When("a request to it carries a body {string} refuses and its handler accepts it") {
+    (name: String) =>
+      assertEquals(name, "EditProfile")
+      requests(("PATCH", "/players/p1", "", Some("""{"nick":"ann"}""")))
+  }
+
+  When("the route's handler reads the query parameter {string}") { (name: String) =>
+    messages(s"read $name")
+  }
+
+  When("every request of the test is answered as the document says") { () =>
+    messages("read page", "?page=2")
+  }
+
+  private def failedNamingRoute(route: String, words: String*): Unit =
+    assert(holding, "the test does not hold the service to its document")
+    assert(
+      seen.exists(v => v.startsWith(s"$route: ") && words.forall(v.contains)),
+      seen.mkString("; ")
+    )
+
+  Then("the test fails, naming the route and the refusal {string}") { (reason: String) =>
+    assertEquals(reason, "conflict")
+    failedNamingRoute(Messages, "answered 409", "which its description does not name (200, 404)")
+  }
+
+  Then("the test fails, naming the route and the part that is missing") { () =>
+    failedNamingRoute(Messages, "answered 200 with a body its shape refuses", "total")
+  }
+
+  Then("the test fails, naming the route and what the shape refused") { () =>
+    failedNamingRoute("PATCH /players/{playerId}", "took a body its shape refuses", "name")
+  }
+
+  Then("the test fails, naming the route and the query parameter {string}") { (name: String) =>
+    failedNamingRoute(Messages, s"the query parameter \"$name\"")
+  }
+
+  Then("the test passes") { () =>
+    assert(holding)
+    assertEquals(seen, Vector.empty)
+  }
+
+  Then("nothing about the document fails the test")(() => assertEquals(seen, Vector.empty))
+
+  Given("the route {string} is an incomplete route that lacks its body's shape") { (route: String) =>
+    player(route, Kind.TextBody)
+  }
+
+  When("a request to it carries any body its handler accepts") { () =>
+    requests(("PATCH", "/players/p1", "", Some("anything at all, which is no JSON")))
   }

@@ -124,6 +124,16 @@ final class HttpServer private (
       Some(check)
     )
 
+  @volatile private var servedEndpoints: Vector[HttpEndpoint] = Vector.empty
+
+  /**
+   * The OpenAPI document of the endpoints this server serves, once it serves (feature 067): what a
+   * test holding the service to its document reads, built from the very endpoints answering.
+   */
+  private[ankka] def servedDocument: Either[Vector[String], openapi.Document] =
+    if binding.isEmpty && servedEndpoints.isEmpty then Left(Vector("the server does not serve yet"))
+    else openapi.OpenApi.build("service", "", servedEndpoints)
+
   @volatile private var binding: Option[Http.ServerBinding]                     = None
   @volatile private var served: Vector[ServedRoute]                             = Vector.empty
   @volatile private var scheme: String                                          = "http"
@@ -192,6 +202,7 @@ final class HttpServer private (
       service
     )
     validate(endpoints, mounting)
+    servedEndpoints = endpoints
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap {
       case describes: ServesRoutes => describes.served

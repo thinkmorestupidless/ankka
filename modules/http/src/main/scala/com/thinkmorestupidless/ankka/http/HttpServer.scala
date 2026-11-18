@@ -357,6 +357,38 @@ final class HttpServer private (
    */
   override def routes: Vector[ServedRoute] = served
 
+  /**
+   * The service's OpenAPI document (feature 067), for `openapi`; built with no service behind it.
+   */
+  override def document(
+      kind: String,
+      options: Map[String, String]
+  ): Option[Either[Vector[String], String]] =
+    Option.when(kind == "openapi")(openApi(options).map(_.render))
+
+  /** The endpoints built with no service, validated, and their document. */
+  private[ankka] def openApi(
+      options: Map[String, String]
+  ): Either[Vector[String], com.thinkmorestupidless.ankka.http.openapi.Document] =
+    import com.thinkmorestupidless.ankka.http.openapi.{OpenApi, Selection}
+    def list(key: String): Vector[String] =
+      options.get(key).toVector.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty)
+    HttpServer.buildAll(factories, EndpointClients.unavailable).flatMap { endpoints =>
+      val mounting = Mounting(
+        com.thinkmorestupidless.ankka.core.ComponentRegistry.empty,
+        endpoints,
+        None
+      )
+      HttpServer.validated(validate(endpoints, mounting)).flatMap { _ =>
+        OpenApi.build(
+          options.getOrElse("name", "service"),
+          options.getOrElse("version", ""),
+          endpoints,
+          Selection(list("tags"), list("prefixes"), options.get("strict").contains("true"))
+        )
+      }
+    }
+
   override def boundAddress: Option[String] =
     binding.map(b => s"$scheme://127.0.0.1:${b.localAddress.getPort}")
 
@@ -467,6 +499,55 @@ final class HttpServer private (
     s"/$trimmed"
 
 object HttpServer:
+
+  /**
+   * Each factory's endpoint, or for each that throws `the endpoint <class> could not be built:
+   * <cause>`, the class read from the first frame of the failure that is an endpoint's constructor.
+   */
+  private[ankka] def buildAll(
+      factories: Seq[EndpointClients => HttpEndpoint],
+      clients: EndpointClients
+  ): Either[Vector[String], Vector[HttpEndpoint]] =
+    val built = factories.toVector.map { factory =>
+      try Right(factory(clients))
+      catch case scala.util.control.NonFatal(failure) => Left(notBuilt(failure))
+    }
+    val problems = built.collect { case Left(p) => p }
+    if problems.nonEmpty then Left(problems) else Right(built.collect { case Right(e) => e })
+
+  private def notBuilt(failure: Throwable): String =
+    val loader    = classOf[HttpEndpoint].getClassLoader
+    val endpoints = Iterator
+      .iterate(failure)(_.getCause)
+      .takeWhile(_ != null)
+      .flatMap(_.getStackTrace)
+      .filter(_.getMethodName == "<init>")
+      .flatMap { frame =>
+        try
+          val found = Class.forName(frame.getClassName, false, loader)
+          Option.when(
+            classOf[HttpEndpoint].isAssignableFrom(found) && found != classOf[HttpEndpoint]
+          )(found)
+        catch case _: ClassNotFoundException | _: LinkageError => None
+      }
+    val cause = Option(failure.getMessage).filter(_.nonEmpty).getOrElse(failure.getClass.getName)
+    endpoints.nextOption() match
+      case Some(endpoint) =>
+        s"the endpoint ${endpoint.getSimpleName.stripSuffix("$")} could not be built: $cause"
+      case None => s"an endpoint could not be built: $cause"
+
+  /** `validate`'s refusal as its lines, without its heading. */
+  private def validated(check: => Unit): Either[Vector[String], Unit] =
+    try Right(check)
+    catch
+      case refused: IllegalArgumentException =>
+        Left(
+          refused.getMessage.linesIterator
+            .drop(1)
+            .map(_.trim.stripPrefix("- "))
+            .filter(_.nonEmpty)
+            .toVector
+        )
 
   /**
    * Every ACL an endpoint states: its own, then each route's, root, plain, streaming and socket.

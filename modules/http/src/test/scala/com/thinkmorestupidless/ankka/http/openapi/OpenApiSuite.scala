@@ -401,3 +401,61 @@ class OpenApiSuite extends munit.FunSuite:
       )
     do assertEquals(parserMessages(d), Vector.empty)
   }
+
+  // T013: the server answers for `openapi`.
+
+  test("a server answers the openapi document of the endpoints its factories build") {
+    val server   = HttpServer.of(_ => Carts())
+    val answered = server.document("openapi", Map("name" -> "cart", "version" -> "1.0.0"))
+    assertEquals(answered, Some(Right(document(Carts()).render)))
+    assertEquals(server.document("asyncapi", Map.empty), None)
+  }
+
+  test(
+    "an endpoint that cannot be built without the running service fails the writing and is named"
+  ) {
+    val answered = HttpServer
+      .of(clients => OpenApiReportsEndpoint(clients), _ => Carts())
+      .document("openapi", Map("name" -> "cart"))
+    assertEquals(
+      answered,
+      Some(
+        Left(
+          Vector(
+            "the endpoint OpenApiReportsEndpoint could not be built: not called while a document is built"
+          )
+        )
+      )
+    )
+  }
+
+  test("a server with two endpoints at one prefix is refused with validate's words") {
+    val answered = HttpServer.of(_ => Carts(), _ => Carts()).document("openapi", Map.empty)
+    assertEquals(answered, Some(Left(Vector("2 endpoints share the prefix '/carts'"))))
+  }
+
+  test("the options select and require completeness") {
+    final class Mixed extends HttpEndpoint("/mixed"):
+      val acl: Acl = Acl.AllowAll
+      get("/bytes")(() => Bytes("image/png", Array.emptyByteArray))
+    val strict = HttpServer.of(_ => Mixed()).document("openapi", Map("strict" -> "true"))
+    assertEquals(strict, Some(Left(Vector("GET /mixed/bytes: incomplete, lacks answer 200"))))
+    val under =
+      HttpServer.of(_ => Mixed(), _ => Carts()).document("openapi", Map("prefixes" -> "/mixed"))
+    assert(under.flatMap(_.toOption).exists(d => !d.contains("/carts")), under)
+  }
+
+/** An endpoint whose constructor reads a cart: it needs the running service to be built. */
+final class OpenApiReportsEndpoint(clients: EndpointClients) extends HttpEndpoint("/reports"):
+  val acl: Acl        = Acl.AllowAll
+  private val opening = scala.concurrent.Await.result(
+    clients.componentClient.transportRef.ask(
+      com.thinkmorestupidless.ankka.core.ComponentId("cart"),
+      com.thinkmorestupidless.ankka.core.EntityId("c1"),
+      com.thinkmorestupidless.ankka.core.MethodName("get"),
+      Array.emptyByteArray,
+      com.thinkmorestupidless.ankka.core.Metadata.empty
+    ),
+    scala.concurrent.duration.Duration(1, "second")
+  )
+  get("/")(() => opening.length)

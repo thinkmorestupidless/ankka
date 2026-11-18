@@ -65,6 +65,18 @@ trait RuntimeExtension:
   def routes: Vector[ServedRoute] = Vector.empty
 
   /**
+   * A document of what this extension serves, of the kind asked for (feature 067): `None` when it
+   * writes none of that kind, else the document's text or the problems that kept it from being
+   * written. Asked while `ankka.document` is set, before anything starts, so an answer may build
+   * what it needs but never bind, connect or read the environment. `options` are the
+   * `ankka.document.*` properties without their prefix, and `name`, the service's name.
+   */
+  def document(
+      @scala.annotation.unused kind: String,
+      @scala.annotation.unused options: Map[String, String]
+  ): Option[Either[Vector[String], String]] = None
+
+  /**
    * Where this extension serves gRPC, once it has bound — `127.0.0.1:9090` — for a service on this
    * machine that calls it. Separate from `boundAddress`, which every reader takes for an HTTP
    * address: a gRPC address offered as one would be an invoke panel that cannot work.

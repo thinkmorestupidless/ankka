@@ -219,7 +219,7 @@ class RouteShapeSuite extends munit.FunSuite:
     assertEquals(scopedRoute("GET", "/{cartId}").description.summaries, Vector.empty)
   }
 
-  test("describing a route changes nothing of how it answers") {
+  test("a described route runs byte for byte as the plain one: status, type, body, headers, ACL") {
     val plain                    = Scoped(describe = false)
     def answers(e: HttpEndpoint) = e.routes.map { r =>
       val body =

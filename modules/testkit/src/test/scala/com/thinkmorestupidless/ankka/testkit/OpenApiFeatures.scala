@@ -170,17 +170,11 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   override val munitTimeout = 3.minutes
 
   override protected lazy val ranElsewhere: Map[String, String] =
-    val serving = "OpenApiServedSuite (T027)"
     // Each outline's rows split by language: Scala and Java in the Java cart's tests, Kotlin in the
     // Kotlin cart's, each skipping the other's rows.
     val languages = "OpenApiJavaFeatures and the Kotlin cart's OpenApiFeaturesTest"
     Map(
       "a kept document that no longer matches the code is found, and nothing is written" -> "OpenApiCommandSuite (T023)",
-      "describing a route changes nothing of how it answers" -> "RouteShapeSuite (T018)",
-      "a caller the service names is given the document, the same as the one written from its code" -> serving,
-      "a caller the service does not name is refused as that ACL refuses" -> serving,
-      "a service that states nothing about its document answers as for a path it does not have" -> serving,
-      "the served document is whole, whatever the reader may call"            -> serving,
       "the same service has the same document in every language that has one" -> languages,
       "a route description says the same in every language that has one"      -> languages,
       "a service in a language with no document yet is told so" -> "OpenApiCommandSuite (T015)"
@@ -215,6 +209,7 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   override def beforeEach(context: BeforeEach): Unit =
     service = "cart"; routes = Set.empty; acl = Acl.AllowAll; sockets = false
+    documentAcl = None; asked = None; unknownPath = None; answeredBefore = Vector.empty
     others = Vector.empty; beside = Vector.empty; focus = None; localDocument = None
     players = None; endpointDescription = Description.none; selection = Map.empty
     holding = false; seen = Vector.empty; messagesAnswer.set("as described")
@@ -311,7 +306,8 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   /** The scenario's endpoint, running; `use` is given its address. */
   private def running[A](use: String => A): A =
-    val plain  = HttpServer.at("127.0.0.1", 0)(factories*)
+    val bare   = HttpServer.at("127.0.0.1", 0)(factories*)
+    val plain  = documentAcl.fold(bare)(bare.withOpenApi)
     val server = if holding then HeldToDocument.server(plain) else plain
     val kit    = AnkkaTestKit.start(Seq.empty, Seq(server))
     try use(s"http://127.0.0.1:${server.boundPort.getOrElse(fail("did not bind"))}")
@@ -923,7 +919,120 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   // ── serving.feature: the local scenario ───────────────────────────────────
 
-  private var localDocument: Option[(Int, String)] = None
+  private var localDocument: Option[(Int, String)]  = None
+  private var documentAcl: Option[Acl]              = None
+  private var asked: Option[(Int, String, String)]  = None // status, challenge, body
+  private var answeredBefore: Vector[(Int, String)] = Vector.empty
+
+  /**
+   * Tokens from the issuer a scenario names: a bearer of the issuer's name is a verified person.
+   */
+  private def issuerTokens(issuer: String): Acl = Acl.Authenticate(new TokenAuthenticator:
+    def authorizationServers: Vector[String]         = Vector(s"https://auth.$issuer.example")
+    def apply(context: RequestContext): AuthDecision =
+      context.header("Authorization") match
+        case Some(s"Bearer $t") if t == issuer => AuthDecision.Allow(Principal("ann"))
+        case _ => AuthDecision.Unauthenticated(s"realm=\"$issuer\""))
+
+  /** The scenario's service asked for its OpenAPI document, with `token` when it has one. */
+  private def askForDocument(token: Option[String]): Unit =
+    running { base =>
+      val request = JdkRequest.newBuilder(URI.create(s"$base/_ankka/openapi.json")).GET()
+      token.foreach(t => request.header("Authorization", s"Bearer $t"))
+      val answer = http.send(request.build(), JdkResponse.BodyHandlers.ofString())
+      val other  = send(base, "GET", "/_ankka/no-such-route", None)
+      asked = Some(
+        (answer.statusCode, answer.headers.firstValue("WWW-Authenticate").orElse(""), answer.body)
+      )
+      unknownPath = Some(other)
+      if answer.statusCode == 200 then text = Some(answer.body)
+    }
+
+  private var unknownPath: Option[(Int, String)] = None
+
+  private def answer: (Int, String, String) = asked.getOrElse(fail("nobody asked for the document"))
+
+  Given(
+    "the service states an ACL for its OpenAPI document that admits tokens from the issuer {string}"
+  ) { (issuer: String) =>
+    documentAcl = Some(issuerTokens(issuer))
+  }
+
+  Given("the service states no ACL for its OpenAPI document") { () => documentAcl = None }
+
+  Given("the route {string} admits only the workloads it names") { (route: String) =>
+    routes += route; focus = Some(route); acl = aclOf("admits only the workloads it names")
+  }
+
+  When(
+    "a person with a verified token from the issuer {string} asks the service for its OpenAPI document"
+  ) { (issuer: String) =>
+    askForDocument(Some(issuer))
+  }
+
+  When("a person with no token asks the service for its OpenAPI document") { () =>
+    askForDocument(None)
+  }
+
+  When("a person asks the service for its OpenAPI document")(() => askForDocument(None))
+
+  Then("the person is given the document") { () =>
+    val (status, _, body) = answer
+    assertEquals(status, 200, body)
+    text = Some(body)
+  }
+
+  Then("it is the same as the document a developer writes from that build") { () =>
+    val served = text.getOrElse(fail("no document was given"))
+    // The document's title is the running service's name, and a test kit runs every service as
+    // "ankka-test"; the build is the same, so it is written under that name.
+    service = "ankka-test"
+    write()
+    assertEquals(text, Some(served))
+  }
+
+  Then("the request is challenged") { () =>
+    val (status, challenge, body) = answer
+    assertEquals(status, 401, body)
+    assert(challenge.startsWith("Bearer"), s"challenge: '$challenge'")
+  }
+
+  Then("the request is answered as a request to a path the service has no route for") { () =>
+    val (status, _, body)        = answer
+    val (otherStatus, otherBody) = unknownPath.getOrElse(fail("no other path was asked"))
+    assertEquals(status, otherStatus)
+    assertEquals(body, otherBody.replace("/_ankka/no-such-route", "/_ankka/openapi.json"))
+  }
+
+  Given("the route {string} has no route description") { (route: String) =>
+    player(route, Kind.AnswersProfile)
+    answeredBefore = answersOf(route)
+  }
+
+  When("the developer gives it one") { () =>
+    describing(
+      _.summary("A player's profile")
+        .refuses(404, "no such player")
+        .tag("profile")
+        .query[Int]("page")
+    )
+  }
+
+  Then("every request to the route is answered as it was before") { () =>
+    assert(answeredBefore.nonEmpty, "nothing was answered before")
+    assertEquals(answersOf(only), answeredBefore)
+  }
+
+  /** What the running service answers to a few requests of `route`'s, as (status, body). */
+  private def answersOf(route: String): Vector[(Int, String)] =
+    val (method, template) = route.split(' ') match
+      case Array(m, t) => (m, t)
+      case _           => fail(s"not a route: $route")
+    running { base =>
+      Vector("p1", "p2?page=3", "nobody").map { id =>
+        send(base, method, template.replaceAll("\\{[^}]+\\}", id), None)
+      }
+    }
 
   Given("a deployed service {string} with an HTTP endpoint for the path {string}") {
     (name: String, prefix: String) =>

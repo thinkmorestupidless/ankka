@@ -141,6 +141,15 @@ class OpenApiDocumentSuite extends munit.FunSuite with LogCapturing:
     assert(first.sameElements(written()), "the two documents differ")
   }
 
+  test(
+    "the compiled sample writes its document in under ten seconds, a fresh JVM included (SC-007)"
+  ) {
+    val started = System.nanoTime()
+    written(): Unit
+    val took = java.time.Duration.ofNanos(System.nanoTime() - started)
+    assert(took.toMillis < 10000, s"writing the document took $took")
+  }
+
   test("the document parses as OpenAPI 3.1") {
     val options = ParseOptions()
     options.setResolve(true)

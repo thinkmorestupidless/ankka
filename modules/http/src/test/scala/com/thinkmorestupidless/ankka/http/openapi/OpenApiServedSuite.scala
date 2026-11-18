@@ -10,10 +10,10 @@ import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
 
 /**
- * A service serves its OpenAPI document only to the callers it names (feature 067): one case per
- * scenario of `features/openapi-documents/serving.feature` but the local one, which is
- * `OpenApiFeatures`'. SC-009's table holds what a server without it answers to what it answered
- * before this feature.
+ * A service serves its OpenAPI document only to the callers it names (feature 067), at the level
+ * below `features/openapi-documents/serving.feature`, which `OpenApiFeatures` runs: the media type,
+ * the exact challenge and refusal, a query string, the reserved path. SC-009's table holds what a
+ * server without it answers to what it answered before this feature.
  */
 class OpenApiServedSuite extends munit.FunSuite:
 
@@ -70,9 +70,7 @@ class OpenApiServedSuite extends munit.FunSuite:
 
   private val ToShop = Some(Acl.Authenticate(ShopTokens))
 
-  test(
-    "a caller the service names is given the document, the same as the one written from its code"
-  ) {
+  test("an admitted caller is answered the written document as application/json") {
     serving(ToShop) { (server, base) =>
       val (status, contentType, body) = send(base, "GET", "/_ankka/openapi.json", Some("shop"))
       assertEquals((status, contentType), (200, "application/json"))
@@ -81,7 +79,7 @@ class OpenApiServedSuite extends munit.FunSuite:
     }
   }
 
-  test("a caller the service does not name is refused as that ACL refuses") {
+  test("a caller the ACL does not admit is answered 401 with the authenticator's challenge") {
     serving(ToShop) { (_, base) =>
       val (status, _, _) = send(base, "GET", "/_ankka/openapi.json")
       assertEquals(status, 401)
@@ -97,7 +95,7 @@ class OpenApiServedSuite extends munit.FunSuite:
     }
   }
 
-  test("a service that states nothing about its document answers as for a path it does not have") {
+  test("with no ACL for the document, the path answers the router's own 404 body") {
     serving(None) { (_, base) =>
       assertEquals(
         send(base, "GET", "/_ankka/openapi.json"),
@@ -110,7 +108,7 @@ class OpenApiServedSuite extends munit.FunSuite:
     }
   }
 
-  test("the served document is whole, whatever the reader may call") {
+  test("a route the reader may not call is still in the document it is answered") {
     serving(ToShop) { (_, base) =>
       val (_, _, body) = send(base, "GET", "/_ankka/openapi.json", Some("shop"))
       assert(body.contains("\"/carts/{cartId}\""), body)

@@ -104,3 +104,32 @@ object EndpointClients:
     else JsonText.encode(text)
 
   private[ankka] val noServices: ServiceClients = ServiceClients.unavailable
+
+  /**
+   * Clients for building endpoints with no service behind them (feature 067): to read their routes,
+   * for a document or a reference page. Every call fails, saying so; a view client has no system,
+   * so an endpoint that queries a view while it is built fails too. The rest are the `unavailable`
+   * form each client already has.
+   */
+  private[ankka] def unavailable: EndpointClients =
+    val transport = new com.thinkmorestupidless.ankka.sdk.CallTransport:
+      def ask(
+          componentId: com.thinkmorestupidless.ankka.core.ComponentId,
+          entityId: EntityId,
+          method: com.thinkmorestupidless.ankka.core.MethodName,
+          payload: Array[Byte],
+          metadata: Metadata
+      ) = scala.concurrent.Future.failed(IllegalStateException(NotCalled))
+      def tell(
+          componentId: com.thinkmorestupidless.ankka.core.ComponentId,
+          entityId: EntityId,
+          message: Any
+      ): Unit                        = throw IllegalStateException(NotCalled)
+      def askTimeout: FiniteDuration =
+        scala.concurrent.duration.FiniteDuration(1, java.util.concurrent.TimeUnit.SECONDS)
+    new EndpointClients(
+      ComponentClient(transport),
+      new ViewClient(null, transport.askTimeout)(using null)
+    )
+
+  private val NotCalled = "not called while a document is built"

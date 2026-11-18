@@ -104,6 +104,9 @@ object Dependencies {
      */
     val jsonSchemaValidator = "1.5.9"
 
+    /** Test scope only: generated values for the shape agreement suite (feature 067, T007). */
+    val munitScalacheck = "1.3.1"
+
     /** Test scope only: reads a rendered OpenAPI document as 3.1 (feature 067, R12). */
     val swaggerParser = "2.1.49"
   }
@@ -224,6 +227,7 @@ object Dependencies {
   val jsqlparser = "com.github.jsqlparser" % "jsqlparser" % V.jsqlparser
 
   val jsonSchemaValidator = "com.networknt"        % "json-schema-validator" % V.jsonSchemaValidator
+  val munitScalacheck     = "org.scalameta"       %% "munit-scalacheck"      % V.munitScalacheck
   val swaggerParser       = "io.swagger.parser.v3" % "swagger-parser"        % V.swaggerParser
 
   val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle

@@ -249,7 +249,12 @@ lazy val core = project
   .settings(commonSettings)
   .settings(
     name := "ankka-core",
-    libraryDependencies ++= Seq(jsoniterCore, jsoniterMacros, jsonSchemaValidator % Test),
+    libraryDependencies ++= Seq(
+      jsoniterCore,
+      jsoniterMacros,
+      jsonSchemaValidator % Test,
+      munitScalacheck     % Test
+    ),
     // com.thinkmorestupidless.ankka.core.BuildInfo.version — the one version everything published from a tag shares.
     // `imageTag` is what `Docker / version` produces (`+` → `-`), so a suite that deploys the
     // sidecar or the sample names the image this sbt session built, never a literal tag.

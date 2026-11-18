@@ -385,3 +385,20 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   constructor keeps the old form). A scope is one object shared by every declaration made inside
   it, so the bridge makes one `DescribedScope` per object and a summary, body or answer given to
   a scope of more than one route is refused as Scala's is.
+- **T033: a Java top-level leaf is answered as text, and its document says so with its shape.** The
+  record codec writes an `Integer` as `text/plain`, where Scala's answers JSON; the bridge had read
+  only JSON shapes, so `GET /carts/{cartId}/total` was incomplete in Java. A top-level leaf's text
+  is exactly the codec's plan, so the bridge now gives every codec-written type its shape whatever
+  the media type (`text/plain`, `integer`). The two languages' documents therefore differ in that
+  answer's media type, truthfully; `languages.feature`'s comparison resolves `$ref`s (the Java cart's
+  state is `Cart`, the Scala one's `ShoppingCart`) and compares parameters, the body's shape and each
+  answer's status and shape, not media types.
+- **T033: the language rows run in the samples' tests, not in testkit-java's or ankka-kotlin's.**
+  "The service written in Java" is the Java cart, which only `samples/shopping-cart-java`'s tests
+  can see beside the Scala cart, and likewise the Kotlin cart. `OpenApiJavaFeatures` (in an ankka
+  package of the Java sample's tests, for the `private[ankka]` reader) runs the Scala and Java rows
+  and skips Kotlin's; the Kotlin cart's `OpenApiFeaturesTest` runs the Kotlin rows, skips the
+  others, and counts that both ran. `KotlinFeaturesTest` is unchanged.
+- **T033: holding the Java and Kotlin carts' features to their documents found an undescribed
+  refusal.** `GET /checkouts-seen/{cartId}` refuses 404 when no checkout has been read; both carts
+  now say so with `@Refuses`.

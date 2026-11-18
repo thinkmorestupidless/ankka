@@ -1,0 +1,672 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "shopping-cart",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/carts/{cartId}": {
+      "get": {
+        "operationId": "get_carts_cartId",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      },
+      "delete": {
+        "operationId": "delete_carts_cartId",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/checkout": {
+      "post": {
+        "operationId": "post_carts_cartId_checkout",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cart"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/items": {
+      "post": {
+        "operationId": "post_carts_cartId_items",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineItem"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/items/{productId}": {
+      "delete": {
+        "operationId": "delete_carts_cartId_items_productId",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "the cart does not hold the product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/receipt": {
+      "post": {
+        "operationId": "post_carts_cartId_receipt",
+        "summary": "A cart's receipt",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "copies",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "the cart is empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/total": {
+      "get": {
+        "operationId": "get_carts_cartId_total",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/checkouts-seen/{cartId}": {
+      "get": {
+        "operationId": "get_checkouts_seen_cartId",
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutSeen"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no checkout of the cart has been read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/mcp-keys": {
+      "post": {
+        "operationId": "post_mcp_keys",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedClientKey"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/mcp-keys/{id}": {
+      "delete": {
+        "operationId": "delete_mcp_keys_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnkkaProblem": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ]
+      },
+      "Cart": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineItem"
+            }
+          },
+          "checkedOut": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cartId",
+          "checkedOut"
+        ]
+      },
+      "CheckoutSeen": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "notices": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cartId",
+          "at",
+          "notices"
+        ]
+      },
+      "IssuedClientKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "clientKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "clientKey"
+        ]
+      },
+      "KeyRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "scope": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "LineItem": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "name",
+          "quantity"
+        ]
+      },
+      "Receipt": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "items": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "copies": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cartId",
+          "note",
+          "items",
+          "currency",
+          "copies"
+        ]
+      }
+    }
+  }
+}

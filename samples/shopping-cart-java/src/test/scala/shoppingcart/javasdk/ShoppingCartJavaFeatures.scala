@@ -1,6 +1,6 @@
 package shoppingcart.javasdk
 
-import com.thinkmorestupidless.ankka.javasdk.testkit.AnkkaTestKit
+import com.thinkmorestupidless.ankka.javasdk.testkit.{AnkkaTestKit, Settings}
 import com.thinkmorestupidless.ankka.testkit.{GherkinSuite, LogCapturing}
 
 import java.net.http.{HttpRequest as JdkRequest, HttpResponse as JdkResponse}
@@ -12,7 +12,8 @@ import scala.concurrent.duration.DurationInt
  * request a customer's client makes over HTTP, as `CartFeatures` sends it to the Scala cart.
  *
  * Every scenario runs, the cart's tools and its checkout notice included: the Java cart has the
- * Scala cart's MCP endpoint, consumer and views.
+ * Scala cart's MCP endpoint, consumer and views. Every answer is held to the cart's OpenAPI
+ * document (feature 067).
  */
 class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features") with LogCapturing:
 
@@ -27,7 +28,8 @@ class ShoppingCartJavaFeatures extends GherkinSuite("../shopping-cart/features")
   private var assistantKey = ""
 
   override def beforeAll(): Unit =
-    kit = AnkkaTestKit.start(Main.service())
+    // Held to the cart's OpenAPI document: closing fails naming every answer it does not name.
+    kit = AnkkaTestKit.start(Main.service(), Settings.defaults().heldToDocument())
     // The assistant holds the customer's key, issued as the sample issues one; until the keys
     // have loaded, the issue is answered 503.
     val asked    = Some("""{"subject":"customer","label":"the customer's assistant"}""")

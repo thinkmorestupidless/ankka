@@ -1,6 +1,7 @@
 package shoppingcart.kotlin
 
 import com.thinkmorestupidless.ankka.javasdk.testkit.AnkkaTestKit
+import com.thinkmorestupidless.ankka.javasdk.testkit.Settings
 import com.thinkmorestupidless.ankka.kotlin.testkit.eventually
 import io.cucumber.java.AfterAll
 import io.cucumber.java.Before
@@ -222,7 +223,8 @@ private lateinit var assistantKey: String
 // Top-level, so each is a plain static method: cucumber refuses a companion object's.
 @BeforeAll
 fun startService() {
-    kit = AnkkaTestKit.start(service())
+    // Held to the cart's OpenAPI document: closing fails naming every answer it does not name.
+    kit = AnkkaTestKit.start(service(), Settings.defaults().heldToDocument())
     // The assistant holds the customer's key, issued as the sample issues one; until the keys
     // have loaded, the issue is answered 503.
     val asked = """{"subject":"customer","label":"the customer's assistant"}"""

@@ -170,8 +170,10 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   override val munitTimeout = 3.minutes
 
   override protected lazy val ranElsewhere: Map[String, String] =
-    val serving   = "OpenApiServedSuite (T027)"
-    val languages = "the Java and Kotlin document suites (T029 to T034)"
+    val serving = "OpenApiServedSuite (T027)"
+    // Each outline's rows split by language: Scala and Java in the Java cart's tests, Kotlin in the
+    // Kotlin cart's, each skipping the other's rows.
+    val languages = "OpenApiJavaFeatures and the Kotlin cart's OpenApiFeaturesTest"
     Map(
       "a kept document that no longer matches the code is found, and nothing is written" -> "OpenApiCommandSuite (T023)",
       "describing a route changes nothing of how it answers" -> "RouteShapeSuite (T018)",

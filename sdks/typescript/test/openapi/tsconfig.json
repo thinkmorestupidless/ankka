@@ -1,0 +1,8 @@
+{
+  // The generated client's check: `cart.d.ts` is written by openapi-typescript from the cart's kept
+  // document in CI (and by `npm run openapi:client` locally), so it is not in the SDK's own check.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "lib": ["es2024", "dom"] },
+  "include": ["."],
+  "exclude": []
+}

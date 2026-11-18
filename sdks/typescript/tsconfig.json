@@ -21,5 +21,7 @@
     // `ankka` inside this package resolves to the sources, the same way `node --conditions=ankka-source` does.
     "customConditions": ["ankka-source"]
   },
-  "include": ["src", "test", "examples", "bin", "scripts"]
+  "include": ["src", "test", "examples", "bin", "scripts"],
+  // The generated client has a check of its own (test/openapi/tsconfig.json).
+  "exclude": ["test/openapi"]
 }

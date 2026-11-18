@@ -292,3 +292,11 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
 ## Design finished
 
 2026-11-18: analyze reported nothing above LOW.
+
+## Found during implementation
+
+- **T002, `Codecs.make` by round trip** (`core/shape/CodecFacts.scala`): every row of R1's table
+  holds. One fact R1 did not state: an empty collection (a `List`, a `Map`) is written, and a
+  missing one reads as empty, so a collection field is never in `required`, like an `Option` and a
+  field with a default. A missing field of any other type, and a field of the wrong JSON type, are
+  refused on read.

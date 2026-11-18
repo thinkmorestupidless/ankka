@@ -313,3 +313,11 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   the document. It now answers an authenticator that names no issuer (and answers `Unavailable`
   if ever asked) while `ankka.document` is set, and throws as before otherwise; a set that is
   misconfigured is refused in both cases (`OidcConfigSuite`).
+- **A companion's codec, asked during T005** (Trevor, 2026-11-18): the tree mostly puts plain
+  `Codecs.make` codecs in companions (the shopping cart's `PlayerRead`, `RegisterPlayer`), which
+  R1's rule makes shapeless. A macro cannot tell `Codecs.make` from a hand-written codec
+  deterministically (a given's source tree is visible only when both compile in one run), so R1
+  stands as written, and a companion opts in with one line beside its codec:
+  `given ShapeOf[T] = ShapeOf.derived`. `derived` expanded inside the type's own companion ignores
+  the companion's codec; anywhere else, a type whose companion gives a codec and no shape is
+  refused by `derived` (a compile error naming the fix) and has none under `Maybe`.

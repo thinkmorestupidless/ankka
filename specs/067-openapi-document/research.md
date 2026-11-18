@@ -412,3 +412,15 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   properties to run its build with; quickstart.md's sample steps do that. A language with no
   document is still refused by name. Declined: finding the enclosing sbt build's project for the
   directory (an sbt round-trip and a rule only this repository's layout needs).
+
+## Follow-ups
+
+- **One shape algebra for the agent and blueprint schemas.** `agent.SchemaType`,
+  `agent.autonomous.JsonSchema`, `agent.blueprint.Shape` and the Java SDK's `Schemas.java` each
+  describe a type as JSON Schema by their own rules; each could be a rendering of `core.shape`, so a
+  tool's argument, a task's result and a route's body would say the same thing of the same type.
+- **Descriptions for Python, TypeScript, Go and Rust.** A description travels with a JVM route; the
+  sidecar's discovery carries a route's method, template and ACL but no shape or description. A
+  field on the discovery's route message, filled by each SDK from its own types, would let the
+  sidecar build the same document; until then `ankka openapi` refuses those languages by name.
+

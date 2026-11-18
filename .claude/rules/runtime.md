@@ -32,6 +32,26 @@ page and `Bytes` names its own content type. That is the whole of what a website
 needs from the module beyond a JSON API — `Set-Cookie` and `Location` — and it is deliberately
 not a template engine, a session store or a cookie API: those belong to the application.
 
+**A route's OpenAPI description is a scope, not a method on the route** (2026-11-18, feature 067).
+Route builders answer `Unit` (they register as a side effect of the endpoint's constructor), so there
+is no value to chain `.summary(…)` onto: `described(d) { routes }` records `d` for every route
+declared inside it, nested scopes adding to the outer one, and Kotlin's `described({ … }) { }` and
+the Java annotations end at the same `Description`. A description adds to what the types say and
+never changes how a route answers; one that contradicts a type is a problem, not a merge.
+
+**A hand-written codec in a companion needs a `ShapeOf` beside it** (2026-11-18). A type's shape is
+derived from what `Codecs.make` writes, and a companion `JsonValueCodec` written by hand (a
+status-word enum, as `ShapeOf`'s own example shows) writes something the derivation cannot see. The
+macro therefore refuses such a type at compile time, naming both fixes: `given ShapeOf[A] =
+ShapeOf.derived` beside a codec that is `Codecs.make`, or `ShapeOf.of(<JSON Schema>)` beside one written
+by hand. The refusal reaches every route whose body or answer contains the type.
+
+**`ankka.document` is read before anything starts** (2026-11-18). `ServiceBuilder.start` checks it
+first, before any check that needs the environment and before an actor system exists: endpoints are
+built with no service, the document is written beside `ankka.document.out` and moved over it, and the
+JVM ends. Nothing is bound, formed or connected, which is why `ankka openapi` needs no Docker; a
+check moved above it would make the command need whatever that check needs.
+
 ## Every component but an entity and a view calls another service, through one client
 
 `AnkkaService.services` is the one `HttpServiceClients`, made before the components (lazily — it reads

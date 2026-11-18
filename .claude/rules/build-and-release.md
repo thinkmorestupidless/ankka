@@ -141,7 +141,10 @@ released SDK's testkit, and a generated project's compose file, start
 `ghcr.io/thinkmorestupidless/ankka-sidecar:<version>`; an unreleased SDK (0.0.0) starts
 `ankka-sidecar:latest`, so the suites and the SDK jobs test against the sidecar of the same commit. `-Dankka.template.tests` takes `off`, or a list of
 languages (`python`, `typescript,scala`); only `scala` pays for the local publish, which is how each SDK
-job in CI runs its own template's suite against the SDK and sidecar it just built.
+job in CI runs its own template's suite against the SDK and sidecar it just built. **A list naming
+`java` or `kotlin` with `scala` publishes to Maven only** (2026-11-18): `templateArtifacts` takes the
+Maven branch and skips the Ivy one, so `TemplateSuite`'s cases that build the expansion fail on
+`Error downloading ankka-http_3:<version>`. Run the Scala template suite in an sbt run of its own.
 
 **Every project `ankka init` makes carries a `.mcp.json`** naming `ankka mcp` by command (in `common/`
 and in `ankka.g8/`), and `ankka mcp install` (`cli/mcp/McpInstall`) writes the same entry — the template

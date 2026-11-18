@@ -96,6 +96,16 @@ object Dependencies {
      * more thing an image would carry for nothing.
      */
     val openTelemetry = "1.68.0"
+
+    /**
+     * A full JSON Schema validator (2020-12), for holding a service to its OpenAPI document
+     * (feature 067, R10). A compile dependency of the test kits only; never on a service's
+     * production classpath.
+     */
+    val jsonSchemaValidator = "1.5.9"
+
+    /** Test scope only: reads a rendered OpenAPI document as 3.1 (feature 067, R12). */
+    val swaggerParser = "2.1.49"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────
@@ -212,6 +222,9 @@ object Dependencies {
 
   /** A view's declared statements are parsed with it; a direct dependency of `ankka-runtime`. */
   val jsqlparser = "com.github.jsqlparser" % "jsqlparser" % V.jsqlparser
+
+  val jsonSchemaValidator = "com.networknt"        % "json-schema-validator" % V.jsonSchemaValidator
+  val swaggerParser       = "io.swagger.parser.v3" % "swagger-parser"        % V.swaggerParser
 
   val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle
 

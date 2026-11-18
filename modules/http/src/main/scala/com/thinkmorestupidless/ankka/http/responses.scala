@@ -1,13 +1,18 @@
 package com.thinkmorestupidless.ankka.http
 
+import com.thinkmorestupidless.ankka.core.shape.ShapeOf
+import com.thinkmorestupidless.ankka.http.openapi.AnswerKind
+
 /** An HTML page, answered as `text/html; charset=UTF-8`. */
 final case class Html(markup: String)
 
 object Html:
   given toResponse: ToResponse[Html] = new ToResponse[Html]:
-    def status(value: Html) = 200
-    val contentType         = "text/html; charset=UTF-8"
-    def write(value: Html)  = value.markup.getBytes("UTF-8")
+    def status(value: Html)                = 200
+    val contentType                        = "text/html; charset=UTF-8"
+    def write(value: Html)                 = value.markup.getBytes("UTF-8")
+    override val shape: Option[ShapeOf[?]] = Some(summon[ShapeOf[String]])
+    override val fixedStatus: Option[Int]  = Some(200)
 
 /** Raw bytes under a content type of the handler's choosing: a stylesheet, an image, a download. */
 final case class Bytes(contentType: String, body: Array[Byte])
@@ -17,8 +22,9 @@ object Bytes:
     def status(value: Bytes) = 200
     // Per value, not per instance: the trait's `contentType` is fixed, so the server reads it
     // from the encoded response the route built, which `HttpEndpoint` takes from here.
-    val contentType         = "application/octet-stream"
-    def write(value: Bytes) = value.body
+    val contentType                       = "application/octet-stream"
+    def write(value: Bytes)               = value.body
+    override val fixedStatus: Option[Int] = Some(200)
 
 /**
  * A response with a status and headers of the handler's choosing around any body the endpoint can
@@ -48,6 +54,9 @@ object Respond:
       val contentType                         = inner.contentType
       def write(value: Respond[A])            = inner.write(value.body)
       override def headers(value: Respond[A]) = value.headers ++ inner.headers(value.body)
+      // The handler decides the status, so a document lists the answer under `default`.
+      override val shape: Option[ShapeOf[?]]       = inner.shape
+      override private[ankka] def kind: AnswerKind = inner.kind
 
 /**
  * A request body read as it arrives, for a route declared with `postStream` or `putStream` (feature
@@ -66,8 +75,10 @@ final case class Streamed(contentType: String, length: Option[Long], body: java.
 
 object Streamed:
   given toResponse: ToResponse[Streamed] = new ToResponse[Streamed]:
-    def status(value: Streamed) = 200
-    val contentType             = "application/octet-stream"
+    def status(value: Streamed)                  = 200
+    val contentType                              = "application/octet-stream"
+    override val fixedStatus: Option[Int]        = Some(200)
+    override private[ankka] def kind: AnswerKind = AnswerKind.Stream
     // Never called: a route recognises a streamed value and hands the stream to the server.
     def write(value: Streamed) =
       throw IllegalStateException("a streamed response is written as it is read, never whole")

@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.bridge
 import com.thinkmorestupidless.ankka.core.shape.ShapeOf
 import com.thinkmorestupidless.ankka.http.openapi.{Description, QueryParameter}
 import com.thinkmorestupidless.ankka.javasdk.annotations
+import com.thinkmorestupidless.ankka.javasdk.spi.RouteRegistrar
 
 import java.lang.reflect.AnnotatedElement
 
@@ -66,6 +67,47 @@ private[bridge] object Described:
         case first :: more => d = d.tag(first, more*)
         case Nil           => problems += "@Tag names no tag"
     }
+    val found = problems.result()
+    if found.nonEmpty then Left(found) else Right(d)
+
+  /** What one scope of routes declared in code says, or every problem with it. */
+  def of(scope: RouteRegistrar.Description): Either[Vector[String], Description] =
+    val problems                                                         = Vector.newBuilder[String]
+    def shape(s: RouteRegistrar.Shape, what: String): Option[ShapeOf[?]] =
+      (Option(s.`type`), Option(s.schema)) match
+        case (Some(_), Some(_)) =>
+          problems += s"$what names both a type and a schema; name one"
+          None
+        case (Some(t), None) =>
+          Shapes.of(t) match
+            case Right(found) => Some(found)
+            case Left(why)    =>
+              problems += s"$what names ${t.getTypeName}, which has no shape: $why"
+              None
+        case (None, Some(schema)) => Some(ShapeOf.of(schema))
+        case (None, None)         =>
+          problems += s"$what names neither a type nor a schema"
+          None
+    var d = Description.none
+    scope.summaries.forEach(s => d = d.summary(s))
+    scope.bodies.forEach(b => shape(b, "body").foreach(s => d = d.body(using any(s))))
+    scope.answers.forEach(a =>
+      d = d.answering(a.status, Option(a.shape).flatMap(shape(_, s"answers(${a.status})")))
+    )
+    scope.refusals.forEach(r =>
+      d = d.refusing(r.status, r.reason, Option(r.shape).flatMap(shape(_, s"refuses(${r.status})")))
+    )
+    scope.refusalShapes.forEach(r =>
+      shape(r, "refusalShape").foreach(s => d = d.refusalShape(using any(s)))
+    )
+    scope.queries.forEach(q =>
+      kindOf(q.`type`) match
+        case Some(kind) => d = d.querying(QueryParameter(q.name, kind, q.required))
+        case None       =>
+          problems += s"query(\"${q.name}\") is read as ${q.`type`.getSimpleName}, which a " +
+            "query cannot hold: String, Integer, Long, Double, Boolean or UUID"
+    )
+    scope.tags.forEach(t => d = d.tag(t))
     val found = problems.result()
     if found.nonEmpty then Left(found) else Right(d)
 

@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.javasdk.bridge
 import com.thinkmorestupidless.ankka.core.graph.GraphJson
 import com.thinkmorestupidless.ankka.javasdk.problems.ServiceProblems
 import com.thinkmorestupidless.ankka.javasdk.routes.Players
-import com.thinkmorestupidless.ankka.javasdk.routes.broken.ReadsBound
+import com.thinkmorestupidless.ankka.javasdk.routes.broken.{ReadsBound, SharedSummary}
 
 import scala.jdk.CollectionConverters.*
 
@@ -105,4 +105,31 @@ class DescribedRoutesSuite extends munit.FunSuite:
     ).problems.asScala.toVector.map(_.toString)
     assert(found.exists(_.contains("""@ReadsQuery("page") names the parameter""")), found)
     assert(found.exists(_.contains("@BodyShape names both a type and a schema")), found)
+  }
+
+  test("a route declared in code carries its scopes, outermost first, and its class's") {
+    val profile = op("/players/{playerId}/profile", "get")
+    assertEquals(at(profile, "summary"), GraphJson.Str("A player's profile"))
+    assert(!has(profile, "x-ankka-incomplete"), Shape(profile))
+    assert(Shape(at(profile, "responses", "200")).contains("Profile"), Shape(profile))
+    assertEquals(at(profile, "responses", "409", "description"), GraphJson.Str("already noted"))
+    assertEquals(at(profile, "responses", "403", "description"), GraphJson.Str("wrong brand"))
+    assertEquals(
+      at(profile, "tags"),
+      GraphJson.Arr(Vector(GraphJson.Str("player"), GraphJson.Str("notes")))
+    )
+    assert(params(profile).contains("fields"), Shape(profile))
+    // The shared scope reaches the other route made inside it too.
+    assertEquals(
+      at(op("/players/{playerId}/notes", "delete"), "responses", "409", "description"),
+      GraphJson.Str("already noted")
+    )
+  }
+
+  test("a summary given to a scope of two routes declared in code is refused") {
+    val read = JavaServiceBuilder.read(Vector.empty, Map.empty, Vector(classOf[SharedSummary]))
+    read.httpServer(None).openApi(Map.empty) match
+      case Right(_)       => fail("the document was written")
+      case Left(problems) =>
+        assert(problems.exists(_.contains("described for 2 routes at once")), problems)
   }

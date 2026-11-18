@@ -372,3 +372,16 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   repeatable, on a method or a class, beside the other six. Declined: a subpackage
   `annotations.openapi` keeping every name (an ambiguity wherever both packages are imported
   whole), and `@QueryParameter` (too close to the binding annotation `@QueryParam`).
+
+- **T032: Kotlin holds a kit to its document through `Settings` (the person's decision, a change to
+  contracts/java-kotlin.md).** The contract's `ankkaTestKit(service()) { heldToDocument() }` could
+  not work: the block's receiver is the kit already started, and holding to the document is how
+  the server is started. The Kotlin form is `ankkaTestKit(service(),
+  Settings.defaults().heldToDocument()) { ... }`, the Java `Settings` as it is; nothing new in
+  Kotlin. Declined: a `heldToDocument` Boolean parameter (a second way to say one setting) and a
+  settings builder block (a new overload every other setting would be expected to follow).
+- **T032: a route declared in code carries its `described` scopes.** `RouteRegistrar.Declaration`
+  gains `described`, a list of `RouteRegistrar.Description`s outermost first (a four-argument
+  constructor keeps the old form). A scope is one object shared by every declaration made inside
+  it, so the bridge makes one `DescribedScope` per object and a summary, body or answer given to
+  a scope of more than one route is refused as Scala's is.

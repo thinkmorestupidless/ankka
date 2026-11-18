@@ -70,7 +70,7 @@ kit.assertHeldToDocument();     // fails, listing each violation; close() calls 
 List<String> v = kit.documentViolations();
 ```
 
-Kotlin: `ankkaTestKit(service()) { heldToDocument() }`.
+Kotlin: `ankkaTestKit(service(), Settings.defaults().heldToDocument()) { ... }`, the Java `Settings` as it is.
 
 ## Parity
 

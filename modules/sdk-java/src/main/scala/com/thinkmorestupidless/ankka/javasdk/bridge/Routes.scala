@@ -83,7 +83,9 @@ private[ankka] final case class Served(
 private[ankka] final case class EndpointPlan(
     cls: Class[?],
     routes: Vector[RoutePlan],
-    construct: () => AnyRef
+    construct: () => AnyRef,
+    /** What the class's annotations say of every route, for the OpenAPI document (feature 067). */
+    description: Description = Description.none
 )
 
 /** Reads an endpoint class's routes once, at start, collecting every problem. */
@@ -337,7 +339,7 @@ private[ankka] object Routes:
       }
     }
     if problems.nonEmpty then Left(problems.toVector)
-    else Right(EndpointPlan(cls, routes.toVector, construct.get))
+    else Right(EndpointPlan(cls, routes.toVector, construct.get, classDescription))
 
   private val EventsAnswer =
     AnswerShape(Some(200), "text/event-stream", None, AnswerKind.Events)
@@ -631,6 +633,20 @@ private[ankka] object Routes:
     val problems = mutable.ArrayBuffer.empty[DeclarationProblem]
     val seen     = mutable.Map.empty[(String, String), String]
     plan.routes.foreach(r => seen((r.verb, r.template.render)) = r.method.getName)
+    // One DescribedScope per scope object, shared by the declarations made in it, so a field only
+    // one route may give is refused when the scope held more (feature 067).
+    val classScope = DescribedScope(plan.description)
+    val scopes     = java.util.IdentityHashMap[RouteRegistrar.Description, DescribedScope]()
+    def scopeOf(member: String, d: RouteRegistrar.Description): DescribedScope =
+      Option(scopes.get(d)).getOrElse {
+        val made = Described.of(d) match
+          case Right(found) => DescribedScope(found)
+          case Left(found)  =>
+            found.foreach(f => problems += DeclarationProblem(name, member, f))
+            DescribedScope(Description.none)
+        scopes.put(d, made)
+        made
+      }
     val routes = registrar.routes().asScala.toVector.flatMap { d =>
       val member                                 = s"${d.verb} ${d.template}"
       def refuse(message: String): Option[Route] =
@@ -659,7 +675,9 @@ private[ankka] object Routes:
             case Some(other) => refuse(s"is also $other's route")
             case None        =>
               seen((d.verb, t.render)) = member
-              val reader = read.flatMap(_.toOption)
+              val reader    = read.flatMap(_.toOption)
+              val described = classScope +: d.described.asScala.toVector.map(scopeOf(member, _))
+              described.foreach(_.recorded())
               Some(
                 Route(
                   d.verb,
@@ -694,7 +712,8 @@ private[ankka] object Routes:
                     ),
                     // A handler declared in code returns an Object: its answer is unknown
                     // until its route is described.
-                    AnswerShape(None, "application/json", None, AnswerKind.Body)
+                    AnswerShape(None, "application/json", None, AnswerKind.Body),
+                    described
                   )
                 )
               )

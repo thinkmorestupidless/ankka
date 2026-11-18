@@ -23,7 +23,15 @@ import kotlinx.coroutines.delay
 // The Java test kits, as Kotlin reaches for them: a class as a KClass, a whole service in a block
 // that closes it, and a suspending eventually. Everything else is the Java kit as it is.
 
-/** Starts [service] against a throwaway database, runs [block], and closes the service. */
+/**
+ * Starts [service] against a throwaway database, runs [block], and closes the service.
+ *
+ * Held to the service's OpenAPI document, closing fails listing every answer the document does not
+ * name (feature 067):
+ * ```kotlin
+ * ankkaTestKit(service(), Settings.defaults().heldToDocument()) { ... }
+ * ```
+ */
 fun <T> ankkaTestKit(
     service: ServiceBuilder,
     settings: Settings = Settings.defaults(),

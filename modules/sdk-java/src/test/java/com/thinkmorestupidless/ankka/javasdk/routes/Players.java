@@ -63,7 +63,29 @@ public class Players extends HttpEndpoint implements RouteRegistrar {
 
   @Override
   public List<Declaration> routes() {
+    Description tagged =
+        new Description(
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(new RouteRegistrar.Refusal(409, "already noted", null)),
+            List.of(),
+            List.of(),
+            List.of("notes"));
+    Description answered =
+        new Description(
+            List.of("A player's profile"),
+            List.of(),
+            List.of(new Answer(200, new Shape(Profile.class, null))),
+            List.of(),
+            List.of(),
+            List.of(new Query("fields", String.class, false)),
+            List.of());
     return List.of(
-        new Declaration("POST", "/players/{playerId}/notes", Profile.class, (r, p, b) -> null));
+        new Declaration("POST", "/players/{playerId}/notes", Profile.class, (r, p, b) -> null),
+        new Declaration(
+            "GET", "/players/{playerId}/profile", null, (r, p, b) -> null, List.of(tagged, answered)),
+        new Declaration(
+            "DELETE", "/players/{playerId}/notes", null, (r, p, b) -> null, List.of(tagged)));
   }
 }

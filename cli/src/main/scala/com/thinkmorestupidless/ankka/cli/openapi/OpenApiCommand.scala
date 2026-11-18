@@ -87,7 +87,14 @@ object OpenApiCommand:
               case Some(command) =>
                 write(options, root, service, serviceDir, command, out, err, env, runner)
 
-  /** The project's root, the service's name and its directory, from the directory given. */
+  /** The files that make a directory a build of its own, in each documented language. */
+  private val OwnBuilds = Vector("build.sbt", "pom.xml", "build.gradle.kts")
+
+  /**
+   * The project's root, the service's name and its directory, from the directory given: a service
+   * of a project's `services/`, a project holding one service, or a service that is a build of its
+   * own (what `ankka init <name>` makes), whose root is its own directory.
+   */
   private[openapi] def locate(dir: Path): Either[String, (Path, String, Path)] =
     val at     = dir.toAbsolutePath.normalize
     val parent = Option(at.getParent)
@@ -100,23 +107,57 @@ object OpenApiCommand:
         else Files.list(services).iterator.asScala.filter(Files.isDirectory(_)).toVector.sorted
       found match
         case Vector(one) => Right((at, one.getFileName.toString, one))
+        // A build of its own, or a language with no document, which `build` refuses by name.
+        case Vector()
+            if OwnBuilds.exists(b => Files.isRegularFile(at.resolve(b))) ||
+              SourceCommands.language(at).exists(!Documented(_)) =>
+          Right((at, nameOf(at), at))
+        case Vector() if SourceCommands.language(at).isDefined =>
+          Left(
+            s"$at has no build of its own: run the build that holds it with " +
+              "-Dankka.document=openapi -Dankka.document.out=<file>"
+          )
         case Vector() => Left(s"$at is not a service's directory, nor a project's with one service")
         case several  =>
           Left(
             s"$at holds ${several.size} services; name one: ankka openapi services/<service>"
           )
 
-  /** `local.json`'s `run` for the service, else the language's own, where `local run` runs it. */
+  /** A service's name: its descriptor's, else its directory's. */
+  private def nameOf(dir: Path): String =
+    val descriptor = dir.resolve("service.json")
+    Option
+      .when(Files.isRegularFile(descriptor))(Files.readAllBytes(descriptor))
+      .flatMap(bytes => GraphJson.parse(bytes).toOption)
+      .flatMap(_.field("name"))
+      .collect { case GraphJson.Str(name) if name.nonEmpty => name }
+      .getOrElse(dir.getFileName.toString)
+
+  /**
+   * `local.json`'s `run` for the service, else the language's own, where `local run` runs it; a
+   * service that is a build of its own runs its build's run task in its own directory.
+   */
   private def commandFor(root: Path, service: String, language: Language): Option[RunCommand] =
+    val own = !Files.isDirectory(root.resolve("services").resolve(service)) &&
+      OwnBuilds.exists(b => Files.isRegularFile(root.resolve(b)))
     val directory =
-      if language == Language.Scala then root else root.resolve("services").resolve(service)
+      if own || language == Language.Scala then root else root.resolve("services").resolve(service)
     LocalFile
       .read(root)
       .toOption
       .flatMap(_.run.get(service))
       .filter(_.nonEmpty)
       .map(RunCommand(_, directory))
-      .orElse(SourceCommands.default(root, service, language))
+      .orElse(
+        if !own then SourceCommands.default(root, service, language)
+        else
+          language match
+            case Language.Scala  => Some(RunCommand(Vector("sbt", "run"), root))
+            case Language.Java   => Some(RunCommand(Vector("./mvnw", "-q", "exec:java"), root))
+            case Language.Kotlin =>
+              Some(RunCommand(Vector("./gradlew", "--no-daemon", "-q", "run"), root))
+            case _ => None
+      )
 
   /** The properties the service's `main` reads, for `JAVA_TOOL_OPTIONS`. */
   private[openapi] def properties(

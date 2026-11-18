@@ -41,6 +41,24 @@ class KotlinTemplateSuite extends PolyglotTemplateSuite(Language.Kotlin, "docker
     print(text)
     (started.waitFor(), text)
 
+  test("ankka openapi writes the project's document from its own build, Docker not consulted") {
+    val routes = TemplateDocument
+      .routes(project, Map("GRADLE_USER_HOME" -> gradleHome.toString))
+      .fold(fail(_), identity)
+    assertEquals(
+      routes,
+      Set(
+        "GET /carts/{cartId}",
+        "GET /carts/{cartId}/total",
+        "GET /carts/{cartId}/row",
+        "POST /carts/{cartId}/items",
+        "DELETE /carts/{cartId}/items/{productId}",
+        "POST /carts/{cartId}/checkout",
+        "DELETE /carts/{cartId}"
+      )
+    )
+  }
+
   test("the wrapper is executable and pins a Gradle, and the project pins this CLI's ankka") {
     assert(Files.isExecutable(project.resolve("gradlew")), "gradlew is not executable")
     val jar = project.resolve("gradle/wrapper/gradle-wrapper.jar")

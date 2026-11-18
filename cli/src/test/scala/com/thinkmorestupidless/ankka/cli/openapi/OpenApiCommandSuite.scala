@@ -257,3 +257,44 @@ class OpenApiCommandSuite extends munit.FunSuite:
     assertEquals(code, 1)
     assert(err.contains("this service has no OpenAPI document"), err)
   }
+
+  /** A service that is a build of its own, as `ankka init <name>` makes one. */
+  private val standalone = FunFixture[Path](
+    _ => Files.createTempDirectory("openapi-standalone"),
+    root => Files.walk(root).sorted(java.util.Comparator.reverseOrder()).forEach(Files.delete(_))
+  )
+
+  for (language, build, command) <- Seq(
+      ("scala", "build.sbt", Vector("sbt", "run")),
+      ("java", "pom.xml", Vector("./mvnw", "-q", "exec:java")),
+      ("kotlin", "build.gradle.kts", Vector("./gradlew", "--no-daemon", "-q", "run"))
+    )
+  do
+    standalone.test(s"a $language service that is a build of its own runs its build there") { dir =>
+      if language == "scala" then Files.createDirectories(dir.resolve("src/main/scala")): Unit
+      Files.writeString(dir.resolve(build), "")
+      Files.writeString(dir.resolve("service.json"), """{"name":"probe-service"}""")
+      val build_ = Scripted()
+      val ran    = run(OpenApiCommand.Options(dir), build_)
+      assertEquals(ran.code, 0, ran.err)
+      assertEquals(build_.command, Some(RunCommand(command, dir.toAbsolutePath.normalize)))
+      assertEquals(build_.properties.get("ankka.service.name"), Some("probe-service"))
+      assert(Files.exists(dir.resolve("openapi.json")), "no openapi.json beside the service")
+    }
+
+  standalone.test("a service with no build of its own is told to run the build that holds it") {
+    dir =>
+      Files.createDirectories(dir.resolve("src/main/scala"))
+      val build = Scripted()
+      val ran   = run(OpenApiCommand.Options(dir), build)
+      assertEquals(ran.code, 2)
+      assert(ran.err.contains("has no build of its own"), ran.err)
+      assertEquals(build.command, None)
+  }
+
+  standalone.test("a python service of its own is told it has no document yet") { dir =>
+    Files.writeString(dir.resolve("pyproject.toml"), "[project]\nname = \"cart\"\n")
+    val ran = run(OpenApiCommand.Options(dir), Scripted())
+    assertEquals(ran.code, 2)
+    assertEquals(ran.err.trim, "a python service has no OpenAPI document yet")
+  }

@@ -96,6 +96,13 @@ class TemplateSuite extends munit.FunSuite:
     assertEquals(sbt("test"), 0)
   }
 
+  test(
+    "4a. ankka openapi writes the expansion's document from its own build, Docker not consulted"
+  ) {
+    val routes = TemplateDocument.routes(expansion).fold(fail(_), identity)
+    assertEquals(routes, Set("GET /items/", "GET /items/{id}", "POST /items/{id}"))
+  }
+
   test("5. the expansion builds its image, tagged with its name") {
     assertEquals(sbt("Docker/publishLocal"), 0)
     val inspect = new ProcessBuilder("docker", "image", "inspect", s"$Name:latest")

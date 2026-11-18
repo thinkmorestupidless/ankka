@@ -402,3 +402,13 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
 - **T033: holding the Java and Kotlin carts' features to their documents found an undescribed
   refusal.** `GET /checkouts-seen/{cartId}` refuses 404 when no checkout has been read; both carts
   now say so with `@Refuses`.
+- **T034: a service that is a build of its own is documented in its own directory (the person's
+  decision).** `ankka openapi` found a service only in a project's `services/`, so a project made by
+  `ankka init <name>` (and T034's template tests) was refused. A directory holding `build.sbt`,
+  `pom.xml` or `build.gradle.kts` is now a service of its own, named by its `service.json` (else
+  its directory), run by `sbt run`, `./mvnw -q exec:java` or `./gradlew --no-daemon -q run` there,
+  `local.json`'s `run` still first. A directory with a JVM language's source and no build of its
+  own (this repository's samples, projects of the root build) is refused with exit `2`, naming the
+  properties to run its build with; quickstart.md's sample steps do that. A language with no
+  document is still refused by name. Declined: finding the enclosing sbt build's project for the
+  directory (an sbt round-trip and a rule only this repository's layout needs).

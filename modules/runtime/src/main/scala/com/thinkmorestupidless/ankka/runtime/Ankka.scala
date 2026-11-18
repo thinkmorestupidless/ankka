@@ -69,11 +69,13 @@ trait RuntimeExtension:
    * writes none of that kind, else the document's text or the problems that kept it from being
    * written. Asked while `ankka.document` is set, before anything starts, so an answer may build
    * what it needs but never bind, connect or read the environment. `options` are the
-   * `ankka.document.*` properties without their prefix, and `name`, the service's name.
+   * `ankka.document.*` properties without their prefix, and `name`, the service's name; `registry`
+   * is the service's components, validated, for a check that reads them.
    */
   def document(
       @scala.annotation.unused kind: String,
-      @scala.annotation.unused options: Map[String, String]
+      @scala.annotation.unused options: Map[String, String],
+      @scala.annotation.unused registry: ComponentRegistry = ComponentRegistry.empty
   ): Option[Either[Vector[String], String]] = None
 
   /**

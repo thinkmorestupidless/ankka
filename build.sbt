@@ -1247,7 +1247,9 @@ lazy val shoppingCart = project
     // for the reason on the operator's setting: discovery is one new @main from an ambiguous-main
     // failure unrelated to whatever changed.
     Compile / mainClass := Some("runShoppingCart"),
-    dockerExposedPorts  := Seq(9000, 9090)
+    dockerExposedPorts  := Seq(9000, 9090),
+    // Feature 067: the sample's document is read as OpenAPI 3.1 by its own suite.
+    libraryDependencies += swaggerParser % Test
   )
 
 /**

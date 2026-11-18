@@ -321,3 +321,8 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   `given ShapeOf[T] = ShapeOf.derived`. `derived` expanded inside the type's own companion ignores
   the companion's codec; anywhere else, a type whose companion gives a codec and no shape is
   refused by `derived` (a compile error naming the fix) and has none under `Maybe`.
+- **T016, the registry a document's check reads**: the sample's MCP endpoint is refused by the
+  HTTP server's `validate` when its tools name components a registry does not hold, and the
+  seam of T013 gave the server none. `document` takes a third parameter, the registry
+  `ServiceBuilder.validate` answered, defaulting to the empty one, so `document(kind, options)`
+  still reads as the contract states it and a check that reads components sees the service's own.

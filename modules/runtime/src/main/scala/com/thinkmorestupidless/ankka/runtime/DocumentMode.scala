@@ -38,12 +38,12 @@ private[ankka] object DocumentMode:
     if !Kinds(kind) then (1, Vector(s"unknown document kind: $kind"))
     else
       builder.validate match
-        case Left(problems) => (1, problems)
-        case Right(_)       =>
+        case Left(problems)  => (1, problems)
+        case Right(registry) =>
           val options = properties.collect {
             case (k, v) if k.startsWith(Prefix) && k != Out => k.stripPrefix(Prefix) -> v
           } + ("name" -> serviceName)
-          builder.declaredExtensions.flatMap(_.document(kind, options)) match
+          builder.declaredExtensions.flatMap(_.document(kind, options, registry)) match
             case Vector()            => (1, Vector("this service has no HTTP endpoints"))
             case Vector(Left(found)) => (1, found)
             case Vector(Right(text)) => write(text, properties.get(Out))

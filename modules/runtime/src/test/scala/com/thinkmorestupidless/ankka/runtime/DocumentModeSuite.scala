@@ -8,10 +8,14 @@ class DocumentModeSuite extends munit.FunSuite:
 
   /** An extension that writes `answer` for `openapi`, and fails the suite if it is started. */
   private final class Writes(answer: Either[Vector[String], String]) extends RuntimeExtension:
-    @volatile var asked: Map[String, String]                          = Map.empty
-    def name                                                          = "writes"
-    def start(service: AnkkaService): Unit                            = fail("started")
-    override def document(kind: String, options: Map[String, String]) =
+    @volatile var asked: Map[String, String] = Map.empty
+    def name                                 = "writes"
+    def start(service: AnkkaService): Unit   = fail("started")
+    override def document(
+        kind: String,
+        options: Map[String, String],
+        registry: com.thinkmorestupidless.ankka.core.ComponentRegistry
+    ) =
       asked = options
       Option.when(kind == "openapi")(answer)
 

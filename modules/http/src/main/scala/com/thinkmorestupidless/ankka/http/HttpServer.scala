@@ -362,23 +362,22 @@ final class HttpServer private (
    */
   override def document(
       kind: String,
-      options: Map[String, String]
+      options: Map[String, String],
+      registry: com.thinkmorestupidless.ankka.core.ComponentRegistry
   ): Option[Either[Vector[String], String]] =
-    Option.when(kind == "openapi")(openApi(options).map(_.render))
+    Option.when(kind == "openapi")(openApi(options, registry).map(_.render))
 
   /** The endpoints built with no service, validated, and their document. */
   private[ankka] def openApi(
-      options: Map[String, String]
+      options: Map[String, String],
+      registry: com.thinkmorestupidless.ankka.core.ComponentRegistry =
+        com.thinkmorestupidless.ankka.core.ComponentRegistry.empty
   ): Either[Vector[String], com.thinkmorestupidless.ankka.http.openapi.Document] =
     import com.thinkmorestupidless.ankka.http.openapi.{OpenApi, Selection}
     def list(key: String): Vector[String] =
       options.get(key).toVector.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty)
     HttpServer.buildAll(factories, EndpointClients.unavailable).flatMap { endpoints =>
-      val mounting = Mounting(
-        com.thinkmorestupidless.ankka.core.ComponentRegistry.empty,
-        endpoints,
-        None
-      )
+      val mounting = Mounting(registry, endpoints, None)
       HttpServer.validated(validate(endpoints, mounting)).flatMap { _ =>
         OpenApi.build(
           options.getOrElse("name", "service"),

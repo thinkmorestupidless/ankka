@@ -2,7 +2,7 @@ package shoppingcart
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.http.HttpServer
-import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
+import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, HeldToDocument}
 import shoppingcart.api.ShoppingCartEndpoint
 import shoppingcart.application.ShoppingCartEntity
 
@@ -18,7 +18,7 @@ import scala.concurrent.duration.DurationInt
  * Uses the JDK's own HTTP client rather than a pekko one, so the test exercises ankka from outside
  * as an ordinary web service.
  */
-class ShoppingCartHttpSuite extends munit.FunSuite with LogCapturing:
+class ShoppingCartHttpSuite extends munit.FunSuite with HeldToDocument with LogCapturing:
 
   override val munitTimeout = 3.minutes
 
@@ -30,8 +30,11 @@ class ShoppingCartHttpSuite extends munit.FunSuite with LogCapturing:
 
   override def beforeAll(): Unit =
     // docs:start http-server
-    // Port 0 so concurrent test runs cannot collide.
-    server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+    // Port 0 so concurrent test runs cannot collide. Held to its OpenAPI document: an answer the
+    // document does not allow fails the test that caused it.
+    server = HeldToDocument.server(
+      HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+    )
     testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
     // docs:end http-server

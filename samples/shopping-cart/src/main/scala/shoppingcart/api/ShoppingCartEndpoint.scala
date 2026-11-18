@@ -41,20 +41,25 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
     cart(cartId).call(ShoppingCartEntity.totalQuantity).invoke()
   }
 
-  postBody("/{cartId}/items") { (cartId: String, item: LineItem) =>
-    cart(cartId).call(ShoppingCartEntity.addItem).invoke(item)
-  }
+  // Every write the entity refuses once the cart is checked out: said once, for the document.
+  described(_.refuses(409, "the cart is already checked out")) {
+    postBody("/{cartId}/items") { (cartId: String, item: LineItem) =>
+      cart(cartId).call(ShoppingCartEntity.addItem).invoke(item)
+    }
 
-  delete("/{cartId}/items/{productId}") { (cartId: String, productId: String) =>
-    cart(cartId).call(ShoppingCartEntity.removeItem).invoke(productId)
-  }
+    described(_.refuses(404, "the cart does not hold the product")) {
+      delete("/{cartId}/items/{productId}") { (cartId: String, productId: String) =>
+        cart(cartId).call(ShoppingCartEntity.removeItem).invoke(productId)
+      }
+    }
 
-  post("/{cartId}/checkout") { (cartId: String) =>
-    cart(cartId).call(ShoppingCartEntity.checkout).invoke()
-  }
+    post("/{cartId}/checkout") { (cartId: String) =>
+      cart(cartId).call(ShoppingCartEntity.checkout).invoke()
+    }
 
-  delete("/{cartId}") { (cartId: String) =>
-    cart(cartId).call(ShoppingCartEntity.discard).invoke()
+    delete("/{cartId}") { (cartId: String) =>
+      cart(cartId).call(ShoppingCartEntity.discard).invoke()
+    }
   }
 
   // A route whose types say little: a text note in, JSON bytes it builds out, two query parameters

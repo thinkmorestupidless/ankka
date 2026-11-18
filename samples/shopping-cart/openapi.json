@@ -528,6 +528,16 @@
           "204": {
             "description": ""
           },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
           "default": {
             "description": "refused",
             "content": {
@@ -567,6 +577,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ShoppingCart"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
                 }
               }
             }
@@ -616,6 +636,16 @@
           "204": {
             "description": ""
           },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
           "default": {
             "description": "refused",
             "content": {
@@ -659,6 +689,26 @@
         "responses": {
           "204": {
             "description": ""
+          },
+          "404": {
+            "description": "the cart does not hold the product",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the cart is already checked out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
           },
           "default": {
             "description": "refused",

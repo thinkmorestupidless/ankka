@@ -107,7 +107,7 @@ written `<NAME>TEST`.
 
 **Independent Test**: `OpenApiServedSuite` green; `ankka openapi --local cart` prints the running sample's document.
 
-- [ ] T027 [US4] `HttpServer.withOpenApi(acl)` in `HTTP/HttpServer.scala`: the document is rendered once in `serve` from the endpoints served; `Router.handle` gains a branch beside health for `GET /_ankka/openapi.json`, admitted by `Admission.decide` for that route with the stated ACL, answering the bytes as `application/json`; without `withOpenApi` the branch does not exist and the path falls through as today; the path joins the reserved paths `validate` refuses to a root route and the startup log's route lines; its authenticators are bound at start as a route's are. `HTTPTEST/openapi/OpenApiServedSuite.scala`: one case per scenario of `serving.feature` but the local one, the served bytes equal to `document("openapi", ...)`'s, and SC-009 as a table of requests answered identically with the feature unused (compare against answers recorded before this task's change, kept in the suite)
+- [ ] T027 [US4] `HttpServer.withOpenApi(acl)` in `HTTP/HttpServer.scala`: the document is rendered once in `serve` from the endpoints served; `Router.handle` gains a branch beside health for `GET /_ankka/openapi.json`, admitted by `Admission.decide` for that route with the stated ACL, answering the bytes as `application/json`; without `withOpenApi` the branch does not exist and the path falls through as today; the path joins the reserved paths `validate` refuses to a root route and the startup log's route lines; its authenticators are bound at start as a route's are. `HTTPTEST/openapi/OpenApiServedSuite.scala`: one case per scenario of `serving.feature` but the local one, a request for the path with a query string is answered the whole document (no selection is offered), the served bytes equal to `document("openapi", ...)`'s, and SC-009 as a table of requests answered identically with the feature unused (compare against answers recorded before this task's change, kept in the suite)
 - [ ] T028 [US4] In `RUNTIME/ObservabilityEndpoint.scala` serve `/observability/openapi` from the service's extensions' `document("openapi", Map.empty)` (`404` when none answers, the problems as text with `500` when it cannot be built); in `cli/.../console/LocalSource.scala` add `openApi(name)`; `ankka openapi --local <service>` in `OpenApiCommand`. Cases in the runtime's observability suite and `OpenApiCommandSuite` (printed; no such local service), and the scenario "a local service's document is given to its developer whether or not the service serves it" bound in `OpenApiFeatures`
 
 **Checkpoint**: quickstart step 4 passes.
@@ -143,6 +143,35 @@ written `<NAME>TEST`.
 - [ ] T042 `sbt scalafmtCheckAll buildAll` with `-Dankka.cluster.tests=off`, `just features`, `just docs`, `just kotlin test`, and quickstart.md end to end
 
 ---
+
+## Requirements covered
+
+| Requirements | Tasks |
+|---|---|
+| FR-001 to FR-003, FR-006 to FR-008, FR-010 | T010, T011 |
+| FR-004, SC-008 | T011 (order), T016 (two JVMs) |
+| FR-005 | T013, T015 |
+| FR-009, SC-004 | T002, T006, T007, T016 |
+| FR-011 | T004, T012 |
+| FR-012 to FR-015, FR-017, SC-005 | T018, T019, T021 |
+| FR-016, SC-009 | T018, T027 |
+| FR-018, FR-019 | T012 |
+| FR-020 | T022 |
+| FR-021, FR-025, SC-001, SC-003, SC-007 | T013, T014, T015, T016, T040 |
+| FR-022, FR-023 | T020 |
+| FR-024 | T023 |
+| FR-026 to FR-029 | T027 |
+| FR-030 | T028 |
+| FR-031 to FR-033, SC-006 | T024, T025, T026 |
+| FR-034, FR-035 | T029 to T033 |
+| FR-036 | T015 |
+| FR-037 | T009, T034 |
+| SC-002 | T039 |
+
+Edge cases: one simple name for two types T010; a self-referring type and a hand-written codec
+T006; a status the handler decides T011; streams T012; an endpoint that cannot be built and a
+duplicate route T013; a selection that keeps nothing T020; several ACLs T012; the served document
+is whole T027.
 
 ## Dependencies
 

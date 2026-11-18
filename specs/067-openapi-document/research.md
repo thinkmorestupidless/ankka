@@ -276,3 +276,19 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   protocol change with four SDKs' conformance behind it.
 - Request validation at run time from described shapes: changes what a service accepts.
 - A client generator: the document is the product; generators exist.
+
+## Analysis
+
+2026-11-18, one round. Findings and what was done:
+
+- MEDIUM: the spec's edge case of a path parameter taking the rest of a path names something
+  `PathTemplate` does not have. Removed from the spec.
+- MEDIUM: the task list named few requirements. A coverage table was added to `tasks.md`; every
+  requirement, success criterion and edge case has a task.
+- LOW: the edge case "the served document asked for with a selection" had no test. Added to T027.
+- LOW: the spec's prose says schema and label where the features say shape and route tag. Recorded
+  under the spec's Clarifications; left as it is.
+
+## Design finished
+
+2026-11-18: analyze reported nothing above LOW.

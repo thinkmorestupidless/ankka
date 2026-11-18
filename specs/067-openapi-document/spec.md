@@ -278,8 +278,6 @@ document with the Scala one's, route by route.
   the endpoint and the cause, and writes no file.
 - The same method and path declared by two endpoints: already refused when the service starts;
   the command refuses the same way.
-- A path with a parameter that takes the rest of the path: written in the form OpenAPI has for a
-  single segment, and marked as taking the rest.
 - A label or prefix that selects no route: the command fails saying so, instead of writing an
   empty document.
 - A route admitted by any one of several ACLs, one of them tokens: marked as needing a bearer

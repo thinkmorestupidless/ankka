@@ -40,7 +40,8 @@ final class HttpServer private (
     configuredGrants: Option[Grants] = None,
     configuredMachines: Option[MachineTokens] = None,
     clientCertificates: Boolean = true,
-    documentCheck: Option[openapi.DocumentCheck] = None
+    documentCheck: Option[openapi.DocumentCheck] = None,
+    openApiAcl: Option[Acl] = None
 ) extends RuntimeExtension:
 
   /**
@@ -56,7 +57,8 @@ final class HttpServer private (
       configuredGrants,
       configuredMachines,
       clientCertificates,
-      documentCheck
+      documentCheck,
+      openApiAcl
     )
 
   /**
@@ -72,7 +74,8 @@ final class HttpServer private (
       Some(grants),
       configuredMachines,
       clientCertificates,
-      documentCheck
+      documentCheck,
+      openApiAcl
     )
 
   /**
@@ -88,7 +91,8 @@ final class HttpServer private (
       configuredGrants,
       Some(machines),
       clientCertificates,
-      documentCheck
+      documentCheck,
+      openApiAcl
     )
 
   /**
@@ -105,7 +109,8 @@ final class HttpServer private (
       configuredGrants,
       configuredMachines,
       clientCertificates = false,
-      documentCheck
+      documentCheck,
+      openApiAcl
     )
 
   /**
@@ -121,7 +126,28 @@ final class HttpServer private (
       configuredGrants,
       configuredMachines,
       clientCertificates,
-      Some(check)
+      Some(check),
+      openApiAcl
+    )
+
+  /**
+   * This server, serving its OpenAPI document at `GET /_ankka/openapi.json` to whom `acl` admits
+   * (feature 067). The document is the whole service's, rendered once when the server starts from
+   * the endpoints it serves: the one a developer writes from the same build. Without this the path
+   * is answered as any path the service has no route for, and says nothing of whether a document
+   * exists.
+   */
+  def withOpenApi(acl: Acl): HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates,
+      documentCheck,
+      Some(acl)
     )
 
   @volatile private var servedEndpoints: Vector[HttpEndpoint] = Vector.empty
@@ -203,13 +229,26 @@ final class HttpServer private (
     )
     validate(endpoints, mounting)
     servedEndpoints = endpoints
+    val document = openApiAcl.map { acl =>
+      val name = sys.props
+        .get("ankka.service.name")
+        .orElse(Option(system.settings.config.getString("ankka.service.name")).filter(_.nonEmpty))
+        .getOrElse(system.name)
+      openapi.OpenApi.build(name, "", endpoints) match
+        case Right(built)   => acl -> built.render.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        case Left(problems) =>
+          throw IllegalArgumentException(
+            problems.mkString("the OpenAPI document cannot be served:\n  - ", "\n  - ", "")
+          )
+    }
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap {
       case describes: ServesRoutes => describes.served
       case endpoint                => describedRoutes(endpoint)
     }
     logRoutes(endpoints)
-    bindAndListen(endpoints, host, bindPort, bodyTimeout, directoryStorage)
+    if document.isDefined then system.log.info("route GET /{}", Router.OpenApiPath.mkString("/"))
+    bindAndListen(endpoints, host, bindPort, bodyTimeout, directoryStorage, document)
 
   /** What the server reads from an endpoint's routes when the endpoint does not say itself. */
   private def describedRoutes(endpoint: HttpEndpoint): Vector[ServedRoute] =
@@ -278,7 +317,10 @@ final class HttpServer private (
       host: String,
       bindPort: Int,
       bodyTimeout: FiniteDuration,
-      directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage]
+      directoryStorage: Option[
+        com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
+      ],
+      document: Option[(Acl, Array[Byte])]
   )(using system: ActorSystem[?]): Unit =
     given ExecutionContext = system.executionContext
     val config             = system.settings.config
@@ -316,7 +358,8 @@ final class HttpServer private (
         Some(heartbeat),
         maxStreamBytes,
         directoryStorage,
-        documentCheck
+        documentCheck,
+        document
       ).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
@@ -485,6 +528,12 @@ final class HttpServer private (
       val path = normalised(full)
       if path == "/_ankka/sign-in" || path.startsWith("/_ankka/sign-in/") then
         problems += s"'${owner.prefix}' serves $method $path, under /_ankka/sign-in, which the platform reserves"
+      if path == s"/${Router.OpenApiPath.mkString("/")}" then
+        problems += s"'${owner.prefix}' serves $method $path, which the platform reserves for the service's OpenAPI document"
+    }
+    roots.foreach { case ((method, path), owner) =>
+      if normalised(path) == s"/${Router.OpenApiPath.mkString("/")}" then
+        problems += s"'${owner.prefix}' serves $method $path, which the platform reserves for the service's OpenAPI document"
     }
 
     endpoints.foreach(endpoint => problems ++= endpoint.problems(mounting))
@@ -492,8 +541,7 @@ final class HttpServer private (
     // Every authenticator that needs the running service is given it now, so a start that cannot
     // give it fails here, naming why, instead of at the first request.
     mounting.service.foreach { service =>
-      endpoints
-        .flatMap(HttpServer.aclsOf)
+      (endpoints.flatMap(HttpServer.aclsOf) ++ openApiAcl)
         .flatMap(Acl.authenticators)
         .distinct
         .collect { case needs: NeedsService => needs }
@@ -653,7 +701,9 @@ private final class Router(
     maxStreamBytes: Long = Router.DefaultMaxStreamBytes,
     directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage] =
       None,
-    check: Option[openapi.DocumentCheck] = None
+    check: Option[openapi.DocumentCheck] = None,
+    /** The service's OpenAPI document and who may read it, when the service serves it. */
+    openApi: Option[(Acl, Array[Byte])] = None
 ):
 
   private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
@@ -726,6 +776,25 @@ private final class Router(
     // Exempt from ACLs because it reveals nothing: liveness probes need to work before
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
+    else if path == Router.OpenApiPath && request.method == HttpMethods.GET && openApi.isDefined
+    then
+      request.discardEntityBytes(): Unit
+      val (acl, bytes) = openApi.get
+      callers.callerOf(request) match
+        case Left(reason)  => Future.successful(problem(HttpProblem.forbidden(reason)))
+        case Right(caller) =>
+          val target = Some(GrantTarget.Route("GET", s"/${Router.OpenApiPath.mkString("/")}"))
+          Future.successful(
+            admitter.decide(acl, contextFor(request, caller), target) match
+              case Right(_) =>
+                HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, bytes))
+              case Left(Refusal.Unauthenticated(challenge)) =>
+                problem(HttpProblem.unauthorized("authentication required"))
+                  .addHeader(headers.RawHeader("WWW-Authenticate", s"Bearer $challenge"))
+              case Left(Refusal.Forbidden(reason))   => problem(HttpProblem.forbidden(reason))
+              case Left(Refusal.Unavailable(reason)) =>
+                problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5"))
+          )
     else if path.startsWith(StoragePath) && !(processStorage && storageEndpoint.isEmpty) then
       // The runtime's: no endpoint is given a path under it but a process's directory store, so
       // nothing else here is an endpoint's. Only this part of `/_ankka` is taken here; an MCP
@@ -1306,6 +1375,9 @@ private object Router:
 
   /** Where a directory store's signed and public URLs point, on a developer's machine. */
   val StoragePath: Vector[String] = Vector(Reserved, "storage")
+
+  /** Where a service that states an ACL for it serves its OpenAPI document (feature 067). */
+  val OpenApiPath: Vector[String] = Vector(Reserved, "openapi.json")
 
   /** A path's segments decoded, so a name with an encoded character reads as it was written. */
   def decoded(path: Uri.Path): Vector[String] =

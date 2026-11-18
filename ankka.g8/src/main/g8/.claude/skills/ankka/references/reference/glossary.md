@@ -253,6 +253,11 @@ when that is sooner, so the connection is never quiet long enough to be ended.
 A method of a component that the runtime calls: a command, a query, a workflow step, a timed action's action,
 or an agent's handler. Each is declared with a wire name.
 
+### Held to its document
+
+Of a service in a test: every answer it gives and every query parameter its handlers read is checked
+against its OpenAPI document, and a difference fails the test. See [OpenAPI documents](../build/openapi.md#holding-tests-to-the-document).
+
 ### History
 
 What the control plane keeps of the changes members made to a service: what was done, at which generation,
@@ -262,6 +267,12 @@ by whom and when, newest first, the last 50 of them. It is not what the service 
 
 The URL an exposed service answers at, `https://<service>-<project>.<base domain>`. The platform derives it;
 it cannot be chosen.
+
+### Incomplete route
+
+A route that takes a body, or gives an answer with a body, whose shape its OpenAPI document cannot
+state. A stream of bytes has no shape and does not make a route incomplete. A route that is not
+incomplete is complete.
 
 ### Instance
 
@@ -326,6 +337,12 @@ mount does not expose the mounted service.
 What the cluster reports about a service: its lifecycle, ready and desired instances, database and route. The
 operator reports it; the control plane records it beside the desired state.
 
+### OpenAPI document
+
+The description of one service's HTTP endpoints that a developer writes from its code: every route,
+its path parameters, its body and its answers, the named shapes they refer to, and who may call each
+as far as its ACL tells. One per service. See [OpenAPI documents](../build/openapi.md).
+
 ### Operator
 
 The in-cluster process that watches AnkkaService resources and creates what each one needs: namespace,
@@ -350,6 +367,10 @@ a topic's partitions between them. A topic may be given more partitions and neve
 
 Unloading an idle entity from memory. The next command rebuilds it from its journal. The default idle time is
 two minutes.
+
+### Path parameter
+
+A changing part of a route's path, by the name the route gives it: `cartId` in `GET /carts/{cartId}`.
 
 ### Period
 
@@ -412,6 +433,10 @@ services. See [Deploy a user interface](../deploy/web-hosting.md).
 A handler that only reads. It must return a read-only effect, so it cannot persist. The local console runs
 queries and never commands.
 
+### Query parameter
+
+A named value a request carries after its path, which a handler reads by name.
+
 ### Question
 
 What a judgment asks: a choice among described options, a score on described levels, or a yes or no. A
@@ -444,6 +469,11 @@ once and goes on. Set again for the same handler with the same period, it keeps 
 A handler's deliberate "no", returned as an error effect with a message and an error code. Nothing is persisted
 and nothing is retried. It differs from a failure, which is a handler that threw.
 
+### Requiring completeness
+
+Of writing an OpenAPI document: refusing to write it while any route is an incomplete route
+(`ankka openapi --strict`).
+
 ### Result guardrail
 
 A guardrail an agent declares for what an MCP server's tool answers. It runs before the model is told the
@@ -453,6 +483,17 @@ result; a result it refuses is never told to the model, which is told of an erro
 
 Applying again the descriptor a service recorded at an earlier generation, as a new generation. Nothing is
 rewound: the generation keeps counting, the history shows both, and the service's data is untouched.
+
+### Route description
+
+What a route declares about itself beyond what its handler's types say: a summary, the shape of a
+body or an answer whose type is text or bytes, refusals, query parameters and route tags. It adds to
+what the route's declaration says and changes nothing of how the route answers.
+
+### Route tag
+
+A word a route or an HTTP endpoint carries by which a developer selects routes for an OpenAPI
+document. Not a label, which is a node's.
 
 ### Row
 
@@ -500,7 +541,6 @@ generated from. A method's name in it is the method's wire name.
 A named text value a service keeps in its secret store while it runs and reads back by that name, such as
 a credential a person gave it. See [Secrets a service keeps](../build/secrets.md).
 
-
 ### Service tag
 
 A tag in a project's repository that names one of its services and a version, such as `orders/v1.4.2`, and
@@ -511,6 +551,12 @@ releases that service alone.
 The conversation an agent works in, identified by a session id. Its memory is an event sourced entity, so it
 survives restarts, and several agents can share one session to collaborate. Requests to one session are handled
 one at a time.
+
+### Shape
+
+The JSON form of a body or an answer, as an OpenAPI document states it: derived from a type or
+written as JSON Schema. A named one is shared by every route that uses its type. Not a schema, which
+is a topic's.
 
 ### Shared module
 

@@ -14,7 +14,7 @@ The module is published at the same version as every ankka release, so pin the v
 you deploy to:
 
 ```bash
-go get github.com/thinkmorestupidless/ankka-go@v0.16.2
+go get github.com/thinkmorestupidless/ankka-go@v0.17.0
 ```
 
 The floor is Go 1.26. A service runs with the standard toolchain, `go run .`, and builds to one static

@@ -36,7 +36,7 @@ In a service created from the template:
 <!-- untested: the release a service pins, which docs sync keeps at the newest release -->
 ```scala
 // build.sbt
-val ankkaVersion = "0.16.2"
+val ankkaVersion = "0.17.0"
 ```
 
 ///
@@ -46,7 +46,7 @@ val ankkaVersion = "0.16.2"
   "name": "orders",
   "service": {
     "image": "orders:latest",
-    "runtime": "0.16.2"
+    "runtime": "0.17.0"
   }
 }
 ```

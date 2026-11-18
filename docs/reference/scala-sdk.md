@@ -30,7 +30,7 @@ the service descriptor's validation, and depends on `ankka-core` alone. See
 [Control plane HTTP API](control-plane-api.md#from-scala).
 
 ```scala
-val ankkaVersion = "0.16.2"
+val ankkaVersion = "0.17.0"
 
 libraryDependencies ++= Seq(
   "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,

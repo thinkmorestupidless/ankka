@@ -206,7 +206,7 @@ languages' codecs agree. Every SDK's default codec produces and accepts exactly 
 
 | Content type | Used for | Encoding |
 |---|---|---|
-| `application/json` | Records and sum types | A JSON object with every field written, including empty collections and absent options as `null`. A sum type's case adds `"type": "<CaseName>"`. Instants are ISO-8601 in UTC with `Z`. |
+| `application/json` | Records and sum types | A JSON object with every field written, including empty collections and absent options as `null`, except that the Scala SDK omits a field equal to its declared default; a reader takes an absent defaulted field as its default. A sum type's case adds `"type": "<CaseName>"`. Instants are ISO-8601 in UTC with `Z`. |
 | `text/plain` | Top-level primitives | The text itself, with no quotes: manifests `string`, `int`, `long`, `short`, `byte`, `double`, `float`, `boolean`, and `duration-millis` for a duration in milliseconds. |
 | `application/octet-stream` | `Done`, unit, bytes, top-level options | Zero bytes for `done` and `unit`; the bytes for `bytes`; for `option[<manifest>]`, zero bytes for none, or `0x01` followed by the value's bytes. |
 

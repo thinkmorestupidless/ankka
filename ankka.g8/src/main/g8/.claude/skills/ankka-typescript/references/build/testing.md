@@ -1302,8 +1302,11 @@ while running the tests would otherwise see `Address already in use`:
 **Scala**
 
 ```scala
-// Port 0 so concurrent test runs cannot collide.
-server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+// Port 0 so concurrent test runs cannot collide. Held to its OpenAPI document: an answer the
+// document does not allow fails the test that caused it.
+server = HeldToDocument.server(
+  HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+)
 testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
 baseUrl = s"http://127.0.0.1:\${server.boundPort.getOrElse(fail("server did not bind"))}"
 ```
@@ -1314,6 +1317,51 @@ baseUrl = s"http://127.0.0.1:\${server.boundPort.getOrElse(fail("server did not 
 // Every port is a free loopback one, never 9000: `http()` is where the routes answer.
 val kit = AnkkaTestKit.start(service())
 val baseUrl = kit.http()
+```
+
+### Held to its OpenAPI document
+
+An integration test can hold the service to its OpenAPI document: every answer a test causes, and every
+query parameter a handler reads, is checked against the document the service's routes give, and an answer
+the document does not allow fails the test that caused it. A route that is not in the document is not
+checked. See [OpenAPI documents](openapi.md#holding-tests-to-the-document).
+
+**Scala**
+
+```scala
+// Port 0 so concurrent test runs cannot collide. Held to its OpenAPI document: an answer the
+// document does not allow fails the test that caused it.
+server = HeldToDocument.server(
+  HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+)
+testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
+baseUrl = s"http://127.0.0.1:\${server.boundPort.getOrElse(fail("server did not bind"))}"
+```
+
+**Java**
+
+```java
+/** Two calls of a test, each answer checked against the service's document. */
+public static void held() throws Exception {
+  // close() fails, listing every answer the document does not allow.
+  try (var kit = AnkkaTestKit.start(service(), Settings.defaults().heldToDocument())) {
+    get(kit, "/greetings/ada");
+    get(kit, "/greetings/nobody"); // 404, which the route's @Refuses names
+  }
+}
+```
+
+**Kotlin**
+
+```kotlin
+/** Two calls of a test, each answer checked against the service's document. */
+fun heldToItsDocument() {
+    // Closing fails, listing every answer the document does not allow.
+    ankkaTestKit(greetings(), Settings.defaults().heldToDocument()) {
+        get("/greetings/ada")
+        get("/greetings/nobody") // 404, which the route's description names
+    }
+}
 ```
 
 ### gRPC in an integration test

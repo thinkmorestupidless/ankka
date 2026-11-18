@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}
 import com.thinkmorestupidless.ankka.grpc.GrpcClients
-import com.thinkmorestupidless.ankka.http.{EndpointClients, HttpEndpoint, HttpServer}
+import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients, HttpEndpoint, HttpServer}
 import com.thinkmorestupidless.ankka.mcp.McpRuntime
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
@@ -238,4 +238,21 @@ class OpenApiDocumentSuite extends munit.FunSuite with LogCapturing:
       "samples/shopping-cart/openapi.json is stale: run " +
         "sbt -Dankka.docs.update=true 'shoppingCart/testOnly *OpenApiDocumentSuite' and commit it"
     )
+  }
+
+  test("served to the callers its ACL admits, the document is the cart's") {
+    // docs:start served
+    val served = HttpServer
+      .at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+      // GET /_ankka/openapi.json, answered to the callers this ACL admits.
+      .withOpenApi(Acl.AllowAll)
+    // docs:end served
+    val kit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(served))
+    try
+      val port    = served.boundPort.getOrElse(fail("server did not bind"))
+      val request = JdkRequest.newBuilder(URI.create(s"http://127.0.0.1:$port/_ankka/openapi.json"))
+      val response = http.send(request.build(), JdkResponse.BodyHandlers.ofString())
+      assertEquals(response.statusCode, 200, response.body)
+      assert(response.body.contains("\"/carts/{cartId}/receipt\""), response.body)
+    finally kit.stop()
   }

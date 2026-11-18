@@ -1059,6 +1059,7 @@ the problem, under the same rules a Scala service and the sidecar apply. See
 | Errors | `throw new ProblemException(Problem.notFound(...))`; a `CommandException` from a call answers its problem's status |
 | ACL | `Acl.allowAll()`, `denyAll()`, `allowIf(request -> …)`, `authenticate(request -> AuthDecision.allow(principal))`, `allowCallers("orders")`, `allowCallers(Callers.internet(), Callers.service("orders"), …)`, `anyOf(...)`, `clientKeys()`, `oidc()` |
 | In a handler | `request()` (`method()`, `path()`, `query(name)`, `queryAll(name)`, `requiredQuery(name)`, `flag(name)`, `header(name)`, `headers()`), `caller()`, `principal()`, `componentClient()`, `viewClient()`, `services()`, `secrets()`, `storage()`, `erasures()`, `timers()`, `clientKeys()` |
+| OpenAPI | `@Summary`, `@BodyShape(T.class)`, `@Answers(status, shape = T.class)`, `@Refuses(status, reason)`, `@RefusalShape`, `@ReadsQuery(name, type)`, `@Tag` on a handler, and `@Refuses`, `@RefusalShape`, `@ReadsQuery` and `@Tag` on the class for all of its routes; `withOpenApi(acl)` on the `ServiceBuilder` serves the document at `/_ankka/openapi.json` |
 
 `acl()` is abstract, so an endpoint without one does not compile. One instance serves every request; the
 request is readable on the handler's own thread only, so read what you need before handing work to another.
@@ -1256,6 +1257,7 @@ its image with Jib.
 | `AgentTestKit.of(Agent.class, model[, sessionId, client])` | One turn of an agent, no runtime, against a `TestModelProvider`: `call(Agent::handler, input)` answers an `AgentResult`; the next turn reads what the last recorded |
 | `TestClient.of(Component.class...)` | The component client a kit hands a component: `.stub(Entity::handler, input -> reply)`, `.refuse(Entity::handler, problem)`; a call nobody stubbed fails, naming it |
 | `AnkkaTestKit.start(Main.service()[, settings])` | The whole service against a throwaway Postgres in Docker: `http()`, `httpClient()`, `componentClient()`, `viewClient()`, `timers()`, `restartService()`, `published(topic)`, `timerRuns()`, `eventually(within, assertion)`, `socket(path)`, `asCaller(caller)`; `installations(names...)` for a replicated group |
+| `Settings.defaults().heldToDocument()` | The whole-service kit held to the service's OpenAPI document: every answer and every query parameter a handler reads is checked; `documentViolations()` lists what the document does not allow, `assertHeldToDocument()` fails on it, and `close()` calls it |
 
 Every unit kit crosses the component's own serializers and reduces effects with the function the runtime
 uses, so a kit and a running service cannot disagree about what an effect means. The whole-service kit

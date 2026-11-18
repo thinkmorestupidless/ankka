@@ -59,7 +59,7 @@ it.
 The ankka runtime version the image carries:
 
 ```json
-{"version":"0.16.2"}
+{"version":"0.17.0"}
 ```
 
 A descriptor's `runtime` field is a declaration the platform checks before starting anything; this endpoint

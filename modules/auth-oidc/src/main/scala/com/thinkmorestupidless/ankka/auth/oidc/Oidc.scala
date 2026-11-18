@@ -16,9 +16,15 @@ object Oidc:
   /**
    * The ACL for the issuers the environment lists. Throws, naming every problem, when it cannot.
    */
-  def authenticate(): Acl = authenticate(sys.env)
+  def authenticate(): Acl = authenticate(sys.env, sys.props.contains(DocumentProperty))
 
-  private[oidc] def authenticate(env: Map[String, String]): Acl =
+  /**
+   * Set while a service's `main` runs only to write a document of its endpoints (feature 067): no
+   * request is served, and a machine that builds the document configures no issuer.
+   */
+  private val DocumentProperty = "ankka.document"
+
+  private[oidc] def authenticate(env: Map[String, String], documenting: Boolean): Acl =
     OidcConfig.fromEnv(env) match
       case Left(problems) =>
         throw IllegalStateException(
@@ -28,7 +34,16 @@ object Oidc:
             ""
           )
         )
-      case Right(config) => authenticate(config)
+      // A document says a bearer token is needed and names no issuer (feature 067, R4), so with
+      // none configured it still builds; the authenticator is never asked to decide.
+      case Right(config) if config.isEmpty && documenting => Acl.Authenticate(NoIssuers)
+      case Right(config)                                  => authenticate(config)
+
+  /** What a route that admits tokens is while a document is written with no issuer configured. */
+  private object NoIssuers extends TokenAuthenticator:
+    def authorizationServers: Vector[String]         = Vector.empty
+    def apply(context: RequestContext): AuthDecision =
+      AuthDecision.Unavailable("no issuer is configured; this service is only writing a document")
 
   /** The ACL for a configuration built any other way. Throws when it lists no issuer. */
   def authenticate(config: OidcConfig): Acl =

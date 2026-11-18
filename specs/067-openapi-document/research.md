@@ -308,3 +308,8 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   ends it with `0`. The command needs only zero against non-zero, which all three keep, so no
   forked form is needed: `ankka openapi` reads success from status `0` and the document from the
   file, treats any other status as failure, and passes the build's standard error through.
+- **T004, R4's open point**: `Oidc.authenticate()` with no `ANKKA_AUTH_ISSUERS` threw `no issuer
+  is configured`, so a service whose endpoint names it could not be built on a machine that writes
+  the document. It now answers an authenticator that names no issuer (and answers `Unavailable`
+  if ever asked) while `ankka.document` is set, and throws as before otherwise; a set that is
+  misconfigured is refused in both cases (`OidcConfigSuite`).

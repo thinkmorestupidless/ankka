@@ -3219,9 +3219,50 @@ the contracts that cross its boundaries. It is not a component and is never depl
 A tag in a project's repository that names one of its services and a version, and
 releases that service alone. Avoid: release tag.
 
+## OpenAPI documents
+
+### OpenAPI document
+*Proposed.* The description of one service's HTTP endpoints that a developer writes from its code:
+every route, its path parameters, its body and its answers, the named shapes they refer to, and
+who may call each as far as its ACL tells. One per service. Avoid: swagger, API spec.
+
+### route description
+*Proposed.* What a route declares about itself beyond what its handler's types say: a summary, the
+shape of a body or an answer whose type is text or bytes, refusals, query parameters and route
+tags. It adds to what the route's declaration says and changes nothing of how the route answers.
+
+### shape
+*Proposed.* The JSON form of a body or an answer, as an OpenAPI document states it: derived from a
+type or written as JSON Schema. A named one is shared by every route that uses its type. Not a
+schema, which is a topic's.
+
+### path parameter
+*Proposed.* A changing part of a route's path, by the name the route gives it: "cartId" in
+"GET /carts/{cartId}".
+
+### query parameter
+*Proposed.* A named value a request carries after its path, which a handler reads by name.
+
+### incomplete route
+*Proposed.* A route that takes a body, or gives an answer with a body, whose shape its OpenAPI
+document cannot state. A stream of bytes has no shape and does not make a route incomplete. A
+route that is not incomplete is complete.
+
+### requiring completeness
+*Proposed.* Of writing an OpenAPI document: refusing to write it while any route is an incomplete
+route.
+
+### route tag
+*Proposed.* A word a route or an HTTP endpoint carries by which a developer selects routes for an
+OpenAPI document. Not a label, which is a node's.
+
+### held to its document
+*Proposed.* Of a service in a test: every answer it gives and every query parameter its handlers
+read is checked against its OpenAPI document, and a difference fails the test.
+
 ## Everyday words
 
-verbatim, exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords, terminal
+fits, optional, completeness, verbatim, exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords, terminal
 vehicle, inspection, sale, persisted, persisting, reacts, validated, coordinated, takeover, adopted, merged, filters, abandoned,
 scripted, network, key, features, twelve, thirty, forty, per, week, weeks, weekly, Sunday, Sundays, clock, clocks, previous, past, remaining, titles, identifier, row, read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose, since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
 other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,

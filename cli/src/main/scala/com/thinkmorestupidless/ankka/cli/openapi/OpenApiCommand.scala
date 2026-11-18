@@ -200,7 +200,7 @@ object OpenApiCommand:
       val tool  =
         (env.get("JAVA_TOOL_OPTIONS").filter(_.trim.nonEmpty).toVector :+ added).mkString(" ")
       // Everything the build prints goes to the error stream, so `--out -` prints the document alone.
-      val status = runner(command, Map("JAVA_TOOL_OPTIONS" -> tool), err)
+      val status = runner(command, env + ("JAVA_TOOL_OPTIONS" -> tool), err)
       if status != 0 || !Files.isRegularFile(temporary) then
         if status == 0 then
           err.println(s"the build of \"$service\" ended without writing a document")

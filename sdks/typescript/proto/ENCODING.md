@@ -11,11 +11,12 @@ A developer may supply a codec of their own for a type. Then portability is thei
 
 ## JSON payloads — `content_type: application/json`
 
-Produced by `Codecs.make[A]` in Scala (jsoniter-scala with discriminator `type`, no field omitted).
+Produced by `Codecs.make[A]` in Scala (jsoniter-scala with discriminator `type`). One field is
+omitted on write: a field equal to its declared default.
 
 | shape | encoding | example |
 |---|---|---|
-| a record (case class, dataclass) | a JSON object; field names as declared; **every field written**, including empty collections and absent options | `{"productId":"p1","name":"Pen","quantity":2}` |
+| a record (case class, dataclass) | a JSON object; field names as declared; every field written, including empty collections and absent options, **except a field equal to its declared default, which is omitted** | `{"productId":"p1","name":"Pen","quantity":2}`; `Item(name: String, quantity: Int = 1)` with `quantity` 1 is `{"name":"a"}` |
 | a sum type (Scala `enum` with cases; a union of dataclasses) | the case's object with `"type":"<CaseName>"` added — the case's *simple* name; position of `type` not significant on read | `{"type":"ItemAdded","item":{"productId":"p1","name":"Pen","quantity":2}}` |
 | a fieldless case of a sum type | an object with only the discriminator | `{"type":"CheckedOut"}` |
 | a fieldless enumeration used as a field (Scala `enum Status { case Ready, Failed }`) | the same: `{"type":"Ready"}` — *unless* its companion supplies a string codec, as `ServiceLifecycle` does; such a type is declared in its own SDK with that codec | `{"type":"Ready"}` |
@@ -33,8 +34,12 @@ Produced by `Codecs.make[A]` in Scala (jsoniter-scala with discriminator `type`,
 | a recursive type | inline, as deep as it goes | |
 
 Reading is lenient where writing is strict: a reader accepts an absent optional field as `None`,
-accepts fields in any order, and ignores an unknown field. A reader refuses a missing required
-field and a `type` it does not know.
+an absent field with a default as that default, and an absent sequence or map as empty; it
+accepts fields in any order, and ignores an unknown field. A reader refuses a missing field that
+has no default and is neither optional nor a collection, and a `type` it does not know. A writer
+in another SDK that writes every field is read the same; a reader in another SDK must accept a
+defaulted field's absence. `CodecFacts` (`modules/core/src/test/scala/com/thinkmorestupidless/ankka/core/shape/CodecFacts.scala`)
+pins each of these by round trip.
 
 ## Text payloads — `content_type: text/plain`
 

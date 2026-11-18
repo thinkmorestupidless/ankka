@@ -25,6 +25,17 @@ Feature: A route description says what a route's types do not
     When the developer writes the service's OpenAPI document
     Then the route has the answer of shape "Profile" and the refusal "not found"
 
+  Scenario: a described refusal given no shape has the shape of the platform's own refusals
+    Given the route description of "GET /players/{playerId}" names a refusal "not found" and gives it no shape
+    When the developer writes the service's OpenAPI document
+    Then the refusal "not found" has the shape of the platform's own refusals
+
+  Scenario: an endpoint that writes refusals of its own gives their shape once for all its routes
+    Given the endpoint states the shape "Refusal" for the refusals of all its routes
+    And the route description of "GET /players/{playerId}" names a refusal "not found" and gives it no shape
+    When the developer writes the service's OpenAPI document
+    Then the refusal "not found" has the shape of "Refusal"
+
   Scenario: a described query parameter is in the document with its type and whether it is required
     Given the route description of "GET /players/{playerId}/messages" names the query parameters "page", an optional whole number, and "status", a required text
     When the developer writes the service's OpenAPI document

@@ -3222,42 +3222,42 @@ releases that service alone. Avoid: release tag.
 ## OpenAPI documents
 
 ### OpenAPI document
-*Proposed.* The description of one service's HTTP endpoints that a developer writes from its code:
+The description of one service's HTTP endpoints that a developer writes from its code:
 every route, its path parameters, its body and its answers, the named shapes they refer to, and
 who may call each as far as its ACL tells. One per service. Avoid: swagger, API spec.
 
 ### route description
-*Proposed.* What a route declares about itself beyond what its handler's types say: a summary, the
+What a route declares about itself beyond what its handler's types say: a summary, the
 shape of a body or an answer whose type is text or bytes, refusals, query parameters and route
 tags. It adds to what the route's declaration says and changes nothing of how the route answers.
 
 ### shape
-*Proposed.* The JSON form of a body or an answer, as an OpenAPI document states it: derived from a
+The JSON form of a body or an answer, as an OpenAPI document states it: derived from a
 type or written as JSON Schema. A named one is shared by every route that uses its type. Not a
 schema, which is a topic's.
 
 ### path parameter
-*Proposed.* A changing part of a route's path, by the name the route gives it: "cartId" in
+A changing part of a route's path, by the name the route gives it: "cartId" in
 "GET /carts/{cartId}".
 
 ### query parameter
-*Proposed.* A named value a request carries after its path, which a handler reads by name.
+A named value a request carries after its path, which a handler reads by name.
 
 ### incomplete route
-*Proposed.* A route that takes a body, or gives an answer with a body, whose shape its OpenAPI
+A route that takes a body, or gives an answer with a body, whose shape its OpenAPI
 document cannot state. A stream of bytes has no shape and does not make a route incomplete. A
 route that is not incomplete is complete.
 
 ### requiring completeness
-*Proposed.* Of writing an OpenAPI document: refusing to write it while any route is an incomplete
+Of writing an OpenAPI document: refusing to write it while any route is an incomplete
 route.
 
 ### route tag
-*Proposed.* A word a route or an HTTP endpoint carries by which a developer selects routes for an
+A word a route or an HTTP endpoint carries by which a developer selects routes for an
 OpenAPI document. Not a label, which is a node's.
 
 ### held to its document
-*Proposed.* Of a service in a test: every answer it gives and every query parameter its handlers
+Of a service in a test: every answer it gives and every query parameter its handlers
 read is checked against its OpenAPI document, and a difference fails the test.
 
 ## Everyday words

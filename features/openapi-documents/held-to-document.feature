@@ -17,6 +17,12 @@ Feature: A test holds a service to its OpenAPI document
     When the route answers a body that lacks a part "Messages" requires
     Then the test fails, naming the route and the part that is missing
 
+  Scenario: a body the handler accepts that its shape refuses fails the test
+    Given a test that holds the service to its document
+    And the route "PATCH /players/{playerId}" whose route description gives the body the shape of "EditProfile"
+    When a request to it carries a body "EditProfile" refuses and its handler accepts it
+    Then the test fails, naming the route and what the shape refused
+
   Scenario: a query parameter the route did not declare fails the test when the handler reads it
     Given a test that holds the service to its document
     When the route's handler reads the query parameter "pageSize"

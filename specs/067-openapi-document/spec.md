@@ -96,6 +96,27 @@ listing), gRPC methods (their `.proto` is their description), and the platform's
 its prefix. None of these has an OpenAPI form that would help a client, and each is named in the
 documentation as left out.
 
+## Clarifications
+
+### Session 2026-11-18
+
+- Q: How does a developer get the document? → A: A command writes a file without starting the
+  service, and a deployed service also serves it, to the callers it names (Trevor).
+- Q: Which languages does the first release describe? → A: Scala, Java and Kotlin. The sidecar
+  languages and Rust are a later feature.
+- Q: What happens to a route whose description is missing? → A: It is listed with what was derived
+  and marked incomplete; a strict switch fails the command and names every incomplete route.
+- Q: Do the nine glossary terms stand (OpenAPI document, route description, shape, path parameter,
+  query parameter, incomplete route, requiring completeness, route tag, held to its document)? →
+  A: All accepted. The features say "shape" and "route tag" where this spec's prose says schema and
+  label, because the glossary's schema is a topic's and its label a node's.
+- Q: What body does a described refusal have when its description gives no shape? → A: The
+  platform's own refusal body (its status, its message and its details). A service that writes
+  refusals of its own gives their shape once per endpoint (FR-017).
+- Q: Does a test that holds a service to its document check the bodies the test sends? → A: Yes,
+  both directions: a body the handler accepts that its described shape refuses fails the test
+  (FR-031).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A document from a service as it stands (Priority: P1)
@@ -147,6 +168,8 @@ marked incomplete.
 - added `features/openapi-documents/describing.feature`: a text body described with a shape has that shape in the document
 - added `features/openapi-documents/describing.feature`: an answer of bytes described with a shape has that shape in the document
 - added `features/openapi-documents/describing.feature`: a described refusal stands beside the answer the route's type gives
+- added `features/openapi-documents/describing.feature`: a described refusal given no shape has the shape of the platform's own refusals
+- added `features/openapi-documents/describing.feature`: an endpoint that writes refusals of its own gives their shape once for all its routes
 - added `features/openapi-documents/describing.feature`: a described query parameter is in the document with its type and whether it is required
 - added `features/openapi-documents/describing.feature`: a shape described by a type is the named shape a typed route would have
 - added `features/openapi-documents/describing.feature`: a shape described as JSON Schema is in the document as it was given
@@ -181,6 +204,7 @@ and what differed; describe it rightly and see both pass.
 - added `features/openapi-documents/completeness.feature`: a kept document that no longer matches the code is found, and nothing is written
 - added `features/openapi-documents/held-to-document.feature`: an answer the description does not name fails the test
 - added `features/openapi-documents/held-to-document.feature`: an answer body its shape refuses fails the test
+- added `features/openapi-documents/held-to-document.feature`: a body the handler accepts that its shape refuses fails the test
 - added `features/openapi-documents/held-to-document.feature`: a query parameter the route did not declare fails the test when the handler reads it
 - added `features/openapi-documents/held-to-document.feature`: a service that answers as its document says passes
 - added `features/openapi-documents/held-to-document.feature`: a test that does not hold the service to its document is unaffected
@@ -302,8 +326,10 @@ document with the Scala one's, route by route.
   be refused when the document is built, naming the route and the contradiction, and no document
   written.
 - **FR-016**: Describing a route MUST NOT change what the route does for any request.
-- **FR-017**: An endpoint MUST be able to give labels and described refusals once for all its
-  routes, each route adding its own.
+- **FR-017**: An endpoint MUST be able to give labels, described refusals and the schema of its
+  refusals once for all its routes, each route adding its own. A described refusal with no schema
+  of its own has the endpoint's, and where the endpoint gives none, the schema of the refusal the
+  platform itself writes.
 
 **Completeness**
 
@@ -343,8 +369,9 @@ document with the Scala one's, route by route.
 
 - **FR-031**: The testkit MUST be able to hold a service to its document for the length of a test:
   an answer with a status the route's description and derivation do not name, an answer body its
-  schema refuses, and a query parameter read that the route did not declare each fail the test,
-  naming the route and what differed.
+  schema refuses, a request body the handler accepts that its schema refuses, and a query
+  parameter read that the route did not declare each fail the test, naming the route and what
+  differed.
 - **FR-032**: Holding a service to its document MUST be something a test asks for; a test that
   does not ask is unaffected.
 - **FR-033**: A route that is incomplete MUST be held only to what it does state.

@@ -80,6 +80,14 @@ public final class RecordCodec {
     return Schemas.of(Planner.plan(type));
   }
 
+  /**
+   * What the codec writes for {@code type}, described as JSON for the platform's OpenAPI document
+   * (feature 067). Not for services: its form is the bridge's, and may change.
+   */
+  public static String planOf(Type type) {
+    return PlanDescription.of(Planner.plan(type));
+  }
+
   private static String manifestOf(Type type) {
     Serializer<?> serializer = forType(type);
     return serializer.manifest();

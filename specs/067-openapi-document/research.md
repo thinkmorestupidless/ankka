@@ -352,3 +352,15 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   A text body whose shape is a plain string is the text itself and is not parsed. The violation is
   `NotHeldToDocument`, a `RuntimeException`, because a `Future` boxes an `AssertionError` as
   "Boxed Exception" and hides its words.
+
+- **T029: the languages agree on a missing collection (the person's decision).** The Java record
+  codec refused a missing list, set, array or map field ("is missing"), where Scala's reads one as
+  empty. So an honest Java shape put a collection field in `required` that Scala's leaves out, and
+  FR-034's "same schemas" could not hold. The Java reader now reads a missing collection as an
+  empty one of its kind, as Scala's does. It only ever accepts more and writes nothing
+  differently, and a collection field is never `required` in either language. Parity between
+  languages compares schemas by structure, following references, and not by schema name: the Java
+  sample's cart record is `Cart` where Scala's is `ShoppingCart`. Kotlin uses the Java codec. The
+  Java codec's `Plan` reaches the bridge as `RecordCodec.planOf(Type)`, a JSON description, as
+  `schemaOf` already reaches it: the plan's cases stay package-private and nothing new is public
+  but that one method.

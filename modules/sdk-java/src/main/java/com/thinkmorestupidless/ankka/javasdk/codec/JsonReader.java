@@ -123,6 +123,11 @@ final class JsonReader {
       } else if (field.plan() instanceof Plan.OrNull) {
         values[i] = null;
         present[i] = true;
+      } else if (field.plan() instanceof Plan.Seq || field.plan() instanceof Plan.Dictionary) {
+        // A missing collection is an empty one, as the Scala codec reads it (feature 067): the
+        // two languages then agree on what a reader needs, and a shape's `required` with them.
+        values[i] = empty(field.plan());
+        present[i] = true;
       } else {
         throw new EncodingException(path + "." + field.name(), "is missing");
       }
@@ -207,6 +212,21 @@ final class JsonReader {
           path, "\"" + name + "\" is not a constant of " + enumeration.type().getSimpleName());
     }
     return constant;
+  }
+
+  /** The empty value of a collection's plan, of the kind it is read as. */
+  private static Object empty(Plan plan) {
+    return switch (plan) {
+      case Plan.Seq seq ->
+          switch (seq.kind()) {
+            case LIST -> List.of();
+            case SET -> Set.of();
+            case ARRAY ->
+                Array.newInstance(seq.arrayType() == null ? Object.class : seq.arrayType(), 0);
+          };
+      case Plan.Dictionary dictionary -> Map.of();
+      default -> throw new IllegalArgumentException("not a collection: " + plan);
+    };
   }
 
   private Object seq(Plan.Seq seq, String path) {

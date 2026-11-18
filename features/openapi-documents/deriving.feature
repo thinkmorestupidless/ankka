@@ -76,11 +76,11 @@ Feature: An OpenAPI document derived from a service's routes
     Examples:
       | acl                                  | marked                                                |
       | allows all                           | needing no credential                                 |
-      | admits tokens from the issuer "shop" | needing a token from the issuer "shop"                |
+      | admits tokens from the issuer "shop" | needing a token, with no issuer named                 |
       | admits only the workloads it names   | not open, with no credential named                    |
 
   Scenario: an endpoint that cannot be built without the running service fails the writing and is named
     Given the service has an HTTP endpoint for the path "/reports" that cannot be built without the running service
     When the developer writes the service's OpenAPI document
-    Then the writing fails, naming the endpoint for "/reports"
+    Then the writing fails, naming the endpoint that could not be built
     And no document is written

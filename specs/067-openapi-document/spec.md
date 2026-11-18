@@ -63,8 +63,9 @@ rest. This feature is that, for ankka's route model. The decisions:
   adds to what is derived and never contradicts it: describing a body the route's type already
   describes, differently, is refused when the document is built, naming the route.
 - **Who may call a route is said as far as the platform can know it.** A route open to any caller
-  is marked as needing no credential. A route whose ACL admits tokens from named issuers is marked
-  as needing a bearer token, with the issuers. Any other ACL (a predicate, callers named by their
+  is marked as needing no credential. A route whose ACL admits tokens is marked as needing a bearer
+  token; the issuers are the environment's and are not in the document, so the same code gives the
+  same document on every machine. Any other ACL (a predicate, callers named by their
   certificate) is beyond what a document can state, and such a route is marked as not open without
   saying how it is admitted.
 - **A route that is not fully described is still listed, and a strict switch refuses it.** A route
@@ -113,6 +114,15 @@ documentation as left out.
 - Q: What body does a described refusal have when its description gives no shape? → A: The
   platform's own refusal body (its status, its message and its details). A service that writes
   refusals of its own gives their shape once per endpoint (FR-017).
+- Q: How does a Scala route carry its description? → A: In a scope around the route, as `withAcl`
+  is (`described(...) { get(...) { ... } }`). Route declarations keep answering nothing, so every
+  existing endpoint compiles and links unchanged; a scope may hold several routes for what they
+  share (plan, research R2).
+- Q: Does the document name the issuers a route's tokens come from? → A: No. The issuers are
+  configuration, different on each machine and absent where a document is built; the document says
+  a bearer token is needed and no more (FR-011).
+- Q: What checks a body against its shape in a test? → A: A full JSON Schema validator
+  (`com.networknt:json-schema-validator`), a dependency of the test kits only.
 - Q: Does a test that holds a service to its document check the bodies the test sends? → A: Yes,
   both directions: a body the handler accepts that its described shape refuses fails the test
   (FR-031).
@@ -309,7 +319,7 @@ document with the Scala one's, route by route.
 - **FR-010**: A type used in more than one place MUST be one named schema, referred to; names MUST
   be stable between runs and distinct for distinct types.
 - **FR-011**: A route open to any caller MUST be marked as needing no credential; a route whose
-  ACL admits tokens MUST be marked as needing a bearer token and name the issuers; a route with
+  ACL admits tokens MUST be marked as needing a bearer token, naming no issuer; a route with
   any other ACL MUST be marked as not open, without a credential scheme.
 
 **What is declared**

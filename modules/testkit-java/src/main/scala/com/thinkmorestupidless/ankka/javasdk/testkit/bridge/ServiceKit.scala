@@ -47,8 +47,22 @@ final class ServiceKit private (
     private var probe: stk.TimerProbe,
     private var broker: runtime.InMemoryBroker,
     /** The settings' clock, which a service started again keeps. */
-    clock: java.time.Clock
+    clock: java.time.Clock,
+    /** Whether its server is held to its OpenAPI document (feature 067), on a restart too. */
+    held: Boolean
 ):
+  /** What the server did that its document does not allow, since the kit started. */
+  def documentViolations(): java.util.List[String] = stk.HeldToDocument.violations.asJava
+
+  /** Fails, listing every violation, or does nothing when the server kept to its document. */
+  def assertHeldToDocument(): Unit =
+    val found = stk.HeldToDocument.violations
+    stk.HeldToDocument.clear()
+    if found.nonEmpty then
+      throw AssertionError(
+        s"the service answered outside its OpenAPI document:\n${found.map("  - " + _).mkString("\n")}"
+      )
+
   def timerRuns(): TimerRunsKit = TimerRunsKit(probe.bind(kit))
 
   def published(topic: String): java.util.List[Published] =
@@ -95,7 +109,7 @@ final class ServiceKit private (
 
   /** Stops the service and starts `service` on the same database. */
   def restartService(service: ServiceBuilder): Unit =
-    val next = ServiceKit.prepare(service, clock)
+    val next = ServiceKit.prepare(service, clock, held)
     kit.stopService()
     kit.startService(next.extensions, descriptors = next.read.descriptors)
     JavaServiceBuilder.problemsAtStart(kit): Unit
@@ -172,8 +186,10 @@ final class ServiceKit private (
   private[ankka] def scalaKit: stk.AnkkaTestKit = kit
 
   def close(): Unit =
-    kit.stop()
-    scripted.values.foreach(_.stop())
+    try
+      kit.stop()
+      scripted.values.foreach(_.stop())
+    finally if held then assertHeldToDocument()
 
 object ServiceKit:
 
@@ -213,7 +229,7 @@ object ServiceKit:
   )
 
   /** The service read, and the extensions it is started with. */
-  private def prepare(service: ServiceBuilder, clock: java.time.Clock): Prepared =
+  private def prepare(service: ServiceBuilder, clock: java.time.Clock, held: Boolean): Prepared =
     val builder = service match
       case b: JavaServiceBuilder => b
       case other => throw IllegalArgumentException(s"$other is not a service from Ankka.service")
@@ -235,7 +251,14 @@ object ServiceKit:
     ) ++
       (if !read.servesHttp then Nil
        else
-         Seq(read.httpServer(Some("127.0.0.1" -> 0), read.endpointTimers(() => timerRuntime)))) ++
+         Seq(
+           checked(
+             builder.served(
+               read.httpServer(Some("127.0.0.1" -> 0), read.endpointTimers(() => timerRuntime))
+             ),
+             held
+           )
+         )) ++
       read.grpcExtensions(Some("127.0.0.1" -> 0), builder.grpcClients)
     Prepared(read, probe, broker, extensions, builder.withErasureHandlerOf(read))
 
@@ -249,7 +272,9 @@ object ServiceKit:
           runtime.ServiceBuilder => runtime.ServiceBuilder
       ) => stk.AnkkaTestKit
   ): ServiceKit =
-    val Prepared(read, probe, broker, http, configure) = prepare(service, settings.clock)
+    val held = settings.isHeldToDocument
+    if held then stk.HeldToDocument.clear()
+    val Prepared(read, probe, broker, http, configure) = prepare(service, settings.clock, held)
     val scripted                                       =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
     val config = ConfigFactory.parseMap(settings.config)
@@ -269,7 +294,11 @@ object ServiceKit:
         case e: Throwable =>
           scripted.values.foreach(_.stop())
           throw e
-    ServiceKit(kit, read, scripted, probe, broker, settings.clock)
+    ServiceKit(kit, read, scripted, probe, broker, settings.clock, held)
+
+  /** The server, held to its document when the settings ask. */
+  private def checked(server: com.thinkmorestupidless.ankka.http.HttpServer, held: Boolean) =
+    if held then stk.HeldToDocument.server(server) else server
 
 private final class JavaScripted(scala: stk.ScriptedService) extends ScriptedService:
   def answer(answer: Function[ScriptedService.Request, ServiceResponse]): Unit =

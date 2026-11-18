@@ -54,6 +54,13 @@ public class Players extends HttpEndpoint implements RouteRegistrar {
     return Response.ok("x");
   }
 
+  /** Says it answers 204, and answers 418: what a test held to its document is told of. */
+  @Get("/players/{playerId}/teapot")
+  @Answers(status = 204)
+  public Response teapot(String playerId) {
+    return Response.status(418);
+  }
+
   @Override
   public List<Declaration> routes() {
     return List.of(

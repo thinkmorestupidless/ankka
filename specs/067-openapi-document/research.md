@@ -300,3 +300,11 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   missing one reads as empty, so a collection field is never in `required`, like an `Option` and a
   field with a default. A missing field of any other type, and a field of the wrong JSON type, are
   refused on read.
+- **T003, R7's open point** (JDK 21, minimal projects in a scratch directory): a `main` that calls
+  `sys.exit(3)` ends `sbt -batch run` (sbt 1.12, in-process run) with status 3 and
+  `./mvnw -q exec:java` (exec-maven-plugin 3.6.4, the Java template's) with status 3.
+  `./gradlew --no-daemon -q run` forks the JVM and ends with status **1**, printing Gradle's own
+  `FAILURE: ... finished with non-zero exit value 3` to standard error; a `main` that exits `0`
+  ends it with `0`. The command needs only zero against non-zero, which all three keep, so no
+  forked form is needed: `ankka openapi` reads success from status `0` and the document from the
+  file, treats any other status as failure, and passes the build's standard error through.

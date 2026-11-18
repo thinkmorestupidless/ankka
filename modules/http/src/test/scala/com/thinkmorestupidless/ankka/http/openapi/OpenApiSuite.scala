@@ -699,6 +699,68 @@ class OpenApiSuite extends munit.FunSuite:
     assertEquals(Shapes.write(at(answers, "default", "description")), "\"refused\"")
   }
 
+  // T020: selection.
+
+  private final class Tagged extends HttpEndpoint("/players"):
+    val acl: Acl = Acl.AllowAll
+    described(_.tag("player")) {
+      get("/{playerId}")((_: String) => players.Profile("p"))
+    }
+    described(_.tag("operator")) {
+      postBody("/{playerId}/close")((_: String, email: AddEmail) => email.address)
+    }
+
+  private final class Sessions extends HttpEndpoint("/sessions"):
+    val acl: Acl = Acl.AllowAll
+    get("/{sessionId}")((id: String) => id)
+
+  private def selected(selection: Selection, endpoints: HttpEndpoint*) =
+    OpenApi.build("players", "", endpoints, selection)
+
+  test("a document written for one route tag holds only the routes that carry it") {
+    val d =
+      selected(Selection(tags = Vector("player")), Tagged()).fold(p => fail(p.mkString), identity)
+    assertEquals(d.operations.map(_.describe), Vector("GET /players/{playerId}"))
+    val schemas = at(json(d), "components", "schemas") match
+      case GraphJson.Obj(fields) => fields.map(_._1)
+      case _                     => Vector.empty
+    assert(!schemas.contains("AddEmail"), schemas)
+    assert(schemas.contains("Profile"), schemas)
+  }
+
+  test("a document written for one path prefix holds only the routes under it") {
+    val d = selected(Selection(prefixes = Vector("/players")), Tagged(), Sessions())
+      .fold(p => fail(p.mkString), identity)
+    assert(d.operations.nonEmpty)
+    assert(d.operations.forall(_.path.startsWith("/players/")), d.operations.map(_.describe))
+  }
+
+  test("a prefix matches whole path segments") {
+    assertEquals(
+      selected(Selection(prefixes = Vector("/play")), Tagged()),
+      Left(Vector("no route is under \"/play\""))
+    )
+  }
+
+  test("a selection that matches no route fails the writing") {
+    assertEquals(
+      selected(Selection(tags = Vector("affiliate")), Tagged()),
+      Left(Vector("no route carries the tag \"affiliate\""))
+    )
+  }
+
+  test("AnkkaProblem is left out when no kept operation refers to it") {
+    final class Own extends HttpEndpoint("/own"):
+      val acl: Acl                       = Acl.AllowAll
+      override protected def description = Description.none.refusalShape[Refusal]
+      get("/{id}")((id: String) => id)
+    val kept = selected(Selection(prefixes = Vector("/own")), Own(), Sessions())
+      .fold(p => fail(p.mkString), identity)
+    assert(!has(json(kept), "components", "schemas", "AnkkaProblem"))
+    val both = document(Own(), Sessions())
+    assert(has(json(both), "components", "schemas", "AnkkaProblem"))
+  }
+
 /** An endpoint whose constructor reads a cart: it needs the running service to be built. */
 final class OpenApiReportsEndpoint(clients: EndpointClients) extends HttpEndpoint("/reports"):
   val acl: Acl        = Acl.AllowAll

@@ -8,11 +8,10 @@ final case class Html(markup: String)
 
 object Html:
   given toResponse: ToResponse[Html] = new ToResponse[Html]:
-    def status(value: Html)                = 200
-    val contentType                        = "text/html; charset=UTF-8"
-    def write(value: Html)                 = value.markup.getBytes("UTF-8")
-    override val shape: Option[ShapeOf[?]] = Some(summon[ShapeOf[String]])
-    override val fixedStatus: Option[Int]  = Some(200)
+    def status(value: Html)               = 200
+    val contentType                       = "text/html; charset=UTF-8"
+    def write(value: Html)                = value.markup.getBytes("UTF-8")
+    override val fixedStatus: Option[Int] = Some(200)
 
 /** Raw bytes under a content type of the handler's choosing: a stylesheet, an image, a download. */
 final case class Bytes(contentType: String, body: Array[Byte])

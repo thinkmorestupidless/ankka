@@ -56,9 +56,8 @@ object FromBody:
       override val shape: Option[ShapeOf[?]] = derived.found
 
   given text: FromBody[String] = new FromBody[String]:
-    val contentType                        = "text/plain"
-    def read(bytes: Array[Byte])           = Right(String(bytes, "UTF-8"))
-    override val shape: Option[ShapeOf[?]] = Some(summon[ShapeOf[String]])
+    val contentType              = "text/plain"
+    def read(bytes: Array[Byte]) = Right(String(bytes, "UTF-8"))
 
 /** Renders a handler's return value as an HTTP response. */
 trait ToResponse[A]:
@@ -97,11 +96,10 @@ object ToResponse:
       override val fixedStatus: Option[Int]  = Some(200)
 
   given text: ToResponse[String] = new ToResponse[String]:
-    def status(value: String)              = 200
-    val contentType                        = "text/plain; charset=UTF-8"
-    def write(value: String)               = value.getBytes("UTF-8")
-    override val shape: Option[ShapeOf[?]] = Some(summon[ShapeOf[String]])
-    override val fixedStatus: Option[Int]  = Some(200)
+    def status(value: String)             = 200
+    val contentType                       = "text/plain; charset=UTF-8"
+    def write(value: String)              = value.getBytes("UTF-8")
+    override val fixedStatus: Option[Int] = Some(200)
 
   /**
    * Scalars, rendered as bare JSON values.

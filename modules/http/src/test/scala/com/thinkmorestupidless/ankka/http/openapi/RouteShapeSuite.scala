@@ -106,12 +106,12 @@ class RouteShapeSuite extends munit.FunSuite:
     assert(!body.streamed)
   }
 
-  test("putBody of text: text/plain and a string, answered as text") {
+  test("putBody of text: text/plain with no shape, answered as text with none (FR-018: opaque)") {
     val shape = route("PUT", "/{cartId}/note")
     assertEquals(shape.body.map(_.contentType), Some("text/plain"))
-    assertEquals(rendered(shape.body.flatMap(_.shape)), Some("""{"type":"string"}"""))
+    assertEquals(shape.body.flatMap(_.shape), None)
     assertEquals(shape.answer.contentType, "text/plain; charset=UTF-8")
-    assertEquals(rendered(shape.answer.shape), Some("""{"type":"string"}"""))
+    assertEquals(shape.answer.shape, None)
   }
 
   test("patchBody of a type with a hand-written codec: no shape for the body or the answer") {
@@ -127,14 +127,11 @@ class RouteShapeSuite extends munit.FunSuite:
     assertEquals(body.shape, None)
   }
 
-  test("a Streamed answer is a stream; Bytes is a body with no shape; Html is a string") {
+  test("a Streamed answer is a stream; Bytes and Html are bodies with no shape") {
     assertEquals(route("GET", "/{cartId}/download").answer.kind, AnswerKind.Stream)
     val bytes = route("GET", "/{cartId}/bytes").answer
     assertEquals((bytes.kind, bytes.shape, bytes.status), (AnswerKind.Body, None, Some(200)))
-    assertEquals(
-      rendered(route("GET", "/{cartId}/page").answer.shape),
-      Some("""{"type":"string"}""")
-    )
+    assertEquals(route("GET", "/{cartId}/page").answer.shape, None)
   }
 
   test("Respond: the handler decides the status, and the shape is its body's") {

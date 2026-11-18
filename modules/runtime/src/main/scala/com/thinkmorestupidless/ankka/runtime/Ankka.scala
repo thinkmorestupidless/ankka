@@ -324,6 +324,9 @@ final class ServiceBuilder private[ankka] (
       Some(handler)
     )
 
+  /** The extensions the service handed over, in order (feature 067's document mode reads them). */
+  private[ankka] def declaredExtensions: Vector[RuntimeExtension] = extensions
+
   /** Validates the definition without starting anything. */
   def validate: Either[Vector[String], ComponentRegistry] =
     val remoteWithoutConversation =
@@ -343,6 +346,15 @@ final class ServiceBuilder private[ankka] (
       name: String = "ankka",
       config: Config = ClusterConfig.load()
   ): AnkkaService =
+    // Feature 067: asked for a document, write it and end, before anything reads the environment
+    // or an actor system exists. Nothing is bound, formed or connected.
+    DocumentMode.requested().foreach { properties =>
+      val serviceName        = sys.props.getOrElse("ankka.service.name", name)
+      val (status, problems) = DocumentMode.run(this, properties, serviceName)
+      problems.foreach(System.err.println)
+      System.err.flush()
+      sys.exit(status)
+    }
     // Before the actor system exists, so a service that cannot serve what it was deployed to
     // serve exits rather than idling with non-daemon threads holding the process open.
     DeclaredGrpc.check(sys.env.get, extensions.map(_.name))

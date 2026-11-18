@@ -958,6 +958,16 @@ final class AnkkaService private[ankka] (
 ):
 
   /**
+   * The document of `kind` the first extension that writes one gives (feature 067): what the local
+   * console serves a developer, whether or not the service serves it.
+   */
+  private[runtime] def document(
+      kind: String,
+      options: Map[String, String]
+  ): Option[Either[Vector[String], String]] =
+    extensions.iterator.map(_.document(kind, options, registry)).collectFirst { case Some(d) => d }
+
+  /**
    * The names of the extensions this service runs — so one extension can say when another it relies
    * on is missing, rather than failing quietly.
    */

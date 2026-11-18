@@ -118,6 +118,13 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
     assert(body.contains(""""declared":[],"calls":[]"""), body)
   }
 
+  test("the service's OpenAPI document is given to its developer though the service serves none") {
+    val (status, body) = get("/observability/openapi")
+    assertEquals(status, 200, body)
+    assert(body.contains("\"openapi\": \"3.1.0\""), body)
+    assert(body.contains("\"/search"), body)
+  }
+
   test("the topology is read, never written: anything but GET is refused") {
     val (status, body) = post("/observability/topology")
     assertEquals(status, 405, body)

@@ -170,7 +170,7 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   override val munitTimeout = 3.minutes
 
   override protected lazy val ranElsewhere: Map[String, String] =
-    val serving   = "OpenApiServedSuite (T027, T028)"
+    val serving   = "OpenApiServedSuite (T027)"
     val languages = "the Java and Kotlin document suites (T029 to T034)"
     Map(
       "a kept document that no longer matches the code is found, and nothing is written" -> "OpenApiCommandSuite (T023)",
@@ -178,8 +178,7 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
       "a caller the service names is given the document, the same as the one written from its code" -> serving,
       "a caller the service does not name is refused as that ACL refuses" -> serving,
       "a service that states nothing about its document answers as for a path it does not have" -> serving,
-      "the served document is whole, whatever the reader may call" -> serving,
-      "a local service's document is given to its developer whether or not the service serves it" -> serving,
+      "the served document is whole, whatever the reader may call"            -> serving,
       "the same service has the same document in every language that has one" -> languages,
       "a route description says the same in every language that has one"      -> languages,
       "a service in a language with no document yet is told so" -> "OpenApiCommandSuite (T015)"
@@ -214,7 +213,7 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   override def beforeEach(context: BeforeEach): Unit =
     service = "cart"; routes = Set.empty; acl = Acl.AllowAll; sockets = false
-    others = Vector.empty; beside = Vector.empty; focus = None
+    others = Vector.empty; beside = Vector.empty; focus = None; localDocument = None
     players = None; endpointDescription = Description.none; selection = Map.empty
     holding = false; seen = Vector.empty; messagesAnswer.set("as described")
     HeldToDocument.clear()
@@ -918,4 +917,48 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   When("a request to it carries any body its handler accepts") { () =>
     requests(("PATCH", "/players/p1", "", Some("anything at all, which is no JSON")))
+  }
+
+  // ── serving.feature: the local scenario ───────────────────────────────────
+
+  private var localDocument: Option[(Int, String)] = None
+
+  Given("a deployed service {string} with an HTTP endpoint for the path {string}") {
+    (name: String, prefix: String) =>
+      assertEquals(prefix, "/carts")
+      service = name
+      routes = Set("GET /carts/{cartId}", "DELETE /carts/{cartId}")
+  }
+
+  Given("a local service {string} that states no ACL for its OpenAPI document") { (name: String) =>
+    assertEquals(name, service)
+  }
+
+  When("the developer asks the local platform for the service's OpenAPI document") { () =>
+    val registry = java.nio.file.Files.createTempDirectory("ankka-openapi-local")
+    sys.props.put("ankka.running.dir", registry.toString)
+    try
+      running { _ =>
+        val entry = java.nio.file.Files
+          .list(registry)
+          .filter(_.toString.endsWith(".json"))
+          .findFirst()
+          .orElseThrow(() => AssertionError("the service wrote no registry entry"))
+        val json    = java.nio.file.Files.readString(entry)
+        val marker  = "\"observabilityAddress\":\""
+        val from    = json.indexOf(marker) + marker.length
+        val address = json.substring(from, json.indexOf('"', from))
+        val answer  = http.send(
+          JdkRequest.newBuilder(URI.create(s"$address/observability/openapi")).GET().build(),
+          JdkResponse.BodyHandlers.ofString()
+        )
+        localDocument = Some((answer.statusCode, answer.body))
+      }
+    finally sys.props.remove("ankka.running.dir"): Unit
+  }
+
+  Then("the developer is given the document") { () =>
+    val (status, body) = localDocument.getOrElse(fail("nothing was asked"))
+    assertEquals(status, 200, body)
+    assert(body.contains("\"/carts/{cartId}\""), body)
   }

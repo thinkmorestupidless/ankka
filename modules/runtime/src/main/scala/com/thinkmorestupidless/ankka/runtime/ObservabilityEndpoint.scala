@@ -78,11 +78,12 @@ object ObservabilityEndpoint:
     try
       val server        = JdkHttpServer.create(bindAddress(service.system.settings.config), 0)
       val observability = Observability(service.system)
-      val handler       = Handler(service, documents, observability)
+      val handler       = Handler(service, documents, observability, serviceName)
 
       server.createContext("/observability/service", exchange => handler.service(exchange))
       server.createContext("/observability/topology", exchange => handler.topology(exchange))
       server.createContext("/observability/traces", exchange => handler.traces(exchange))
+      server.createContext("/observability/openapi", exchange => handler.openApi(exchange))
       // The console's own reads go through the same client a handler's calls do. They are marked
       // as the console's, so that looking at an entity is not counted as the service calling it.
       server.createContext(
@@ -122,8 +123,26 @@ object ObservabilityEndpoint:
   private final class Handler(
       service: AnkkaService,
       documents: ObservabilityDocuments,
-      observability: Observability
+      observability: Observability,
+      serviceName: String
   ):
+
+    /**
+     * The service's OpenAPI document (feature 067), for its developer on this machine, whether or
+     * not the service serves it: 404 when nothing writes one, its problems as text when it cannot
+     * be built.
+     */
+    def openApi(exchange: HttpExchange): Unit =
+      service.document("openapi", Map("name" -> serviceName)) match
+        case Some(Right(document)) => respond(exchange, document)
+        case Some(Left(problems))  =>
+          val bytes = problems.mkString("", "\n", "\n").getBytes(StandardCharsets.UTF_8)
+          exchange.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+          exchange.sendResponseHeaders(500, bytes.length.toLong)
+          val out = exchange.getResponseBody
+          try out.write(bytes)
+          finally out.close()
+        case None => respondError(exchange, 404, "this service has no OpenAPI document")
 
     /** Identity and inventory: what the Services and Components panels are built from. */
     def service(exchange: HttpExchange): Unit = respond(exchange, documents.service())

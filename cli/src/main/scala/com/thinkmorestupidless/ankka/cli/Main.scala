@@ -2105,11 +2105,17 @@ object Main:
       )
       .orNone
       .map(_.map(java.nio.file.Path.of(_)))
-    (dir, out, strict, tags, prefixes, version, check).mapN {
-      (dir, out, strict, tags, prefixes, version, check) => () =>
+    val local = Opts
+      .option[String](
+        "local",
+        "Print the document of a service running on this machine, whether or not it serves it."
+      )
+      .orNone
+    (dir, out, strict, tags, prefixes, version, check, local).mapN {
+      (dir, out, strict, tags, prefixes, version, check, local) => () =>
         val code = openapi.OpenApiCommand.run(
           openapi.OpenApiCommand
-            .Options(dir, out, strict, tags.toVector, prefixes.toVector, version, check),
+            .Options(dir, out, strict, tags.toVector, prefixes.toVector, version, check, local),
           Console.out,
           Console.err
         )

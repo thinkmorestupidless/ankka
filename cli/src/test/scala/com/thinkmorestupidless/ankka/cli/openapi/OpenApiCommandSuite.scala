@@ -225,3 +225,35 @@ class OpenApiCommandSuite extends munit.FunSuite:
     assert(ran.err.contains(s"$kept does not exist"), ran.err)
     assert(!Files.exists(kept))
   }
+
+  // T028: --local.
+
+  private def runLocal(
+      name: String,
+      answers: Map[String, Either[String, String]]
+  ): (Int, String, String) =
+    val out  = java.io.ByteArrayOutputStream()
+    val err  = java.io.ByteArrayOutputStream()
+    val code = OpenApiCommand.run(
+      OpenApiCommand.Options(Path.of("."), local = Some(name)),
+      PrintStream(out, true, UTF_8),
+      PrintStream(err, true, UTF_8),
+      runner = (_, _, _) => fail("--local runs no build"),
+      local = answers.get
+    )
+    (code, out.toString(UTF_8), err.toString(UTF_8))
+
+  test("--local prints the document a local service gives") {
+    assertEquals(runLocal("cart", Map("cart" -> Right(withSchema))), (0, withSchema, ""))
+  }
+
+  test("--local of no such local service exits 1, naming it") {
+    assertEquals(runLocal("cart", Map.empty), (1, "", "no local service named cart\n"))
+  }
+
+  test("--local of a service that has no document says what it answered") {
+    val (code, _, err) =
+      runLocal("cart", Map("cart" -> Left("""{"error":"this service has no OpenAPI document"}""")))
+    assertEquals(code, 1)
+    assert(err.contains("this service has no OpenAPI document"), err)
+  }

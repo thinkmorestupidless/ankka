@@ -23,8 +23,13 @@ object OpenApiCommand:
       tags: Vector[String] = Vector.empty,
       prefixes: Vector[String] = Vector.empty,
       apiVersion: Option[String] = None,
-      check: Option[Path] = None
+      check: Option[Path] = None,
+      /** `--local <service>`: the document of a service running on this machine, printed. */
+      local: Option[String] = None
   )
+
+  /** What `--local` reads: the document of a local service by name; `None` when none runs. */
+  type Local = String => Option[Either[String, String]]
 
   /** Runs a command with an environment, its output going to the stream given; its exit status. */
   type Runner = (RunCommand, Map[String, String], PrintStream) => Int
@@ -37,7 +42,30 @@ object OpenApiCommand:
       out: PrintStream,
       err: PrintStream,
       env: Map[String, String] = sys.env,
-      runner: Runner = runProcess
+      runner: Runner = runProcess,
+      local: Local = name => com.thinkmorestupidless.ankka.cli.console.LocalSource().openApi(name)
+  ): Int =
+    options.local match
+      case Some(name) =>
+        local(name) match
+          case None =>
+            err.println(s"no local service named $name")
+            1
+          case Some(Left(problem)) =>
+            err.println(problem)
+            1
+          case Some(Right(document)) =>
+            out.print(document)
+            out.flush()
+            0
+      case None => build(options, out, err, env, runner)
+
+  private def build(
+      options: Options,
+      out: PrintStream,
+      err: PrintStream,
+      env: Map[String, String],
+      runner: Runner
   ): Int =
     locate(options.dir) match
       case Left(refusal) =>

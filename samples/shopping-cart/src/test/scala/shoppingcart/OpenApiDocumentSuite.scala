@@ -94,11 +94,16 @@ class OpenApiDocumentSuite extends munit.FunSuite with LogCapturing:
   override def afterAll(): Unit =
     if testKit != null then testKit.stop()
 
-  private def send(method: String, path: String, body: Option[String] = None): (Int, String) =
+  private def send(
+      method: String,
+      path: String,
+      body: Option[String] = None,
+      contentType: String = "application/json"
+  ): (Int, String) =
     val builder = JdkRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(30))
     body match
       case Some(json) =>
-        builder.header("Content-Type", "application/json")
+        builder.header("Content-Type", contentType)
         builder.method(method, JdkRequest.BodyPublishers.ofString(json)): Unit
       case None => builder.method(method, JdkRequest.BodyPublishers.noBody()): Unit
     val response = http.send(builder.build(), JdkResponse.BodyHandlers.ofString())
@@ -183,4 +188,43 @@ class OpenApiDocumentSuite extends munit.FunSuite with LogCapturing:
       true,
       "a body missing its fields fits, so the check checks nothing"
     )
+  }
+
+  test("the receipt route is described in at most ten lines (SC-005)") {
+    val source = Files
+      .readAllLines(
+        Path.of("src/main/scala/shoppingcart/api/ShoppingCartEndpoint.scala"),
+        UTF_8
+      )
+      .asScala
+      .toVector
+    val start = source.indexWhere(_.contains("// docs:start described"))
+    val end   = source.indexWhere(_.contains("// docs:end described"))
+    assert(start >= 0 && end > start, "the markers are not there")
+    assert(end - start - 1 <= 10, s"${end - start - 1} lines")
+  }
+
+  test("the described receipt route is complete, and what it answers fits its document") {
+    val receipt = operation("POST", "/carts/{cartId}/receipt")
+    assert(!receipt.has("x-ankka-incomplete"), receipt.toString)
+    assertEquals(
+      receipt.path("parameters").elements.asScala.map(_.path("name").asText).toVector,
+      Vector("cartId", "copies", "currency")
+    )
+    assertEquals(receipt.path("tags").toString, """["cart"]""")
+    assertEquals(
+      receipt.path("responses").path("404").path("description").asText,
+      "the cart is empty"
+    )
+
+    assertEquals(send("POST", "/carts/doc-receipt/receipt", Some("thanks"), "text/plain")._1, 404)
+    assertEquals(send("POST", "/carts/doc-receipt/items", Some(item("p1", "Widget", 2)))._1, 204)
+    val (status, answer) =
+      send("POST", "/carts/doc-receipt/receipt?currency=EUR&copies=2", Some("thanks"), "text/plain")
+    assertEquals(status, 200, answer)
+    assertEquals(
+      violations(answerSchema("POST", "/carts/{cartId}/receipt", 200), answer),
+      Vector.empty
+    )
+    assert(answer.contains("\"currency\":\"EUR\""), answer)
   }

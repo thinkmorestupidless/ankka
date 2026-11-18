@@ -109,6 +109,13 @@ object Dependencies {
 
     /** Test scope only: reads a rendered OpenAPI document as 3.1 (feature 067, R12). */
     val swaggerParser = "2.1.49"
+
+    /**
+     * The Jackson that pekko-serialization-jackson resolves, and so the one on every classpath that
+     * holds the Scala module. The validator and the parser bring newer Jackson (2.22, 2.23) that
+     * the Scala module refuses to load beside, so both take theirs from here instead (feature 067).
+     */
+    val pekkoJackson = "2.21.6"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────
@@ -226,9 +233,27 @@ object Dependencies {
   /** A view's declared statements are parsed with it; a direct dependency of `ankka-runtime`. */
   val jsqlparser = "com.github.jsqlparser" % "jsqlparser" % V.jsqlparser
 
-  val jsonSchemaValidator = "com.networknt"        % "json-schema-validator" % V.jsonSchemaValidator
-  val munitScalacheck     = "org.scalameta"       %% "munit-scalacheck"      % V.munitScalacheck
-  val swaggerParser       = "io.swagger.parser.v3" % "swagger-parser"        % V.swaggerParser
+  private val newerJackson = Seq(
+    ExclusionRule("com.fasterxml.jackson.core"),
+    ExclusionRule("com.fasterxml.jackson.dataformat"),
+    ExclusionRule("com.fasterxml.jackson.datatype")
+  )
+
+  private val pekkoJacksonYaml =
+    "com.fasterxml.jackson.dataformat" % "jackson-dataformat-yaml" % V.pekkoJackson
+
+  val jsonSchemaValidator =
+    ("com.networknt" % "json-schema-validator" % V.jsonSchemaValidator).excludeAll(newerJackson *)
+  val munitScalacheck = "org.scalameta" %% "munit-scalacheck" % V.munitScalacheck
+  val swaggerParser   =
+    ("io.swagger.parser.v3" % "swagger-parser" % V.swaggerParser).excludeAll(newerJackson *)
+
+  /** What the validator and the parser read YAML and dates with, at Pekko's Jackson. */
+  val jacksonForSchemas = Seq(
+    pekkoJacksonYaml,
+    "com.fasterxml.jackson.datatype" % "jackson-datatype-jsr310" % V.pekkoJackson,
+    "com.fasterxml.jackson.core"     % "jackson-databind"        % V.pekkoJackson
+  )
 
   val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle
 

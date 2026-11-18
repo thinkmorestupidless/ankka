@@ -254,7 +254,7 @@ lazy val core = project
       jsoniterMacros,
       jsonSchemaValidator % Test,
       munitScalacheck     % Test
-    ),
+    ) ++ jacksonForSchemas.map(_ % Test),
     // com.thinkmorestupidless.ankka.core.BuildInfo.version — the one version everything published from a tag shares.
     // `imageTag` is what `Docker / version` produces (`+` → `-`), so a suite that deploys the
     // sidecar or the sample names the image this sbt session built, never a literal tag.
@@ -346,7 +346,7 @@ lazy val http = project
       pekkoHttpTestkit    % Test,
       jsonSchemaValidator % Test,
       swaggerParser       % Test
-    ),
+    ) ++ jacksonForSchemas.map(_ % Test),
     // StreamedBodySuite passes bodies of 2 GiB through an endpoint (feature 055): with a heap of
     // 512 MiB, a body held whole anywhere fails the run instead of passing it.
     Test / javaOptions += "-Xmx512m"
@@ -482,7 +482,7 @@ lazy val testkit = project
       testcontainersKafka,
       jsonSchemaValidator,
       swaggerParser % Test
-    )
+    ) ++ jacksonForSchemas
   )
 
 /**
@@ -982,7 +982,8 @@ lazy val cli = project
     // here rather than let it build one.
     Docker / publishLocal := {},
     Docker / publish      := {},
-    libraryDependencies ++= Seq(decline, munit % Test, swaggerParser % Test),
+    libraryDependencies ++= Seq(decline, munit % Test, swaggerParser % Test) ++
+      jacksonForSchemas.map(_ % Test),
     // `ankka local web` runs the proxy's engine; see proxyCore.
     Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public

@@ -3,6 +3,8 @@ package com.thinkmorestupidless.ankka.http.openapi
 import com.thinkmorestupidless.ankka.core.shape.ShapeOf
 import com.thinkmorestupidless.ankka.http.FromQuery
 
+import scala.compiletime.{summonFrom, summonInline}
+
 /**
  * A query parameter a handler reads: its name, its `FromQuery` type, and whether it must be sent.
  */
@@ -53,26 +55,32 @@ final class Description private (
   def body(jsonSchema: String): Description = copy(bodies = bodies :+ ShapeOf.of(jsonSchema))
 
   /** The `200` answer's shape. */
-  def answers[A](using shape: ShapeOf[A]): Description = answers[A](200)
+  def answers[A](using shape: ShapeOf[A]): Description = answering(200, Some(shape))
 
-  /** An answer by status, with a shape. */
-  def answers[A](status: Int)(using shape: ShapeOf[A]): Description =
-    copy(answered = answered :+ (status -> Some(shape)))
+  /**
+   * An answer by status: `answers[Receipt](201)` with the type's shape, `answers(204)` with no
+   * body. One method rather than two overloads, which Scala cannot tell apart when no type is
+   * given.
+   */
+  inline def answers[A](status: Int): Description =
+    answering(status, Description.shapeIfNamed[A])
 
-  /** An answer by status, with no body. */
-  def answers(status: Int): Description = copy(answered = answered :+ (status -> None))
+  private[ankka] def answering(status: Int, shape: Option[ShapeOf[?]]): Description =
+    copy(answered = answered :+ (status -> shape))
 
   /** An answer by status, its shape as JSON Schema. */
   def answers(status: Int, jsonSchema: String): Description =
     copy(answered = answered :+ (status -> Some(ShapeOf.of(jsonSchema))))
 
-  /** A refusal, with the endpoint's refusal shape, else the platform's. */
-  def refuses(status: Int, reason: String): Description =
-    copy(refusals = refusals :+ (status, reason, None))
+  /**
+   * A refusal: `refuses[Refusal](403, "wrong brand")` with a shape of its own, `refuses(404, "not
+   * found")` with the endpoint's refusal shape, else the platform's. One method, as for `answers`.
+   */
+  inline def refuses[A](status: Int, reason: String): Description =
+    refusing(status, reason, Description.shapeIfNamed[A])
 
-  /** A refusal with a shape of its own. */
-  def refuses[A](status: Int, reason: String)(using shape: ShapeOf[A]): Description =
-    copy(refusals = refusals :+ (status, reason, Some(shape)))
+  private[ankka] def refusing(status: Int, reason: String, shape: Option[ShapeOf[?]]): Description =
+    copy(refusals = refusals :+ (status, reason, shape))
 
   /** The shape of every refusal that names none. */
   def refusalShape[A](using shape: ShapeOf[A]): Description =
@@ -107,6 +115,18 @@ final class Description private (
 
 object Description:
   /** A description that says nothing. */
+  /**
+   * The shape of `A` when the caller named a type, `None` when it named none: a type parameter left
+   * out is inferred as `Any` (and `Nothing` is no type a body has), and a type named without a
+   * shape is a compile error naming `ShapeOf`.
+   */
+  private[openapi] inline def shapeIfNamed[A]: Option[ShapeOf[?]] =
+    summonFrom {
+      case _: (A =:= Any)     => None
+      case _: (A =:= Nothing) => None
+      case _                  => Some(summonInline[ShapeOf[A]])
+    }
+
   val none: Description =
     Description(
       Vector.empty,

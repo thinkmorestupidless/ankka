@@ -154,3 +154,104 @@ class RouteShapeSuite extends munit.FunSuite:
     assertEquals(RouteShape.unknown.pathParameters, Vector.empty)
     assertEquals(RouteShape.unknown.answer.shape, None)
   }
+
+  // T018: described scopes.
+
+  /** The same routes, described or not; a description must change nothing of what they answer. */
+  private final class Scoped(describe: Boolean) extends HttpEndpoint("/scoped"):
+    val acl: Acl = Acl.AllowAll
+
+    override protected def description: Description =
+      if describe then Description.none.tag("carts") else Description.none
+
+    private def maybe(d: Description => Description)(declare: => Unit): Unit =
+      if describe then described(d)(declare) else declare
+
+    maybe(_.tag("outer").refuses(404, "no cart")) {
+      get("/{cartId}")((cartId: String) => Cart(cartId, Nil))
+      maybe(_.summary("the total")) {
+        get("/{cartId}/total")((_: String) => 7)
+      }
+    }
+    get("/{cartId}/plain")((cartId: String) => cartId)
+    withAcl(Acl.DenyAll) {
+      maybe(_.summary("inside an acl")) {
+        postBody("/{cartId}/items")((cartId: String, item: Item) => Cart(cartId, List(item)))
+      }
+    }
+    maybe(_.summary("around an acl")) {
+      withAcl(Acl.AllowAll) {
+        delete("/{cartId}")((_: String) => Done.done)
+      }
+    }
+
+  private val scoped = Scoped(describe = true)
+
+  private def scopedRoute(method: String, template: String): RouteShape =
+    scoped.routes
+      .find(r => r.method == method && r.template.render == template)
+      .map(_.shape)
+      .getOrElse(fail(s"no $method $template"))
+
+  test("nested scopes add, outermost first, and each counts the routes it held") {
+    val total = scopedRoute("GET", "/{cartId}/total")
+    assertEquals(total.description.tags, Vector("outer"))
+    assertEquals(total.description.summaries, Vector("the total"))
+    assertEquals(total.description.refusals.map(r => (r._1, r._2)), Vector(404 -> "no cart"))
+    assertEquals(total.scopes.map(_.held), Vector(2, 1))
+    assertEquals(scopedRoute("GET", "/{cartId}").scopes.map(_.held), Vector(2))
+  }
+
+  test("a route outside every scope carries only the endpoint's description") {
+    val plain = scopedRoute("GET", "/{cartId}/plain")
+    assertEquals(plain.scopes, Vector.empty)
+    assertEquals(plain.description.summaries, Vector.empty)
+    assertEquals(scoped.endpointDescription.andThen(plain.description).tags, Vector("carts"))
+  }
+
+  test("described inside a withAcl and around one: both describe, and the acl still holds") {
+    val inside = scoped.routes.find(_.template.render == "/{cartId}/items").get
+    assertEquals(inside.shape.description.summaries, Vector("inside an acl"))
+    assertEquals(inside.acl, Some(Acl.DenyAll))
+    val around = scoped.routes.find(r => r.method == "DELETE").get
+    assertEquals(around.shape.description.summaries, Vector("around an acl"))
+    assertEquals(around.acl, Some(Acl.AllowAll))
+    assertEquals(scopedRoute("GET", "/{cartId}").description.summaries, Vector.empty)
+  }
+
+  test("describing a route changes nothing of how it answers") {
+    val plain                    = Scoped(describe = false)
+    def answers(e: HttpEndpoint) = e.routes.map { r =>
+      val body =
+        if r.needsBody then """{"productId":"p1","quantity":2}""".getBytes else Array.emptyByteArray
+      val a = r.run(Vector("c1"), body)
+      (r.method, r.template.render, r.acl, a.status, a.contentType, a.body.toSeq, a.headers)
+    }
+    assertEquals(answers(scoped), answers(plain))
+    assertEquals(answers(scoped).size, 5)
+  }
+
+  test("answers and refuses: with a type they carry its shape, without one they carry none") {
+    val d = Description.none
+      .answers(204)
+      .answers[Cart](201)
+      .refuses(404, "no cart")
+      .refuses[Item](409, "a line already held")
+    assertEquals(
+      d.answered.map((s, shape) => s -> shape.isDefined),
+      Vector(204 -> false, 201 -> true)
+    )
+    assertEquals(
+      d.refusals.map((s, r, shape) => (s, r, shape.isDefined)),
+      Vector((404, "no cart", false), (409, "a line already held", true))
+    )
+    assertEquals(
+      d.answered.collectFirst { case (201, Some(s)) => rendered(Some(s)) }.flatten,
+      Some("""{"$ref":"Cart"}""")
+    )
+  }
+
+  test("a type with no shape given to answers is refused at compile time") {
+    val errors = compileErrors("Description.none.answers[Opaque](200)")
+    assert(errors.contains("ShapeOf"), errors)
+  }

@@ -326,3 +326,9 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   seam of T013 gave the server none. `document` takes a third parameter, the registry
   `ServiceBuilder.validate` answered, defaulting to the empty one, so `document(kind, options)`
   still reads as the contract states it and a check that reads components sees the service's own.
+- **T018, contracts/scala.md's overloads**: `refuses(status, reason)` beside
+  `refuses[A](status, reason)(using ShapeOf[A])`, and `answers(status)` beside
+  `answers[A](status)(using ShapeOf[A])`, are ambiguous to Scala 3 at every call that names no
+  type, which is the contract's own example. Each pair is one `inline` method: a type left out
+  (inferred `Any`) carries no shape, a type named is summoned its `ShapeOf` and refused at
+  compile time without one. Every call the contract shows is written as it shows it.

@@ -166,3 +166,62 @@ class OpenApiCommandSuite extends munit.FunSuite:
     assertEquals(ran.code, 2)
     assert(ran.err.contains("holds 2 services"), ran.err)
   }
+
+  // T023: --check.
+
+  /** A build that writes `text` as its document. */
+  private final class Writes(text: String) extends OpenApiCommand.Runner:
+    def apply(c: RunCommand, env: Map[String, String], to: PrintStream): Int =
+      val out = env("JAVA_TOOL_OPTIONS").split(' ').collectFirst {
+        case p if p.startsWith("-Dankka.document.out=") => p.stripPrefix("-Dankka.document.out=")
+      }
+      Files.writeString(Path.of(out.getOrElse(fail("no out"))), text, UTF_8)
+      0
+
+  private val withSchema =
+    """{"openapi":"3.1.0","paths":{"/carts/{id}":{"get":{"responses":{}}}},""" +
+      """"components":{"schemas":{"Cart":{"type":"object"}}}}""" + "\n"
+
+  project.test("--check of a kept document that is current exits 0 and says so") { root =>
+    val kept = root.resolve("openapi.json")
+    Files.writeString(kept, withSchema)
+    val ran = run(OpenApiCommand.Options(root, check = Some(kept)), Writes(withSchema))
+    assertEquals(ran.code, 0, ran.err)
+    assert(ran.err.contains(s"$kept is current"), ran.err)
+  }
+
+  project.test("a kept document that no longer matches the code is found, and nothing is written") {
+    root =>
+      val kept = root.resolve("openapi.json")
+      Files.writeString(kept, withSchema)
+      Files.setLastModifiedTime(kept, java.nio.file.attribute.FileTime.fromMillis(1_000_000_000L))
+      val added = withSchema.replace(
+        """"/carts/{id}":""",
+        """"/carts/{id}/items":{"post":{"responses":{}}},"/carts/{id}":"""
+      )
+      val ran = run(OpenApiCommand.Options(root, check = Some(kept)), Writes(added))
+      assertEquals(ran.code, 1)
+      assert(ran.err.contains("route added: POST /carts/{id}/items"), ran.err)
+      assert(!ran.err.contains("schema"), ran.err)
+      assertEquals(Files.readString(kept), withSchema)
+      assertEquals(Files.getLastModifiedTime(kept).toMillis, 1_000_000_000L)
+      assert(!Files.exists(root.resolve("services/cart/openapi.json")), "--check wrote a document")
+  }
+
+  project.test("--check names a schema that changed") { root =>
+    val kept = root.resolve("openapi.json")
+    Files.writeString(kept, withSchema)
+    val changed = withSchema.replace(""""Cart":{"type":"object"}""", """"Cart":{"type":"string"}""")
+    val ran     = run(OpenApiCommand.Options(root, check = Some(kept)), Writes(changed))
+    assertEquals(ran.code, 1)
+    assert(ran.err.contains("schema changed: Cart"), ran.err)
+    assert(!ran.err.contains("route"), ran.err)
+  }
+
+  project.test("--check of a kept document that does not exist fails, naming it") { root =>
+    val kept = root.resolve("missing.json")
+    val ran  = run(OpenApiCommand.Options(root, check = Some(kept)), Writes(withSchema))
+    assertEquals(ran.code, 1)
+    assert(ran.err.contains(s"$kept does not exist"), ran.err)
+    assert(!Files.exists(kept))
+  }

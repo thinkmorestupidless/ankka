@@ -138,6 +138,9 @@ object OpenApiCommand:
         1
       else
         val text = Files.readString(temporary, UTF_8)
+        options.check match
+          case Some(kept) => return checked(kept, text, err)
+          case None       => ()
         options.out match
           case Some("-") =>
             out.print(text)
@@ -154,6 +157,57 @@ object OpenApiCommand:
     finally
       Files.deleteIfExists(temporary)
       Files.deleteIfExists(scratch): Unit
+
+  /**
+   * `--check`: the kept file against the document the code gives. The same bytes are current;
+   * otherwise one line per route added, removed or changed and per schema changed, and status `1`.
+   * The kept file is never written.
+   */
+  private[openapi] def checked(kept: Path, text: String, err: PrintStream): Int =
+    if !Files.isRegularFile(kept) then
+      err.println(s"$kept does not exist: write it with ankka openapi --out $kept")
+      1
+    else
+      val held = Files.readString(kept, UTF_8)
+      if held == text then
+        err.println(s"$kept is current")
+        0
+      else
+        val lines = differences(held, text)
+        err.println(s"$kept is not the document the code gives:")
+        (if lines.isEmpty then Vector("  the two differ outside routes and schemas") else lines)
+          .foreach(l => err.println(s"  $l"))
+        1
+
+  /** What changed from the kept document to the code's, route by route and schema by schema. */
+  private[openapi] def differences(kept: String, current: String): Vector[String] =
+    def parsed(text: String): GraphJson =
+      GraphJson.parse(text.getBytes(UTF_8)).getOrElse(GraphJson.Obj(Vector.empty))
+    def fields(node: Option[GraphJson]): Vector[(String, GraphJson)] = node match
+      case Some(GraphJson.Obj(entries)) => entries
+      case _                            => Vector.empty
+    def routes(doc: GraphJson): Vector[(String, GraphJson)] =
+      fields(doc.field("paths")).flatMap((path, methods) =>
+        fields(Some(methods)).map((method, op) => s"${method.toUpperCase} $path" -> op)
+      )
+    def schemas(doc: GraphJson): Vector[(String, GraphJson)] =
+      fields(doc.field("components").flatMap(_.field("schemas")))
+    def compare(
+        kind: String,
+        before: Vector[(String, GraphJson)],
+        after: Vector[(String, GraphJson)]
+    ) =
+      val was = before.toMap
+      val is  = after.toMap
+      (before.map(_._1) ++ after.map(_._1)).distinct.sorted.flatMap { name =>
+        (was.get(name), is.get(name)) match
+          case (None, Some(_))              => Some(s"$kind added: $name")
+          case (Some(_), None)              => Some(s"$kind removed: $name")
+          case (Some(a), Some(b)) if a != b => Some(s"$kind changed: $name")
+          case _                            => None
+      }
+    val (a, b) = (parsed(kept), parsed(current))
+    compare("route", routes(a), routes(b)) ++ compare("schema", schemas(a), schemas(b))
 
   /** How many operations a document holds, and how many of them are marked incomplete. */
   private[openapi] def counts(text: String): (Int, Int) =

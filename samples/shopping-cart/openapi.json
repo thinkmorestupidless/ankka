@@ -1,0 +1,1441 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "shopping-cart",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/callers/call/{service}": {
+      "get": {
+        "operationId": "get_callers_call_service",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/go-cart-alone": {
+      "get": {
+        "operationId": "get_callers_go_cart_alone",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/grpc/{service}": {
+      "get": {
+        "operationId": "get_callers_grpc_service",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/grpc/{service}/claiming/{other}": {
+      "get": {
+        "operationId": "get_callers_grpc_service_claiming_other",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "other",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/grpc/{service}/explained": {
+      "get": {
+        "operationId": "get_callers_grpc_service_explained",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/grpc/{service}/loop/{n}": {
+      "get": {
+        "operationId": "get_callers_grpc_service_loop_n",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/grpc/{service}/reflection": {
+      "get": {
+        "operationId": "get_callers_grpc_service_reflection",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/only-orders": {
+      "get": {
+        "operationId": "get_callers_only_orders",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/only-self": {
+      "get": {
+        "operationId": "get_callers_only_self",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/orders-alone": {
+      "get": {
+        "operationId": "get_callers_orders_alone",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/rust-cart-alone": {
+      "get": {
+        "operationId": "get_callers_rust_cart_alone",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/callers/whoami": {
+      "get": {
+        "operationId": "get_callers_whoami",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/carts/{cartId}": {
+      "get": {
+        "operationId": "get_carts_cartId",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingCart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      },
+      "delete": {
+        "operationId": "delete_carts_cartId",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/checkout": {
+      "post": {
+        "operationId": "post_carts_cartId_checkout",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShoppingCart"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/items": {
+      "post": {
+        "operationId": "post_carts_cartId_items",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LineItem"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/items/{productId}": {
+      "delete": {
+        "operationId": "delete_carts_cartId_items_productId",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/receipt": {
+      "post": {
+        "operationId": "post_carts_cartId_receipt",
+        "summary": "A cart's receipt",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "copies",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "the cart is empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/carts/{cartId}/total": {
+      "get": {
+        "operationId": "get_carts_cartId_total",
+        "tags": [
+          "cart"
+        ],
+        "parameters": [
+          {
+            "name": "cartId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/mcp-keys/": {
+      "post": {
+        "operationId": "post_mcp_keys",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedClientKey"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/mcp-keys/{id}": {
+      "delete": {
+        "operationId": "delete_mcp_keys_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/open-carts/": {
+      "get": {
+        "operationId": "get_open_carts",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/event-stream": {
+                
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/questions/answerer/{instanceId}/notifications": {
+      "get": {
+        "operationId": "get_questions_answerer_instanceId_notifications",
+        "parameters": [
+          {
+            "name": "instanceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/event-stream": {
+                
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ]
+      }
+    },
+    "/questions/ask": {
+      "post": {
+        "operationId": "post_questions_ask",
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asked"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "request body"
+        ]
+      }
+    },
+    "/questions/{taskId}": {
+      "get": {
+        "operationId": "get_questions_taskId",
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          
+        ],
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/secrets/{name}": {
+      "get": {
+        "operationId": "get_secrets_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      },
+      "put": {
+        "operationId": "put_secrets_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretsEndpoint.Keep"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open"
+      },
+      "delete": {
+        "operationId": "delete_secrets_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open"
+      }
+    },
+    "/storage/objects": {
+      "get": {
+        "operationId": "get_storage_objects",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/octet-stream": {
+                
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      },
+      "post": {
+        "operationId": "post_storage_objects",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageEndpoint.Keep"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open"
+      }
+    },
+    "/storage/signed": {
+      "get": {
+        "operationId": "get_storage_signed",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    },
+    "/storage/url": {
+      "get": {
+        "operationId": "get_storage_url",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnkkaProblem"
+                }
+              }
+            }
+          }
+        },
+        "x-ankka-admission": "not-open",
+        "x-ankka-incomplete": [
+          "answer 200"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnkkaProblem": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "error"
+        ]
+      },
+      "Asked": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string"
+          },
+          "instanceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "instanceId"
+        ]
+      },
+      "IssuedClientKey": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "clientKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "clientKey"
+        ]
+      },
+      "KeyRequest": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "LineItem": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "productId",
+          "name",
+          "quantity"
+        ]
+      },
+      "Receipt": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "items": {
+            "type": "integer"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "copies": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cartId",
+          "note",
+          "items",
+          "currency",
+          "copies"
+        ]
+      },
+      "SecretsEndpoint.Keep": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "ShoppingCart": {
+        "type": "object",
+        "properties": {
+          "cartId": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineItem"
+            }
+          },
+          "checkedOut": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cartId",
+          "checkedOut"
+        ]
+      },
+      "StorageEndpoint.Keep": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "contentType",
+          "text"
+        ]
+      }
+    }
+  }
+}

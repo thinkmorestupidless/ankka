@@ -2097,11 +2097,19 @@ object Main:
     val version = Opts
       .option[String]("api-version", "The document's info.version. Default: 0.0.0.")
       .orNone
-    (dir, out, strict, tags, prefixes, version).mapN {
-      (dir, out, strict, tags, prefixes, version) => () =>
+    val check = Opts
+      .option[String](
+        "check",
+        "Compare a kept document with the one the code gives; exit 1 naming each " +
+          "difference, writing nothing."
+      )
+      .orNone
+      .map(_.map(java.nio.file.Path.of(_)))
+    (dir, out, strict, tags, prefixes, version, check).mapN {
+      (dir, out, strict, tags, prefixes, version, check) => () =>
         val code = openapi.OpenApiCommand.run(
           openapi.OpenApiCommand
-            .Options(dir, out, strict, tags.toVector, prefixes.toVector, version),
+            .Options(dir, out, strict, tags.toVector, prefixes.toVector, version, check),
           Console.out,
           Console.err
         )

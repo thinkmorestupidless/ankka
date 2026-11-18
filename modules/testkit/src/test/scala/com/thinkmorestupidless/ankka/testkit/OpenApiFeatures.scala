@@ -155,12 +155,11 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   override val munitTimeout = 3.minutes
 
   override protected lazy val ranElsewhere: Map[String, String] =
-    val completing = "OpenApiSuite (T022, T023)"
-    val held       = "HeldToDocumentSuite (T025)"
-    val serving    = "OpenApiServedSuite (T027, T028)"
-    val languages  = "the Java and Kotlin document suites (T029 to T034)"
+    val held      = "HeldToDocumentSuite (T025)"
+    val serving   = "OpenApiServedSuite (T027, T028)"
+    val languages = "the Java and Kotlin document suites (T029 to T034)"
     Map(
-      "a kept document that no longer matches the code is found, and nothing is written" -> completing,
+      "a kept document that no longer matches the code is found, and nothing is written" -> "OpenApiCommandSuite (T023)",
       "an answer the description does not name fails the test"           -> held,
       "an answer body its shape refuses fails the test"                  -> held,
       "a body the handler accepts that its shape refuses fails the test" -> held,

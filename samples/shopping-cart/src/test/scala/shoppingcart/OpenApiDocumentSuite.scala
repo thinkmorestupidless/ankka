@@ -228,3 +228,14 @@ class OpenApiDocumentSuite extends munit.FunSuite with LogCapturing:
     )
     assert(answer.contains("\"currency\":\"EUR\""), answer)
   }
+
+  test("the sample's kept openapi.json is the document its code gives") {
+    val kept = Path.of("openapi.json")
+    if sys.props.get("ankka.docs.update").contains("true") then Files.write(kept, first): Unit
+    assert(Files.exists(kept), "samples/shopping-cart/openapi.json is not kept")
+    assert(
+      Files.readAllBytes(kept).sameElements(first),
+      "samples/shopping-cart/openapi.json is stale: run " +
+        "sbt -Dankka.docs.update=true 'shoppingCart/testOnly *OpenApiDocumentSuite' and commit it"
+    )
+  }

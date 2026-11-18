@@ -50,7 +50,7 @@ object Dependencies {
     val jsqlparser = "5.4"
 
     /** Test scope only: mints certificates in-process for the TLS suites (feature 014, R13). */
-    val bouncyCastle = "1.86"
+    val bouncyCastle = "1.87"
 
     /**
      * Test scope only: an S3 client nobody here wrote, to sign and send requests to the object

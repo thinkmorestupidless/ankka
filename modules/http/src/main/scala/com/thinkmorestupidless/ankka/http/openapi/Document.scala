@@ -145,5 +145,6 @@ private[ankka] object Document:
     case "int"     => Shape.integer
     case "long"    => Shape.Scalar("integer", Some("int64"))
     case "boolean" => Shape.boolean
+    case "double"  => Shape.number
     case "uuid"    => Shape.Scalar("string", Some("uuid"))
     case _         => Shape.string

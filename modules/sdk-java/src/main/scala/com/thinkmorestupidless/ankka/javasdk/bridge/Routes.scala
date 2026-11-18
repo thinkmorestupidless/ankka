@@ -2,6 +2,15 @@ package com.thinkmorestupidless.ankka.javasdk.bridge
 
 import com.thinkmorestupidless.ankka.http
 import com.thinkmorestupidless.ankka.http.{EncodedResponse, HttpProblem, PathTemplate, Route}
+import com.thinkmorestupidless.ankka.http.openapi.{
+  AnswerKind,
+  AnswerShape,
+  BodyShape,
+  DescribedScope,
+  Description,
+  QueryParameter,
+  RouteShape
+}
 import com.thinkmorestupidless.ankka.javasdk.Done
 import com.thinkmorestupidless.ankka.javasdk.annotations
 import com.thinkmorestupidless.ankka.javasdk.client.CommandException
@@ -37,6 +46,7 @@ import scala.concurrent.ExecutionContext.parasitic
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
+import com.thinkmorestupidless.ankka.core.shape.ShapeOf
 
 /** How a route's parameter is filled from a request. */
 private[bridge] type Binder = (Map[String, String], Array[Byte], http.RequestContext) => AnyRef
@@ -51,7 +61,9 @@ private[ankka] final case class RoutePlan(
     reply: Option[Serializer[Any]],
     kind: RouteKind = RouteKind.Plain,
     /** The parameter handed the socket or the streamed body, which no binder fills. */
-    special: Option[Int] = None
+    special: Option[Int] = None,
+    /** What the route's declaration says of itself, for the OpenAPI document (feature 067). */
+    shape: RouteShape = RouteShape.unknown
 )
 
 /** What a route answers with: one response, a stream of events, or a socket. */
@@ -173,6 +185,12 @@ private[ankka] object Routes:
           .left
           .map(why => s"its reply has no serializer: $why")
 
+    val classDescription = Described.of(cls) match
+      case Right(d)    => d
+      case Left(found) =>
+        found.foreach(problem("", _))
+        Description.none
+
     val routes = mutable.ArrayBuffer.empty[RoutePlan]
     val seen   = mutable.Map.empty[(String, String), String]
     cls.getDeclaredMethods.sortBy(_.getName).foreach { m =>
@@ -203,6 +221,9 @@ private[ankka] object Routes:
           val bound        = mutable.Set.empty[String]
           var bodies       = 0
           val specials     = mutable.ArrayBuffer.empty[(Int, Class[?])]
+          val pathKinds    = mutable.Map.empty[String, String]
+          val queries      = mutable.ArrayBuffer.empty[QueryParameter]
+          var bodyType     = Option.empty[Type]
           Invocable.problem(m).foreach(problem(member, _))
           val binders = Invocable.parameters(m).toVector.zipWithIndex.flatMap { (p, i) =>
             if p.getType == classOf[WebSocket] || p.getType == classOf[StreamedBody] then
@@ -211,8 +232,14 @@ private[ankka] object Routes:
             else
               binder(p, placeholders, serializer) match
                 case Right((b, path, body)) =>
-                  path.foreach(bound += _)
-                  if body then bodies += 1
+                  path.foreach { segment =>
+                    bound += segment
+                    pathKinds(segment) = Described.kindOf(p.getType).getOrElse("string")
+                  }
+                  if body then
+                    bodies += 1
+                    bodyType = Some(p.getParameterizedType)
+                  queryOf(p).foreach(queries += _)
                   Some(b)
                 case Left(why) =>
                   problem(member, why)
@@ -265,6 +292,35 @@ private[ankka] object Routes:
             case Left(why) =>
               problem(member, why)
               None
+          val methodDescription = Described.of(m) match
+            case Right(d)    => d
+            case Left(found) =>
+              found.foreach(problem(member, _))
+              Description.none
+          val queried = queries.map(_.name).toSet
+          (classDescription.queries ++ methodDescription.queries)
+            .filter(q => queried(q.name))
+            .foreach(q =>
+              problem(
+                member,
+                s"@ReadsQuery(\"${q.name}\") names the parameter its @QueryParam binds, which " +
+                  "is known already; take one away"
+              )
+            )
+          val described = queries.foldLeft(methodDescription)(_.querying(_))
+          val scopes    = Vector(DescribedScope(classDescription), DescribedScope(described))
+          scopes.foreach(_.recorded())
+          val shape =
+            if kind == RouteKind.Socket then RouteShape.unknown
+            else
+              RouteShape(
+                template.parameterNames.map(n => n -> pathKinds.getOrElse(n, "string")),
+                if kind == RouteKind.Streamed then
+                  Some(BodyShape("application/octet-stream", None, streamed = true))
+                else bodyType.map(t => bodyShape(t, serializer)),
+                if kind == RouteKind.Sse then EventsAnswer else answerShape(m, reply),
+                scopes
+              )
           m.setAccessible(true)
           routes += RoutePlan(
             verb,
@@ -274,13 +330,63 @@ private[ankka] object Routes:
             bodies > 0,
             reply,
             kind,
-            specials.headOption.map(_._1)
+            specials.headOption.map(_._1),
+            shape
           )
         }
       }
     }
     if problems.nonEmpty then Left(problems.toVector)
     else Right(EndpointPlan(cls, routes.toVector, construct.get))
+
+  private val EventsAnswer =
+    AnswerShape(Some(200), "text/event-stream", None, AnswerKind.Events)
+
+  /** The query parameter a `@QueryParam` binds: optional when it is an `Optional`. */
+  private def queryOf(p: Parameter): Option[QueryParameter] =
+    Option(p.getAnnotation(classOf[annotations.QueryParam])).map { q =>
+      p.getParameterizedType match
+        case pt: ParameterizedType if pt.getRawType == classOf[Optional[?]] =>
+          val inner = Planner.rawClass(pt.getActualTypeArguments()(0)).getOrElse(classOf[Object])
+          QueryParameter(q.value, Described.kindOf(inner).getOrElse("string"), required = false)
+        case _ =>
+          QueryParameter(q.value, Described.kindOf(p.getType).getOrElse("string"), required = true)
+    }
+
+  /**
+   * The shape the codec writes `t` with, when the codec is what reads or writes it as JSON: a
+   * serializer the service registered for the type says nothing of its shape.
+   */
+  private def codecShape(t: Type, s: Serializer[Any]): Option[ShapeOf[?]] =
+    val byCodec =
+      try RecordCodec.forType(t) eq s
+      catch case _: EncodingException => false
+    Option
+      .when(byCodec && s.contentType.mediaType == "application/json")(Shapes.of(t).toOption)
+      .flatten
+
+  private def bodyShape(t: Type, serializer: Type => Either[String, Serializer[Any]]): BodyShape =
+    serializer(t) match
+      case Right(s) => BodyShape(s.contentType.mediaType, codecShape(t, s))
+      case Left(_)  => BodyShape("application/json", None)
+
+  /** What a handler's return type says of its answer: `void` and `Done` are nothing. */
+  private def answerShape(m: Method, reply: Option[Serializer[Any]]): AnswerShape =
+    val raw = Invocable.returnType(m)
+    if raw == java.lang.Void.TYPE || raw == classOf[Void] || raw == classOf[Done] then
+      AnswerShape(Some(204), "text/plain", None, AnswerKind.Nothing)
+    else if raw == classOf[Response] then
+      AnswerShape(None, "application/json", None, AnswerKind.Body)
+    else
+      reply match
+        case Some(s) =>
+          AnswerShape(
+            Some(200),
+            s.contentType.mediaType,
+            codecShape(Invocable.genericReturnType(m), s),
+            AnswerKind.Body
+          )
+        case None => AnswerShape(None, "application/json", None, AnswerKind.Body)
 
   private def handedBy(c: Class[?]): String =
     if c == classOf[WebSocket] then "an @Socket route" else "a @StreamBody route"
@@ -433,7 +539,8 @@ private[ankka] object Routes:
               r.needsBody,
               (args, body) =>
                 respond(invoke(r.method, instance, params(r, args, body)), r.reply, serializers),
-              acl
+              acl,
+              shape = r.shape
             )
           )
         case RouteKind.Streamed =>
@@ -460,7 +567,8 @@ private[ankka] object Routes:
                   r.reply,
                   serializers
                 )
-              )
+              ),
+              shape = r.shape
             )
           )
         case RouteKind.Sse =>
@@ -489,7 +597,8 @@ private[ankka] object Routes:
                   case _ =>
                     throw IllegalStateException(s"${r.method.getName} returned no events")
               ,
-              acl
+              acl,
+              r.shape
             )
           )
         case RouteKind.Socket =>
@@ -575,7 +684,18 @@ private[ankka] object Routes:
                         case c: CommandException => throw problem(c.problem)
                     respond(answer, None, serializers)
                   ,
-                  acl
+                  acl,
+                  shape = RouteShape(
+                    t.parameterNames.map(_ -> "string"),
+                    Option(d.body).map(b =>
+                      read.flatMap(_.toOption) match
+                        case Some(s) => BodyShape(s.contentType.mediaType, codecShape(b, s))
+                        case None    => BodyShape("application/json", None)
+                    ),
+                    // A handler declared in code returns an Object: its answer is unknown
+                    // until its route is described.
+                    AnswerShape(None, "application/json", None, AnswerKind.Body)
+                  )
                 )
               )
     }

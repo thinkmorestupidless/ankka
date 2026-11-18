@@ -25,10 +25,10 @@ the same rules and names as Scala's. A Kotlin data class is read as the codec re
 | `@Answers` | `status` (200), `shape: Class<?>` (`Void.class`: no body) or `schema: String` | yes | no |
 | `@Refuses` | `status`, `reason`, `shape: Class<?>` (optional) | yes | yes |
 | `@RefusalShape` | `value: Class<?>` | no | yes |
-| `@Query` | `name`, `type: Class<?>` (`String.class`), `required` (`false`) | yes | yes |
+| `@ReadsQuery` | `name`, `type: Class<?>` (`String.class`), `required` (`false`) | yes | yes |
 | `@Tag` | `value: String[]` | no | yes |
 
-`@Query` is for a parameter a handler reads through `Request`; one bound with `@QueryParam` is
+`@ReadsQuery` is for a parameter a handler reads through `Request`; one bound with `@QueryParam` is
 already known, and naming it again is a contradiction.
 
 ```java

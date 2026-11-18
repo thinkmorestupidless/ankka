@@ -94,6 +94,10 @@ final class Description private (
   def queryRequired[A](name: String)(using from: FromQuery[A]): Description =
     copy(queries = queries :+ QueryParameter(name, from.name, required = true))
 
+  /** A query parameter by its kind's name, for a language whose types are not Scala's. */
+  private[ankka] def querying(parameter: QueryParameter): Description =
+    copy(queries = queries :+ parameter)
+
   /** Route tags, by which a document is written for some of a service's routes. */
   def tag(name: String, more: String*): Description = copy(tags = tags ++ (name +: more))
 
@@ -114,7 +118,7 @@ final class Description private (
     summaries.nonEmpty || bodies.nonEmpty || answered.nonEmpty
 
 object Description:
-  /** A description that says nothing. */
+
   /**
    * The shape of `A` when the caller named a type, `None` when it named none: a type parameter left
    * out is inferred as `Any` (and `Nothing` is no type a body has), and a type named without a
@@ -127,6 +131,7 @@ object Description:
       case _                  => Some(summonInline[ShapeOf[A]])
     }
 
+  /** A description that says nothing. */
   val none: Description =
     Description(
       Vector.empty,

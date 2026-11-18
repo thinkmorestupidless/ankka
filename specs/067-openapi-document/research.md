@@ -232,7 +232,7 @@ generic return and body types through `Planner.plan`, converted to `core.shape.S
 `Schemas.java`'s), and every `@QueryParam` as a query parameter with its type and whether it is
 `Optional`. The description is annotations on the handler method or the class, in
 `javasdk.annotations`: `@Summary`, `@BodyShape(Class)`, `@Answers(status, shape)`, `@Refuses(status,
-reason)`, `@RefusalShape(Class)`, `@Query(name, type, required)` for a parameter read through
+reason)`, `@RefusalShape(Class)`, `@ReadsQuery(name, type, required)` for a parameter read through
 `Request`, `@Tag`, each repeatable where it can repeat, plus `@Shape("...json schema...")` forms.
 Kotlin's `routes { }` DSL gains `described { ... } { routes }` with the same members; a DSL route
 has no answer type, so it is incomplete until described, and the page says so.
@@ -364,3 +364,11 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   Java codec's `Plan` reaches the bridge as `RecordCodec.planOf(Type)`, a JSON description, as
   `schemaOf` already reaches it: the plan's cases stay package-private and nothing new is public
   but that one method.
+
+- **T030: `@Query` is `@ReadsQuery` (the person's decision, a change to contracts/java-kotlin.md).**
+  `javasdk.annotations` already has `@Query(String value)`, the query-handler annotation on
+  entities, so the contract's annotation for a query parameter a handler reads through `Request`
+  could not take that name. It is `@ReadsQuery(name, type = String.class, required = false)`,
+  repeatable, on a method or a class, beside the other six. Declined: a subpackage
+  `annotations.openapi` keeping every name (an ambiguity wherever both packages are imported
+  whole), and `@QueryParameter` (too close to the binding annotation `@QueryParam`).

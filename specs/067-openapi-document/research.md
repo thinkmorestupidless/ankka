@@ -336,3 +336,9 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   no path parameter (its types are the handler's), so FR-015's case could not be written. The
   contradiction is a described query parameter whose name is one of the path's parameters: one
   name in two places. The outline row, FR-015 and data-model.md say so; the contract is unchanged.
+
+- **T024: no `Checked` record.** The server tells the check each answer by the operation's name
+  (`GET /players/{playerId}`, the name `CallOrigin` already carries), and the test kit's check reads
+  what that operation states from the server's own rendered document. A second record of the same
+  facts beside the document would be a copy to keep in step, so `DocumentCheck` has the three calls
+  of R10 and nothing more.

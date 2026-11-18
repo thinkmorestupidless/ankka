@@ -39,7 +39,8 @@ final class HttpServer private (
     tlsDirectory: Option[java.nio.file.Path] = None,
     configuredGrants: Option[Grants] = None,
     configuredMachines: Option[MachineTokens] = None,
-    clientCertificates: Boolean = true
+    clientCertificates: Boolean = true,
+    documentCheck: Option[openapi.DocumentCheck] = None
 ) extends RuntimeExtension:
 
   /**
@@ -54,7 +55,8 @@ final class HttpServer private (
       Some(directory),
       configuredGrants,
       configuredMachines,
-      clientCertificates
+      clientCertificates,
+      documentCheck
     )
 
   /**
@@ -69,7 +71,8 @@ final class HttpServer private (
       tlsDirectory,
       Some(grants),
       configuredMachines,
-      clientCertificates
+      clientCertificates,
+      documentCheck
     )
 
   /**
@@ -84,7 +87,8 @@ final class HttpServer private (
       tlsDirectory,
       configuredGrants,
       Some(machines),
-      clientCertificates
+      clientCertificates,
+      documentCheck
     )
 
   /**
@@ -100,7 +104,24 @@ final class HttpServer private (
       tlsDirectory,
       configuredGrants,
       configuredMachines,
-      clientCertificates = false
+      clientCertificates = false,
+      documentCheck
+    )
+
+  /**
+   * This server, reporting every answer and every query parameter its handlers read to `check`
+   * (feature 067): how a test holds a service to its OpenAPI document. The check only listens.
+   */
+  private[ankka] def withDocumentCheck(check: openapi.DocumentCheck): HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates,
+      Some(check)
     )
 
   @volatile private var binding: Option[Http.ServerBinding]                     = None
@@ -283,7 +304,8 @@ final class HttpServer private (
         grants,
         Some(heartbeat),
         maxStreamBytes,
-        directoryStorage
+        directoryStorage,
+        documentCheck
       ).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
@@ -619,7 +641,8 @@ private final class Router(
     heartbeat: Option[FiniteDuration] = None,
     maxStreamBytes: Long = Router.DefaultMaxStreamBytes,
     directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage] =
-      None
+      None,
+    check: Option[openapi.DocumentCheck] = None
 ):
 
   private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
@@ -953,6 +976,8 @@ private final class Router(
             Future.successful(Array.emptyByteArray)
         answer(
           route,
+          origin.handler,
+          check.map(_ => bodyBytes),
           bodyBytes.flatMap { bytes =>
             // Handlers run on a virtual thread, which is what makes the blocking
             // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
@@ -967,7 +992,9 @@ private final class Router(
                   // this one. It is the same reason RequestScope sets its context here. This
                   // is what makes the entity's span a child of the request instead of a root
                   // of its own — the difference between a trace and a list.
-                  Tracing.request(route.describe, origin)(route.run(args, bytes))
+                  Tracing.request(route.describe, origin)(
+                    checked(origin.handler)(route.run(args, bytes))
+                  )
                 )
               )
             )(using AnkkaExecutors.virtual)
@@ -1002,11 +1029,13 @@ private final class Router(
         val body = StreamedBody(entity.contentType.value, declared, input)
         answer(
           route,
+          origin.handler,
+          None,
           Future(
             RequestScope.withContext(context)(
               Admission.within(admitter, target)(
                 Tracing.request(route.describe, origin)(
-                  try runStreamed(args, body)
+                  try checked(origin.handler)(runStreamed(args, body))
                   finally input.close()
                 )
               )
@@ -1022,12 +1051,41 @@ private final class Router(
       s"the body is $length bytes or more; a stream route reads at most $maxStreamBytes"
     )
 
+  /** A handler, reporting the query parameters it reads when a document check listens. */
+  private def checked[A](name: String)(handler: => A): A = check match
+    case None        => handler
+    case Some(check) => openapi.DocumentCheck.reporting(check.queried(name, _))(handler)
+
+  /**
+   * What a document check is told of an answer: its status, content type and whole body, and the
+   * request's body when the route took one. Nothing at all without a check.
+   */
+  private def report(
+      name: String,
+      body: Option[Future[Array[Byte]]],
+      response: HttpResponse
+  ): Unit =
+    check.foreach { check =>
+      val written = response.entity match
+        case strict: HttpEntity.Strict => Some(strict.data.toArray)
+        case _                         => None
+      val status = response.status.intValue
+      check.answered(name, status, response.entity.contentType.value, written)
+      // Read before the handler ran, so complete whenever an answer exists: reported here, in
+      // order, rather than from a callback that could land after the caller has its answer.
+      body.flatMap(_.value).flatMap(_.toOption).filter(_.nonEmpty).foreach { bytes =>
+        check.accepted(name, bytes, status)
+      }
+    }
+
   /** A handler's encoded answer as the response, or its failure as the problem it is. */
-  private def answer(route: Route, encoded: Future[EncodedResponse])(using
-      system: ActorSystem[?],
-      ec: ExecutionContext
-  ): Future[HttpResponse] =
-    encoded
+  private def answer(
+      route: Route,
+      name: String,
+      requestBody: Option[Future[Array[Byte]]],
+      encoded: Future[EncodedResponse]
+  )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
+    val response = encoded
       .map { encoded =>
         HttpResponse(
           status = StatusCode.int2StatusCode(encoded.status),
@@ -1055,6 +1113,7 @@ private final class Router(
           system.log.error(s"unhandled failure in ${route.describe}", failure)
           problem(HttpProblem(500, "internal error"))
       }
+    if check.isEmpty then response else response.map { r => report(name, requestBody, r); r }
 
   /**
    * Serves a route's `Source` as server-sent events.

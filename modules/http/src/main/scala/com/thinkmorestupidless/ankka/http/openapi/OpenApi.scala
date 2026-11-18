@@ -75,6 +75,7 @@ private[ankka] object OpenApi:
           if selection.strict then
             kept
               .map(_.operation)
+              .sortBy(o => (o.path, Document.Methods.indexOf(o.method.toLowerCase)))
               .filter(_.incomplete)
               .map(o => s"${o.describe}: incomplete, lacks ${o.lacks.mkString(", ")}")
           else Vector.empty

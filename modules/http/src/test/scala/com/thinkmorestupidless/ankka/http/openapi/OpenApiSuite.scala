@@ -761,6 +761,53 @@ class OpenApiSuite extends munit.FunSuite:
     assert(has(json(both), "components", "schemas", "AnkkaProblem"))
   }
 
+  // T022: requiring completeness.
+
+  private final class Incomplete(described: Boolean) extends HttpEndpoint("/players"):
+    val acl: Acl = Acl.AllowAll
+    if described then
+      described(_.body[EditProfile]) {
+        patchBody("/{playerId}")((_: String, text: String) => text.length)
+      }
+      described(_.answers[players.Profile](200)) {
+        get("/{playerId}")((_: String) => Bytes("application/json", "{}".getBytes))
+      }
+    else
+      patchBody("/{playerId}")((_: String, text: String) => text.length)
+      get("/{playerId}")((_: String) => Bytes("application/json", "{}".getBytes))
+    get("/{playerId}/export")((_: String) =>
+      Streamed("application/octet-stream", None, java.io.InputStream.nullInputStream())
+    )
+
+  test("requiring completeness fails the writing and names every incomplete route") {
+    assertEquals(
+      OpenApi.build("players", "", Seq(Incomplete(described = false)), Selection(strict = true)),
+      Left(
+        Vector(
+          "GET /players/{playerId}: incomplete, lacks answer 200",
+          "PATCH /players/{playerId}: incomplete, lacks request body"
+        )
+      )
+    )
+  }
+
+  test("without completeness required, the same routes are written, marked") {
+    val d = document(Incomplete(described = false))
+    assertEquals(
+      d.operations.filter(_.incomplete).map(_.describe).toSet,
+      Set(
+        "GET /players/{playerId}",
+        "PATCH /players/{playerId}"
+      )
+    )
+  }
+
+  test("requiring completeness of a service whose routes are all complete writes the document") {
+    val built =
+      OpenApi.build("players", "", Seq(Incomplete(described = true)), Selection(strict = true))
+    assertEquals(built.map(_.operations.size), Right(3))
+  }
+
 /** An endpoint whose constructor reads a cart: it needs the running service to be built. */
 final class OpenApiReportsEndpoint(clients: EndpointClients) extends HttpEndpoint("/reports"):
   val acl: Acl        = Acl.AllowAll

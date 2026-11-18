@@ -44,7 +44,7 @@ object OpenApiFeatureFixtures:
 
   /** What a players route of `describing.feature` is: how it takes its body and answers. */
   enum Kind:
-    case TextBody, AnswersBytes, AnswersProfile, TakesEmail
+    case TextBody, AnswersBytes, AnswersProfile, TakesEmail, AnswersStream
 
   /**
    * The players endpoint of `describing.feature`: each route of the kind its scenario gave, inside
@@ -67,7 +67,11 @@ object OpenApiFeatureFixtures:
           case Kind.AnswersBytes =>
             get(template)((_: String) => Bytes("application/json", """{"name":"p"}""".getBytes))
           case Kind.AnswersProfile => get(template)((_: String) => Profile("p"))
-          case Kind.TakesEmail     =>
+          case Kind.AnswersStream  =>
+            get(template)((_: String) =>
+              Streamed("application/octet-stream", None, java.io.InputStream.nullInputStream())
+            )
+          case Kind.TakesEmail =>
             postBody(template)((_: String, email: AddEmail) => email.address)
       }
     }
@@ -156,10 +160,6 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
     val serving    = "OpenApiServedSuite (T027, T028)"
     val languages  = "the Java and Kotlin document suites (T029 to T034)"
     Map(
-      "an incomplete route is in the document, marked with what it lacks"         -> completing,
-      "requiring completeness fails the writing and names every incomplete route" -> completing,
-      "requiring completeness of a service whose routes are all complete writes the document" -> completing,
-      "a body or an answer that is a stream of bytes does not make a route incomplete" -> completing,
       "a kept document that no longer matches the code is found, and nothing is written" -> completing,
       "an answer the description does not name fails the test"           -> held,
       "an answer body its shape refuses fails the test"                  -> held,
@@ -764,4 +764,46 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   Then("the writing fails, saying that no route matches") { () =>
     assertEquals(status, 1)
     assert(problems.exists(_.startsWith("no route carries the tag")), problems.mkString("; "))
+  }
+
+  // ── completeness.feature ──────────────────────────────────────────────────
+
+  Given("the route {string} takes its body as text and has no route description") {
+    (route: String) => player(route, Kind.TextBody)
+  }
+
+  Then("the route is marked an incomplete route that lacks its body's shape") { () =>
+    assertEquals(json(operation(only).path("x-ankka-incomplete")), """["request body"]""")
+  }
+
+  Given("the route {string} answers bytes and has no route description") { (route: String) =>
+    player(route, Kind.AnswersBytes)
+  }
+
+  When("the developer writes the service's OpenAPI document, requiring completeness") { () =>
+    selection = Map("ankka.document.strict" -> "true"); write()
+  }
+
+  Then(
+    "the writing fails, naming {string} and {string} and what each lacks"
+  ) { (a: String, b: String) =>
+    assertEquals(status, 1)
+    assertEquals(
+      problems.toSet,
+      Set(s"$a: incomplete, lacks request body", s"$b: incomplete, lacks answer 200")
+    )
+  }
+
+  Given("the route's description gives the body the shape of {string} and names its answer") {
+    (name: String) =>
+      assertEquals(name, "EditProfile")
+      describing(_.body[EditProfile].answers[Int](200))
+  }
+
+  Given("the route {string} answers a stream of bytes") { (route: String) =>
+    player(route, Kind.AnswersStream)
+  }
+
+  Then("the route {string} is not an incomplete route") { (route: String) =>
+    assert(!operation(route).has("x-ankka-incomplete"), json(operation(route)))
   }

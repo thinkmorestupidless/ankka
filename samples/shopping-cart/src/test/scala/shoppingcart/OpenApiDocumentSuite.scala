@@ -166,7 +166,8 @@ class OpenApiDocumentSuite extends munit.FunSuite with LogCapturing:
       .filterNot(r =>
         r.method == "SOCKET" || r.endpoint == "endpoint:/mcp" || r.path.startsWith("/_ankka")
       )
-      .map(r => s"${r.method} ${r.path}")
+      // A route declared as "/" is served, and documented, as its endpoint's path.
+      .map(r => s"${r.method} ${r.path.split('/').filter(_.nonEmpty).mkString("/", "/", "")}")
       .toSet
     val documented = document.path("paths").properties.asScala.toVector.flatMap { entry =>
       entry.getValue.properties.asScala.map(m => s"${m.getKey.toUpperCase} ${entry.getKey}")

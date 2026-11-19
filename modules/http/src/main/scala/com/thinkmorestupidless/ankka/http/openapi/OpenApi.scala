@@ -47,6 +47,13 @@ private[ankka] object OpenApi:
       problems: Vector[String]
   )
 
+  /**
+   * A route's path in the document: `/` and its non-empty segments, as the server matches it. A
+   * route declared as `"/"` under `/open-carts` is `/open-carts`, the same path in every language.
+   */
+  private[ankka] def joined(prefix: String, template: String): String =
+    (prefix + "/" + template).split('/').filter(_.nonEmpty).mkString("/", "/", "")
+
   def build(
       name: String,
       version: String,
@@ -57,17 +64,27 @@ private[ankka] object OpenApi:
       val requests = endpoint.routes.map(r => (r.method, r.template.render, r.acl, r.shape))
       val streams  = endpoint.streamRoutes.map(r => (r.method, r.template.render, r.acl, r.shape))
       (requests ++ streams).collect {
-        case (method, template, acl, shape) if !reserved(endpoint.prefix + template) =>
+        case (method, template, acl, shape) if !reserved(joined(endpoint.prefix, template)) =>
           operation(
             endpoint,
             method,
-            endpoint.prefix + template,
+            joined(endpoint.prefix, template),
             acl.getOrElse(endpoint.acl),
             shape
           )
       }
     }
-    val problems = built.flatMap(_.problems)
+    // A generator names a function by its operation id, so two operations may not share one.
+    val sharedIds = built
+      .map(_.operation)
+      .groupBy(_.operationId)
+      .toVector
+      .sortBy(_._1)
+      .collect {
+        case (id, ops) if ops.sizeIs > 1 =>
+          s"${ops.map(_.describe).sorted.mkString(" and ")} share the operation id $id"
+      }
+    val problems = built.flatMap(_.problems) ++ sharedIds
     if problems.nonEmpty then Left(problems)
     else
       select(built, selection).flatMap { kept =>

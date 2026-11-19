@@ -848,7 +848,7 @@
         ]
       }
     },
-    "/mcp-keys/": {
+    "/mcp-keys": {
       "post": {
         "operationId": "post_mcp_keys",
         "requestBody": {
@@ -930,7 +930,7 @@
         ]
       }
     },
-    "/open-carts/": {
+    "/open-carts": {
       "get": {
         "operationId": "get_open_carts",
         "responses": {

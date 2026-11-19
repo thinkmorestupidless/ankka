@@ -33,7 +33,9 @@ private[ankka] final case class Operation(
     access: Access,
     lacks: Vector[String]
 ):
-  /** `get_players_playerId_messages`: stable, and unique because method and path are. */
+  /**
+   * `get_players_playerId_messages`: stable; `OpenApi.build` refuses two operations that share one.
+   */
   def operationId: String =
     s"${method.toLowerCase}_$path"
       .replaceAll("[^A-Za-z0-9]+", "_")

@@ -124,6 +124,29 @@ class OpenApiSuite extends munit.FunSuite:
     assert(problems.exists(_.contains("named AnkkaProblem")), problems)
   }
 
+  test("two operations whose ids would be the same are a problem, naming both") {
+    final class Twins extends HttpEndpoint("/twins"):
+      val acl: Acl = Acl.AllowAll
+      get("/a-b")(() => "dash")
+      get("/a_b")(() => "underscore")
+    val problems = OpenApi.build("cart", "", Seq(Twins())).left.getOrElse(fail("built"))
+    assertEquals(
+      problems,
+      Vector("GET /twins/a-b and GET /twins/a_b share the operation id get_twins_a_b")
+    )
+  }
+
+  test("a route declared as / is the endpoint's path, with no trailing slash") {
+    final class Open extends HttpEndpoint("/open-carts"):
+      val acl: Acl = Acl.AllowAll
+      get("/")(() => "all")
+      get("/{cartId}")((id: String) => id)
+    assertEquals(
+      document(Open()).operations.map(_.path),
+      Vector("/open-carts", "/open-carts/{cartId}")
+    )
+  }
+
   test("two types of one simple name keep distinct schemas in one document") {
     final class Both extends HttpEndpoint("/both"):
       val acl: Acl = Acl.AllowAll
@@ -267,7 +290,7 @@ class OpenApiSuite extends munit.FunSuite:
     final class Created extends HttpEndpoint("/made"):
       val acl: Acl = Acl.AllowAll
       post("/")(() => Respond(Cart("c", Nil), 201))
-    val responses = at(json(document(Created())), "paths", "/made/", "post", "responses")
+    val responses = at(json(document(Created())), "paths", "/made", "post", "responses")
     assertEquals(
       Shapes.write(responses),
       """{"default":{"description":"","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Cart"}}}}}"""
@@ -303,7 +326,7 @@ class OpenApiSuite extends munit.FunSuite:
       override private[ankka] def rootRoutes: Vector[Route] =
         Vector(Route("GET", PathTemplate.parse("/.well-known/x"), false, (_, _) => null))
     val d = document(Platform(), Rooted())
-    assertEquals(d.operations.map(_.describe), Vector("GET /r/"))
+    assertEquals(d.operations.map(_.describe), Vector("GET /r"))
   }
 
   // T012: security and incompleteness.

@@ -430,3 +430,7 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   field on the discovery's route message, filled by each SDK from its own types, would let the
   sidecar build the same document; until then `ankka openapi` refuses those languages by name.
 
+- **A defaulted field's absence, in every reader.** `protocol/ENCODING.md` now says the Scala writer
+  omits a field equal to its default and that a reader must accept its absence. The Scala codec does
+  both (`CodecFacts`); no fixture in `protocol/fixtures/` yet holds the Python, TypeScript, Go and Rust
+  readers to it. A fixture of such a record, read by each SDK's fixture suite, would.

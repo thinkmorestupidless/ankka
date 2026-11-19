@@ -59,9 +59,12 @@ class ErasureTest {
                 bucket.putBytes("subjects/player%2F8c1f/passport.png", byteArrayOf(1), "image/png")
                 bucket.putBytes("subjects/player%2F77a0/passport.png", byteArrayOf(2), "image/png")
                 erase("player/8c1f")
-                eventually { assertEquals(listOf("player/8c1f" to false), runs.toList()) }
+                // The handler records its run as it starts, before it erases: wait for the objects too.
+                eventually {
+                    assertEquals(listOf("player/8c1f" to false), runs.toList())
+                    assertEquals(listOf("subjects/player%2F77a0/passport.png"), bucket.list("subjects/").map { it.name() })
+                }
             }
-            assertEquals(listOf("subjects/player%2F77a0/passport.png"), bucket.list("subjects/").map { it.name() })
         }
     }
 

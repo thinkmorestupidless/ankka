@@ -345,11 +345,11 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
 
 ## Traps
 
-- **`cmd | grep -q` fails under `pipefail` when the match comes early** (2026-11-19, feature 067).
-  `grep -q` exits on its first match, the command still writing is killed by SIGPIPE, and the pipe's
-  status is the writer's: `native-smoke.sh` reported `ankka openapi --help does not list --check` above
-  a help text that listed it, on both legs. Capture the output first (`help=$(cmd)`), then
-  `grep -q … <<<"$help"`.
+- **`ankka <command> --help` writes to stderr and exits `2`** (2026-11-19, feature 067). decline treats
+  help as a usage answer, so under `set -euo pipefail` a `"$bin" openapi --help | grep -q …` fails on
+  the CLI's exit, not grep's. `native-smoke.sh` reported `ankka openapi --help does not list --check`
+  above a help text that listed it, on both legs. Read help as `help=$("$bin" … --help 2>&1 || true)`,
+  then `grep -q … <<<"$help"`.
 - **A hosted runner image retires, and the tag's workflow keeps naming it** (2026-11-01). v0.15.0's
   `macos-arm64` leg was cancelled by GitHub's scheduled brownout of `macos-14` (retired 2026-11-02), so
   `homebrew` and `action` were skipped: both need every leg. A tag runs the workflow at the tagged commit, so

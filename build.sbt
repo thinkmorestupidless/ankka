@@ -249,7 +249,12 @@ lazy val core = project
   .settings(commonSettings)
   .settings(
     name := "ankka-core",
-    libraryDependencies ++= Seq(jsoniterCore, jsoniterMacros),
+    libraryDependencies ++= Seq(
+      jsoniterCore,
+      jsoniterMacros,
+      jsonSchemaValidator % Test,
+      munitScalacheck     % Test
+    ) ++ jacksonForSchemas.map(_ % Test),
     // com.thinkmorestupidless.ankka.core.BuildInfo.version — the one version everything published from a tag shares.
     // `imageTag` is what `Docker / version` produces (`+` → `-`), so a suite that deploys the
     // sidecar or the sample names the image this sbt session built, never a literal tag.
@@ -336,7 +341,12 @@ lazy val http = project
   .settings(commonSettings)
   .settings(
     name := "ankka-http",
-    libraryDependencies ++= Seq(pekkoHttp, pekkoHttpTestkit % Test),
+    libraryDependencies ++= Seq(
+      pekkoHttp,
+      pekkoHttpTestkit    % Test,
+      jsonSchemaValidator % Test,
+      swaggerParser       % Test
+    ) ++ jacksonForSchemas.map(_ % Test),
     // StreamedBodySuite passes bodies of 2 GiB through an endpoint (feature 055): with a heap of
     // 512 MiB, a body held whole anywhere fails the run instead of passing it.
     Test / javaOptions += "-Xmx512m"
@@ -469,8 +479,10 @@ lazy val testkit = project
       pekkoHttpTestkit,
       pekkoPersistenceTestkit,
       testcontainersPg,
-      testcontainersKafka
-    )
+      testcontainersKafka,
+      jsonSchemaValidator,
+      swaggerParser % Test
+    ) ++ jacksonForSchemas
   )
 
 /**
@@ -970,7 +982,8 @@ lazy val cli = project
     // here rather than let it build one.
     Docker / publishLocal := {},
     Docker / publish      := {},
-    libraryDependencies ++= Seq(decline, munit % Test),
+    libraryDependencies ++= Seq(decline, munit % Test, swaggerParser % Test) ++
+      jacksonForSchemas.map(_ % Test),
     // `ankka local web` runs the proxy's engine; see proxyCore.
     Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
@@ -1234,7 +1247,9 @@ lazy val shoppingCart = project
     // for the reason on the operator's setting: discovery is one new @main from an ambiguous-main
     // failure unrelated to whatever changed.
     Compile / mainClass := Some("runShoppingCart"),
-    dockerExposedPorts  := Seq(9000, 9090)
+    dockerExposedPorts  := Seq(9000, 9090),
+    // Feature 067: the sample's document is read as OpenAPI 3.1 by its own suite.
+    libraryDependencies += swaggerParser % Test
   )
 
 /**

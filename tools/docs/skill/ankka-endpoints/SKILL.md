@@ -1,9 +1,10 @@
 ---
 name: ankka-endpoints
-description: Write, change or test an ankka HTTP endpoint in Scala, Java, Kotlin, Python, TypeScript, Go or Rust, or a gRPC endpoint in Scala or Java — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, or a client key.
+description: Write, change or test an ankka HTTP endpoint in Scala, Java, Kotlin, Python, TypeScript, Go or Rust, or a gRPC endpoint in Scala or Java — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, calling entities, workflows, agents, views and other services from a handler, and an MCP endpoint serving a service's commands, queries and routes as tools, with client keys and brokered sign-in, and a service's OpenAPI document. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, EndpointClients, an MCP endpoint, a tool, a client key, or OpenAPI.
 pages:
   - build/calling-services.md
   - build/http-endpoints.md
+  - build/openapi.md
   - platform/cross-project-access.md
   - build/grpc-endpoints.md
   - build/mcp-endpoints.md

@@ -58,7 +58,7 @@ of an organization:
 
 ```text
 $ ankka installation
-platform   0.16.2
+platform   0.17.0
 provider   gcp
 account    acme-production
 location   europe-west2

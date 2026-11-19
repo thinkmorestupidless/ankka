@@ -196,6 +196,21 @@ public final class AnkkaTestKit implements AutoCloseable {
     return kit;
   }
 
+  /**
+   * Fails, listing each answer, body and query parameter read that the service's OpenAPI document
+   * does not allow, when the kit was started with {@link Settings#heldToDocument()} (feature 067).
+   * {@link #close()} calls it too.
+   */
+  public void assertHeldToDocument() {
+    kit.assertHeldToDocument();
+  }
+
+  /** What the service did that its OpenAPI document does not allow, each a sentence. */
+  public java.util.List<String> documentViolations() {
+    return kit.documentViolations();
+  }
+
+  /** Stops the service; under {@link Settings#heldToDocument()}, then fails on any violation. */
   @Override
   public void close() {
     kit.close();

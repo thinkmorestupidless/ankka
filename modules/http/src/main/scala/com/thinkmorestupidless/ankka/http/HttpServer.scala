@@ -39,7 +39,10 @@ final class HttpServer private (
     tlsDirectory: Option[java.nio.file.Path] = None,
     configuredGrants: Option[Grants] = None,
     configuredMachines: Option[MachineTokens] = None,
-    clientCertificates: Boolean = true
+    clientCertificates: Boolean = true,
+    documentCheck: Option[openapi.DocumentCheck] = None,
+    openApiAcl: Option[Acl] = None,
+    documented: Boolean = true
 ) extends RuntimeExtension:
 
   /**
@@ -54,7 +57,10 @@ final class HttpServer private (
       Some(directory),
       configuredGrants,
       configuredMachines,
-      clientCertificates
+      clientCertificates,
+      documentCheck,
+      openApiAcl,
+      documented
     )
 
   /**
@@ -69,7 +75,10 @@ final class HttpServer private (
       tlsDirectory,
       Some(grants),
       configuredMachines,
-      clientCertificates
+      clientCertificates,
+      documentCheck,
+      openApiAcl,
+      documented
     )
 
   /**
@@ -84,7 +93,10 @@ final class HttpServer private (
       tlsDirectory,
       configuredGrants,
       Some(machines),
-      clientCertificates
+      clientCertificates,
+      documentCheck,
+      openApiAcl,
+      documented
     )
 
   /**
@@ -100,8 +112,79 @@ final class HttpServer private (
       tlsDirectory,
       configuredGrants,
       configuredMachines,
-      clientCertificates = false
+      clientCertificates = false,
+      documentCheck,
+      openApiAcl,
+      documented
     )
+
+  /**
+   * This server, reporting every answer and every query parameter its handlers read to `check`
+   * (feature 067): how a test holds a service to its OpenAPI document. The check only listens.
+   */
+  private[ankka] def withDocumentCheck(check: openapi.DocumentCheck): HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates,
+      Some(check),
+      openApiAcl,
+      documented
+    )
+
+  /**
+   * This server, serving its OpenAPI document at `GET /_ankka/openapi.json` to whom `acl` admits
+   * (feature 067). The document is the whole service's, rendered once when the server starts from
+   * the endpoints it serves: the one a developer writes from the same build. Without this the path
+   * is answered as any path the service has no route for, and says nothing of whether a document
+   * exists.
+   */
+  def withOpenApi(acl: Acl): HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates,
+      documentCheck,
+      Some(acl),
+      documented
+    )
+
+  /**
+   * This server, saying it has no OpenAPI document (feature 067): the sidecar's, whose routes are a
+   * process's or a module's and carry no shapes. Its document would mark every route incomplete and
+   * declare no path parameter, so it gives none, as `ankka openapi` gives none for the language.
+   */
+  private[ankka] def undocumented: HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates,
+      documentCheck,
+      openApiAcl,
+      documented = false
+    )
+
+  @volatile private var servedEndpoints: Vector[HttpEndpoint] = Vector.empty
+
+  /**
+   * The OpenAPI document of the endpoints this server serves, once it serves (feature 067): what a
+   * test holding the service to its document reads, built from the very endpoints answering.
+   */
+  private[ankka] def servedDocument: Either[Vector[String], openapi.Document] =
+    if binding.isEmpty && servedEndpoints.isEmpty then Left(Vector("the server does not serve yet"))
+    else openapi.OpenApi.build("service", "", servedEndpoints)
 
   @volatile private var binding: Option[Http.ServerBinding]                     = None
   @volatile private var served: Vector[ServedRoute]                             = Vector.empty
@@ -171,13 +254,27 @@ final class HttpServer private (
       service
     )
     validate(endpoints, mounting)
+    servedEndpoints = endpoints
+    val document = openApiAcl.map { acl =>
+      // The written document's title and version, by the same rule (FR-029).
+      val config  = system.settings.config
+      val name    = com.thinkmorestupidless.ankka.runtime.DocumentMode.title(config, system.name)
+      val version = com.thinkmorestupidless.ankka.runtime.DocumentMode.version(config)
+      openapi.OpenApi.build(name, version, endpoints) match
+        case Right(built)   => acl -> built.render.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        case Left(problems) =>
+          throw IllegalArgumentException(
+            problems.mkString("the OpenAPI document cannot be served:\n  - ", "\n  - ", "")
+          )
+    }
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap {
       case describes: ServesRoutes => describes.served
       case endpoint                => describedRoutes(endpoint)
     }
     logRoutes(endpoints)
-    bindAndListen(endpoints, host, bindPort, bodyTimeout, directoryStorage)
+    if document.isDefined then system.log.info("route GET /{}", Router.OpenApiPath.mkString("/"))
+    bindAndListen(endpoints, host, bindPort, bodyTimeout, directoryStorage, document)
 
   /** What the server reads from an endpoint's routes when the endpoint does not say itself. */
   private def describedRoutes(endpoint: HttpEndpoint): Vector[ServedRoute] =
@@ -246,7 +343,10 @@ final class HttpServer private (
       host: String,
       bindPort: Int,
       bodyTimeout: FiniteDuration,
-      directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage]
+      directoryStorage: Option[
+        com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage
+      ],
+      document: Option[(Acl, Array[Byte])]
   )(using system: ActorSystem[?]): Unit =
     given ExecutionContext = system.executionContext
     val config             = system.settings.config
@@ -283,7 +383,9 @@ final class HttpServer private (
         grants,
         Some(heartbeat),
         maxStreamBytes,
-        directoryStorage
+        directoryStorage,
+        documentCheck,
+        document
       ).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
@@ -357,6 +459,37 @@ final class HttpServer private (
    */
   override def routes: Vector[ServedRoute] = served
 
+  /**
+   * The service's OpenAPI document (feature 067), for `openapi`; built with no service behind it.
+   */
+  override def document(
+      kind: String,
+      options: Map[String, String],
+      registry: com.thinkmorestupidless.ankka.core.ComponentRegistry
+  ): Option[Either[Vector[String], String]] =
+    Option.when(kind == "openapi" && documented)(openApi(options, registry).map(_.render))
+
+  /** The endpoints built with no service, validated, and their document. */
+  private[ankka] def openApi(
+      options: Map[String, String],
+      registry: com.thinkmorestupidless.ankka.core.ComponentRegistry =
+        com.thinkmorestupidless.ankka.core.ComponentRegistry.empty
+  ): Either[Vector[String], com.thinkmorestupidless.ankka.http.openapi.Document] =
+    import com.thinkmorestupidless.ankka.http.openapi.{OpenApi, Selection}
+    def list(key: String): Vector[String] =
+      options.get(key).toVector.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty)
+    HttpServer.buildAll(factories, EndpointClients.unavailable).flatMap { endpoints =>
+      val mounting = Mounting(registry, endpoints, None)
+      HttpServer.validated(validate(endpoints, mounting)).flatMap { _ =>
+        OpenApi.build(
+          options.getOrElse("name", "service"),
+          options.getOrElse("version", ""),
+          endpoints,
+          Selection(list("tags"), list("prefixes"), options.get("strict").contains("true"))
+        )
+      }
+    }
+
   override def boundAddress: Option[String] =
     binding.map(b => s"$scheme://127.0.0.1:${b.localAddress.getPort}")
 
@@ -421,6 +554,12 @@ final class HttpServer private (
       val path = normalised(full)
       if path == "/_ankka/sign-in" || path.startsWith("/_ankka/sign-in/") then
         problems += s"'${owner.prefix}' serves $method $path, under /_ankka/sign-in, which the platform reserves"
+      if path == s"/${Router.OpenApiPath.mkString("/")}" then
+        problems += s"'${owner.prefix}' serves $method $path, which the platform reserves for the service's OpenAPI document"
+    }
+    roots.foreach { case ((method, path), owner) =>
+      if normalised(path) == s"/${Router.OpenApiPath.mkString("/")}" then
+        problems += s"'${owner.prefix}' serves $method $path, which the platform reserves for the service's OpenAPI document"
     }
 
     endpoints.foreach(endpoint => problems ++= endpoint.problems(mounting))
@@ -428,8 +567,7 @@ final class HttpServer private (
     // Every authenticator that needs the running service is given it now, so a start that cannot
     // give it fails here, naming why, instead of at the first request.
     mounting.service.foreach { service =>
-      endpoints
-        .flatMap(HttpServer.aclsOf)
+      (endpoints.flatMap(HttpServer.aclsOf) ++ openApiAcl)
         .flatMap(Acl.authenticators)
         .distinct
         .collect { case needs: NeedsService => needs }
@@ -467,6 +605,55 @@ final class HttpServer private (
     s"/$trimmed"
 
 object HttpServer:
+
+  /**
+   * Each factory's endpoint, or for each that throws `the endpoint <class> could not be built:
+   * <cause>`, the class read from the first frame of the failure that is an endpoint's constructor.
+   */
+  private[ankka] def buildAll(
+      factories: Seq[EndpointClients => HttpEndpoint],
+      clients: EndpointClients
+  ): Either[Vector[String], Vector[HttpEndpoint]] =
+    val built = factories.toVector.map { factory =>
+      try Right(factory(clients))
+      catch case scala.util.control.NonFatal(failure) => Left(notBuilt(failure))
+    }
+    val problems = built.collect { case Left(p) => p }
+    if problems.nonEmpty then Left(problems) else Right(built.collect { case Right(e) => e })
+
+  private def notBuilt(failure: Throwable): String =
+    val loader    = classOf[HttpEndpoint].getClassLoader
+    val endpoints = Iterator
+      .iterate(failure)(_.getCause)
+      .takeWhile(_ != null)
+      .flatMap(_.getStackTrace)
+      .filter(_.getMethodName == "<init>")
+      .flatMap { frame =>
+        try
+          val found = Class.forName(frame.getClassName, false, loader)
+          Option.when(
+            classOf[HttpEndpoint].isAssignableFrom(found) && found != classOf[HttpEndpoint]
+          )(found)
+        catch case _: ClassNotFoundException | _: LinkageError => None
+      }
+    val cause = Option(failure.getMessage).filter(_.nonEmpty).getOrElse(failure.getClass.getName)
+    endpoints.nextOption() match
+      case Some(endpoint) =>
+        s"the endpoint ${endpoint.getSimpleName.stripSuffix("$")} could not be built: $cause"
+      case None => s"an endpoint could not be built: $cause"
+
+  /** `validate`'s refusal as its lines, without its heading. */
+  private def validated(check: => Unit): Either[Vector[String], Unit] =
+    try Right(check)
+    catch
+      case refused: IllegalArgumentException =>
+        Left(
+          refused.getMessage.linesIterator
+            .drop(1)
+            .map(_.trim.stripPrefix("- "))
+            .filter(_.nonEmpty)
+            .toVector
+        )
 
   /**
    * Every ACL an endpoint states: its own, then each route's, root, plain, streaming and socket.
@@ -539,7 +726,10 @@ private final class Router(
     heartbeat: Option[FiniteDuration] = None,
     maxStreamBytes: Long = Router.DefaultMaxStreamBytes,
     directoryStorage: Option[com.thinkmorestupidless.ankka.runtime.storage.DirectoryObjectStorage] =
-      None
+      None,
+    check: Option[openapi.DocumentCheck] = None,
+    /** The service's OpenAPI document and who may read it, when the service serves it. */
+    openApi: Option[(Acl, Array[Byte])] = None
 ):
 
   private val revocable = java.util.concurrent.ConcurrentHashMap.newKeySet[Revocable]()
@@ -612,6 +802,25 @@ private final class Router(
     // Exempt from ACLs because it reveals nothing: liveness probes need to work before
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
+    else if path == Router.OpenApiPath && request.method == HttpMethods.GET && openApi.isDefined
+    then
+      request.discardEntityBytes(): Unit
+      val (acl, bytes) = openApi.get
+      callers.callerOf(request) match
+        case Left(reason)  => Future.successful(problem(HttpProblem.forbidden(reason)))
+        case Right(caller) =>
+          val target = Some(GrantTarget.Route("GET", s"/${Router.OpenApiPath.mkString("/")}"))
+          Future.successful(
+            admitter.decide(acl, contextFor(request, caller), target) match
+              case Right(_) =>
+                HttpResponse(entity = HttpEntity(ContentTypes.`application/json`, bytes))
+              case Left(Refusal.Unauthenticated(challenge)) =>
+                problem(HttpProblem.unauthorized("authentication required"))
+                  .addHeader(headers.RawHeader("WWW-Authenticate", s"Bearer $challenge"))
+              case Left(Refusal.Forbidden(reason))   => problem(HttpProblem.forbidden(reason))
+              case Left(Refusal.Unavailable(reason)) =>
+                problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5"))
+          )
     else if path.startsWith(StoragePath) && !(processStorage && storageEndpoint.isEmpty) then
       // The runtime's: no endpoint is given a path under it but a process's directory store, so
       // nothing else here is an endpoint's. Only this part of `/_ankka` is taken here; an MCP
@@ -873,6 +1082,8 @@ private final class Router(
             Future.successful(Array.emptyByteArray)
         answer(
           route,
+          origin.handler,
+          check.map(_ => bodyBytes),
           bodyBytes.flatMap { bytes =>
             // Handlers run on a virtual thread, which is what makes the blocking
             // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
@@ -887,7 +1098,9 @@ private final class Router(
                   // this one. It is the same reason RequestScope sets its context here. This
                   // is what makes the entity's span a child of the request instead of a root
                   // of its own — the difference between a trace and a list.
-                  Tracing.request(route.describe, origin)(route.run(args, bytes))
+                  Tracing.request(route.describe, origin)(
+                    checked(origin.handler)(route.run(args, bytes))
+                  )
                 )
               )
             )(using AnkkaExecutors.virtual)
@@ -922,11 +1135,13 @@ private final class Router(
         val body = StreamedBody(entity.contentType.value, declared, input)
         answer(
           route,
+          origin.handler,
+          None,
           Future(
             RequestScope.withContext(context)(
               Admission.within(admitter, target)(
                 Tracing.request(route.describe, origin)(
-                  try runStreamed(args, body)
+                  try checked(origin.handler)(runStreamed(args, body))
                   finally input.close()
                 )
               )
@@ -942,12 +1157,41 @@ private final class Router(
       s"the body is $length bytes or more; a stream route reads at most $maxStreamBytes"
     )
 
+  /** A handler, reporting the query parameters it reads when a document check listens. */
+  private def checked[A](name: String)(handler: => A): A = check match
+    case None        => handler
+    case Some(check) => openapi.DocumentCheck.reporting(check.queried(name, _))(handler)
+
+  /**
+   * What a document check is told of an answer: its status, content type and whole body, and the
+   * request's body when the route took one. Nothing at all without a check.
+   */
+  private def report(
+      name: String,
+      body: Option[Future[Array[Byte]]],
+      response: HttpResponse
+  ): Unit =
+    check.foreach { check =>
+      val written = response.entity match
+        case strict: HttpEntity.Strict => Some(strict.data.toArray)
+        case _                         => None
+      val status = response.status.intValue
+      check.answered(name, status, response.entity.contentType.value, written)
+      // Read before the handler ran, so complete whenever an answer exists: reported here, in
+      // order, rather than from a callback that could land after the caller has its answer.
+      body.flatMap(_.value).flatMap(_.toOption).filter(_.nonEmpty).foreach { bytes =>
+        check.accepted(name, bytes, status)
+      }
+    }
+
   /** A handler's encoded answer as the response, or its failure as the problem it is. */
-  private def answer(route: Route, encoded: Future[EncodedResponse])(using
-      system: ActorSystem[?],
-      ec: ExecutionContext
-  ): Future[HttpResponse] =
-    encoded
+  private def answer(
+      route: Route,
+      name: String,
+      requestBody: Option[Future[Array[Byte]]],
+      encoded: Future[EncodedResponse]
+  )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
+    val response = encoded
       .map { encoded =>
         HttpResponse(
           status = StatusCode.int2StatusCode(encoded.status),
@@ -975,6 +1219,7 @@ private final class Router(
           system.log.error(s"unhandled failure in ${route.describe}", failure)
           problem(HttpProblem(500, "internal error"))
       }
+    if check.isEmpty then response else response.map { r => report(name, requestBody, r); r }
 
   /**
    * Serves a route's `Source` as server-sent events.
@@ -1156,6 +1401,9 @@ private object Router:
 
   /** Where a directory store's signed and public URLs point, on a developer's machine. */
   val StoragePath: Vector[String] = Vector(Reserved, "storage")
+
+  /** Where a service that states an ACL for it serves its OpenAPI document (feature 067). */
+  val OpenApiPath: Vector[String] = Vector(Reserved, "openapi.json")
 
   /** A path's segments decoded, so a name with an encoded character reads as it was written. */
   def decoded(path: Uri.Path): Vector[String] =

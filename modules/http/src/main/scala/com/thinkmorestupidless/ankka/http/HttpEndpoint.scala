@@ -1,6 +1,14 @@
 package com.thinkmorestupidless.ankka.http
 
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+import com.thinkmorestupidless.ankka.http.openapi.{
+  AnswerKind,
+  AnswerShape,
+  BodyShape,
+  DescribedScope,
+  Description,
+  RouteShape
+}
 
 import scala.collection.mutable
 
@@ -211,7 +219,9 @@ private[ankka] final case class Route(
      * A route whose body is read as it arrives (`postStream`, `putStream`; feature 055): the server
      * hands this the body as a stream instead of calling `run` with it whole.
      */
-    streamedBody: Option[(Vector[String], StreamedBody) => EncodedResponse] = None
+    streamedBody: Option[(Vector[String], StreamedBody) => EncodedResponse] = None,
+    /** What the route's declaration says of its parameters, body and answer (feature 067). */
+    shape: RouteShape = RouteShape.unknown
 ):
   def describe: String = s"$method ${template.render}"
 
@@ -227,7 +237,9 @@ private[ankka] final case class StreamRoute(
     needsBody: Boolean,
     run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?],
     /** Declared by `withAcl`; `None` means the endpoint's. */
-    acl: Option[Acl] = None
+    acl: Option[Acl] = None,
+    /** What the route's declaration says of its parameters and body (feature 067). */
+    shape: RouteShape = RouteShape.unknown
 ):
   def describe: String = s"$method ${template.render} (SSE)"
 
@@ -299,6 +311,38 @@ abstract class HttpEndpoint(val prefix: String):
     finally scopedAcl = enclosing
 
   /**
+   * Declares routes that carry `describe`'s description into the service's OpenAPI document
+   * (feature 067): what their types do not say, such as a summary, the shape of a text body or of
+   * bytes the handler builds, its refusals and the query parameters it reads.
+   *
+   * {{{
+   * described(_.summary("A cart's receipt").answers(200, receiptSchema).refuses(404, "no cart")
+   *            .query[String]("format")) {
+   *   get("/{cartId}/receipt") { (cartId: String) => ... }
+   * }
+   * }}}
+   *
+   * Built as `withAcl` is: scopes nest and add, outermost first, and a scope may hold several
+   * routes for what they share (tags, refusals, query parameters). A summary, a body shape or an
+   * answer in a scope that holds more than one route is refused when the document is built.
+   * Describing a route changes nothing of what it answers.
+   */
+  protected def described(describe: Description => Description)(declare: => Unit): Unit =
+    val enclosing = scopedDescriptions
+    scopedDescriptions = enclosing :+ DescribedScope(describe(Description.none))
+    try declare
+    finally scopedDescriptions = enclosing
+
+  /**
+   * What every route of this endpoint carries into the service's OpenAPI document (feature 067):
+   * its tags, its refusals and the shape of its refusals. Nothing by default.
+   */
+  protected def description: Description = Description.none
+
+  /** `description`, read when a document is built rather than while routes are declared. */
+  private[ankka] def endpointDescription: Description = description
+
+  /**
    * The request currently being handled.
    *
    * Available only on the handler's own thread — see `RequestScope`. Read what you need before
@@ -343,6 +387,31 @@ abstract class HttpEndpoint(val prefix: String):
   // Routes are declared in the constructor body, which is single-threaded, so a var scoped
   // around the declarations is all `withAcl` needs.
   private var scopedAcl: Option[Acl] = None
+
+  // The `described` scopes around the routes being declared, outermost first (feature 067).
+  private var scopedDescriptions: Vector[DescribedScope] = Vector.empty
+
+  /**
+   * What a route records of itself (feature 067): its path parameters' types from the parsers its
+   * handler took, its body and its answer from the instances in scope, and the scopes around it,
+   * each counting it.
+   */
+  private def shapeOf(
+      template: PathTemplate,
+      parsers: List[FromPath[?]],
+      body: Option[BodyShape],
+      answer: AnswerShape
+  ): RouteShape =
+    scopedDescriptions.foreach(_.recorded())
+    RouteShape(template.parameterNames.zip(parsers.map(_.name)), body, answer, scopedDescriptions)
+
+  private def answerOf[R](response: ToResponse[R]): AnswerShape =
+    AnswerShape(response.fixedStatus, response.contentType, response.shape, response.kind)
+
+  private def bodyOf[B](from: FromBody[B]): Option[BodyShape] =
+    Some(BodyShape(from.contentType, from.shape))
+
+  private val eventsAnswer = AnswerShape(Some(200), "text/event-stream", None, AnswerKind.Events)
 
   private[ankka] def routes: Vector[Route]             = collected.toVector
   private[ankka] def streamRoutes: Vector[StreamRoute] = collectedStreams.toVector
@@ -439,7 +508,8 @@ abstract class HttpEndpoint(val prefix: String):
       template,
       needsBody = false,
       (args, _) => encode(run(path.read(args, rawTemplate))),
-      scopedAcl
+      scopedAcl,
+      shape = shapeOf(template, path.parsers, None, answerOf(response))
     )
 
   /** Records a route whose handler takes its path parameters and then the decoded body. */
@@ -461,7 +531,8 @@ abstract class HttpEndpoint(val prefix: String):
         val withBody = path.read(args, rawTemplate)
         encode(run(withBody(bodyArg[Body](body))))
       ,
-      scopedAcl
+      scopedAcl,
+      shape = shapeOf(template, path.parsers, bodyOf(from), answerOf(response))
     )
 
   /**
@@ -483,7 +554,13 @@ abstract class HttpEndpoint(val prefix: String):
       needsBody = false,
       (_, _) => throw IllegalStateException(s"$method $rawTemplate reads its body as a stream"),
       scopedAcl,
-      Some((args, body) => encode(run(path.read(args, rawTemplate)(body))))
+      Some((args, body) => encode(run(path.read(args, rawTemplate)(body)))),
+      shapeOf(
+        template,
+        path.parsers,
+        Some(BodyShape("application/octet-stream", None, streamed = true)),
+        answerOf(response)
+      )
     )
 
   /**
@@ -505,7 +582,8 @@ abstract class HttpEndpoint(val prefix: String):
       template,
       needsBody = false,
       (args, _) => events(run(path.read(args, rawTemplate))).map(event),
-      scopedAcl
+      scopedAcl,
+      shapeOf(template, path.parsers, None, eventsAnswer)
     )
 
   /** Records a server-sent-events route that is a `POST` with a decoded body. */
@@ -526,7 +604,8 @@ abstract class HttpEndpoint(val prefix: String):
         val withBody = path.read(args, rawTemplate)
         events(run(withBody(bodyArg[Body](body)))).map(event)
       ,
-      scopedAcl
+      scopedAcl,
+      shapeOf(template, path.parsers, bodyOf(from), eventsAnswer)
     )
 
   private def bodyArg[B](bytes: Array[Byte])(using from: FromBody[B]): B =

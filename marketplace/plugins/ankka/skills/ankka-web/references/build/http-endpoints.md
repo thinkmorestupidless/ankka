@@ -25,9 +25,15 @@ package shoppingcart.api
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString}
 import com.thinkmorestupidless.ankka.core.{Codecs, EntityId}
 import com.thinkmorestupidless.ankka.http.*
+import com.thinkmorestupidless.ankka.http.openapi.Description
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import shoppingcart.application.ShoppingCartEntity
 import shoppingcart.domain.{LineItem, ShoppingCart}
+
+import java.nio.charset.StandardCharsets.UTF_8
+
+/** A cart's receipt, as the receipt route writes it. */
+final case class Receipt(cartId: String, note: String, items: Int, currency: String, copies: Int)
 
 /**
  * The API layer: HTTP in, component calls out.
@@ -41,9 +47,13 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
   // Response and request bodies need JSON codecs; derived at compile time.
   private given JsonValueCodec[ShoppingCart] = Codecs.make[ShoppingCart]
   private given JsonValueCodec[LineItem]     = Codecs.make[LineItem]
+  private given JsonValueCodec[Receipt]      = Codecs.make[Receipt]
 
   /** A public read/write API, stated deliberately rather than defaulted. */
   val acl: Acl = Acl.AllowAll
+
+  /** Every route of the cart carries the route tag `cart` into the service's OpenAPI document. */
+  override protected def description: Description = Description.none.tag("cart")
 
   get("/{cartId}") { (cartId: String) =>
     cart(cartId).call(ShoppingCartEntity.getCart).invoke()
@@ -53,21 +63,46 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
     cart(cartId).call(ShoppingCartEntity.totalQuantity).invoke()
   }
 
-  postBody("/{cartId}/items") { (cartId: String, item: LineItem) =>
-    cart(cartId).call(ShoppingCartEntity.addItem).invoke(item)
+  // Every write the entity refuses once the cart is checked out: said once, for the document.
+  described(_.refuses(409, "the cart is already checked out")) {
+    postBody("/{cartId}/items") { (cartId: String, item: LineItem) =>
+      cart(cartId).call(ShoppingCartEntity.addItem).invoke(item)
+    }
+
+    described(_.refuses(404, "the cart does not hold the product")) {
+      delete("/{cartId}/items/{productId}") { (cartId: String, productId: String) =>
+        cart(cartId).call(ShoppingCartEntity.removeItem).invoke(productId)
+      }
+    }
+
+    post("/{cartId}/checkout") { (cartId: String) =>
+      cart(cartId).call(ShoppingCartEntity.checkout).invoke()
+    }
+
+    delete("/{cartId}") { (cartId: String) =>
+      cart(cartId).call(ShoppingCartEntity.discard).invoke()
+    }
   }
 
-  delete("/{cartId}/items/{productId}") { (cartId: String, productId: String) =>
-    cart(cartId).call(ShoppingCartEntity.removeItem).invoke(productId)
+  // A route whose types say little: a text note in, JSON bytes it builds out, two query parameters
+  // it reads itself and a refusal of its own. Its description says the rest for the OpenAPI document.
+  described(
+    _.summary("A cart's receipt")
+      .body[String]
+      .answers[Receipt](200)
+      .query[String]("currency")
+      .query[Int]("copies")
+      .refuses(404, "the cart is empty")
+  ) {
+    postBody("/{cartId}/receipt")((cartId: String, note: String) => receipt(cartId, note))
   }
 
-  post("/{cartId}/checkout") { (cartId: String) =>
-    cart(cartId).call(ShoppingCartEntity.checkout).invoke()
-  }
-
-  delete("/{cartId}") { (cartId: String) =>
-    cart(cartId).call(ShoppingCartEntity.discard).invoke()
-  }
+  private def receipt(cartId: String, note: String): Bytes =
+    val items = cart(cartId).call(ShoppingCartEntity.getCart).invoke().items.map(_.quantity).sum
+    if items == 0 then throw HttpProblem.notFound("the cart is empty")
+    val copies  = query.optional[Int]("copies").getOrElse(1)
+    val receipt = Receipt(cartId, note, items, query.raw("currency").getOrElse("GBP"), copies)
+    Bytes("application/json", writeToString(receipt).getBytes(UTF_8))
 
   // A socket: the client sends "refresh" and is sent the cart, for as long as it keeps the socket
   // open. The handler is ordinary blocking code on a virtual thread; `receive()` answers `None`
@@ -90,15 +125,28 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
 package shoppingcart.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.Done;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Answers;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Body;
+import com.thinkmorestupidless.ankka.javasdk.annotations.BodyShape;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Delete;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Get;
 import com.thinkmorestupidless.ankka.javasdk.annotations.Post;
+import com.thinkmorestupidless.ankka.javasdk.annotations.ReadsQuery;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Refuses;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Summary;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Tag;
 import com.thinkmorestupidless.ankka.javasdk.client.EntityRef;
 import com.thinkmorestupidless.ankka.javasdk.http.Acl;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
+import com.thinkmorestupidless.ankka.javasdk.http.Problem;
+import com.thinkmorestupidless.ankka.javasdk.http.ProblemException;
+import com.thinkmorestupidless.ankka.javasdk.http.Response;
 
-/** The cart over HTTP, route for route as the Scala cart serves it. */
+/**
+ * The cart over HTTP, route for route as the Scala cart serves it. Every route carries the route
+ * tag {@code cart} into the service's OpenAPI document.
+ */
+@Tag("cart")
 public class CartEndpoint extends HttpEndpoint {
 
   @Override
@@ -116,24 +164,54 @@ public class CartEndpoint extends HttpEndpoint {
     return cart(cartId).call(ShoppingCart::totalQuantity).invoke();
   }
 
+  // Every write the entity refuses once the cart is checked out, for the document.
   @Post("/carts/{cartId}/items")
+  @Refuses(status = 409, reason = "the cart is already checked out")
   public Done addItem(String cartId, @Body LineItem item) {
     return cart(cartId).call(ShoppingCart::addItem).invoke(item);
   }
 
   @Delete("/carts/{cartId}/items/{productId}")
+  @Refuses(status = 409, reason = "the cart is already checked out")
+  @Refuses(status = 404, reason = "the cart does not hold the product")
   public Done removeItem(String cartId, String productId) {
     return cart(cartId).call(ShoppingCart::removeItem).invoke(productId);
   }
 
   @Post("/carts/{cartId}/checkout")
+  @Refuses(status = 409, reason = "the cart is already checked out")
   public Cart checkout(String cartId) {
     return cart(cartId).call(ShoppingCart::checkout).invoke();
   }
 
   @Delete("/carts/{cartId}")
+  @Refuses(status = 409, reason = "the cart is already checked out")
   public Done discard(String cartId) {
     return cart(cartId).call(ShoppingCart::discard).invoke();
+  }
+
+  // A route whose types say little: a text note in, a Response out, two query parameters it reads
+  // itself and a refusal of its own. Its annotations say the rest for the OpenAPI document.
+  @Post("/carts/{cartId}/receipt")
+  @Summary("A cart's receipt")
+  @BodyShape(String.class)
+  @Answers(shape = Receipt.class)
+  @ReadsQuery(name = "currency")
+  @ReadsQuery(name = "copies", type = Integer.class)
+  @Refuses(status = 404, reason = "the cart is empty")
+  public Response receipt(String cartId, @Body String note) {
+    return receiptOf(cartId, note);
+  }
+
+  private Response receiptOf(String cartId, String note) {
+    int items =
+        cart(cartId).call(ShoppingCart::getCart).invoke().items().stream()
+            .mapToInt(LineItem::quantity)
+            .sum();
+    if (items == 0) throw new ProblemException(Problem.notFound("the cart is empty"));
+    int copies = request().query("copies").map(Integer::valueOf).orElse(1);
+    String currency = request().query("currency").orElse("GBP");
+    return Response.ok(new Receipt(cartId, note, items, currency, copies));
   }
 
   private EntityRef cart(String cartId) {
@@ -149,17 +227,58 @@ public class CartEndpoint extends HttpEndpoint {
 class CartEndpoint : HttpEndpoint(), RouteRegistrar {
     override fun acl(): Acl = Acl.allowAll()
 
+    // A route declared in code has no answer type of its own: each one's scope says what it
+    // answers, for the service's OpenAPI document. Every route carries the route tag `cart`.
     override fun routes() = routes {
-        get("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::getCart).invokeSuspending() }
-        get("/carts/{cartId}/total") { cart(path("cartId")).call(ShoppingCart::totalQuantity).invokeSuspending() }
-        post<LineItem>("/carts/{cartId}/items") { item ->
-            cart(path("cartId")).call(ShoppingCart::addItem).invokeSuspending(item)
+        described({ tag("cart") }) {
+            described({ answers<Cart>() }) {
+                get("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::getCart).invokeSuspending() }
+            }
+            described({ answers<Int>() }) {
+                get("/carts/{cartId}/total") {
+                    cart(path("cartId")).call(ShoppingCart::totalQuantity).invokeSuspending()
+                }
+            }
+            // Every write the entity refuses once the cart is checked out.
+            described({ refuses(409, "the cart is already checked out") }) {
+                described({ answers(204) }) {
+                    post<LineItem>("/carts/{cartId}/items") { item ->
+                        cart(path("cartId")).call(ShoppingCart::addItem).invokeSuspending(item)
+                    }
+                }
+                described({ answers(204); refuses(404, "the cart does not hold the product") }) {
+                    delete("/carts/{cartId}/items/{productId}") {
+                        cart(path("cartId")).call(ShoppingCart::removeItem).invokeSuspending(path("productId"))
+                    }
+                }
+                described({ answers<Cart>() }) {
+                    post("/carts/{cartId}/checkout") {
+                        cart(path("cartId")).call(ShoppingCart::checkout).invokeSuspending()
+                    }
+                }
+                described({ answers(204) }) {
+                    delete("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::discard).invokeSuspending() }
+                }
+            }
+            // A text note in, two query parameters it reads itself and a refusal of its own.
+            described({
+                summary("A cart's receipt")
+                body<String>()
+                answers<Receipt>()
+                query<String>("currency")
+                query<Int>("copies")
+                refuses(404, "the cart is empty")
+            }) {
+                post<String>("/carts/{cartId}/receipt") { note -> receipt(path("cartId"), note, request) }
+            }
         }
-        delete("/carts/{cartId}/items/{productId}") {
-            cart(path("cartId")).call(ShoppingCart::removeItem).invokeSuspending(path("productId"))
-        }
-        post("/carts/{cartId}/checkout") { cart(path("cartId")).call(ShoppingCart::checkout).invokeSuspending() }
-        delete("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::discard).invokeSuspending() }
+    }
+
+    private suspend fun receipt(cartId: String, note: String, request: Request): Receipt {
+        val items = cart(cartId).call(ShoppingCart::getCart).invokeSuspending().items.sumOf { it.quantity }
+        if (items == 0) throw ProblemException(Problem.notFound("the cart is empty"))
+        val copies = request.query("copies").map { it.toInt() }.orElse(1)
+        return Receipt(cartId, note, items, request.query("currency").orElse("GBP"), copies)
     }
 
     private fun cart(cartId: String): EntityRef = componentClient().forEventSourcedEntity(cartId)
@@ -1796,6 +1915,46 @@ var MixedAclEndpoint = ankka.NewEndpoint("/mixed", ankka.AllowAll(),
 Scopes nest, and the innermost one wins. A request whose path matches no route of the endpoint is judged
 by the endpoint's own ACL, so an endpoint that refuses answers the same way for a path that exists and one
 that does not, rather than disclosing which is which.
+
+## An OpenAPI document
+
+A service's routes describe themselves: its OpenAPI 3.1 document is read from the routes it registers,
+with each path parameter's type, the shape of each body and answer, and who may call each route.
+`described` (in Java, `@Summary`, `@Refuses` and the other annotations) adds what the types do not say,
+`ankka openapi` writes the document from the service's own build, and `withOpenApi` serves it at
+`GET /_ankka/openapi.json` to the callers its ACL admits:
+
+**Scala**
+
+```scala
+val served = HttpServer
+  .at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
+  // GET /_ankka/openapi.json, answered to the callers this ACL admits.
+  .withOpenApi(Acl.AllowAll)
+```
+
+**Java**
+
+```java
+public static ServiceBuilder service() {
+  return Ankka.service("greetings")
+      .withEndpoint(Greetings.class)
+      // GET /_ankka/openapi.json, answered to the callers this ACL admits.
+      .withOpenApi(Acl.allowAll());
+}
+```
+
+**Kotlin**
+
+```kotlin
+fun greetings(): ServiceBuilder =
+    Ankka.service("greetings")
+        .withEndpoint(GreetingsEndpoint::class.java)
+        // GET /_ankka/openapi.json, answered to the callers this ACL admits.
+        .withOpenApi(Acl.allowAll())
+```
+
+See [OpenAPI documents](openapi.md).
 
 ## Call another service
 

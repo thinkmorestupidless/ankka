@@ -2,13 +2,9 @@ package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.auth.AuthConfig
-import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId, Metadata, MethodName}
 import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients, HttpEndpoint}
-import com.thinkmorestupidless.ankka.runtime.ViewClient
-import com.thinkmorestupidless.ankka.sdk.{CallTransport, ComponentClient}
 
 import java.nio.file.{Files, Path, Paths}
-import scala.concurrent.Future
 import scala.concurrent.duration.DurationInt
 
 /**
@@ -26,12 +22,6 @@ class ControlPlaneRoutesReferenceSuite extends munit.FunSuite with LogCapturing:
   private val PagePath = "docs/reference/control-plane-api.md"
   private val Name     = "control-plane-routes"
 
-  private val unused = new CallTransport:
-    def ask(c: ComponentId, e: EntityId, m: MethodName, p: Array[Byte], md: Metadata) =
-      Future.failed(IllegalStateException("not called while enumerating routes"))
-    def tell(c: ComponentId, e: EntityId, message: Any): Unit = ()
-    def askTimeout                                            = 1.second
-
   private val auth =
     AuthConfig(
       "https://auth.example.test/realms/ankka",
@@ -43,8 +33,7 @@ class ControlPlaneRoutesReferenceSuite extends munit.FunSuite with LogCapturing:
     )
 
   private def endpoints: Vector[HttpEndpoint] =
-    val clients =
-      new EndpointClients(ComponentClient(unused), new ViewClient(null, 1.second)(using null))
+    val clients = EndpointClients.unavailable
     ControlPlane.endpoints(Acl.DenyAll, auth = Some(auth)).map(_(clients)).toVector
 
   /** Method and full path of every route, in declaration order. */

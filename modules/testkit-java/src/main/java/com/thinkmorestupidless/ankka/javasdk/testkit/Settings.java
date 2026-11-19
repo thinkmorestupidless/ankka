@@ -18,13 +18,16 @@ public final class Settings {
   private final Map<String, URI> local;
   private final boolean storageFromEnvironment;
   private final Clock clock;
+  private final boolean held;
 
   private Settings(
       Map<String, String> config,
       List<String> services,
       Map<String, URI> local,
       boolean storageFromEnvironment,
-      Clock clock) {
+      Clock clock,
+      boolean held) {
+    this.held = held;
     this.config = Map.copyOf(config);
     this.services = List.copyOf(services);
     this.local = Map.copyOf(local);
@@ -33,14 +36,14 @@ public final class Settings {
   }
 
   public static Settings defaults() {
-    return new Settings(Map.of(), List.of(), Map.of(), false, Clock.systemUTC());
+    return new Settings(Map.of(), List.of(), Map.of(), false, Clock.systemUTC(), false);
   }
 
   /** A configuration value the service is started with, on every restart too. */
   public Settings withConfig(String path, String value) {
     Map<String, String> more = new LinkedHashMap<>(config);
     more.put(path, value);
-    return new Settings(more, services, local, storageFromEnvironment, clock);
+    return new Settings(more, services, local, storageFromEnvironment, clock, held);
   }
 
   /**
@@ -53,7 +56,8 @@ public final class Settings {
         Stream.concat(services.stream(), Stream.of(name)).toList(),
         local,
         storageFromEnvironment,
-        clock);
+        clock,
+        held);
   }
 
   /**
@@ -63,7 +67,7 @@ public final class Settings {
   public Settings withLocalService(String name, URI address) {
     Map<String, URI> more = new LinkedHashMap<>(local);
     more.put(name, address);
-    return new Settings(config, services, more, storageFromEnvironment, clock);
+    return new Settings(config, services, more, storageFromEnvironment, clock, held);
   }
 
   /**
@@ -72,7 +76,7 @@ public final class Settings {
    * {@code ankka.storage.directory} when the configuration names one).
    */
   public Settings withStorageFromEnvironment() {
-    return new Settings(config, services, local, true, clock);
+    return new Settings(config, services, local, true, clock, held);
   }
 
   /**
@@ -81,7 +85,22 @@ public final class Settings {
    * {@link AnkkaTestKit#restartService()}.
    */
   public Settings withClock(Clock clock) {
-    return new Settings(config, services, local, storageFromEnvironment, clock);
+    return new Settings(config, services, local, storageFromEnvironment, clock, held);
+  }
+
+  /**
+   * The service's HTTP server held to its OpenAPI document (feature 067): each answer's status and
+   * body, each body taken and each query parameter read is checked against the document {@code
+   * ankka openapi} would write, and {@link AnkkaTestKit#close()} fails listing what it did not
+   * allow.
+   */
+  public Settings heldToDocument() {
+    return new Settings(config, services, local, storageFromEnvironment, clock, true);
+  }
+
+  /** Whether {@link #heldToDocument()} was asked. */
+  public boolean isHeldToDocument() {
+    return held;
   }
 
   public Map<String, String> config() {

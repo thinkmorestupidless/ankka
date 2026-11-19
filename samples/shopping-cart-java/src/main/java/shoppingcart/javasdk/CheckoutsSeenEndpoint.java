@@ -1,6 +1,7 @@
 package shoppingcart.javasdk;
 
 import com.thinkmorestupidless.ankka.javasdk.annotations.Get;
+import com.thinkmorestupidless.ankka.javasdk.annotations.Refuses;
 import com.thinkmorestupidless.ankka.javasdk.http.Acl;
 import com.thinkmorestupidless.ankka.javasdk.http.HttpEndpoint;
 import com.thinkmorestupidless.ankka.javasdk.http.Problem;
@@ -15,6 +16,7 @@ public class CheckoutsSeenEndpoint extends HttpEndpoint {
   }
 
   @Get("/checkouts-seen/{cartId}")
+  @Refuses(status = 404, reason = "no checkout of the cart has been read")
   public CheckoutsSeen.CheckoutSeen get(String cartId) {
     return viewClient()
         .forView(CheckoutsSeen.class)

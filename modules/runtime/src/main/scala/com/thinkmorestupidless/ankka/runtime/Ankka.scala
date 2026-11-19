@@ -65,6 +65,20 @@ trait RuntimeExtension:
   def routes: Vector[ServedRoute] = Vector.empty
 
   /**
+   * A document of what this extension serves, of the kind asked for (feature 067): `None` when it
+   * writes none of that kind, else the document's text or the problems that kept it from being
+   * written. Asked while `ankka.document` is set, before anything starts, so an answer may build
+   * what it needs but never bind, connect or read the environment. `options` are the
+   * `ankka.document.*` properties without their prefix, and `name`, the service's name; `registry`
+   * is the service's components, validated, for a check that reads them.
+   */
+  def document(
+      @scala.annotation.unused kind: String,
+      @scala.annotation.unused options: Map[String, String],
+      @scala.annotation.unused registry: ComponentRegistry = ComponentRegistry.empty
+  ): Option[Either[Vector[String], String]] = None
+
+  /**
    * Where this extension serves gRPC, once it has bound — `127.0.0.1:9090` — for a service on this
    * machine that calls it. Separate from `boundAddress`, which every reader takes for an HTTP
    * address: a gRPC address offered as one would be an invoke panel that cannot work.
@@ -312,6 +326,9 @@ final class ServiceBuilder private[ankka] (
       Some(handler)
     )
 
+  /** The extensions the service handed over, in order (feature 067's document mode reads them). */
+  private[ankka] def declaredExtensions: Vector[RuntimeExtension] = extensions
+
   /** Validates the definition without starting anything. */
   def validate: Either[Vector[String], ComponentRegistry] =
     val remoteWithoutConversation =
@@ -331,6 +348,16 @@ final class ServiceBuilder private[ankka] (
       name: String = "ankka",
       config: Config = ClusterConfig.load()
   ): AnkkaService =
+    // Feature 067: asked for a document, write it and end, before anything reads the environment
+    // or an actor system exists. Nothing is bound, formed or connected.
+    DocumentMode.requested().foreach { properties =>
+      val serviceName = DocumentMode.title(config, name)
+      val versioned   = properties + ("ankka.document.version" -> DocumentMode.version(config))
+      val (status, problems) = DocumentMode.run(this, versioned, serviceName)
+      problems.foreach(System.err.println)
+      System.err.flush()
+      sys.exit(status)
+    }
     // Before the actor system exists, so a service that cannot serve what it was deployed to
     // serve exits rather than idling with non-daemon threads holding the process open.
     DeclaredGrpc.check(sys.env.get, extensions.map(_.name))
@@ -930,6 +957,16 @@ final class AnkkaService private[ankka] (
     val erasures: com.thinkmorestupidless.ankka.sdk.Erasures =
       com.thinkmorestupidless.ankka.sdk.Erasures.unavailable
 ):
+
+  /**
+   * The document of `kind` the first extension that writes one gives (feature 067): what the local
+   * console serves a developer, whether or not the service serves it.
+   */
+  private[runtime] def document(
+      kind: String,
+      options: Map[String, String]
+  ): Option[Either[Vector[String], String]] =
+    extensions.iterator.map(_.document(kind, options, registry)).collectFirst { case Some(d) => d }
 
   /**
    * The names of the extensions this service runs — so one extension can say when another it relies

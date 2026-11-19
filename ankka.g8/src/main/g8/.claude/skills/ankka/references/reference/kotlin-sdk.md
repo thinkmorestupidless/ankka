@@ -691,6 +691,7 @@ class CheckoutsSeenEndpoint : HttpEndpoint() {
     override fun acl(): Acl = Acl.allowAll()
 
     @Get("/checkouts-seen/{cartId}")
+    @Refuses(status = 404, reason = "no checkout of the cart has been read")
     fun get(cartId: String): CheckoutsSeen.CheckoutSeen =
         viewClient().forView(CheckoutsSeen::class.java).getOrNull(cartId)
             ?: throw ProblemException(Problem.notFound("no checkout of '\$cartId' has been read"))
@@ -699,24 +700,69 @@ class CheckoutsSeenEndpoint : HttpEndpoint() {
 
 Or in code, by implementing `RouteRegistrar` and answering `routes { }`: `get`, `delete` and
 `post(template) { … }`, and `post<B>`, `put<B>` and `patch<B>(template) { body -> … }` for a body read as
-`B`. Each block is suspending, runs on the request's thread, and reads `path(name)` and `request`:
+`B`. Each block is suspending, runs on the request's thread, and reads `path(name)` and `request`.
+`described({ … }) { routes }` says what the routes' OpenAPI document cannot read from them: `summary`,
+`body<T>()`, `answers<T>(status)`, `answers(status)`, `refuses(status, reason)`, `refusalShape<T>()`,
+`query<T>(name)` and `tag(…)`; an annotated function is described as a Java handler is, by `@Refuses`
+and the rest:
 
 ```kotlin
 /** The cart over HTTP, route for route as the Scala cart serves it, declared in code. */
 class CartEndpoint : HttpEndpoint(), RouteRegistrar {
     override fun acl(): Acl = Acl.allowAll()
 
+    // A route declared in code has no answer type of its own: each one's scope says what it
+    // answers, for the service's OpenAPI document. Every route carries the route tag `cart`.
     override fun routes() = routes {
-        get("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::getCart).invokeSuspending() }
-        get("/carts/{cartId}/total") { cart(path("cartId")).call(ShoppingCart::totalQuantity).invokeSuspending() }
-        post<LineItem>("/carts/{cartId}/items") { item ->
-            cart(path("cartId")).call(ShoppingCart::addItem).invokeSuspending(item)
+        described({ tag("cart") }) {
+            described({ answers<Cart>() }) {
+                get("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::getCart).invokeSuspending() }
+            }
+            described({ answers<Int>() }) {
+                get("/carts/{cartId}/total") {
+                    cart(path("cartId")).call(ShoppingCart::totalQuantity).invokeSuspending()
+                }
+            }
+            // Every write the entity refuses once the cart is checked out.
+            described({ refuses(409, "the cart is already checked out") }) {
+                described({ answers(204) }) {
+                    post<LineItem>("/carts/{cartId}/items") { item ->
+                        cart(path("cartId")).call(ShoppingCart::addItem).invokeSuspending(item)
+                    }
+                }
+                described({ answers(204); refuses(404, "the cart does not hold the product") }) {
+                    delete("/carts/{cartId}/items/{productId}") {
+                        cart(path("cartId")).call(ShoppingCart::removeItem).invokeSuspending(path("productId"))
+                    }
+                }
+                described({ answers<Cart>() }) {
+                    post("/carts/{cartId}/checkout") {
+                        cart(path("cartId")).call(ShoppingCart::checkout).invokeSuspending()
+                    }
+                }
+                described({ answers(204) }) {
+                    delete("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::discard).invokeSuspending() }
+                }
+            }
+            // A text note in, two query parameters it reads itself and a refusal of its own.
+            described({
+                summary("A cart's receipt")
+                body<String>()
+                answers<Receipt>()
+                query<String>("currency")
+                query<Int>("copies")
+                refuses(404, "the cart is empty")
+            }) {
+                post<String>("/carts/{cartId}/receipt") { note -> receipt(path("cartId"), note, request) }
+            }
         }
-        delete("/carts/{cartId}/items/{productId}") {
-            cart(path("cartId")).call(ShoppingCart::removeItem).invokeSuspending(path("productId"))
-        }
-        post("/carts/{cartId}/checkout") { cart(path("cartId")).call(ShoppingCart::checkout).invokeSuspending() }
-        delete("/carts/{cartId}") { cart(path("cartId")).call(ShoppingCart::discard).invokeSuspending() }
+    }
+
+    private suspend fun receipt(cartId: String, note: String, request: Request): Receipt {
+        val items = cart(cartId).call(ShoppingCart::getCart).invokeSuspending().items.sumOf { it.quantity }
+        if (items == 0) throw ProblemException(Problem.notFound("the cart is empty"))
+        val copies = request.query("copies").map { it.toInt() }.orElse(1)
+        return Receipt(cartId, note, items, request.query("currency").orElse("GBP"), copies)
     }
 
     private fun cart(cartId: String): EntityRef = componentClient().forEventSourcedEntity(cartId)
@@ -852,6 +898,7 @@ The Java SDK's kits, with Kotlin entry points in `com.thinkmorestupidless.ankka.
 |---|---|
 | `eventSourcedTestKit(Entity::class[, id])`, `keyValueEntityTestKit(...)`, `workflowTestKit(...)`, `viewTestKit(...)`, `consumerTestKit(...)` | one component, no runtime |
 | `ankkaTestKit(service(), settings) { … }` | the whole service against a throwaway Postgres, closed when the block ends |
+| `ankkaTestKit(service(), Settings.defaults().heldToDocument()) { … }` | the same, held to the service's OpenAPI document: closing fails, listing every answer or query parameter read the document does not allow |
 | `eventually(within = 10.seconds) { … }` | a suspending retry of an assertion, inside the whole-service kit |
 
 A whole-service test of a suspending workflow step:

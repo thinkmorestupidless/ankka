@@ -24,7 +24,7 @@ the service descriptor's validation, and depends on `ankka-core` alone. See
 [Control plane HTTP API](control-plane-api.md#from-scala).
 
 ```scala
-val ankkaVersion = "0.16.2"
+val ankkaVersion = "0.17.0"
 
 libraryDependencies ++= Seq(
   "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,
@@ -271,6 +271,7 @@ See [Autonomous agents](../build/autonomous-agents.md).
 | Testing a caller | `testKit.asCaller(caller)` gives the header that makes a request arrive as that caller |
 | Errors | throw `HttpProblem(status, message)` or `HttpProblem.badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` |
 | Serving | `HttpServer.of(clients => Endpoint(clients.componentClient))`, `HttpServer.at(interface, port)(…)` |
+| OpenAPI | `described(_.summary(…).answers[A].refuses(status, reason).query[A](name).tag(…)) { routes }` around routes, an endpoint's `description` for all of its routes; `server.withOpenApi(acl)` serves the document at `/_ankka/openapi.json` |
 
 Handler parameters must be annotated with their type, `{ (cartId: String) => … }`, because the annotation
 selects the route's arity and how each path segment is parsed. See [HTTP endpoints](../build/http-endpoints.md).
@@ -322,6 +323,7 @@ val service = Ankka.service
 | `ConsumerTestKit.of(Companion, client)` | One consumer, no runtime. `onMessage(message, subject, sequenceNumber)` and `onDelete(subject, sequenceNumber)` return the effect and the `messages` it publishes: `payload`, the record `key` a broker is given, `metadata`, `text`. |
 | `ConsumerTestKit.graph(Companion, client)` | One graph consumer, no runtime. The same two calls return the `GraphDelta`s published, read back from their bytes; `records` gives the same consumer as messages. |
 | `TestTransport` | A `ComponentClient` whose calls are stubbed, for testing a component that calls others. |
+| `HeldToDocument` | A running server held to its OpenAPI document: `HeldToDocument.server(server)` checks every answer, body and query parameter read; `violations` lists what the document does not allow and `assertHeld` fails on it. Mixed into a suite, it asserts after each test. |
 | `AnkkaTestKit.start(descriptors…)` | The whole service against a throwaway database of its own, in one Postgres container that every kit in the test JVM shares. `restartService()` drops every entity from memory. |
 | `AnkkaTestKit.installations(names*)` | A group of installations of one service, each on its own database, replicating through the runtime's own transport; `start(name, descriptors)` starts one, and `transport` pauses, resumes and blocks what reaches it. |
 | `TestModelProvider` | A scripted model that fails when its script runs out. |

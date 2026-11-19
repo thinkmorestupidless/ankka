@@ -38,6 +38,13 @@ public interface ServiceBuilder {
   ServiceBuilder withGrpcClients();
 
   /**
+   * Serves the service's OpenAPI document at {@code GET /_ankka/openapi.json} to the callers {@code
+   * acl} admits (feature 067): the same document {@code ankka openapi} writes. Not served unless
+   * this is called.
+   */
+  ServiceBuilder withOpenApi(com.thinkmorestupidless.ankka.javasdk.http.Acl acl);
+
+  /**
    * Serves an MCP endpoint's tools beside the HTTP endpoints; the service then keeps client keys
    * and, for a brokered endpoint, signs people in.
    */

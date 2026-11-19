@@ -52,10 +52,12 @@ final class QueryParams private[http] (private val entries: Vector[(String, Stri
 
   /** The raw value, unparsed. */
   def raw(name: String): Option[String] =
+    openapi.DocumentCheck.read(name)
     entries.collectFirst { case (key, value) if key == name => value }
 
   /** Every raw value for a repeated parameter, in order. */
   def rawAll(name: String): Vector[String] =
+    openapi.DocumentCheck.read(name)
     entries.collect { case (key, value) if key == name => value }
 
   /** Absent parameters give `None`; a present but unparseable one is a 400. */

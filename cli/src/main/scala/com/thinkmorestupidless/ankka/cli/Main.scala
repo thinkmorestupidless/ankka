@@ -2068,6 +2068,62 @@ object Main:
       catch case _: Throwable => () // a console you must click on is still a console
     }
 
+  // ── openapi ───────────────────────────────────────────────────────────────
+
+  private val openApiCommand = Opts.subcommand(
+    "openapi",
+    "Write a service's OpenAPI document from its code: its build is run with ankka.document set, " +
+      "and nothing else is started. Scala, Java and Kotlin services."
+  ) {
+    val dir = Opts
+      .argument[String]("service directory")
+      .orNone
+      .map(d => java.nio.file.Path.of(d.getOrElse(".")))
+    val out = Opts
+      .option[String](
+        "out",
+        "Where to write it; - prints it. Default: openapi.json in the service's directory."
+      )
+      .orNone
+    val strict = Opts
+      .flag("strict", "Refuse the document while any route is incomplete, naming each.")
+      .orFalse
+    val tags = Opts
+      .options[String]("tag", "Only the routes carrying this route tag; repeatable.")
+      .orEmpty
+    val prefixes = Opts
+      .options[String]("prefix", "Only the routes under this path; repeatable.")
+      .orEmpty
+    val version = Opts
+      .option[String]("api-version", "The document's info.version. Default: 0.0.0.")
+      .orNone
+    val check = Opts
+      .option[String](
+        "check",
+        "Compare a kept document with the one the code gives; exit 1 naming each " +
+          "difference, writing nothing."
+      )
+      .orNone
+      .map(_.map(java.nio.file.Path.of(_)))
+    val local = Opts
+      .option[String](
+        "local",
+        "Print the document of a service running on this machine, whether or not it serves it."
+      )
+      .orNone
+    (dir, out, strict, tags, prefixes, version, check, local).mapN {
+      (dir, out, strict, tags, prefixes, version, check, local) => () =>
+        val code = openapi.OpenApiCommand.run(
+          openapi.OpenApiCommand
+            .Options(dir, out, strict, tags.toVector, prefixes.toVector, version, check, local),
+          Console.out,
+          Console.err
+        )
+        if code != 0 then throw ExitWith(code)
+        ""
+    }
+  }
+
   // ── plugin ────────────────────────────────────────────────────────────────
 
   private val pluginCommand = Opts.subcommand(
@@ -2101,6 +2157,7 @@ object Main:
     "context-map",
     "local",
     "mcp",
+    "openapi",
     "plugin"
   )
 
@@ -2122,6 +2179,7 @@ object Main:
       .orElse(contextMapCommand)
       .orElse(localCommand)
       .orElse(mcpCommand)
+      .orElse(openApiCommand)
       .orElse(pluginCommand)
   )
 

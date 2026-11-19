@@ -683,16 +683,7 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
 
   /** Every route of the control plane API, as `ControlPlaneRoutesReferenceSuite` lists them. */
   private def routeTable: Vector[(String, String)] =
-    import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId, Metadata, MethodName}
-    val unused = new com.thinkmorestupidless.ankka.sdk.CallTransport:
-      def ask(c: ComponentId, e: EntityId, m: MethodName, p: Array[Byte], md: Metadata) =
-        scala.concurrent.Future.failed(IllegalStateException("not called while listing routes"))
-      def tell(c: ComponentId, e: EntityId, message: Any): Unit = ()
-      def askTimeout                                            = 1.second
-    val clients = new com.thinkmorestupidless.ankka.http.EndpointClients(
-      com.thinkmorestupidless.ankka.sdk.ComponentClient(unused),
-      new com.thinkmorestupidless.ankka.runtime.ViewClient(null, 1.second)(using null)
-    )
+    val clients = com.thinkmorestupidless.ankka.http.EndpointClients.unavailable
     ControlPlane
       .endpoints(com.thinkmorestupidless.ankka.http.Acl.DenyAll, auth = Some(identity.config()))
       .map(_(clients))

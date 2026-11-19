@@ -57,6 +57,23 @@ class JavaTemplateSuite extends PolyglotTemplateSuite(Language.Java, "java", "do
     assertEquals(counts.map(_._3).sum, 0, "a test failed")
   }
 
+  test("ankka openapi writes the project's document from its own build, Docker not consulted") {
+    val routes = TemplateDocument
+      .routes(project, Map("MAVEN_USER_HOME" -> project.resolve(".test-maven-home").toString))
+      .fold(fail(_), identity)
+    assertEquals(
+      routes,
+      Set(
+        "GET /carts/{cartId}",
+        "GET /carts/{cartId}/total",
+        "POST /carts/{cartId}/items",
+        "DELETE /carts/{cartId}/items/{productId}",
+        "POST /carts/{cartId}/checkout",
+        "DELETE /carts/{cartId}"
+      )
+    )
+  }
+
   test("the image builds without a Dockerfile, under the descriptor's name") {
     val (code, _) = mvnw("-q", "-DskipTests", "package", "jib:dockerBuild")
     assertEquals(code, 0, "./mvnw package jib:dockerBuild")

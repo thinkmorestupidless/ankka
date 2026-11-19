@@ -142,6 +142,18 @@ object Main:
             1
 
   /**
+   * The server a process's or a module's routes are served by. It gives no OpenAPI document
+   * (feature 067): those routes carry no shapes, and the platform says such a service has none.
+   */
+  private[sidecar] def httpServer(
+      mounted: Vector[com.thinkmorestupidless.ankka.http.HttpEndpoint],
+      port: Option[Int]
+  ): HttpServer =
+    port match
+      case Some(port) => HttpServer.at("0.0.0.0", port)(mounted.map(e => _ => e)*).undocumented
+      case None       => HttpServer.of(mounted.map(e => _ => e)*).undocumented
+
+  /**
    * What `run` and the tests share: the wiring from a discovered spec, and the conversation that
    * reaches whatever declared it, to a started service. `imports` is the module mode's way back in;
    * absent, the extension serves the process's callback server.
@@ -202,10 +214,7 @@ object Main:
         case found    => throw IllegalArgumentException(found.mkString("; "))
 
     val mounted = endpoints ++ mcpEndpoints
-    val http    =
-      sys.env.get("ANKKA_HTTP_PORT").map(_.toInt) match
-        case Some(port) => HttpServer.at("0.0.0.0", port)(mounted.map(e => _ => e)*)
-        case None       => HttpServer.of(mounted.map(e => _ => e)*)
+    val http    = httpServer(mounted, sys.env.get("ANKKA_HTTP_PORT").map(_.toInt))
 
     // The process's way back in starts first and stops last: extensions start in order, and a
     // projection or a route that reaches the process before the callback server is bound hands it a

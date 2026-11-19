@@ -141,7 +141,10 @@ released SDK's testkit, and a generated project's compose file, start
 `ghcr.io/thinkmorestupidless/ankka-sidecar:<version>`; an unreleased SDK (0.0.0) starts
 `ankka-sidecar:latest`, so the suites and the SDK jobs test against the sidecar of the same commit. `-Dankka.template.tests` takes `off`, or a list of
 languages (`python`, `typescript,scala`); only `scala` pays for the local publish, which is how each SDK
-job in CI runs its own template's suite against the SDK and sidecar it just built.
+job in CI runs its own template's suite against the SDK and sidecar it just built. **A list naming
+`java` or `kotlin` with `scala` publishes to Maven only** (2026-11-18): `templateArtifacts` takes the
+Maven branch and skips the Ivy one, so `TemplateSuite`'s cases that build the expansion fail on
+`Error downloading ankka-http_3:<version>`. Run the Scala template suite in an sbt run of its own.
 
 **Every project `ankka init` makes carries a `.mcp.json`** naming `ankka mcp` by command (in `common/`
 and in `ankka.g8/`), and `ankka mcp install` (`cli/mcp/McpInstall`) writes the same entry — the template
@@ -342,6 +345,11 @@ decisions. A Pekko bump merged here is then mirrored across the family (`ankka-b
 
 ## Traps
 
+- **`ankka <command> --help` writes to stderr and exits `2`** (2026-11-19, feature 067). decline treats
+  help as a usage answer, so under `set -euo pipefail` a `"$bin" openapi --help | grep -q …` fails on
+  the CLI's exit, not grep's. `native-smoke.sh` reported `ankka openapi --help does not list --check`
+  above a help text that listed it, on both legs. Read help as `help=$("$bin" … --help 2>&1 || true)`,
+  then `grep -q … <<<"$help"`.
 - **A hosted runner image retires, and the tag's workflow keeps naming it** (2026-11-01). v0.15.0's
   `macos-arm64` leg was cancelled by GitHub's scheduled brownout of `macos-14` (retired 2026-11-02), so
   `homebrew` and `action` were skipped: both need every leg. A tag runs the workflow at the tagged commit, so

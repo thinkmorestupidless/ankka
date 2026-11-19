@@ -321,7 +321,12 @@ class SurfaceParitySuite extends munit.FunSuite:
         "socket"    -> j(classOf[annotations.Socket]),
         "request"   -> j(classOf[jhttp.HttpEndpoint], "request"),
         "principal" -> j(classOf[jhttp.HttpEndpoint], "principal"),
-        "caller"    -> j(classOf[jhttp.HttpEndpoint], "caller")
+        "caller"    -> j(classOf[jhttp.HttpEndpoint], "caller"),
+        // An OpenAPI description (feature 067): annotations on a handler, and on the class.
+        "described"   -> j(classOf[annotations.Summary]),
+        "description" -> j(classOf[annotations.Tag])
+      ) ++ rows("HTTP endpoint", "http.HttpServer")(
+        "withOpenApi" -> j(classOf[javasdk.ServiceBuilder], "withOpenApi")
       ) ++ rows("HTTP endpoint", "http.Socket")(
         "receive" -> j(classOf[jhttp.WebSocket], "receive"),
         "send"    -> j(classOf[jhttp.WebSocket], "send")
@@ -428,7 +433,11 @@ class SurfaceParitySuite extends munit.FunSuite:
         "terminate"      -> j(classOf[javasdk.AnkkaService], "terminate")
       ) ++
       // Testing
-      rows("Testing", "testkit.EventSourcedTestKit$")(
+      rows("Testing", "testkit.HeldToDocument$")(
+        "server"     -> j(classOf[Settings], "heldToDocument"),
+        "assertHeld" -> j(classOf[AnkkaTestKit], "assertHeldToDocument"),
+        "violations" -> j(classOf[AnkkaTestKit], "documentViolations")
+      ) ++ rows("Testing", "testkit.EventSourcedTestKit$")(
         "of" -> j(classOf[EventSourcedTestKit[?, ?]], "of")
       ) ++ rows("Testing", "testkit.EventSourcedTestKit")(
         "call"   -> j(classOf[EventSourcedTestKit[?, ?]], "call"),

@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.auth.oidc
 
+import com.thinkmorestupidless.ankka.http.TokenAuthenticator
+
 import java.nio.file.Files
 import scala.concurrent.duration.DurationInt
 
@@ -161,5 +163,26 @@ class OidcConfigSuite extends munit.FunSuite:
     assertEquals(
       OidcConfig.problems(OidcConfig(Vector(one, one.copy(audience = "")))),
       Vector("issuer 'staff' is listed twice", "issuer 'staff' has no audience")
+    )
+  }
+
+  test("with no issuer configured, the ACL is refused while a service runs") {
+    val refused =
+      intercept[IllegalStateException](Oidc.authenticate(Map.empty, documenting = false))
+    assert(refused.getMessage.contains("no issuer is configured"), refused.getMessage)
+  }
+
+  test("with no issuer configured, an OpenAPI document is still built, naming no issuer") {
+    // feature 067, R4: the document is built on machines that configure no issuers, and says a
+    // bearer token is needed without naming who signs it.
+    Oidc.authenticate(Map.empty, documenting = true) match
+      case com.thinkmorestupidless.ankka.http.Acl.Authenticate(decide: TokenAuthenticator) =>
+        assertEquals(decide.authorizationServers, Vector.empty)
+      case other => fail(s"expected a token authenticator, got $other")
+  }
+
+  test("issuers that are misconfigured are refused while a document is built too") {
+    intercept[IllegalStateException](
+      Oidc.authenticate(Map("ANKKA_AUTH_ISSUERS" -> "bad name"), documenting = true)
     )
   }

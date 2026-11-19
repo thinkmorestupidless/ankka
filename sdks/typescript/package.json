@@ -41,6 +41,7 @@
   "scripts": {
     "proto": "node scripts/proto.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "openapi:client": "npx --yes openapi-typescript@7.4.0 ../../samples/shopping-cart/openapi.json -o test/openapi/cart.d.ts && tsc --noEmit -p test/openapi/tsconfig.json",
     "build": "tsc -p tsconfig.build.json",
     "test": "node --conditions=ankka-source --test 'test/**/*.test.ts' 'examples/**/*.test.ts'",
     "test:slow": "ANKKA_SLOW=1 node --conditions=ankka-source --test 'test/**/*.test.ts' 'examples/**/*.test.ts'",

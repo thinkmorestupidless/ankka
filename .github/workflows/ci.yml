@@ -152,6 +152,7 @@ jobs:
               - *scala-build
               - *templates
               - 'sdks/typescript/**'
+              - 'samples/shopping-cart/openapi.json'
               - 'cli/src/main/templates/typescript/**'
               - 'cli/src/test/scala/**/cli/TypeScriptTemplateSuite.scala'
             # The host is in `sidecar/`, which `scala-build` covers, so a change to it runs this job
@@ -689,6 +690,11 @@ jobs:
       - run: npm run proto
         working-directory: sdks/typescript
       - run: npm run typecheck
+        working-directory: sdks/typescript
+      # A client typed from the Scala cart's kept OpenAPI document: openapi-typescript's output, and a
+      # fetch wrapper written against it, type-checked. Compiled only; the document's answers are proved
+      # against the running cart by the sample's own OpenApiDocumentSuite.
+      - run: npm run openapi:client
         working-directory: sdks/typescript
       - run: npm test
         working-directory: sdks/typescript

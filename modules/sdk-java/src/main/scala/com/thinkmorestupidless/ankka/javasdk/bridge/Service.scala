@@ -45,7 +45,8 @@ final case class JavaServiceBuilder private (
     grpcClients: Boolean = false,
     mcpEndpoints: Vector[Class[?]] = Vector.empty,
     modules: Vector[JavaModule] = Vector.empty,
-    erasureHandler: Option[com.thinkmorestupidless.ankka.javasdk.erasure.ErasureHandler] = None
+    erasureHandler: Option[com.thinkmorestupidless.ankka.javasdk.erasure.ErasureHandler] = None,
+    openApi: Option[com.thinkmorestupidless.ankka.javasdk.http.Acl] = None
 ) extends ServiceBuilder:
 
   def this(name: String) = this(name, Vector.empty, Vector.empty, Map.empty, None)
@@ -67,6 +68,14 @@ final case class JavaServiceBuilder private (
   def withGrpc(host: String, port: Int): ServiceBuilder = copy(grpc = Some(host -> port))
 
   def withGrpcClients(): ServiceBuilder = copy(grpcClients = true)
+
+  def withOpenApi(acl: com.thinkmorestupidless.ankka.javasdk.http.Acl): ServiceBuilder =
+    java.util.Objects.requireNonNull(acl, "acl")
+    copy(openApi = Some(acl))
+
+  /** `server`, serving the document when the service asked for it (feature 067). */
+  private[ankka] def served(server: HttpServer): HttpServer =
+    openApi.fold(server)(acl => server.withOpenApi(Acls.scalaOf(acl)))
 
   def withMcpEndpoint(endpoint: Class[? <: McpEndpoint]): ServiceBuilder =
     copy(mcpEndpoints = mcpEndpoints :+ endpoint)
@@ -96,7 +105,7 @@ final case class JavaServiceBuilder private (
       )
     val service = JavaServiceBuilder.problemsAtStart {
       JavaServiceBuilder
-        .scalaBuilder(read, http)
+        .scalaBuilder(read, http, served)
         .pipe(b => read.grpcExtensions(grpc, grpcClients).foldLeft(b)(_.withExtension(_)))
         .pipe(b => withErasureHandlerOf(read)(b))
         .start()
@@ -360,13 +369,17 @@ private[ankka] object JavaServiceBuilder:
     )
 
   /** The Scala service of the read classes, its own checks reported as declaration problems. */
-  def scalaBuilder(read: Read, http: Option[(String, Int)] = None): runtime.ServiceBuilder =
+  def scalaBuilder(
+      read: Read,
+      http: Option[(String, Int)] = None,
+      serving: HttpServer => HttpServer = identity
+  ): runtime.ServiceBuilder =
     val components = read.platformExtensions.foldLeft(
       runtime.Ankka.service.registerAll(read.descriptors)
     )(_.withExtension(_))
     val builder =
       if !read.servesHttp then components
-      else components.withExtension(read.httpServer(http))
+      else components.withExtension(serving(read.httpServer(http)))
     builder.validate match
       case Left(problems) =>
         throw ServiceProblems(problems.map(p => DeclarationProblem("service", "", p)).asJava)

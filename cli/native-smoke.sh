@@ -21,6 +21,11 @@ if [ -n "$expected" ] && [ "$version" != "$expected" ]; then
 fi
 echo "version    $version"
 
+# `ankka openapi` is a built-in word of the image: its help is generated from the same declaration.
+# Help is a usage answer: written to stderr, with exit 2 (decline's), which set -e must not take as a failure.
+openapi_help=$("$bin" openapi --help 2>&1 || true)
+grep -q -- '--check' <<<"$openapi_help" || fail "ankka openapi --help does not list --check"
+
 pages="$(printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
   '{"jsonrpc":"2.0","id":2,"method":"resources/list"}' \

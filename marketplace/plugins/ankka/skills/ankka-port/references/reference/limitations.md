@@ -629,6 +629,12 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
   `GrpcEndpoint`, with grpc-java's generated stubs. A Python, TypeScript, Rust or Go service cannot declare one,
   and a descriptor that declares gRPC with process or wasm hosting is refused. The Java SDK has no way to
   opt a service into gRPC reflection.
+- **An OpenAPI document is written for Scala, Java and Kotlin services.** A description travels with a JVM
+  route, and the sidecar's discovery does not carry one yet, so a Python, TypeScript, Go or Rust service,
+  and a web-hosted one, has no document: `ankka openapi` refuses each by its language.
+- **An OpenAPI document holds request and server-sent event routes only.** Socket routes, MCP tools and
+  gRPC methods are left out. A shape describes a body or an answer and validates nothing: a request is
+  never checked against the document, and a body the codec cannot read is refused as it always was.
 - **The local console does not call gRPC methods.** It lists them beside a service's routes; call them with
   `grpcurl` or a client generated from the service definition.
 - **No sidecar SDK's unit test kit scripts an autonomous agent's model.** The Python and Rust kits run

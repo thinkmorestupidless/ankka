@@ -27,6 +27,26 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
   def service(name: String): Option[String] =
     forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/service"))
 
+  /**
+   * The OpenAPI document of the local service `name` (feature 067): `None` when no such service
+   * runs, the document, or what the service answered instead.
+   */
+  def openApi(name: String): Option[Either[String, String]] =
+    forName(name).map { e =>
+      try
+        val response = client.send(
+          HttpRequest
+            .newBuilder(URI.create(s"${e.observabilityAddress}/observability/openapi"))
+            .timeout(Duration.ofSeconds(30))
+            .GET()
+            .build(),
+          HttpResponse.BodyHandlers.ofString()
+        )
+        if response.statusCode() == 200 then Right(response.body)
+        else Left(response.body.trim)
+      catch case failure: Exception => Left(s"the service did not answer: ${failure.getMessage}")
+    }
+
   def traces(name: String): Option[String] =
     forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/traces"))
 

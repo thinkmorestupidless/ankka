@@ -182,6 +182,28 @@ the current one, need Docker with Compose v2, and ask no control plane anything.
 Refusals are on standard error and exit `1`. No local value is printed. [Run a whole project on one
 machine](../build/local-projects.md) is the guide.
 
+## An OpenAPI document
+
+`ankka openapi` writes the OpenAPI 3.1 document of a Scala, Java or Kotlin service from its own build, in
+the directory given or the current one, and asks no control plane or Docker anything.
+
+- It runs the service's build: `local.json`'s `run` for the service when it has one, otherwise
+  `sbt <service>/run` in a project, or, in a directory that is a build of its own, `sbt run`,
+  `./mvnw -q exec:java` or `./gradlew --no-daemon -q run`. A JVM source with no build of its own is
+  refused, naming the properties to run its build with. `JAVA_TOOL_OPTIONS` carries
+  `-Dankka.document=openapi` and the options below to the service's JVM, which writes the document
+  and ends before it binds, forms or connects anything.
+- It writes `openapi.json` beside the service, `--out <file>` elsewhere, or `--out -` to print it; what
+  the build says goes to standard error. `--strict` refuses a document with an incomplete route;
+  `--tag` and `--prefix` keep only the routes they name; `--api-version` is the document's version.
+- `--check <file>` writes nothing: it prints `<file> is current` and exits `0`, or one line per route
+  added, removed or changed and exits `1`.
+- `--local <service>` prints the document of a service running on this machine; one behind the
+  sidecar has none.
+
+A problem is one line on standard error and exits `1`; a Python, TypeScript, Go, Rust or web-hosted
+service, or a directory that is not one service it can run, exits `2`. [OpenAPI documents](../build/openapi.md) is the guide.
+
 ## Plugins
 
 A first word that names no built-in command names a plugin: `ankka vendor modules list` runs the
@@ -276,6 +298,7 @@ Usage:
     ankka context-map
     ankka local
     ankka mcp
+    ankka openapi
     ankka plugin
 
 Operate an ankka control plane.
@@ -313,6 +336,8 @@ Subcommands:
         Tools for services running on this machine.
     mcp
         Serve ankka's tools and documentation to an agent over MCP (stdio).
+    openapi
+        Write a service's OpenAPI document from its code: its build is run with ankka.document set, and nothing else is started. Scala, Java and Kotlin services.
     plugin
         Programs named ankka-<word> on the path, run as `ankka <word>`.
 ```
@@ -3403,6 +3428,32 @@ Options and flags:
         Replace an existing server named ankka.
     --dry-run
         Say what would change, and change nothing.
+```
+
+### `ankka openapi`
+
+```text
+Usage: ankka openapi [--out <string>] [--strict] [--tag <string>]... [--prefix <string>]... [--api-version <string>] [--check <string>] [--local <string>] [<service directory>]
+
+Write a service's OpenAPI document from its code: its build is run with ankka.document set, and nothing else is started. Scala, Java and Kotlin services.
+
+Options and flags:
+    --help
+        Display this help text.
+    --out <string>
+        Where to write it; - prints it. Default: openapi.json in the service's directory.
+    --strict
+        Refuse the document while any route is incomplete, naming each.
+    --tag <string>
+        Only the routes carrying this route tag; repeatable.
+    --prefix <string>
+        Only the routes under this path; repeatable.
+    --api-version <string>
+        The document's info.version. Default: 0.0.0.
+    --check <string>
+        Compare a kept document with the one the code gives; exit 1 naming each difference, writing nothing.
+    --local <string>
+        Print the document of a service running on this machine, whether or not it serves it.
 ```
 
 ### `ankka plugin`

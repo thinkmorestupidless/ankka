@@ -413,6 +413,12 @@ correction to `protocol/ENCODING.md`. `docs/reference/glossary.md` gains the nin
   document is still refused by name. Declined: finding the enclosing sbt build's project for the
   directory (an sbt round-trip and a rule only this repository's layout needs).
 
+- **T039: the generated client is compiled, not run.** The TypeScript job starts the cart only as
+  an image inside the SDK's own slow tests, never as `sbt shoppingCart/run`, so the client is
+  type-checked against `openapi-typescript`'s output and not called. What the cart answers is held
+  to the same document by `OpenApiDocumentSuite` and the held `ShoppingCartHttpSuite`. The types
+  showed the codec's rule at once: `items` is optional, since a missing collection reads as empty.
+
 ## Follow-ups
 
 - **One shape algebra for the agent and blueprint schemas.** `agent.SchemaType`,

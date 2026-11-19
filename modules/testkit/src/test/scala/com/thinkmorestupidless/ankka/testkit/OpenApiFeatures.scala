@@ -408,6 +408,10 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   Given("the developer's machine has no database, no broker and no network") { () =>
     routes += "GET /carts/{cartId}"
+    // An earlier scenario's kit has stopped, but its dispatchers' threads end a moment later.
+    val deadline = System.nanoTime() + 20.seconds.toNanos
+    while ankkaThreads.exists(_.startsWith("ankka-test-")) && System.nanoTime() < deadline do
+      Thread.sleep(100)
     threadsBefore = ankkaThreads
   }
 

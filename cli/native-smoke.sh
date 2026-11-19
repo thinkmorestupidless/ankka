@@ -22,7 +22,9 @@ fi
 echo "version    $version"
 
 # `ankka openapi` is a built-in word of the image: its help is generated from the same declaration.
-"$bin" openapi --help | grep -q -- '--check' || fail "ankka openapi --help does not list --check"
+# Read whole first: under pipefail, grep -q ends the pipe early and the help's writer fails.
+openapi_help=$("$bin" openapi --help)
+grep -q -- '--check' <<<"$openapi_help" || fail "ankka openapi --help does not list --check"
 
 pages="$(printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \

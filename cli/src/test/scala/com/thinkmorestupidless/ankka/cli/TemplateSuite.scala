@@ -100,7 +100,7 @@ class TemplateSuite extends munit.FunSuite:
     "4a. ankka openapi writes the expansion's document from its own build, Docker not consulted"
   ) {
     val routes = TemplateDocument.routes(expansion).fold(fail(_), identity)
-    assertEquals(routes, Set("GET /items/", "GET /items/{id}", "POST /items/{id}"))
+    assertEquals(routes, Set("GET /items", "GET /items/{id}", "POST /items/{id}"))
   }
 
   test("5. the expansion builds its image, tagged with its name") {

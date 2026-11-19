@@ -78,7 +78,7 @@ object ObservabilityEndpoint:
     try
       val server        = JdkHttpServer.create(bindAddress(service.system.settings.config), 0)
       val observability = Observability(service.system)
-      val handler       = Handler(service, documents, observability, serviceName)
+      val handler       = Handler(service, documents, observability)
 
       server.createContext("/observability/service", exchange => handler.service(exchange))
       server.createContext("/observability/topology", exchange => handler.topology(exchange))
@@ -123,8 +123,7 @@ object ObservabilityEndpoint:
   private final class Handler(
       service: AnkkaService,
       documents: ObservabilityDocuments,
-      observability: Observability,
-      serviceName: String
+      observability: Observability
   ):
 
     /**
@@ -133,8 +132,11 @@ object ObservabilityEndpoint:
      * be built.
      */
     def openApi(exchange: HttpExchange): Unit =
-      val version = DocumentMode.version(service.system.settings.config)
-      service.document("openapi", Map("name" -> serviceName, "version" -> version)) match
+      // Titled and versioned as the served and the written document are (FR-029).
+      val config  = service.system.settings.config
+      val title   = DocumentMode.title(config, service.system.name)
+      val version = DocumentMode.version(config)
+      service.document("openapi", Map("name" -> title, "version" -> version)) match
         case Some(Right(document)) => respond(exchange, document)
         case Some(Left(problems))  =>
           val bytes = problems.mkString("", "\n", "\n").getBytes(StandardCharsets.UTF_8)

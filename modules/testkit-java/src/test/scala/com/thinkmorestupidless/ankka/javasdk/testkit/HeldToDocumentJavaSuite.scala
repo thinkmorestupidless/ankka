@@ -43,6 +43,22 @@ class HeldToDocumentJavaSuite extends munit.FunSuite with LogCapturing:
     assert(failure.getMessage.contains("teapot"), failure.getMessage)
   }
 
+  test("two held kits keep their own violations, and neither clears the other's") {
+    val first  = AnkkaTestKit.start(players, Settings.defaults().heldToDocument())
+    val second = AnkkaTestKit.start(players, Settings.defaults().heldToDocument())
+    try
+      get(first, "/players/p1/teapot")
+      assertEquals(first.documentViolations.size, 1, first.documentViolations)
+      assertEquals(second.documentViolations.size, 0, second.documentViolations)
+      assertEquals(com.thinkmorestupidless.ankka.testkit.HeldToDocument.violations, Vector.empty)
+      second.assertHeldToDocument()
+      assertEquals(first.documentViolations.size, 1, "the second kit cleared the first's")
+      intercept[AssertionError](first.assertHeldToDocument()): Unit
+    finally
+      second.close()
+      first.close()
+  }
+
   test("without heldToDocument nothing is checked") {
     val kit = AnkkaTestKit.start(players)
     try

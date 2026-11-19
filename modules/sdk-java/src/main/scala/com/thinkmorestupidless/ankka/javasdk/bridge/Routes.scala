@@ -356,10 +356,6 @@ private[ankka] object Routes:
     }
 
   /**
-   * The shape the codec writes `t` with, when the codec is what reads or writes it as JSON: a
-   * serializer the service registered for the type says nothing of its shape.
-   */
-  /**
    * The shape of what the record codec writes for `t`, when `s` is that codec: a record's JSON, or
    * a top-level leaf's text (an `Integer` answered as `text/plain` is an integer). A serializer of
    * the service's own says nothing the bridge can read.

@@ -86,8 +86,8 @@ described({
 
 In Java the same words are annotations on the handler method: `@Summary`, `@BodyShape`, `@Answers`,
 `@Refuses`, `@RefusalShape`, `@ReadsQuery` and `@Tag`. `@Refuses`, `@RefusalShape`, `@ReadsQuery`
-and `@Tag` on the endpoint class apply to every route in it. In Kotlin, `described { }` wraps the
-routes of a `routes { }` block, and a route written in that form has no answer type of its own, so it
+and `@Tag` on the endpoint class apply to every route in it. In Kotlin, `described({ … }) { … }` wraps
+the routes of a `routes { }` block, and a route written in that form has no answer type of its own, so it
 stays incomplete until its scope says `answers`.
 
 A description that contradicts the types is refused, not merged. A description that gives `200` a
@@ -134,7 +134,9 @@ sbt -Dankka.document=openapi -Dankka.document.out=openapi.json run
 ```
 
 The command exits `0` when it wrote or printed the document, `1` when the document could not be
-built or a strict one has an incomplete route, and `2` for a language that has no document yet.
+built or a strict one has an incomplete route, and `2` when the directory is not one service it can
+run: a language that has no document yet, a directory holding several services or none, a service
+with no build of its own, or one whose language or run command it cannot tell.
 
 ## Checking a kept document
 
@@ -150,7 +152,8 @@ writes nothing and exits `1`. A client generated from the kept document is then 
 service without a red build to say so.
 
 `ankka openapi --local <service>` prints the document of a service running on this machine, from its
-local console address.
+local console address. A service behind the sidecar answers that it has no document, and the command
+exits `1`.
 
 ## A client from the document
 

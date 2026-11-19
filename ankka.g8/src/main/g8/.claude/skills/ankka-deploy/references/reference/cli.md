@@ -198,10 +198,11 @@ the directory given or the current one, and asks no control plane or Docker anyt
   `--tag` and `--prefix` keep only the routes they name; `--api-version` is the document's version.
 - `--check <file>` writes nothing: it prints `<file> is current` and exits `0`, or one line per route
   added, removed or changed and exits `1`.
-- `--local <service>` prints the document of a service running on this machine.
+- `--local <service>` prints the document of a service running on this machine; one behind the
+  sidecar has none.
 
 A problem is one line on standard error and exits `1`; a Python, TypeScript, Go, Rust or web-hosted
-service exits `2`. [OpenAPI documents](../build/openapi.md) is the guide.
+service, or a directory that is not one service it can run, exits `2`. [OpenAPI documents](../build/openapi.md) is the guide.
 
 ## Plugins
 

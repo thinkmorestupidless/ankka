@@ -41,10 +41,13 @@ never changes how a route answers; one that contradicts a type is a problem, not
 
 **A hand-written codec in a companion needs a `ShapeOf` beside it** (2026-11-18). A type's shape is
 derived from what `Codecs.make` writes, and a companion `JsonValueCodec` written by hand (a
-status-word enum, as `ShapeOf`'s own example shows) writes something the derivation cannot see. The
-macro therefore refuses such a type at compile time, naming both fixes: `given ShapeOf[A] =
-ShapeOf.derived` beside a codec that is `Codecs.make`, or `ShapeOf.of(<JSON Schema>)` beside one written
-by hand. The refusal reaches every route whose body or answer contains the type.
+status-word enum, as `ShapeOf`'s own example shows) writes something the derivation cannot see. A
+route whose body or answer contains such a type still compiles (FR-037): it is marked
+`x-ankka-incomplete`, quietly. The compile error comes only where a shape is asked for by name (an
+explicit `ShapeOf.derived`, or `described(_.answers[A])` / `.body[A]`), and it names both fixes:
+`given ShapeOf[A] = ShapeOf.derived` beside a codec that is `Codecs.make`, or
+`ShapeOf.of(<JSON Schema>)` beside one written by hand. A route that is incomplete for no visible
+reason is usually this.
 
 **`ankka.document` is read before anything starts** (2026-11-18). `ServiceBuilder.start` checks it
 first, before any check that needs the environment and before an actor system exists: endpoints are

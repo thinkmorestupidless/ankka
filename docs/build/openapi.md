@@ -231,6 +231,16 @@ fun greetings(): ServiceBuilder =
 
 ///
 
+The served document is the one the command writes when it is given the same name and version. Its
+title is `ankka.service.name` and its version `ankka.document.version`, each read from a JVM property
+or from the service's configuration. The command passes both as properties to the build it runs, so a
+service that serves a document with a version sets `ankka.document.version` in its `application.conf`
+to the `--api-version` its kept document is written with. Without it, the served version is `0.0.0`.
+
+A route whose operation id would be another's (`/a-b` and `/a_b` are both `get_a_b`) is a problem, as
+any other is: the command names both routes and writes nothing, and a server serving the document
+refuses to start.
+
 ## Holding tests to the document
 
 A test kit held to its document checks every answer a test causes against the document the service

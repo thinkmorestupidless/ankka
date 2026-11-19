@@ -119,3 +119,93 @@ The 45 per-task commits make reviewing commit by commit possible, so this is not
   - `cli/testOnly *OpenApiCommandSuite`: 24 passed.
   - `uv run --project tools/docs docs check`: no problems.
 - **Not run:** the testkit, sample, Java and Kotlin suites (Docker), and the full build, as instructed. The blocking finding was confirmed by reading the code, not by running a sidecar.
+
+## Second round
+
+# Review: the fixes to feat(067), 1cab5407f...db106b260
+
+**Verdict:** Approve with comments. Nothing blocks. The first round's blocking finding is fixed and holds. The three should-fix items below are expected before merge, or answered with a reason: two are documentation of behaviour this round added or relied on, and one is the console's title. The nit and the question are optional.
+
+**What it does:** It answers the first round. The sidecar's `HttpServer` is now `undocumented`, so a process or module service gives no document. The written, served and console documents take their version through `DocumentMode.version`, and the written and served ones take their title through `DocumentMode.title`. Paths are normalised to `/` plus their non-empty segments, and operation ids that collide are refused. Each Java held kit keeps its own `HeldToDocument.Violations`, and a body whose status the handler decides is checked against `default`. The rule file, the page and the CLI reference are corrected.
+
+**Should it exist:** Yes. Each hunk answers a finding of the first round, and none goes past it.
+
+**Read:**
+- Read in full: every hand-written hunk of the range, which is `HttpServer`, `OpenApi`, `Document`, `DocumentMode`, `Ankka.scala`, `ObservabilityEndpoint`, `HeldToDocument`, the Java `ServiceKit` and `Routes`, the sidecar's `Main` and the new `SidecarDocumentSuite`. Also the suites' diffs (`OpenApiSuite`, `OpenApiServedSuite`, `HeldToDocumentSuite`, `OpenApiFeatures`, the cart's `OpenApiDocumentSuite`), and the `runtime.md`, `docs/build/openapi.md`, `docs/reference/cli.md` and `research.md` diffs.
+- Skimmed: the regenerated `samples/shopping-cart/openapi.json` (paths only) and the rendered copies under `marketplace/` and `ankka.g8/`, which are generated.
+- Opened outside the diff: `OpenApiCommand.run` (what `--local` does with a 404), `LocalSource.openApi`, `ObservabilityEndpoint.start` and its caller at `Ankka.scala:787`, `DocumentMode.run`, the `answered` check in `HeldToDocument`, its munit trait, `reference.conf` (`ankka.service.name`), FR-029 in `spec.md`, and the property table and serving section of `docs/build/openapi.md`.
+
+**Size:** 28 files, +437 −87 hand-written lines. That is above 400, but the range is the first round's fixes and every commit names the finding it answers. No split is needed.
+
+### The first round's findings, and whether each resolution holds
+
+| First-round finding | Resolution | Holds? |
+|---|---|---|
+| Blocking: a sidecar service gets a document | `HttpServer.undocumented`, `Main.httpServer` | **Holds.** `document` answers `None`, so the console answers 404 and `--local` prints that refusal and exits 1, as the page now says. Every `with*` copy carries `documented` along. `SidecarDocumentSuite` fails without `.undocumented`, because an empty server otherwise builds a document. |
+| FR-029: served version and title | `DocumentMode.title` / `.version` | **Holds in code, partly in the docs.** The written and served documents read one rule, and the new served-equals-written case fails if the server ignores the version. Two gaps remain: the page does not say a deployed service needs the same `ankka.document.version` (should-fix 1), and the console's title is not on the rule (should-fix 3). |
+| Paths not normalised | `OpenApi.joined`, cart document regenerated | **Holds.** `HeldToDocument` and the cart's coverage suite look paths up the same way. The prefix-ending-in-`/` case collapses too. |
+| One JVM-wide violation queue | `HeldToDocument.Violations`; the Java kit keeps its own | **Holds**, with no test of the Java kit itself (nit). Scala suites still share the one record by design, which is right: the trait asserts per test, and tests are serialised. |
+| A decided status's body never checked | validated against `default` when `named` is empty and the status is below 400 | **Holds.** The new case fails without the change, because `responses.path("202")` is missing and nothing is checked. |
+| Binary compatibility | answered: not kept within 0.x, said in the PR | **Cannot be confirmed yet.** No pull request exists (question below). |
+| Rule wording for a hand-written codec | `runtime.md` rewritten | **Holds.** It now matches `ShapeMacro.maybe`. |
+| Nit: operationId uniqueness | refused in `build`, naming both | **Holds in code.** The refusal is new behaviour that the page does not mention (should-fix 2). |
+| Nit: duplicated scaladoc | removed | Holds. |
+| Nit: empty `description` | left | Accepted: valid 3.1, and a nit. |
+| Nit: Kotlin's described form on the page | corrected | Holds. |
+| Nit: `close` hiding a stop failure | asserts only after a clean stop | Holds. A stop failure still skips stopping the scripted services, but the old code did that too. |
+| Nit: the testing page's held tab | left | Accepted. |
+| Nit: the `0.16.2` → `0.17.0` move | declined, with reason | Accepted. `docs check` requires it. |
+| Question: exit code 2 | page and reference list every case | Holds. It matches `locate` and the language refusals. |
+| Question: quotes in `JAVA_TOOL_OPTIONS` | answered: JDK 21 honours them | Accepted. |
+| Thought: a defaulted field's absence in every reader | follow-up in `research.md` | Accepted. The entry names the fixture that would hold it. |
+
+## Should fix
+
+- `docs/build/openapi.md` (the "Serving the document" section and the property table at line 146) — issue (non-blocking): the page does not say where the served document's version comes from.
+  - **What the code does.** The served document and the console's now read `ankka.document.version` from a JVM property or from configuration (`DocumentMode.version`). The page lists that property only as one the command passes when writing.
+  - **Why it matters.** A deployed service is never given the command's `--api-version`. Its served document says `0.0.0` while the kept file says `1.4.0`. That is exactly the difference FR-029 forbids, and the reader has nothing telling them to set the version in `application.conf`.
+  - **What the test proves.** The new `OpenApiServedSuite` case proves the code path only because the test sets the property for both documents.
+  - **Suggestion.** Add a sentence under "Serving the document": the served document's title is `ankka.service.name` and its version is `ankka.document.version`, read from configuration or a system property, so a service that serves its document sets the version it writes with. Add `ankka.document.version` to the reference's configuration list, if that list carries `ankka.*` keys.
+  - Resolved: the serving section says the title is `ankka.service.name` and the version `ankka.document.version`, from a property or the configuration, and that a service sets the version its kept document is written with, 49c8e490c
+- `docs/build/openapi.md` around line 108 ("A description that contradicts the types is refused … is a problem the command reports") — issue (non-blocking): the new refusal is not in the docs.
+  - **What the code does.** Two routes whose operation ids collide, such as `/a-b` and `/a_b`, or `/carts/{cartId}` and `/carts/cartId`, are now a problem. `ankka openapi` exits 1 on it. A service that serves its document throws at `HttpServer` start, because `withOpenApi` builds the document eagerly.
+  - **Why it matters.** That is a new way for a service to fail to start, and nothing on the page, in `limitations.md` or in the features says so.
+  - **Suggestion.** Add one sentence beside the other problems: two routes whose paths differ only in punctuation share an operation id and are refused, naming both. Say also that a route declared as `/` is documented as its endpoint's path, so a client never calls a trailing-slash form. A scenario in `features/openapi-documents/` is optional, since `OpenApiSuite` holds the rule.
+  - Resolved: the page says two routes sharing an operation id are a problem the command names and a serving server refuses at start, 49c8e490c
+- `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityEndpoint.scala:137` (wired at `Ankka.scala:787`) — issue (non-blocking) (if-minor): the console's document is titled `system.name`, not by `DocumentMode.title`.
+  - **The claim.** Commit 899e6f248 says the console's document takes its title by the written document's rule.
+  - **What the code does.** `ObservabilityEndpoint.start(service, system.name, documents)` passes the builder's name. `ankka openapi` passes the directory or descriptor name as `ankka.service.name`, and a local run sets neither that property nor `ANKKA_SERVICE_NAME`. So `--local` and the written file can disagree on `info.title` wherever the descriptor's name differs from `Ankka.service("…")`.
+  - **Suggestion.** In `openApi`, compute `DocumentMode.title(service.system.settings.config, serviceName)`, as the version is already computed. Do not change `serviceName` itself, because `ServiceRegistration.announce` (line 115) uses it for the service's registration. Alternatively, correct the commit's claim.
+  - Resolved: `openApi` titles the console's document with `DocumentMode.title(config, system.name)`, the served one's rule; the name used for registration is untouched, 79b366808
+
+## Nits
+
+- `modules/testkit-java/src/main/scala/com/thinkmorestupidless/ankka/javasdk/testkit/bridge/ServiceKit.scala:283` — nitpick (non-blocking): nothing tests the Java kit's own record.
+  - The new `HeldToDocumentSuite` case proves that `Violations` keeps records apart. Nothing proves that the Java kit uses its own: put `ServiceKit` back on the shared record and `HeldToDocumentJavaSuite` stays green.
+  - A case in `HeldToDocumentJavaSuite` with two held kits open at once, one violating, would hold the change. It would assert that the other kit's `documentViolations()` is empty and that its `close()` passes.
+  - Resolved: `HeldToDocumentJavaSuite` opens two held kits, has one violate, and asserts the other's record and the shared one stay empty and that asserting the other clears nothing of the first's, 79b366808
+
+## Questions
+
+- Description — question: the first round's binary-compatibility answer says "The pull request says so". No pull request exists yet. When it is written, does its body name what a library of endpoints compiled against 0.17 must do (recompile), and that an endpoint member named `description` must be renamed? The resolution holds only once that text is in the body.
+  - Answered: yes. The pull request body carries it under its notes: a library of endpoints compiled against 0.17 is recompiled, and an endpoint with a member named `description` renames it.
+
+## Praise
+
+- `modules/http/src/main/scala/com/thinkmorestupidless/ankka/http/HttpServer.scala:162` — praise: `undocumented` is the smallest fix that makes the platform's claim true. The flag sits on the server that cannot know its routes' shapes, every builder copy carries it, and `SidecarDocumentSuite` is red without it.
+- `modules/http/src/main/scala/com/thinkmorestupidless/ankka/http/openapi/OpenApi.scala:147` — praise: one `joined` is used by the builder and by the held check. The document and the check that holds tests to it therefore cannot disagree on a path's form. The collision refusal names both routes, so the fix is obvious from the message.
+- `modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/HeldToDocumentSuite.scala:541` — praise: the lying `Score` codec tests the `default` check against a body that really disagrees with its shape, instead of trusting a well-behaved codec.
+
+## Checks applied
+
+- **General checklist.** Applied: Correctness, Design and scope, Error handling (the stop-then-assert order, the start-time throw on an id collision), Concurrency and state (per-kit records, the shared record's use by the serialised munit trait), Tests (each new case asked whether it could pass while false), API and compatibility (path normalisation changes the kept documents, and the feature is unreleased), Documentation, and Commit and PR hygiene. Skipped: Security, Data and migrations, Performance, Dependencies and build, and Observability, because no entry point, schema, dependency or hot path changed.
+- **Language skills.** `pr-review-scala`, from the first round: the types, error handling, tests and API groups, applied to the Scala hunks. No other language is changed by hand.
+- **Project rules read.** `CLAUDE.md`, `.claude/rules/runtime.md` (the endpoint section and the corrected trap), `.claude/rules/docs.md` (the every-language rule), and the first round's notes on `REVIEW.md`.
+- **Every-language rule.** The page's `languages: [scala, java, kotlin]` is unchanged. Python, TypeScript, Rust and Go are left out with the reason the limitations page states, and that statement is now true for a sidecar service too. No new tab or sample was needed this round.
+- **Enforced by tooling, so not reviewed:** formatting and warnings. All five commit headers are Conventional Commits under 72 characters, with the attribution trailer.
+- **Tests run:**
+  - `http/testOnly *OpenApiSuite *OpenApiServedSuite`: 68 passed.
+  - `sidecar/testOnly *SidecarDocumentSuite`: 1 passed.
+  - `testkit/testOnly *HeldToDocumentSuite`: 5 of 5 passed.
+  - `uv run --project tools/docs docs check`: 114 pages, no problems.
+- **Not run:** `OpenApiFeatures`, the Java and Kotlin kit suites, the cart's `OpenApiDocumentSuite`, and the full build.

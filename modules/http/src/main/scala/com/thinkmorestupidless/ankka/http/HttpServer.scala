@@ -41,7 +41,8 @@ final class HttpServer private (
     configuredMachines: Option[MachineTokens] = None,
     clientCertificates: Boolean = true,
     documentCheck: Option[openapi.DocumentCheck] = None,
-    openApiAcl: Option[Acl] = None
+    openApiAcl: Option[Acl] = None,
+    documented: Boolean = true
 ) extends RuntimeExtension:
 
   /**
@@ -58,7 +59,8 @@ final class HttpServer private (
       configuredMachines,
       clientCertificates,
       documentCheck,
-      openApiAcl
+      openApiAcl,
+      documented
     )
 
   /**
@@ -75,7 +77,8 @@ final class HttpServer private (
       configuredMachines,
       clientCertificates,
       documentCheck,
-      openApiAcl
+      openApiAcl,
+      documented
     )
 
   /**
@@ -92,7 +95,8 @@ final class HttpServer private (
       Some(machines),
       clientCertificates,
       documentCheck,
-      openApiAcl
+      openApiAcl,
+      documented
     )
 
   /**
@@ -110,7 +114,8 @@ final class HttpServer private (
       configuredMachines,
       clientCertificates = false,
       documentCheck,
-      openApiAcl
+      openApiAcl,
+      documented
     )
 
   /**
@@ -127,7 +132,8 @@ final class HttpServer private (
       configuredMachines,
       clientCertificates,
       Some(check),
-      openApiAcl
+      openApiAcl,
+      documented
     )
 
   /**
@@ -147,7 +153,27 @@ final class HttpServer private (
       configuredMachines,
       clientCertificates,
       documentCheck,
-      Some(acl)
+      Some(acl),
+      documented
+    )
+
+  /**
+   * This server, saying it has no OpenAPI document (feature 067): the sidecar's, whose routes are a
+   * process's or a module's and carry no shapes. Its document would mark every route incomplete and
+   * declare no path parameter, so it gives none, as `ankka openapi` gives none for the language.
+   */
+  private[ankka] def undocumented: HttpServer =
+    new HttpServer(
+      factories,
+      interface,
+      port,
+      tlsDirectory,
+      configuredGrants,
+      configuredMachines,
+      clientCertificates,
+      documentCheck,
+      openApiAcl,
+      documented = false
     )
 
   @volatile private var servedEndpoints: Vector[HttpEndpoint] = Vector.empty
@@ -230,11 +256,11 @@ final class HttpServer private (
     validate(endpoints, mounting)
     servedEndpoints = endpoints
     val document = openApiAcl.map { acl =>
-      val name = sys.props
-        .get("ankka.service.name")
-        .orElse(Option(system.settings.config.getString("ankka.service.name")).filter(_.nonEmpty))
-        .getOrElse(system.name)
-      openapi.OpenApi.build(name, "", endpoints) match
+      // The written document's title and version, by the same rule (FR-029).
+      val config  = system.settings.config
+      val name    = com.thinkmorestupidless.ankka.runtime.DocumentMode.title(config, system.name)
+      val version = com.thinkmorestupidless.ankka.runtime.DocumentMode.version(config)
+      openapi.OpenApi.build(name, version, endpoints) match
         case Right(built)   => acl -> built.render.getBytes(java.nio.charset.StandardCharsets.UTF_8)
         case Left(problems) =>
           throw IllegalArgumentException(
@@ -441,7 +467,7 @@ final class HttpServer private (
       options: Map[String, String],
       registry: com.thinkmorestupidless.ankka.core.ComponentRegistry
   ): Option[Either[Vector[String], String]] =
-    Option.when(kind == "openapi")(openApi(options, registry).map(_.render))
+    Option.when(kind == "openapi" && documented)(openApi(options, registry).map(_.render))
 
   /** The endpoints built with no service, validated, and their document. */
   private[ankka] def openApi(

@@ -351,8 +351,9 @@ final class ServiceBuilder private[ankka] (
     // Feature 067: asked for a document, write it and end, before anything reads the environment
     // or an actor system exists. Nothing is bound, formed or connected.
     DocumentMode.requested().foreach { properties =>
-      val serviceName        = sys.props.getOrElse("ankka.service.name", name)
-      val (status, problems) = DocumentMode.run(this, properties, serviceName)
+      val serviceName = DocumentMode.title(config, name)
+      val versioned   = properties + ("ankka.document.version" -> DocumentMode.version(config))
+      val (status, problems) = DocumentMode.run(this, versioned, serviceName)
       problems.foreach(System.err.println)
       System.err.flush()
       sys.exit(status)

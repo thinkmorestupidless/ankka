@@ -133,7 +133,8 @@ object ObservabilityEndpoint:
      * be built.
      */
     def openApi(exchange: HttpExchange): Unit =
-      service.document("openapi", Map("name" -> serviceName)) match
+      val version = DocumentMode.version(service.system.settings.config)
+      service.document("openapi", Map("name" -> serviceName, "version" -> version)) match
         case Some(Right(document)) => respond(exchange, document)
         case Some(Left(problems))  =>
           val bytes = problems.mkString("", "\n", "\n").getBytes(StandardCharsets.UTF_8)

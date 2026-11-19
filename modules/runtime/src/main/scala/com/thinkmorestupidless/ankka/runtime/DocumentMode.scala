@@ -13,6 +13,28 @@ private[ankka] object DocumentMode:
   private val Prefix = s"$Property."
   private val Out    = s"${Prefix}out"
 
+  private val Version = s"${Prefix}version"
+  private val Name    = "ankka.service.name"
+
+  /**
+   * A document's title: `ankka.service.name` as a property, else as configured, else `fallback`.
+   * The one rule for the written document and the served one, which FR-029 holds equal.
+   */
+  def title(config: com.typesafe.config.Config, fallback: String): String =
+    sys.props
+      .get(Name)
+      .orElse(Option.when(config.hasPath(Name))(config.getString(Name)).filter(_.nonEmpty))
+      .getOrElse(fallback)
+
+  /**
+   * A document's version: `ankka.document.version` as a property, else as configured, else none.
+   */
+  def version(config: com.typesafe.config.Config): String =
+    sys.props
+      .get(Version)
+      .orElse(Option.when(config.hasPath(Version))(config.getString(Version)))
+      .getOrElse("")
+
   /** The kinds a service may be asked for. */
   val Kinds: Set[String] = Set("openapi")
 

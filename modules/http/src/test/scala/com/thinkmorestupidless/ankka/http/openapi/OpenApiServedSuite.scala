@@ -79,6 +79,22 @@ class OpenApiServedSuite extends munit.FunSuite:
     }
   }
 
+  test("given a version and a name, the served document is the one the command writes (FR-029)") {
+    val set = Map("ankka.document.version" -> "1.4.0", "ankka.service.name" -> "cart")
+    set.foreach((k, v) => System.setProperty(k, v))
+    try
+      serving(ToShop) { (server, base) =>
+        val (status, _, body) = send(base, "GET", "/_ankka/openapi.json", Some("shop"))
+        assertEquals(status, 200)
+        assert(body.contains("\"version\": \"1.4.0\""), body.take(200))
+        // What `ankka openapi --api-version 1.4.0` hands the service's own build.
+        val written =
+          server.document("openapi", Map("name" -> "cart", "version" -> "1.4.0"), registry = null)
+        assertEquals(written, Some(Right(body)))
+      }
+    finally set.keys.foreach(System.clearProperty)
+  }
+
   test("a caller the ACL does not admit is answered 401 with the authenticator's challenge") {
     serving(ToShop) { (_, base) =>
       val (status, _, _) = send(base, "GET", "/_ankka/openapi.json")

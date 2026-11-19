@@ -48,16 +48,19 @@ final class ServiceKit private (
     private var broker: runtime.InMemoryBroker,
     /** The settings' clock, which a service started again keeps. */
     clock: java.time.Clock,
-    /** Whether its server is held to its OpenAPI document (feature 067), on a restart too. */
-    held: Boolean
+    /**
+     * What its server did outside its OpenAPI document, when held to it (feature 067), restarts
+     * too.
+     */
+    held: Option[stk.HeldToDocument.Violations]
 ):
   /** What the server did that its document does not allow, since the kit started. */
-  def documentViolations(): java.util.List[String] = stk.HeldToDocument.violations.asJava
+  def documentViolations(): java.util.List[String] = held.fold(Vector.empty[String])(_.all).asJava
 
   /** Fails, listing every violation, or does nothing when the server kept to its document. */
   def assertHeldToDocument(): Unit =
-    val found = stk.HeldToDocument.violations
-    stk.HeldToDocument.clear()
+    val found = held.fold(Vector.empty[String])(_.all)
+    held.foreach(_.clear())
     if found.nonEmpty then
       throw AssertionError(
         s"the service answered outside its OpenAPI document:\n${found.map("  - " + _).mkString("\n")}"
@@ -186,10 +189,10 @@ final class ServiceKit private (
   private[ankka] def scalaKit: stk.AnkkaTestKit = kit
 
   def close(): Unit =
-    try
-      kit.stop()
-      scripted.values.foreach(_.stop())
-    finally if held then assertHeldToDocument()
+    kit.stop()
+    scripted.values.foreach(_.stop())
+    // Only once the kit stopped: an assertion here would hide the failure that stopped it.
+    if held.isDefined then assertHeldToDocument()
 
 object ServiceKit:
 
@@ -229,7 +232,11 @@ object ServiceKit:
   )
 
   /** The service read, and the extensions it is started with. */
-  private def prepare(service: ServiceBuilder, clock: java.time.Clock, held: Boolean): Prepared =
+  private def prepare(
+      service: ServiceBuilder,
+      clock: java.time.Clock,
+      held: Option[stk.HeldToDocument.Violations]
+  ): Prepared =
     val builder = service match
       case b: JavaServiceBuilder => b
       case other => throw IllegalArgumentException(s"$other is not a service from Ankka.service")
@@ -272,8 +279,8 @@ object ServiceKit:
           runtime.ServiceBuilder => runtime.ServiceBuilder
       ) => stk.AnkkaTestKit
   ): ServiceKit =
-    val held = settings.isHeldToDocument
-    if held then stk.HeldToDocument.clear()
+    // The kit's own record: another kit open beside it neither clears nor reads it.
+    val held = Option.when(settings.isHeldToDocument)(stk.HeldToDocument.Violations())
     val Prepared(read, probe, broker, http, configure) = prepare(service, settings.clock, held)
     val scripted                                       =
       settings.scriptedServices.asScala.map(n => n -> stk.ScriptedService.start()).toMap
@@ -297,8 +304,11 @@ object ServiceKit:
     ServiceKit(kit, read, scripted, probe, broker, settings.clock, held)
 
   /** The server, held to its document when the settings ask. */
-  private def checked(server: com.thinkmorestupidless.ankka.http.HttpServer, held: Boolean) =
-    if held then stk.HeldToDocument.server(server) else server
+  private def checked(
+      server: com.thinkmorestupidless.ankka.http.HttpServer,
+      held: Option[stk.HeldToDocument.Violations]
+  ) =
+    held.fold(server)(stk.HeldToDocument.server(server, _))
 
 private final class JavaScripted(scala: stk.ScriptedService) extends ScriptedService:
   def answer(answer: Function[ScriptedService.Request, ServiceResponse]): Unit =

@@ -201,11 +201,11 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
 
   // ── what writing it gave ──────────────────────────────────────────────────
 
-  private var status                     = -1
-  private var problems: Vector[String]   = Vector.empty
-  private var text: Option[String]       = None
-  private var earlier: Option[String]    = None
-  private var threadsBefore: Set[String] = Set.empty
+  private var status                             = -1
+  private var problems: Vector[String]           = Vector.empty
+  private var text: Option[String]               = None
+  private var earlier: Option[String]            = None
+  private var threadsBefore: Option[Set[String]] = None
 
   override def beforeEach(context: BeforeEach): Unit =
     service = "cart"; routes = Set.empty; acl = Acl.AllowAll; sockets = false
@@ -214,7 +214,7 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
     players = None; endpointDescription = Description.none; selection = Map.empty
     holding = false; seen = Vector.empty; messagesAnswer.set("as described")
     HeldToDocument.clear()
-    status = -1; problems = Vector.empty; text = None; earlier = None
+    status = -1; problems = Vector.empty; text = None; earlier = None; threadsBefore = None
 
   private def factories: Vector[EndpointClients => HttpEndpoint] =
     val (r, a, s)                             = (routes, acl, sockets)
@@ -412,7 +412,7 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
     val deadline = System.nanoTime() + 20.seconds.toNanos
     while ankkaThreads.exists(_.startsWith("ankka-test-")) && System.nanoTime() < deadline do
       Thread.sleep(100)
-    threadsBefore = ankkaThreads
+    threadsBefore = Some(ankkaThreads)
   }
 
   Given("the developer has written the service's OpenAPI document") { () =>
@@ -537,7 +537,10 @@ class OpenApiFeatures extends GherkinSuite("../../features/openapi-documents") w
   Then("the document is written") { () =>
     assertEquals((status, problems), (0, Vector.empty[String]))
     assert(text.isDefined)
-    assertEquals(ankkaThreads -- threadsBefore, Set.empty[String], "something was started")
+    // Only where the machine was said to have nothing: another scenario may have a kit stopping.
+    threadsBefore.foreach(before =>
+      assertEquals(ankkaThreads -- before, Set.empty[String], "something was started")
+    )
   }
 
   Then("the route is marked as needing no credential") { () =>

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}
 import com.thinkmorestupidless.ankka.http.HttpServer
-import com.thinkmorestupidless.ankka.http.openapi.DocumentCheck
+import com.thinkmorestupidless.ankka.http.openapi.{DocumentCheck, OpenApi}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -23,25 +23,48 @@ import scala.jdk.CollectionConverters.*
  */
 object HeldToDocument:
 
-  private val found = ConcurrentLinkedQueue[String]()
+  /**
+   * Where checked servers record what they did outside their documents. A kit that holds its own
+   * server keeps one of its own, so another kit open beside it neither reads nor clears it.
+   */
+  final class Violations:
+    private val found = ConcurrentLinkedQueue[String]()
+
+    /**
+     * What the servers recording here did that their documents do not allow, since the last clear.
+     */
+    def all: Vector[String] = found.asScala.toVector
+
+    def clear(): Unit = found.clear()
+
+    /** Fails listing every violation, and clears them, or does nothing when there are none. */
+    def assertHeld(): Unit =
+      val held = all
+      clear()
+      if held.nonEmpty then throw NotHeldToDocument(held)
+
+    private[HeldToDocument] def note(violation: String): Unit = found.add(violation): Unit
+
+  /**
+   * The record a server checked with no record of its own writes to, which the suite trait reads.
+   */
+  private val shared = Violations()
 
   /** The same server, checked against the document of the endpoints it serves. */
-  def server(server: HttpServer): HttpServer =
-    lazy val checked: HttpServer = server.withDocumentCheck(Check(() => checked))
+  def server(server: HttpServer): HttpServer = this.server(server, shared)
+
+  /** The same server, checked, recording what it does outside its document `into`. */
+  def server(server: HttpServer, into: Violations): HttpServer =
+    lazy val checked: HttpServer = server.withDocumentCheck(Check(() => checked, into))
     checked
 
-  /** What the checked servers did that their documents do not allow, since the last clear. */
-  def violations: Vector[String] = found.asScala.toVector
+  /** What the servers checked with no record of their own did outside their documents. */
+  def violations: Vector[String] = shared.all
 
-  /** Fails listing every violation, and clears them, or does nothing when there are none. */
-  def assertHeld(): Unit =
-    val held = violations
-    clear()
-    if held.nonEmpty then throw NotHeldToDocument(held)
+  /** Fails listing every such violation, and clears them, or does nothing when there are none. */
+  def assertHeld(): Unit = shared.assertHeld()
 
-  def clear(): Unit = found.clear()
-
-  private def note(violation: String): Unit = found.add(violation): Unit
+  def clear(): Unit = shared.clear()
 
   /**
    * The statuses any route may answer without naming them: the platform's own, for a body or a
@@ -53,7 +76,9 @@ object HeldToDocument:
   private val TextShape = mapper.readTree("""{"type":"string"}""")
   private val schemas   = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
 
-  private final class Check(served: () => HttpServer) extends DocumentCheck:
+  private final class Check(served: () => HttpServer, into: Violations) extends DocumentCheck:
+
+    private def note(violation: String): Unit = into.note(violation)
 
     /** Read on first use: the server serves, and so knows its endpoints, by then. */
     private lazy val document: Option[JsonNode] =
@@ -63,7 +88,7 @@ object HeldToDocument:
       route.split(' ') match
         case Array(method, path) =>
           document
-            .map(_.path("paths").path(path).path(method.toLowerCase))
+            .map(_.path("paths").path(OpenApi.joined("", path)).path(method.toLowerCase))
             .filterNot(_.isMissingNode)
         case _ => None
 
@@ -113,8 +138,11 @@ object HeldToDocument:
           )
         else
           for
-            bytes  <- body
-            schema <- schemaOf(responses.path(status.toString).path("content"), contentType)
+            bytes <- body
+            // A status the handler decides is described once, as `default`; a refusal is not that.
+            answer =
+              if decided && status < 400 then "default" else status.toString
+            schema <- schemaOf(responses.path(answer).path("content"), contentType)
             messages = refused(schema, bytes)
             if messages.nonEmpty
           do

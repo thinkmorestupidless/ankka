@@ -15,8 +15,21 @@ import scala.util.Try
  */
 class HeldToDocumentSuite extends munit.FunSuite with LogCapturing:
 
+  /** A score whose shape says a number, written as text when negative: a codec that lies. */
+  private final case class Score(n: Int)
+  private given ToResponse[Score] = new ToResponse[Score]:
+    def status(value: Score) = 200
+    val contentType          = "application/json"
+    def write(value: Score)  =
+      (if value.n < 0 then "\"none\"" else value.n.toString)
+        .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    override def shape: Option[com.thinkmorestupidless.ankka.core.shape.ShapeOf[?]] =
+      Some(summon[com.thinkmorestupidless.ankka.core.shape.ShapeOf[Int]])
+
   private final class Players extends HttpEndpoint("/players"):
     val acl: Acl = Acl.AllowAll
+    // The handler decides the status, so the document describes the answer as `default`.
+    get("/{playerId}/score")((id: String) => Respond(Score(if id == "liar" then -1 else 3), 202))
     described(_.answers[Int](200)) {
       get("/{playerId}") { (id: String) =>
         if id == "taken" then throw HttpProblem.conflict("taken") else id.length
@@ -60,6 +73,36 @@ class HeldToDocumentSuite extends munit.FunSuite with LogCapturing:
     val ran =
       runIn(new munit.FunSuite with HeldToDocument {})(assertEquals(status("/players/ann"), 200))
     assert(ran.isSuccess, ran.toString)
+  }
+
+  test("a body the handler's own status carries is held to the route's default answer") {
+    HeldToDocument.clear()
+    assertEquals(status("/players/ann/score"), 202)
+    assertEquals(HeldToDocument.violations, Vector.empty)
+    assertEquals(status("/players/liar/score"), 202)
+    val found = HeldToDocument.violations
+    HeldToDocument.clear()
+    assert(
+      found.exists(
+        _.startsWith("GET /players/{playerId}/score: answered 202 with a body its shape")
+      ),
+      found.toString
+    )
+  }
+
+  test("a server recording into a record of its own leaves the shared one alone") {
+    val own   = HeldToDocument.Violations()
+    val other = HeldToDocument.server(HttpServer.at("127.0.0.1", 0)(_ => Players()), own)
+    val kit2  = AnkkaTestKit.start(Seq.empty, Seq(other))
+    try
+      HeldToDocument.clear()
+      val uri = URI.create(s"http://127.0.0.1:${other.boundPort.get}/players/taken")
+      http.send(HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.discarding())
+      assertEquals(HeldToDocument.violations, Vector.empty)
+      assertEquals(own.all.size, 1, own.all.toString)
+      HeldToDocument.clear()
+      assertEquals(own.all.size, 1, "clearing the shared record cleared another")
+    finally kit2.stop()
   }
 
   test("a suite that does not mix the trait in is unaffected") {

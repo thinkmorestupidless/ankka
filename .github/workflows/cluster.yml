@@ -63,7 +63,7 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - uses: dtolnay/rust-toolchain@1.99.1  # as sdks/rust/rust-toolchain.toml pins it
+      - uses: dtolnay/rust-toolchain@1.120.0  # as sdks/rust/rust-toolchain.toml pins it
         if: matrix.project == 'sidecar'
         with:
           targets: wasm32-unknown-unknown

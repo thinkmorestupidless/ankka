@@ -62,6 +62,10 @@ updates:
     commit-message:
       prefix: build
       include: scope
+    # dtolnay/rust-toolchain's ref names the Rust toolchain it installs, not a version of the
+    # action: it follows sdks/rust/rust-toolchain.toml and moves with it, by hand.
+    ignore:
+      - dependency-name: dtolnay/rust-toolchain
     groups:
       actions:
         update-types: [minor, patch]

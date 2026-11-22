@@ -189,7 +189,8 @@ at once, so a run takes at least its runner-minutes over 34, and every shard pay
 and fixture again: the table aims at about 100 jobs, not the most shards. The nightly run passes `-Dankka.coldstarts=20` (SC-002; five by default). Check a
 platform change before merging with `gh workflow run cluster --ref <branch>`, one suite with
 `-f suite=<Name>`. Under `CI` the sidecar suite fails, rather than skips, when the Rust module does not
-build.
+build. The nightly run starts at midnight UTC, and `cluster-retry.yml` re-runs a run's failed jobs
+once when its first attempt fails, so a red run in the morning is a suite that failed twice.
 
 ## Architecture
 

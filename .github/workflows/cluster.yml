@@ -20,7 +20,7 @@
 name: cluster
 on:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "0 0 * * *"   # midnight UTC (GMT); GitHub reads cron in UTC and keeps no daylight saving
   workflow_dispatch:
     inputs:
       coldstarts:

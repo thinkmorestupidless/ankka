@@ -295,6 +295,7 @@ jobs:
             unchecked:
               - '.github/workflows/release.yml'   # runs only on a tag; nothing a pull request builds executes it
               - '.github/workflows/cluster.yml'   # the k3s suites, nightly and on demand; `changes` runs its matrix script
+              - '.github/workflows/cluster-retry.yml'   # re-runs a cluster run's failed jobs once, after the run
               - '.github/cluster-suites.py'
               - '.github/cluster-sampler.py'   # cluster.yml's resource sampler
               - '.github/workflows/gcs.yml'   # GcsCompatibilitySuite against a real bucket, nightly and on demand

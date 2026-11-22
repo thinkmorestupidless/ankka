@@ -590,7 +590,7 @@ jobs:
       id-token: write   # the OIDC token PyPI verifies
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.12"
       - name: Write the version, generate the stubs, build the wheel
@@ -1020,7 +1020,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the tags: docs check refuses a release named by hand, and must see them
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
         with:
           python-version: "3.12"
       - run: uv run --project tools/docs docs build --release "${GITHUB_REF_NAME#v}"

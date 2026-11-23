@@ -20,10 +20,16 @@
 # checks have passed on a head that is up to date with `main`, so the merge commit's tree is the
 # tree that was tested, and a second run of it would be the same minutes spent on the same answer.
 # `workflow_dispatch` runs every job regardless of what changed, for a full build on demand.
+#
+# A push to a pull request cancels the run it supersedes: its answer is about a head nobody will
+# merge, and the run for the new head answers the same question.
 name: ci
 on:
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   changes:
     runs-on: ubuntu-24.04

@@ -102,7 +102,7 @@ object Dependencies {
      * (feature 067, R10). A compile dependency of the test kits only; never on a service's
      * production classpath.
      */
-    val jsonSchemaValidator = "1.5.9"
+    val jsonSchemaValidator = "3.0.9"
 
     /** Test scope only: generated values for the shape agreement suite (feature 067, T007). */
     val munitScalacheck = "1.3.1"

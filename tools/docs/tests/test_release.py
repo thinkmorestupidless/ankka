@@ -33,6 +33,9 @@ hooks:
   - {hooks}
 extra:
   docs:
+    kept:
+      settings: false
+      job: false
     release:
       patterns: docs/release-patterns.txt
       tags: "v*"

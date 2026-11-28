@@ -88,6 +88,9 @@ class Settings:
         release:                      # where pages name a release of this repository
           patterns: docs/release-patterns.txt
           tags: "v*"
+        kept:                         # the parts of the set-up the tool keeps here; both true by default
+          settings: false             # tools/docs/pyproject.toml is this repository's own
+          job: false                  # .github/workflows/docs.yml is not the tool's, or does not exist
     ```
     """
 
@@ -101,6 +104,8 @@ class Settings:
     samples_fences: dict[str, tuple[str, ...]] = field(default_factory=dict)
     samples_tested: bool = False
     release: ReleaseSettings | None = None
+    kept_settings: bool = True
+    kept_job: bool = True
 
     @property
     def escapes_dollars(self) -> bool:
@@ -159,7 +164,7 @@ def project(root: Path | None = None) -> Project:
 def settings(raw: Any, root: Path) -> Settings:
     if not isinstance(raw, dict):
         raise ConfigError("extra.docs must be a mapping")
-    known = {"facets", "skills", "generated", "site-links", "samples", "release"}
+    known = {"facets", "skills", "generated", "site-links", "samples", "release", "kept"}
     for key in raw:
         if key not in known:
             raise ConfigError(f"extra.docs has an unknown key '{key}'; one of {sorted(known)}")
@@ -218,6 +223,15 @@ def settings(raw: Any, root: Path) -> Settings:
             raise ConfigError("extra.docs.release is a mapping with a `patterns` file")
         release_settings = ReleaseSettings(root / release["patterns"], str(release.get("tags", "v*")))
 
+    kept = raw.get("kept") or {}
+    if not isinstance(kept, dict):
+        raise ConfigError("extra.docs.kept must be a mapping of `settings` and `job` to true or false")
+    for key, value in kept.items():
+        if key not in ("settings", "job"):
+            raise ConfigError(f"extra.docs.kept has an unknown key '{key}'; one of ['job', 'settings']")
+        if not isinstance(value, bool):
+            raise ConfigError(f"extra.docs.kept.{key} must be true or false")
+
     return Settings(
         facets=facets,
         skills_source=source if source.is_dir() or targets else None,
@@ -229,6 +243,8 @@ def settings(raw: Any, root: Path) -> Settings:
         samples_fences=samples_fences,
         samples_tested=samples_tested,
         release=release_settings,
+        kept_settings=kept.get("settings", True),
+        kept_job=kept.get("job", True),
     )
 
 

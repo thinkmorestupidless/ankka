@@ -211,3 +211,14 @@ Second report: nothing above low.
 - `ankka-brain/conventions.md`: the documentation section names `docs init` (FR-021).
 - Holding a page's replies to the running service; the untested-sample check without a languages
   facet; leaving a file under `docs/` out of the pages.
+
+## Found during implementation
+
+- R2 holds (T002, 2026-11-28, uv 0.11.4). `uvx --from "git+…ankka@v0.18.0#subdirectory=tools/docs"`
+  and a project dependency `ankka-docs @ git+…@v0.18.0` (ankka-flow's `uv run --project tools/docs`)
+  both record `direct_url.json` as `{"vcs_info": {"commit_id": "4f8a14dc…", "requested_revision":
+  "v0.18.0"}, "subdirectory": "tools/docs"}`. `requested_revision` is the tag; no fallback needed.
+- R8 holds (T003). `docs/contributing/documentation.md` checked as a page of kind `reference` is
+  refused only for being outside the navigation and every skill: no line trips the history or
+  positional patterns, since the page already quotes their forms in code. Nothing to fence for T019;
+  the `@main` dependency line is removed by FR-020, not by the check.

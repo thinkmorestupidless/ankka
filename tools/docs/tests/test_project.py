@@ -8,6 +8,7 @@ for the same mistakes ankka's pages are.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -404,3 +405,16 @@ def test_an_unknown_generator_kind_or_block_is_a_problem(repo: Path) -> None:
 def test_prose_must_describe_every_generated_variable(repo: Path) -> None:
     write(repo, "docs/reference/configuration.md", CONFIGURATION.replace("`WIDGET_SIZE` is how big the widget is.", "Sizes vary."))
     assert "docs/reference/configuration.md:1: `WIDGET_SIZE` is in the generated table but described nowhere on the page" in problems(repo)
+
+
+
+def test_kept_is_settings_and_job_true_or_false(tmp_path: Path) -> None:
+    root = tmp_path
+    for block, message in [("kept: {colour: false}", "unknown key 'colour'"), ("kept: {job: no-thanks}", "kept.job must be true or false"), ("kept: [job]", "must be a mapping")]:
+        (root / "mkdocs.yml").write_text(f"site_name: x\nnav: []\nextra:\n  docs:\n    {block}\n")
+        with pytest.raises(ConfigError, match=re.escape(message)):
+            project(root)
+    (root / "mkdocs.yml").write_text("site_name: x\nnav: []\nextra:\n  docs:\n    kept: {settings: false}\n")
+    assert (project(root).settings.kept_settings, project(root).settings.kept_job) == (False, True)
+    (root / "mkdocs.yml").write_text("site_name: x\nnav: []\n")
+    assert (project(root).settings.kept_settings, project(root).settings.kept_job) == (True, True)

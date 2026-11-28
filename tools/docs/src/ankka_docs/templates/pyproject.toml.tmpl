@@ -1,0 +1,10 @@
+# Kept by ankka's documentation tool (`docs init`). Edits are written over.
+# The documentation build. Everything specific to this repository is `extra.docs` in mkdocs.yml.
+[project]
+name = "@@name@@-docs"
+version = "0.0.0"
+description = "Builds @@name@@'s documentation with ankka's documentation tool."
+requires-python = ">=3.12"
+dependencies = [
+    "ankka-docs @ git+https://github.com/thinkmorestupidless/ankka@v@@release@@#subdirectory=tools/docs",
+]

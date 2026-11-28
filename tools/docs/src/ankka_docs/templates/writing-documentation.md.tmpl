@@ -1,0 +1,53 @@
+---
+title: Writing documentation
+description: How @@name@@'s documentation is built with ankka's documentation tool, where a page goes, and what is particular to this repository.
+kind: contributing
+---
+
+# Writing documentation
+
+@@name@@'s documentation is one tree of plain Markdown under `docs/`, and every way of reading it is a
+rendering of that tree: the site at `@@site_url@@`, `llms.txt`, `llms-full.txt`, a Markdown copy of
+each page, `docs-index.json`, and the agent skill in the plugin under `marketplace/plugins/@@name@@/`.
+The tool that checks and renders it is ankka's documentation tool, and so are the rules:
+[Documentation rules](https://docs.ankka.cloud/reference/documentation-rules/) states every rule a page
+follows, with its reason. This page says what is particular to this repository.
+
+## The build
+
+```bash
+uv run --project tools/docs docs check    # every rule; exits 1 on a problem
+uv run --project tools/docs docs sync     # refresh included samples, generated blocks and the skill
+uv run --project tools/docs docs build    # check, build the site, write the machine renderings
+uv run --project tools/docs docs serve    # the site with live reload, while writing
+uv run --project tools/docs docs init     # write the kept parts again, and any part that is missing
+```
+
+The site lands in `target/docs-site`. What the tool needs to know about this repository is
+`extra.docs` in `mkdocs.yml`.
+
+## The parts the tool keeps
+
+Two files are the documentation tool's, not this repository's: `tools/docs/pyproject.toml`, which names
+the release of the tool that builds this documentation, and `.github/workflows/docs.yml`, which checks
+the documentation on every pull request and publishes the site to GitHub Pages when a release is
+tagged. `docs check` fails when either differs from what that release of the tool writes, and
+`docs init` writes both again. A later release of the tool is taken by running `docs init` from it,
+which rewrites both files and nothing else:
+
+```bash
+uvx --from "git+https://github.com/thinkmorestupidless/ankka@v<release>#subdirectory=tools/docs" docs init
+```
+
+## Where a page goes
+
+| Kind | Directory | The reader wants to |
+|---|---|---|
+| `tutorial` | `get-started/` | be walked from nothing to something working |
+| `concept` | `concepts/` | understand how something works and why |
+| `guide` | `build/`, `deploy/` | get one task done |
+| `reference` | `reference/` | look one fact up |
+| `contributing` | `contributing/` | change @@name@@ itself |
+
+A new page is added to the `nav` in `mkdocs.yml` and, unless it is a contributing page, to the
+`pages:` list of the skill in `tools/docs/skill/@@name@@/SKILL.md`, or the check fails.

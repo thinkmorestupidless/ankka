@@ -3260,6 +3260,23 @@ OpenAPI document. Not a label, which is a node's.
 Of a service in a test: every answer it gives and every query parameter its handlers
 read is checked against its OpenAPI document, and a difference fails the test.
 
+### documentation tool
+*Proposed.* The program the platform publishes that checks, builds and sets up a repository's
+documentation. Avoid: docs tool
+
+### set-up
+*Proposed.* What the documentation tool writes into a repository so that its documentation builds:
+the build settings, the documentation job, the navigation, the first pages and the project's skill.
+
+### build settings
+*Proposed.* The part of a set-up that names the release of the documentation tool a repository's
+documentation is built with.
+
+### documentation job
+*Proposed.* The job a set-up gives a repository, which checks its documentation on a pull request
+and publishes it when a release is tagged. The documentation tool keeps it the same in every
+repository.
+
 ## Everyday words
 
 fits, optional, completeness, verbatim, exits, help, defect, cycle, met, recommends, consistency, consistent, invoice, invoices, invoiced, discount, stock, rendered, rendering, refreshed, signal, executable, absolute, trusted, generated, another, path, unbounded, CI, JSON, preceded, keywords, terminal

@@ -2,7 +2,7 @@
 title: Design, then build
 description: Build a feature on ankka by describing it, answering the design's questions, and approving the pull request the build raises; what each half produces and where you are asked.
 kind: guide
-related: [get-started/coding-agents.md, get-started/install.md, contributing/documentation.md]
+related: [get-started/coding-agents.md, get-started/install.md, build/documentation.md]
 ---
 
 # Design, then build

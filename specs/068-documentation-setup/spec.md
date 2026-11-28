@@ -61,8 +61,8 @@ This feature closes both. The decisions:
   until someone raises it, so a change to the tool reaches a repository when the repository asks for
   it. The dependency is written in the form the repository's dependency updates already understand.
 - **A set-up repository checks on every pull request and publishes on a release.** The workflow the
-  tool keeps runs the build as a check on a pull request that touches the documentation or what it is
-  generated from, and publishes the site when a release is tagged, never from the default branch. A
+  tool keeps runs the build as a check on every pull request, and publishes the site when a release
+  is tagged, never from the default branch. A
   tag that marks a pre-release publishes nothing. A repository with no release has no site yet, and
   its pull requests are still checked.
 - **It says what a person still has to do.** Turning the site's hosting on, pointing the address at
@@ -70,9 +70,10 @@ This feature closes both. The decisions:
   the marketplace from the repository's release are not things a command run in a checkout can do.
   The report lists each, with the lines to add.
 - **The rules for writing a page are in a skill, and are the published page.** A new skill of the
-  platform, for writing documentation, carries ankka's page on writing documentation as it is
-  published, so the skill and the site cannot say different things. A contributing page may be
-  carried by a skill that names it; no other skill changes.
+  platform, for writing documentation, carries the page of rules as it is published, so the skill
+  and the site cannot say different things. The rules are for anyone using the tool, so they are a
+  public page of their own; ankka's contributing page keeps only what is ankka's (plan, research
+  R8).
 - **The procedure is a page too.** A new page in ankka's documentation says how a repository is
   documented, in order: set it up; read the code, the contract and the living features before
   writing; decide the pages by kind; take every sample from code a test runs, and give a sample that
@@ -201,7 +202,8 @@ are the two pages as published, and the check fails when the rendered skill is s
   check fails on the old one and says to set up again.
 - A repository deliberately keeps a workflow of its own (ankka publishes its documentation inside
   its release workflow): it states, in its settings, that the tool keeps no workflow there, and the
-  check holds it to nothing.
+  check holds it to nothing. The same statement can be made of the build's settings, which ankka,
+  being the tool's own repository, also makes.
 - A release is tagged in a repository whose site hosting was never turned on: the publish fails in
   the workflow, visibly, and nothing else of the release depends on it.
 
@@ -247,10 +249,9 @@ are the two pages as published, and the check fails when the rendered skill is s
   put back.
 - **FR-011**: The check MUST NOT fail on a kept file that is absent in a repository that states the
   tool keeps no such file there; absent with no such statement, it fails and names the command.
-- **FR-012**: The kept workflow MUST run the build as a check on every pull request that touches the
-  documentation, the tool's settings, the skill, or a path the repository's settings say samples or
-  generated content come from, and MUST publish nothing from a pull request or from the default
-  branch.
+- **FR-012**: The kept workflow MUST run the build as a check on every pull request, whatever it
+  touches, so the workflow is the same in every repository, and MUST publish nothing from a pull
+  request or from the default branch.
 - **FR-013**: The kept workflow MUST publish the site when a release is tagged, built for that
   release, and MUST publish nothing for a pre-release tag.
 - **FR-014**: The kept workflow MUST need no secret and no credential beyond what publishing the
@@ -261,9 +262,9 @@ are the two pages as published, and the check fails when the rendered skill is s
 - **FR-015**: The platform's plugin MUST hold a skill for writing documentation, rendered by the
   documentation tool as the platform's other skills are, and the check MUST fail when its rendering
   is stale.
-- **FR-016**: The skill MUST carry ankka's page on writing documentation and the page on documenting
-  a repository exactly as published; a skill MUST be able to carry a contributing page it names, and
-  a contributing page no skill names stays out of every skill, as now.
+- **FR-016**: The skill MUST carry the page of rules and the page on documenting a repository
+  exactly as published. The rules MUST be a public page that is not a contributing page, so the
+  skill carries it as every skill carries its pages; no skill carries a contributing page, as now.
 - **FR-017**: ankka's documentation MUST have a page that says how a repository is documented, in
   order, covering: setting up with the command; what to read before writing; choosing pages by kind;
   samples from tested code and giving a sample a tested home; replies taken from the running thing;
@@ -275,9 +276,9 @@ are the two pages as published, and the check fails when the rendered skill is s
 - **FR-019**: The skill's description MUST say when to load it in the words a request would use:
   writing, changing or reviewing documentation, a page, a limitations page, a skill, or setting a
   repository's documentation up.
-- **FR-020**: ankka's page on writing documentation MUST name the command as how a repository takes
-  the tool, and MUST NOT show a dependency line that names a branch or tell the reader to copy a
-  sibling.
+- **FR-020**: ankka's pages on writing documentation MUST name the command as how a repository
+  takes the tool, and MUST NOT show a dependency line that names a branch or tell the reader to copy
+  a sibling.
 - **FR-020a**: The page on documenting a repository MUST be a guide in the public navigation, written
   for a developer of any ankka application, and what the template gives a developer MUST say that a
   service's documentation is set up with the command and where the page is.

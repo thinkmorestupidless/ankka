@@ -40,8 +40,11 @@ uvx --from "git+https://github.com/thinkmorestupidless/ankka@v<release>#subdirec
 ```
 
 `<release>` is a release of ankka that carries the command, as
-https://github.com/thinkmorestupidless/ankka/releases lists them. It reads the repository's name and address from its `origin` on GitHub and writes the set-up: the build
-settings and the documentation job, which the tool keeps, and the navigation, a first page, a page on
+https://github.com/thinkmorestupidless/ankka/releases lists them; a release from before the command
+existed answers `docs init` with the tool's usage text and exit code 2, and writes nothing.
+
+`docs init` reads the repository's name and address from its `origin` on GitHub and writes the set-up:
+the build settings and the documentation job, which the tool keeps, and the navigation, a first page, a page on
 writing documentation, a limitations page, a glossary page, the project's skill and its plugin's
 description, which the repository owns. A file the repository owns is written only when it is absent
 and is never written over. `--release <major.minor.patch>` names the release of the tool the build

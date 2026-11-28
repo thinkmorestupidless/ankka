@@ -106,3 +106,13 @@ what is ankka's own; the ones that bite:
   false}`. A change to either kept template, or to `documentation.yml`, reaches every sibling at the
   next release they take, so it is a change to the contract in `specs/068-documentation-setup/contracts/`,
   which `test_setup.py` reads.
+- **The rendered skills ship the tree's release forms, a release behind** (2026-11-28, feature 068). A
+  build rewrites the site and the CLI's docs bundle to the release being built, but the marketplace job,
+  the template job and the CLI's own templates carry the skill copies as committed, which name the
+  newest tag before the one being cut (or an older one, when nobody has run `docs sync` since). A page
+  whose first instruction is a command at a release that must carry a new feature therefore cannot use
+  a `release` form: the two documentation pages write `@v<release>` and say which release that is.
+- **GitHub creates the `github-pages` environment allowing the default branch alone** (2026-11-28).
+  A workflow that deploys Pages from a tag fails at the deploy job until a tag rule (`v*`) is added to
+  the environment by hand; ankka and ankka-flow have it. A pull request's run never reaches the
+  environment, so nothing but a tag shows it, which is why `docs init`'s report lists it.

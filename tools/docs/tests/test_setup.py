@@ -376,6 +376,12 @@ def test_the_set_up_says_what_is_left_for_a_person_to_do(repository: Callable[[s
     assert not (root / "Justfile").exists()
 
 
+def test_the_report_names_the_host_of_whatever_address_the_repository_has() -> None:
+    facts = setup.Facts(Path("."), "widget", "example", "https://github.com/example/widget", DESCRIPTION, "http://docs.widget.example/", "0.19.0")
+    printed = setup.report([setup.Write(kept.JOB, "", setup.KEPT, setup.WRITE)], facts)
+    assert "  - point docs.widget.example at GitHub Pages" in printed
+
+
 def test_a_justfile_is_never_changed(repository: Callable[[str], Path], capsys: pytest.CaptureFixture[str]) -> None:
     root = repository("widget")
     (root / "Justfile").write_text("test:\n    echo\n")

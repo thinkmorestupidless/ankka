@@ -22,8 +22,9 @@ uv run --project tools/docs docs build
 
 `<release>` is a release of ankka that carries `docs init`: the one a service's `ankka` dependency
 names, which the README of a service made from the template writes out in full, or the newest of
-https://github.com/thinkmorestupidless/ankka/releases. The repository builds with that release of the
-tool until `docs init` is run from a later one.
+https://github.com/thinkmorestupidless/ankka/releases. A release from before the command existed
+answers `docs init` with the tool's usage text and exit code 2, and writes nothing: take a later one.
+The repository builds with the release chosen until `docs init` is run from a later one.
 
 The command reads the repository's name and address from its `origin` on GitHub, writes the build
 settings, the documentation job, `mkdocs.yml`, a first page, a page on writing documentation, a
@@ -48,10 +49,10 @@ Left for a person:
 
 The build passes on what the command wrote. From then on the documentation job checks every pull
 request, and the site is published when a release is tagged. GitHub lets a tag deploy to Pages only
-once the `github-pages` environment has a tag rule for `v*`; until a person adds it, the first release's
-publish fails in the documentation job and nothing else of the release depends on it. A repository that publishes somewhere
-other than GitHub Pages says `kept: {job: false}` under `extra.docs`, as
-[the settings](../reference/documentation-rules.md#kept) describe.
+once the `github-pages` environment has a tag rule for `v*`; until a person adds it, the first
+release's publish fails in the documentation job, and nothing else of the release depends on it. A
+repository that publishes somewhere other than GitHub Pages says `kept: {job: false}` under
+`extra.docs`, as [the settings](../reference/documentation-rules.md#kept) describe.
 
 ## Read before writing
 

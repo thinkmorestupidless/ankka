@@ -293,7 +293,7 @@ def report(writes: list[Write], facts: Facts) -> str:
     if not any(w.action in (WRITE, REWRITE) for w in writes):
         return "docs: the set-up is current; nothing written"
     lines = [f"{VERBS[w.action]:<9}{w.path}" for w in writes]
-    host = facts.site_url.removeprefix("https://").split("/")[0]
+    host = urlsplit(facts.site_url).netloc or facts.site_url
     lines += ["Left for a person:", "  - run `uv run --project tools/docs docs sync`, then commit"]
     if any(w.path == kept.JOB for w in writes):
         lines += [

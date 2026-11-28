@@ -94,3 +94,70 @@
   - `uv run --project tools/docs pytest tools/docs`: 79 passed in 5.0s.
   - `uv run --project tools/docs docs check`: "116 pages, no problems".
   - Not run: `just features` (research.md records 0 findings); the reusable workflow on a tag, since only GitHub runs it and it would need a release.
+
+## Second round
+
+**Verdict:** Approve with comments
+**What it does:** The range `5a58ee1ef...HEAD` answers the first round. The report, the contract, the guide, the rules page, the written contributing page and the limitations name the `v*` tag rule of the `github-pages` environment. The pages name the tool at `@v<release>` and the `ankka@v{version}` release form is gone. `docs init` holds an existing `mkdocs.yml`'s description and address only when a page it is about to write would carry them, fills templates in one pass, writes the address quoted, and asks for no release where neither part is kept.
+**Should it exist:** Yes. Every hunk traces to a first-round finding, and none adds scope beyond one.
+**Read:** In full: the range's diff of `setup.py`, `kept.py`, both templates, `test_setup.py`, `test_writing_skill.py`, `docs/build/documentation.md`, `docs/reference/documentation-rules.md`, `docs/reference/limitations.md`, `release-patterns.txt`, `CLAUDE.md`, both contracts and research.md's "Found in review". `setup.py` lines 60 to 318 and `kept.py` lines 30 to 109 as they now stand. Skimmed as rendered copies: the ten files under `marketplace/` and `ankka.g8/`, which `docs check` holds to their sources. Opened outside the diff: `cli.py`'s `run_init`, the seven templates for their markers, the template `README.md`, `.claude/rules/docs.md` (the release-form and `docs init` entries), `REVIEW.md`, and the first round above. The comments are expected before the pull request is marked ready, except those marked `(if-minor)`.
+**Size:** 25 files, +316 −78. 96 lines are the first report and about 110 are rendered copies; the hand-written code, tests and pages come to roughly 190 lines.
+
+### Resolutions
+
+Each first-round resolution, and whether it holds.
+
+- **Blocking 1, the `v*` tag rule: holds.** `setup.report` prints the line whenever the documentation job is in the plan (`setup.py:301`). `contracts/docs-init.md`, the guide (twice: the report and the paragraph after it), the rules page, `writing-documentation.md.tmpl` and the limitations entry say it, and the limitations entry says the publish fails without it. The tag path itself is still proved by no run; research.md and the first round both say so.
+- **Blocking 2, the release the pages name: holds.** No page, skill source or rendered copy names `ankka@v0.18.0` any more (`grep -rnE "ankka@v[0-9]"` over `docs`, `tools/docs/skill`, `tools/docs/src` and both rendered trees finds nothing). `docs/release-patterns.txt` is back to what `main` has, so nothing rewrites a form the pages no longer use. The template `README.md` writes the release out with `$ankka_version$`, as the guide says it does. The choice of the placeholder over a rewrite in the release jobs is reasoned in research.md. See the question below on which release "carries the command".
+- **Should fix 1, validating what `mkdocs.yml` says: holds.** Run read-only against the sibling checkout, `facts` and `plan` for ankka-reasoning with `--release 0.19.0` no longer refuse the 264-character description; every owned part there is left and the two kept parts wait for `--force`, as quickstart step 4 expects. The check moved into `plan`, which still writes nothing, and `run_init` catches the `Usage` it raises. The new test proves both halves, the second with a byte snapshot.
+- **Should fix 2, the marker sample: holds.** A `text` block and a sentence giving the `#` form; the unsupported `languages:` comment is gone. `docs check` passes.
+- **Should fix 3, `fill`: holds.** One pass over `@@(\w+)@@`, an unknown marker is a `KeyError`, and a description holding `@@name@@` and `@@nobody@@` is written as it is, proved through `mkdocs.yml` and `docs/index.md`. The address is held to a plain `https://` address and written quoted in `mkdocs.yml`. Two edges of it are in the nits.
+- **Should fix 4, the guide: holds.** `test_the_guide_shows_the_report_the_command_prints` compares the guide's block with `setup.report`'s lines, so the guide fails the suite the day the report changes. The `curl` call with no reply is gone, and the section now says where a reply comes from.
+- **Nits 1 to 4: hold.** `kept_here` is the name; the contributing page says both files are rewritten and every owned file left; `--description` with no value says it needs one, with a test; a repository that keeps neither part needs no release, with a test, and `CLAUDE.md`'s command runs in this checkout as written ("the set-up is current; nothing written", by `facts` and `plan` read-only).
+- **Questions 1 and 2: answered.** The contract carries the printed prefix; the rules page states `target/docs-site`.
+
+### Blocking
+
+None.
+
+### Should fix
+
+- `.claude/rules/docs.md` — issue (non-blocking), from `CLAUDE.md` ("When you learn a trap worth keeping, add it to the rule file for its area") and the workspace's principle 9: the two traps the first round found are recorded in research.md and nowhere a later session reads before touching the area.
+  - The rendered skills the marketplace, the template and the CLI's templates carry are the tree's, so a `release` form in a page they include names the release before the one being tagged. The rule file's release-form entry (line 83) says `docs sync` moves every form to the newest tag and a build rewrites the site only; it does not say the skill copies ship as the tree has them. The next page whose first instruction is a command at a release walks into the same thing.
+  - GitHub creates `github-pages` allowing the default branch alone, so a sibling's first tag publishes only after a person adds the `v*` rule. The rule file's `docs init` entry (line 101) does not mention it, and ankka-surface still lacks the rule.
+  - Suggestion: one dated sentence on each, appended to the two entries they belong to.
+  - Resolved: both traps are in `.claude/rules/docs.md`, 837119e23
+
+### Nits
+
+- `tools/docs/src/ankka_docs/setup.py:296` — nitpick (non-blocking): the report takes the host with `removeprefix("https://").split("/")[0]`, which was sound while `facts` refused every other scheme. An address `mkdocs.yml` already holds is now taken as it is when only kept parts are written, and for `http://docs.widget.example/` the report prints "point http: at GitHub Pages". `urlsplit(facts.site_url).netloc` gives the host for either. Confirmed by calling `setup.report`; no sibling has such an address today.
+  - Resolved: the host is read with `urlsplit`, with a test, 837119e23
+- `tools/docs/src/ankka_docs/templates/plugin.json.tmpl:9` — nitpick (non-blocking) (if-minor): `"homepage": "@@site_url@@"` still takes the address unquoted, beside a description that is written quoted. `validate_site_url` accepts `https://docs.widget.example/a"b/`, and the `plugin.json` filled from it does not parse. `"homepage": @@site_url_quoted@@` closes it with the value the round already added.
+  - Resolved: the homepage is written quoted, 837119e23
+- `docs/reference/documentation-rules.md:46-47`, `docs/build/documentation.md:56` — nitpick (non-blocking): the sentence about `<release>` was put in front of "It reads the repository's name and address", so "It" now reads as the release or the releases page; "The command reads" restores it. Both inserted passages also left a line far past the width the pages wrap at.
+  - Resolved: the rules page's sentence names `docs init`, and both passages are reflowed, 837119e23
+
+### Questions
+
+- `docs/build/documentation.md:27-30`, `docs/reference/documentation-rules.md:46` — question: the guide says `<release>` is "a release of ankka that carries `docs init`: the one a service's `ankka` dependency names", and the rules page says the releases page lists them. A service made before the release that first carries the command has a dependency that names a release without it, and the releases page does not say which releases carry it. Should the limitations entry "The documentation tool is taken from ankka's repository at a release tag" say which release the command starts from, in the `from version` form `release-patterns.txt` already allows? If the number cannot be written before the tag exists, a sentence saying that a release without the command answers with the usage line would settle it.
+  - Answered: the pages now say a release from before the command answers `docs init` with the usage text and exit code 2 and writes nothing, and to take a later one, 837119e23
+
+### Praise
+
+- `tools/docs/tests/test_writing_skill.py:96-104` — praise: the guide's "Left for a person" block is compared with what `setup.report` prints, not with a copy of it in the test, so the page, the rendered skills and the command cannot part without a red suite.
+- `tools/docs/src/ankka_docs/setup.py:261-264` — praise: the relaxed check went into `plan`, not `apply`, so "a refusal writes nothing" still holds, and `test_what_mkdocs_yml_already_says_is_taken_as_it_is_unless_a_page_would_carry_it` proves the refusal with the same byte snapshot the first round praised.
+
+### Checks applied
+
+- **General checklist groups applied:** Correctness, Design and scope, Error handling (the new `Usage` paths, the `KeyError` of a template's own mistake), Security (template filling, the address), Tests, API and compatibility (the kept templates are untouched in this range, so no sibling's bytes change; `mkdocs.yml.tmpl` is owned and written once), Documentation, Commit and PR hygiene.
+- **General checklist groups skipped:** Concurrency, Data and migrations, Performance, Observability, Dependencies and build (no dependency, workflow or build file in the range).
+- **Language skill:** `pr-review-python`, by the lighter procedure for a small change (about 80 lines of Python and their tests): security, errors, typing and tests, from the summaries. `release or ""` keeps `Facts.release` a `str`, and `kept.render` is not called with it when neither part is kept. Nothing beyond the nits.
+- **Project rules read:** `CLAUDE.md`; `.claude/rules/docs.md` (the release-form and `docs init` entries); `REVIEW.md`; the workspace `CLAUDE.md` and its brains.
+- **"Every sample in every language" (REVIEW.md):** the range changes no page that names `languages` and adds no behaviour to the platform or an SDK. The one first-round hit, the Scala-only marker sample, is now a `text` block with both comment forms and no `languages:` comment. No supported language is missing a page, a sample or a limitations entry; the limitations entry for the set-up gained the tag rule, and the copies in the `ankka`, `ankka-design` and `ankka-port` skills carry it in both rendered trees.
+- **Spec, plan and tasks:** the range changes no requirement. `contracts/docs-init.md` changed in two places, the report line and the `--release` row, and research.md's "Found in review" records the first as agreed. FR-008 and FR-013 are now served by the report and the pages; SC-005's measurement still used the checkout in place of a release, as research.md says.
+- **Commit hygiene:** three commits, each a Conventional Commits header scoped `068` under 72 characters with the attribution trailer; the two fix commits say which findings they resolve. No pull request yet. Its "Risk and rollback" should say that the tag path is unproved and needs the environment's tag rule.
+- **Tests run:**
+  - `uv run --project tools/docs pytest tools/docs`: 88 passed in 5.3s.
+  - `uv run --project tools/docs docs check`: "116 pages, no problems".
+  - Read-only probes of `setup.facts`, `setup.plan`, `setup.report` and `kept.fill` against this checkout and the ankka-reasoning, ankka-flow and satisfactory checkouts; nothing was written.
+  - Not run: `just features` (no feature file or glossary in the range); the reusable workflow on a tag, which only GitHub runs.

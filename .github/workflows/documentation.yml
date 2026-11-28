@@ -1,0 +1,44 @@
+# The documentation job of every repository ankka's documentation tool set up (`docs init`). Each
+# repository's `.github/workflows/docs.yml` is a kept caller of this file at a release tag, so the
+# steps and the versions of the actions are here, once, for all of them. It takes no input and reads no
+# secret: publishing to GitHub Pages needs only the caller's `pages: write` and `id-token: write`.
+#
+# A pull request or a dispatch runs the build as a check and publishes nothing. A tag `v*` with no
+# hyphen builds the site for that release and deploys it; a pre-release tag (`v0.2.0-rc.1`) is checked
+# like a pull request. Pages must be turned on once, with "GitHub Actions" as its source.
+name: documentation
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the tags: docs check refuses a release named by hand, and must see them
+      - uses: astral-sh/setup-uv@v10.4.0
+        with:
+          python-version: "3.12"
+      - if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')) }}
+        run: uv run --project tools/docs docs build
+      - if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+        run: uv run --project tools/docs docs build --release "${GITHUB_REF_NAME#v}"
+      - if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/docs-site
+
+  deploy:
+    needs: build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v5

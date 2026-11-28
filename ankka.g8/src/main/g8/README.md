@@ -63,6 +63,20 @@ ankka mcp install --client desktop      # Claude Desktop; quit and reopen it aft
 ankka mcp install                       # Claude Code, for you, in every project
 ```
 
+## Document the service
+
+The service's documentation is set up with ankka's documentation tool, from the release this project
+was made with, at the root of the repository once it has an `origin` on GitHub:
+
+```bash
+uvx --from "git+https://github.com/thinkmorestupidless/ankka@v$ankka_version$#subdirectory=tools/docs" \
+  docs init --description "<one sentence>." --site-url https://<the site's address>/
+```
+
+It writes everything the documentation build needs, says what is left for you to do, and checks every
+pull request from then on. The skill `ankka-docs` carries how the pages are written, and the guide is
+https://docs.ankka.cloud/build/documentation/.
+
 ## Build the image
 
 ```bash

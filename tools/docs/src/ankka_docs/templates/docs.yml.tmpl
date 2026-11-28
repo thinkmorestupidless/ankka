@@ -1,0 +1,15 @@
+# Kept by ankka's documentation tool (`docs init`). Edits are written over.
+# The documentation: checked on every pull request, published to GitHub Pages when a release is tagged.
+name: docs
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  docs:
+    uses: thinkmorestupidless/ankka/.github/workflows/documentation.yml@v@@release@@
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

@@ -135,6 +135,12 @@ jobs:
               - 'console/**'
               # One of the files outside docs/ whose links to the site the check holds to it.
               - 'README.md'
+              # The documentation job every set-up repository calls; tools/docs's suites read its
+              # conditions, and the uv the release workflow uses, which it must match.
+              - '.github/workflows/documentation.yml'
+              - '.github/workflows/release.yml'
+              # The kept parts and the report, byte for byte; tools/docs's suites compare with them.
+              - 'specs/068-documentation-setup/contracts/**'
             # What `ankka init --language` renders, and the suites that run the result: each SDK job
             # proves its language's template against the SDK and sidecar it has just built.
             templates: &templates

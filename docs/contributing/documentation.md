@@ -1,305 +1,60 @@
 ---
 title: Writing documentation
-description: How ankka's documentation is structured, the rules every page follows, and how one Markdown source becomes the site, llms.txt and the agent skill.
+description: What is particular to ankka's own documentation beyond the rules every page follows, from its facets and sample trees to its generated blocks, checked descriptors and rendered skills.
 kind: contributing
-related: [reference/glossary.md]
+related: [reference/documentation-rules.md, reference/glossary.md]
 ---
 
 # Writing documentation
 
-ankka's documentation is one tree of plain Markdown files under `docs/`, and every way of reading it is
-a rendering of that tree. People read the site. Models read `llms.txt`, `llms-full.txt`, a Markdown copy
-of each page, or the agent skill that ships with the template and the Claude Code plugin. None of those
-has its own copy of the content, so a correction made once reaches every reader.
-
-The most common reader of any single page is a model that retrieved it alone, with no navigation around
-it and no memory of the page before. Most of the rules here exist for that reader. They also make pages
-better for people, which is why there is one set of rules rather than two.
+ankka's documentation is one tree of plain Markdown files under `docs/`, checked and rendered by the
+documentation tool in `tools/docs`. Every rule a page follows, the commands and every setting of
+`extra.docs` are [Documentation rules](../reference/documentation-rules.md), which holds for every
+repository the tool documents; this page says what is particular to ankka.
 
 ## The build
 
-Everything runs through one command, from the repository root:
-
 ```bash
-uv run --project tools/docs docs check    # every rule on this page; exits 1 on a problem
-uv run --project tools/docs docs sync     # refresh included samples, generated tables and the skill
+uv run --project tools/docs docs check    # every rule; exits 1 on a problem
+uv run --project tools/docs docs sync     # refresh included samples, generated tables and the skills
 uv run --project tools/docs docs build    # check, build the site, write the machine renderings
-uv run --project tools/docs docs serve    # the site with live reload, while writing
+uv run --project tools/docs pytest tools/docs   # the tool's own tests, against repositories that are not ankka
 ```
 
-`just docs`, `just docs-sync` and `just docs-serve` are the same commands. The site and its renderings
-land in `target/docs-site`:
+`just docs`, `just docs-sync` and `just docs-serve` are the same commands. The site lands in
+`target/docs-site`. ankka is the tool's own repository, so `tools/docs/pyproject.toml` is the tool's
+project and not a set-up's build settings, and the site is published by the release workflow after
+Maven Central rather than by a documentation job: `mkdocs.yml` says `kept: {settings: false, job: false}`.
+The documentation workflow every set-up repository calls, `.github/workflows/documentation.yml`, lives
+here, and its release is the tool's.
 
-| File | For |
+A change to a rule is a change for every repository that uses the tool. The tool's tests run it
+against repositories that are not ankka, and anything ankka-specific belongs in `extra.docs`, never in
+the tool's code.
+
+## The facets
+
+ankka's pages carry two facets beyond the required frontmatter:
+
+| Field | Meaning |
 |---|---|
-| `index.html` and one directory per page | people |
-| `<page>.md` beside every page | a model reading one page |
-| `llms.txt` | a model choosing pages: every page's title, link and one-sentence description, by section |
-| `llms-full.txt` | a model that can take everything: every page, in navigation order, in one file |
-| `docs-index.json` | a retriever: every page's metadata, headings and addresses |
+| `languages` | Any of `scala`, `java`, `kotlin`, `python`, `typescript`, `rust`, `go`: every language a reader of the page may be writing in, which is every language that can do what the page shows. Leave it out for a page that is not about writing code. |
+| `components` | The component kinds the page is about: `event-sourced-entity`, `key-value-entity`, `view`, `consumer`, `workflow`, `timed-action`, `agent`, `autonomous-agent`, `http-endpoint`, `grpc-endpoint`, `mcp-endpoint`. |
 
-The agent skills are rendered into `marketplace/plugins/ankka/skills/` and into the template at
-`ankka.g8/src/main/g8/.claude/skills/`. Both are committed, and `docs check` fails when either is
-stale.
+Tabs follow the order `mkdocs.yml` lists the languages in: Scala, Java, Kotlin, Python, TypeScript,
+Rust, Go. A language left out of a page names a limitation that
+[Limitations](../reference/limitations.md) states.
 
-### What the tool knows about this repository
-
-Everything that names a path, a vocabulary or a target in this repository is `extra.docs` in `mkdocs.yml`,
-not the tool's code. The tool finds the repository by the nearest `mkdocs.yml` at or above the directory
-it runs in, and reads that block for: the frontmatter keys a page may carry beyond the required ones and
-the values each allows (`facets`); which facet names a page's languages and which fence labels mean
-each of them (`samples`), so the check can hold every sample to every language; where the curated skills
-are and every directory the rendered skills are written to (`skills`); which generator owns each generated
-block (`generated`); and which files outside `docs/` link to the site, with the hosts the site no longer
-lives on (`site-links`). A new frontmatter vocabulary, a new skill target or a new configuration file is a
-line in that block.
-
-The same tool documents [satisfactory](https://github.com/thinkmorestupidless/satisfactory) and
-[ankka-flow](https://github.com/thinkmorestupidless/ankka-flow), and any repository whose pages follow
-this page can use it. Each one's `tools/docs/pyproject.toml` depends on `ankka-docs` from this
-repository's `tools/docs` directory, its `mkdocs.yml` carries its own `extra.docs`, and the commands
-are the same:
-
-```toml
-[project]
-name = "satisfactory-docs"
-version = "0.0.0"
-requires-python = ">=3.12"
-dependencies = ["ankka-docs @ git+https://github.com/thinkmorestupidless/ankka@main#subdirectory=tools/docs"]
-```
-
-The tool's own tests run it against a repository that is not ankka, so a change to a rule is a change
-for every repository that uses it:
-
-```bash
-uv run --project tools/docs pytest tools/docs
-```
-
-Some reference content is generated by the JVM rather than by `tools/docs`. The CLI reference and the
-control plane's route table are enumerated from the code by test suites, which fail when the page is
-stale and rewrite it when asked:
-
-```bash
-sbt -Dankka.docs.update=true 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite'
-```
-
-## Where a page goes
-
-Every page has one job, named by its `kind`:
-
-| Kind | Directory | The reader wants to | Example |
-|---|---|---|---|
-| `tutorial` | `get-started/` | be walked from nothing to something working | Your first service in Scala |
-| `concept` | `concepts/` | understand how something works and why | Effects are data |
-| `guide` | `build/`, `deploy/`, `operate/`, `platform/` | get one task done | Expose a service |
-| `reference` | `reference/` | look one fact up | Service descriptor |
-| `contributing` | `contributing/` | change ankka itself | this page |
-
-A page that is drifting into a second kind is two pages. A guide that stops to explain a design at length
-links to the concept page instead. A concept page that needs a table of every option links to the
-reference page instead.
-
-A new page is added to the `nav` in `mkdocs.yml`. `docs check` fails on a page the navigation does not
-list, and on a navigation entry with no page.
-
-## Frontmatter
-
-Every page starts with this block:
-
-```yaml
----
-title: Views
-description: Build a queryable projection of an entity's changes, query it with SQL, and choose between entity, key value and topic sources.
-kind: guide
-languages: [scala, python, typescript]
-components: [view]
-related: [concepts/consistency.md, build/topics.md]
----
-```
-
-| Field | Required | Meaning |
-|---|---|---|
-| `title` | yes | The page's name. The body's first line is `# ` and exactly this. |
-| `description` | yes | One sentence, under 240 characters, ending with a full stop. It is what `llms.txt` and the skill show beside the link, so it says what the reader will be able to do or will understand, not what the page "covers". |
-| `kind` | yes | `tutorial`, `concept`, `guide`, `reference` or `contributing`. |
-| `languages` | no | Any of `scala`, `java`, `kotlin`, `python`, `typescript`, `rust`, `go`: every language a reader of the page may be writing in, which is every language that can do what the page shows. Leave it out for a page that is not about writing code. |
-| `components` | no | The component kinds the page is about: `event-sourced-entity`, `key-value-entity`, `view`, `consumer`, `workflow`, `timed-action`, `agent`, `http-endpoint`. |
-| `related` | no | Paths under `docs/` of the pages a reader of this one most often needs next. |
-
-## Rules for every page
-
-**A page stands alone.** It will often be read with no other page in view. Never point at other text by
-its position on the page or in the site; a phrase such as `see below` means nothing to a reader holding
-one chunk. Link to the section by its anchor instead: `[the journal](../concepts/consistency.md#the-journal-is-the-source-of-truth)`. The check
-refuses the common forms of the positional phrase.
-
-**Define a term on first use, or link to the glossary.** "Wire name", "effect", "session" and "sidecar"
-mean specific things here. Use them exactly as [the glossary](../reference/glossary.md) defines them, and
-never use two words for one thing.
-
-**Open each section with its answer.** A heading is a question, and a retriever cuts pages at headings.
-The first sentence under a heading answers it, so a chunk that begins at that heading is useful on its
-own. Reasons and qualifications follow the answer.
-
-**Explain why, as a property of the system.** ankka makes deliberate choices, and a reader who knows the
-reason can apply it to a case the page does not cover. State the reason as how the system behaves: "a
-query cannot persist, because `query` accepts only a read-only effect". Do not tell the project's
-history: no feature numbers, specification references, research notes or "a test caught this". The check
-refuses the common forms.
-
-**Show, then say.** A concept is followed by code, and a command by what it prints. Output goes in the same
-block as a comment, or in a `text` block after it.
-
-**Every code block names its language.** `scala`, `java`, `kotlin`, `python`, `ts`, `rust`, `go`, `bash`,
-`json`, `yaml`, `hocon`, `protobuf`, or `text` for output. A block with no language fails the check.
-
-**Complete samples, or say it is an excerpt.** A sample a reader can copy should compile or run as shown,
-imports included. Where a sample is an excerpt of something larger, the sentence before it says so and
-links to the whole.
-
-**Every language, in one tab set.** A page shows what it shows in every language it names. When a page's
-`languages` name more than one, each code sample is a tab set with one tab per language, in the order
-`mkdocs.yml` lists them: Scala, Java, Kotlin, Python, TypeScript, Rust, Go. A sample in one language alone
-tells every other reader that the feature is not theirs, and the gap is invisible to a writer who reads
-one language at a time, so the check refuses it: a tab set with one of the page's languages missing, and a
-block in one of those languages outside a tab set, both fail. Each tab opens with `/// tab | <name>` and
-closes with `///` on its own line (shortened to three languages here):
-
-````markdown
-/// tab | Scala
-
-```scala
-val getCart = query("get-cart")(_.getCart)
-```
-
-///
-
-/// tab | Python
-
-```python
-@query("get-cart")
-def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]: ...
-```
-
-///
-
-/// tab | TypeScript
-
-```ts
-getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
-```
-
-///
-````
-
-On the site the reader picks a language once and every tab set on every page follows, remembered between
-visits. Everywhere else — the raw Markdown, `llms-full.txt`, the agent skills — the markers are flattened
-back to a bold language label above each block, so a page still reads correctly with no renderer at all.
-
-This is the **only** renderer syntax a page may use. No admonitions, no snippet includes, no other
-extensions. Tabs earn the exception because the alternative is the same example three times down the
-page; they are written in the `///` blocks syntax rather than the indented one precisely so the fenced
-blocks stay flush left and a reader with no renderer still sees ordinary Markdown.
-
-A tab set that shows the same *idea* in each language must show the same *example* in each: one domain,
-one set of names. Three languages solving three different problems under one set of tabs reads as a
-translation and is not one.
-
-**A language is left out only when the feature is not available in it**, and
-[Limitations](../reference/limitations.md) says so. Say so where the check can read it, in a comment on
-the line before the tab set or the block, naming exactly the languages shown and the reason:
-
-```markdown
-<!-- languages: scala, java, kotlin; only a service in the runtime's own JVM registers a blueprint -->
-```
-
-The prose beside it says the same thing in words a reader sees. A page's `languages` are every language
-the page's subject exists in, so a page whose every sample needs the comment has its `languages` wrong,
-and a comment naming every language the page does is refused as noise. A page about one language,
-such as a first-service tutorial or an SDK reference, names that language alone and needs no tabs.
-
-**A diagram is an SVG whose alt text says everything it shows.** Diagrams live in `docs/assets/diagrams/`
-as hand-written SVG, each with its own background and a `prefers-color-scheme` rule for dark mode, so one
-file reads correctly on the site, on GitHub and in either theme. Only the site shows the picture: a model
-reading the raw Markdown, `llms-full.txt` or a skill gets the alt text and nothing else, so the alt text
-names every part and every path the diagram draws, and the prose beside it still stands on its own. The
-check refuses an image with no alt text, and one whose file does not exist under `docs/`.
-
-**Link to repository files by GitHub URL.** Links between pages are relative (`../build/views.md`) and
-the check verifies both the page and the anchor. A link to a source file uses its full URL on
-`https://github.com/thinkmorestupidless/ankka/blob/main/`, because a relative path out of `docs/` does
-not exist on the site.
-
-**Say what is not there.** A limitation the reader will hit belongs on the page where they hit it, stated
-plainly, and on [Limitations](../reference/limitations.md).
-
-## Samples come from tested code
-
-A sample that the build compiles and tests is included from its source rather than typed into the page.
-Mark the region in the source file with comment lines:
-
-<!-- languages: scala; the markers are comment lines and read the same in every language -->
-```scala
-// docs:start add-item
-def addItem(item: LineItem): Effect[Done] =
-  if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
-  else effects.persist(ItemAdded(item)).thenReply(_ => Done)
-// docs:end add-item
-```
-
-Name the region in a comment on the line before the page's code block:
-
-````markdown
-<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/application/ShoppingCartEntity.scala#add-item -->
-```scala
-```
-````
-
-`docs sync` fills the block with the region, dedented. `docs check` fails when a block has drifted from
-its source, so a renamed method breaks the documentation build rather than silently leaving a page that no
-longer compiles. The copy lives in the page on purpose: a page must be complete as raw Markdown, and an
-include resolved only at render time would leave a model reading the source with an empty block. Leave out
-the region name to include a whole file. The markers are comment lines: `//` in Scala, Java, Kotlin,
-TypeScript, Rust and Go, `#` in Python.
+## Where samples come from
 
 Every language has a tested example tree to mark regions in, so a tab set's seven tabs come from seven
 tested sources: `samples/` and the modules' tests for Scala, `samples/shopping-cart-java` and the Java
 SDK's tests for Java, `sdks/kotlin` for Kotlin, and `sdks/python`, `sdks/typescript`, `sdks/rust` and
 `sdks/go`, each with an `examples/` shopping cart and a conformance service, for the rest. A sample that
-has no home there yet gets one before it gets a tab.
+has no home there yet gets one before it gets a tab. A link to a source file uses its address on
+`https://github.com/thinkmorestupidless/ankka/blob/main/`.
 
-`docs check` refuses a tab whose code is written in the page. A tab that no test can hold, such as a line
-of the reader's own build file, says why in a comment on the line before its block, and the reason is
-what a reviewer checks:
-
-````markdown
-/// tab | Scala
-
-<!-- untested: a dependency line for the reader's own build -->
-```scala
-"com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion
-```
-
-///
-````
-
-A block outside a tab set, such as a shell command or a descriptor, is written by hand. Keep it short.
-
-## Generated reference
-
-Reference facts that the code already knows are generated from it, between two comments:
-
-```markdown
-<!-- generated:start configuration -->
-| Variable | Configuration key | Default | Applies in |
-...
-<!-- generated:end configuration -->
-```
-
-The content between the comments belongs to the generator, and hand edits there are overwritten. The
-prose around the block is written by hand, and a coverage check fails when the prose does not describe
-every fact the table lists. Adding a configuration key or a CLI command is therefore a build failure until
-someone writes a sentence about it.
+## Generated blocks
 
 | Block | Page | Generated from | By |
 |---|---|---|---|
@@ -307,6 +62,17 @@ someone writes a sentence about it.
 | `protocol` | `reference/sidecar-protocol.md` | the protocol's `.proto` files | `docs sync` |
 | `cli` | `reference/cli.md` | the CLI's command tree | `CliReferenceSuite` |
 | `control-plane-routes` | `reference/control-plane-api.md` | the control plane's endpoints | `ControlPlaneRoutesReferenceSuite` |
+| `model-presets` | `reference/model-providers.md` | the agent module's presets | `ModelPresetsReferenceSuite` |
+| `console-properties` | `reference/console-package.md` | the console's design tokens | the console package's tests |
+
+The JVM suites fail when their page is stale and rewrite it when asked:
+
+```bash
+sbt -Dankka.docs.update=true 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite'
+```
+
+A new CLI command or control plane route fails those suites until its page has been rewritten and the
+prose describes it.
 
 ## Descriptors are checked
 
@@ -322,19 +88,10 @@ A `json` code block whose title is `service.json` is a complete service descript
 same validation `ankka services apply` does, so no page can show a descriptor the platform would refuse.
 Show a deliberately invalid descriptor with no title.
 
-## The skills
+## Where the skills go
 
-The documentation renders into several Agent Skills, one per kind of task, under `tools/docs/skill/`:
-each directory holds one hand-written `SKILL.md` whose frontmatter names the skill, says when an agent
-should load it, and lists in `pages:` the documentation pages it carries. The body holds the rules an
-agent must hold for that task, the questions to settle before writing, and the mistakes to check for.
-Keep it to what the pages do not say in one place; everything else is generated: an index of the named
-pages with their descriptions, and the pages themselves under `references/`.
-
-A page may belong to several skills, and every public page must belong to at least one, so adding a
-page means naming the skill it serves or `docs check` fails. A page with a good description is therefore
-a page an agent can find. The rendered skills are committed in two places and checked against the
-sources: the `ankka` plugin under `marketplace/plugins/ankka/`, which the release workflow pushes to the
-`thinkmorestupidless/ankka-marketplace` repository on every tag, and the template's `.claude/skills/`.
-The `pr-review` plugin beside it is hand-written, not rendered from pages, and is pushed by the same
-job.
+ankka's skills are curated under `tools/docs/skill/` and rendered in two places, both committed and
+checked: the `ankka` plugin under `marketplace/plugins/ankka/`, which the release workflow pushes to the
+`thinkmorestupidless/ankka-marketplace` repository on every tag, and the template's `.claude/skills/`,
+whose copy escapes every `$` for Giter8. The `pr-review` plugin beside it is hand-written, not rendered
+from pages, and is pushed by the same job.

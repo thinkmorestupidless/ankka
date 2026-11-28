@@ -1,6 +1,6 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python, TypeScript and Go via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript, Go and Rust SDK maps, and what ankka does not do. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-go, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Scala 3 on Apache Pekko, with Java and Kotlin in the same JVM, Python, TypeScript and Go via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Java, Kotlin, Python, TypeScript, Go and Rust SDK maps, and what ankka does not do. The narrower skills (ankka-design, ankka-inspect, ankka-port, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-java, ankka-kotlin, ankka-python, ankka-typescript, ankka-go, ankka-rust, ankka-deploy, ankka-platform, ankka-docs) carry the rules for one kind of task each.
 ---
 
 # ankka
@@ -58,6 +58,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | A service in Rust, built to a WebAssembly module the runtime loads | `ankka-rust` |
 | A service descriptor, the `ankka` CLI, images, deploying, exposing, logs, troubleshooting | `ankka-deploy` |
 | Installing or operating the platform itself, organizations, identity, databases, networking | `ankka-platform` |
+| Writing, changing or reviewing a repository's documentation, a page, its limitations or its skill; setting the documentation up | `ankka-docs` |
 
 ## How to use this skill
 

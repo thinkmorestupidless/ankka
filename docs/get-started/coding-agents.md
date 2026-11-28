@@ -2,7 +2,7 @@
 title: Work with a coding agent
 description: Give a coding agent ankka's documentation as a skill, and its hands through `ankka mcp` — the CLI's verbs, the local services on your machine, and this version's docs as MCP tools.
 kind: guide
-related: [reference/cli.md, operate/local-console.md, contributing/documentation.md]
+related: [reference/cli.md, operate/local-console.md, build/documentation.md]
 ---
 
 # Work with a coding agent

@@ -165,6 +165,12 @@ extra:
     release:
       patterns: docs/release-patterns.txt
       tags: "v*"
+    # The parts of a set-up the docs tool keeps (`docs init`) are not kept here: tools/docs/pyproject.toml
+    # is the tool's own project, and the site is published by release.yml after Maven Central, not by
+    # a docs.yml caller of .github/workflows/documentation.yml.
+    kept:
+      settings: false
+      job: false
 
 nav:
   - Home: index.md
@@ -227,6 +233,7 @@ nav:
       - Publish a graph: build/graph.md
       - Serialization and evolution: build/serialization.md
       - Testing: build/testing.md
+      - Document a service: build/documentation.md
   - Run and deploy:
       - Run a service locally: deploy/run-locally.md
       - Run a model on your own machine: deploy/local-models.md
@@ -284,6 +291,7 @@ nav:
       - Console package: reference/console-package.md
       - Sidecar protocol: reference/sidecar-protocol.md
       - WebAssembly ABI: reference/wasm-abi.md
+      - Documentation rules: reference/documentation-rules.md
       - Limitations: reference/limitations.md
       - Glossary: reference/glossary.md
   - Contributing:

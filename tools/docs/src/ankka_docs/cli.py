@@ -6,6 +6,10 @@
             every page naming the newest release tag; `build --release <version>` names that release
             instead and also writes latest.json, naming it as the newest
     serve   the site with live reload, for writing
+    init    set the repository's documentation up: write the parts the tool keeps, and every part the
+            repository owns that is missing; `init --description <sentence> --site-url <url>` in a
+            repository with no mkdocs.yml, `--release <version>` when the tool was not installed from a
+            release tag, `--force` to write over a file at a kept path the tool did not write
 
 The project is the nearest `mkdocs.yml` at or above the working directory; its `extra.docs` block says
 what is specific to that repository. The site lands in its `site_dir`.
@@ -16,9 +20,10 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from . import check as checks
-from . import generate, release, render, skill, snippets
+from . import generate, kept, release, render, setup, skill, snippets
 from .pages import ConfigError, Project, load, project
 
 
@@ -33,7 +38,7 @@ def _report(problems: list[snippets.Problem]) -> int:
 
 def run_check(current: Project) -> int:
     tree = load(current)
-    problems = checks.run(tree) + skill.check(tree)
+    problems = checks.run(tree) + skill.check(tree) + kept.check(current)
     status = _report(problems)
     if status == 0:
         print(f"docs: {len(tree.pages)} pages, no problems")
@@ -100,8 +105,25 @@ def run_serve(current: Project) -> int:
     return _mkdocs(current, "serve")
 
 
+def run_init(argv: list[str], start: Path | None = None) -> int:
+    """`docs init`, run before a project exists: it is what makes one."""
+    try:
+        facts = setup.facts(start or Path.cwd(), setup.arguments(argv))
+        writes = setup.plan(facts, facts.root)
+    except (setup.Usage, ConfigError) as error:
+        print(f"docs: {error}", file=sys.stderr)
+        return 2
+    if not setup.apply(writes, facts.root):
+        print(setup.refusal(writes), file=sys.stderr)
+        return 2
+    print(setup.report(writes, facts))
+    return 0
+
+
 def main() -> None:
     command = sys.argv[1] if len(sys.argv) > 1 else "check"
+    if command == "init":
+        sys.exit(run_init(sys.argv[2:]))
     handlers = {"check": run_check, "sync": run_sync, "build": run_build, "serve": run_serve}
     handler = handlers.get(command)
     if handler is None:

@@ -1,0 +1,83 @@
+# The documentation site. The source is docs/, plain Markdown with YAML frontmatter; this file says how
+# MkDocs renders it for people and, under `extra.docs`, what ankka's documentation tool needs to know
+# about this repository. Everything machine-facing (llms.txt, llms-full.txt, raw Markdown per page,
+# docs-index.json and the agent skill) is rendered from the same tree by
+# `uv run --project tools/docs docs build`. See docs/contributing/documentation.md.
+site_name: @@name@@
+site_description: @@description_quoted@@
+site_url: @@site_url_quoted@@
+repo_url: @@repo_url@@
+repo_name: @@repo_name@@
+docs_dir: docs
+site_dir: target/docs-site
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+# Deliberately plain: no admonitions, no snippet syntax. A page must read correctly with no renderer at
+# all, because that is how a model most often receives it. The one exception is `pymdownx.blocks.tab`,
+# for a page that shows the same thing in more than one language.
+markdown_extensions:
+  - toc:
+      permalink: true
+  - tables
+  - pymdownx.highlight:
+      anchor_linenums: false
+  - pymdownx.superfences
+  - pymdownx.blocks.tab:
+      alternate_style: true
+
+extra:
+  generator: false
+  # What ankka's documentation tool needs to know about this repository; the rules every page follows
+  # are https://docs.ankka.cloud/reference/documentation-rules/.
+  docs:
+    # The curated skill, and where the rendered skill is written, committed and checked.
+    skills:
+      source: tools/docs/skill
+      targets:
+        - path: marketplace/plugins/@@name@@/skills
+    # Files outside docs/ that link to the site.
+    site-links:
+      retired-hosts: []
+      files:
+@@site_link_files@@
+
+nav:
+  - Home: index.md
+  - Reference:
+      - Limitations: reference/limitations.md
+      - Glossary: reference/glossary.md
+  - Contributing:
+      - Writing documentation: contributing/documentation.md

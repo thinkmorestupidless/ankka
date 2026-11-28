@@ -100,7 +100,8 @@ object Dependencies {
     /**
      * A full JSON Schema validator (2020-12), for holding a service to its OpenAPI document
      * (feature 067, R10). A compile dependency of the test kits only; never on a service's
-     * production classpath.
+     * production classpath. Pinned to 1.x: 2.0 and later are on Jackson 3 (`tools.jackson`) with a
+     * renamed API, and the test kits stay on Pekko's Jackson 2 (see `.scala-steward.conf`).
      */
     val jsonSchemaValidator = "1.5.9"
 

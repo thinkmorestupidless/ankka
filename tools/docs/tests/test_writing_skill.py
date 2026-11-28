@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from ankka_docs import setup
 from ankka_docs.pages import FRONTMATTER, headings, load, project
 from ankka_docs.render import page_markdown
 
@@ -90,3 +91,14 @@ def test_the_documentations_limitations_say_what_a_set_up_does_not_do() -> None:
     section = section[: section.index("\n## ", 1)]
     assert "GitHub Pages only" in section
     assert "kept: {job: false}" in section
+
+
+def test_the_guide_shows_the_report_the_command_prints() -> None:
+    """The guide's copy of what is left for a person is the command's own, so it cannot drift from it."""
+    facts = setup.Facts(ANKKA, "cart", "example", "https://github.com/example/cart", "Carts that customers fill and check out.", "https://docs.cart.example/", "0.19.0")
+    writes = [setup.Write("tools/docs/pyproject.toml", "", setup.KEPT, setup.WRITE), setup.Write(".github/workflows/docs.yml", "", setup.KEPT, setup.WRITE)]
+    printed = setup.report(writes, facts).splitlines()
+    printed = printed[printed.index("Left for a person:") :]
+    guide = load(project(ANKKA)).pages[GUIDE].body.splitlines()
+    start = guide.index("Left for a person:")
+    assert guide[start : start + len(printed)] == printed

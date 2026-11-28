@@ -97,7 +97,7 @@ sbt compile                       # warning-free by construction: -Werror (compi
 just features                     # speckit-bdd check: the living features, the glossary and the specs that name them
 just docs                         # check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill
-uv run --project tools/docs docs init --release <v>   # set a repository's documentation up; ankka keeps neither
+uv run --project tools/docs docs init   # set a repository's documentation up; ankka keeps neither
                                    # kept part (`extra.docs.kept`), its siblings keep both (.claude/rules/docs.md)
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
 just build-console                # the ankka-console package, then the host

@@ -18,11 +18,16 @@ Set up first, before any page is written, with `docs init` from a release of the
 repository:
 
 ```bash
-uvx --from "git+https://github.com/thinkmorestupidless/ankka@v0.18.0#subdirectory=tools/docs" \
+uvx --from "git+https://github.com/thinkmorestupidless/ankka@v<release>#subdirectory=tools/docs" \
   docs init --description "Carts that customers fill and check out." --site-url https://docs.cart.example/
 uv run --project tools/docs docs sync
 uv run --project tools/docs docs build
 ```
+
+`<release>` is a release of ankka that carries `docs init`: the one a service's `ankka` dependency
+names, which the README of a service made from the template writes out in full, or the newest of
+https://github.com/thinkmorestupidless/ankka/releases. The repository builds with that release of the
+tool until `docs init` is run from a later one.
 
 The command reads the repository's name and address from its `origin` on GitHub, writes the build
 settings, the documentation job, `mkdocs.yml`, a first page, a page on writing documentation, a
@@ -33,6 +38,7 @@ left for a person to do:
 Left for a person:
   - run `uv run --project tools/docs docs sync`, then commit
   - turn the site on: the repository's Settings, Pages, Source "GitHub Actions"
+  - let release tags publish: Settings, Environments, github-pages, Deployment branches and tags, add the tag rule "v*"
   - point docs.cart.example at GitHub Pages: a DNS CNAME, and the custom domain in the same settings
   - add to the Justfile:
       docs:
@@ -45,7 +51,9 @@ Left for a person:
 ```
 
 The build passes on what the command wrote. From then on the documentation job checks every pull
-request, and the site is published when a release is tagged. A repository that publishes somewhere
+request, and the site is published when a release is tagged. GitHub lets a tag deploy to Pages only
+once the `github-pages` environment has a tag rule for `v*`; until a person adds it, the first release's
+publish fails in the documentation job and nothing else of the release depends on it. A repository that publishes somewhere
 other than GitHub Pages says `kept: {job: false}` under `extra.docs`, as
 [the settings](../reference/documentation-rules.md#kept) describe.
 
@@ -81,15 +89,10 @@ never run, and it stops being true the day the code changes.
 
 A reply shown on a page, such as the body an endpoint returns or the error a refusal carries, is one
 the running service gave, captured from it rather than written by hand. Run the service locally
-(`ankka local up`, or the service's own `run`), call it the way the page does, and copy what it
-printed:
-
-```bash
-curl -s -X POST localhost:9000/carts/c-1/items -H 'content-type: application/json' \
-  -d '{"productId": "p-1", "quantity": 2}'
-```
-
-Better still, a test that makes the same call and asserts the same reply holds the page to it.
+(`ankka local up`, or the service's own `run`), make the call the page shows, and copy what it printed,
+status and body, into a `text` block beside the command. A reply composed from the contract shows what
+the service promises, which is not always what it returns. Better still, a test that makes the same call
+and asserts the same reply holds the page to it.
 
 ## Write the limitations from what the code does
 

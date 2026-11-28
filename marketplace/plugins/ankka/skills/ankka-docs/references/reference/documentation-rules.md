@@ -35,11 +35,12 @@ A repository with no documentation yet takes the tool with `docs init`, run once
 tool before the repository depends on it:
 
 ```bash
-uvx --from "git+https://github.com/thinkmorestupidless/ankka@v0.18.0#subdirectory=tools/docs" \
+uvx --from "git+https://github.com/thinkmorestupidless/ankka@v<release>#subdirectory=tools/docs" \
   docs init --description "Widgets, as a service." --site-url https://docs.widget.example/
 ```
 
-It reads the repository's name and address from its `origin` on GitHub and writes the set-up: the build
+`<release>` is a release of ankka that carries the command, as
+https://github.com/thinkmorestupidless/ankka/releases lists them. It reads the repository's name and address from its `origin` on GitHub and writes the set-up: the build
 settings and the documentation job, which the tool keeps, and the navigation, a first page, a page on
 writing documentation, a limitations page, a glossary page, the project's skill and its plugin's
 description, which the repository owns. A file the repository owns is written only when it is absent
@@ -65,6 +66,10 @@ to the tool reaches a repository when the repository asks for it. `.github/workf
 documentation job, calls the documentation workflow in ankka's repository at the same release: it runs
 the build as a check on every pull request, publishes the site to GitHub Pages when a tag `v*` with no
 hyphen is pushed, and publishes nothing for a pre-release tag or from a branch. It holds no secret.
+It publishes the directory `target/docs-site`, the `site_dir` the set-up writes, so a repository that
+moves its `site_dir` publishes nothing. GitHub lets a tag deploy to Pages only when the repository's
+`github-pages` environment has a tag rule for `v*`, which a person adds once (Settings, Environments);
+without it the publish fails in the job.
 
 Both open with the line `# Kept by ankka's documentation tool`, and both are the same in every
 repository but for its name. `docs check` renders them again for the release the build settings name
@@ -310,13 +315,16 @@ plainly, and on the repository's [limitations](limitations.md).
 A sample that the build compiles and tests is included from its source rather than typed into the page.
 Mark the region in the source file with comment lines:
 
-```scala
+```text
 // docs:start add-item
 def addItem(item: LineItem): Effect[Done] =
   if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
   else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 // docs:end add-item
 ```
+
+In a language whose comments open with `#`, the same two lines are `# docs:start add-item` and
+`# docs:end add-item`.
 
 Name the region in a comment on the line before the page's code block:
 

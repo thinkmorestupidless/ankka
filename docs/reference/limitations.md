@@ -691,7 +691,9 @@ See [Personal data and erasure](../build/personal-data.md) and [Erasure on the p
 - **A set-up publishes through GitHub Pages only.** The documentation job `docs init` writes calls a
   workflow that deploys to GitHub Pages, from a repository on GitHub. A repository that publishes its
   site anywhere else, or from a workflow of its own, says `kept: {job: false}` under `extra.docs`, and
-  the check then holds it to no documentation job.
+  the check then holds it to no documentation job. The first release's publish fails until a person
+  adds a tag rule for `v*` to the repository's `github-pages` environment, which GitHub creates allowing
+  the default branch alone.
 - **The documentation tool is taken from ankka's repository at a release tag.** It is not on a package
   index: `uvx` runs it from `git+https://github.com/thinkmorestupidless/ankka@v<release>`, and a
   repository's build settings name it the same way, so a machine that builds the documentation needs

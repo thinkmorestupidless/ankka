@@ -27,11 +27,11 @@ object Dependencies {
     val pekkoMgmt = "1.2.1"
 
     val jsoniter  = "2.43.0"
-    val anthropic = "3.8.0"
+    val anthropic = "3.12.0"
     // OpenAI's official Java SDK (feature 052), transport only, as Anthropic's is. Apache-2.0.
-    val openai = "4.105.0"
+    val openai = "4.111.0"
 
-    val logback = "1.6.7"
+    val logback = "1.6.8"
     val munit   = "1.3.6"
     // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
     val gherkin             = "43.0.0"
@@ -56,7 +56,7 @@ object Dependencies {
      * Test scope only: an S3 client nobody here wrote, to sign and send requests to the object
      * store the way a service's own client would (feature 034, R20). Never on a main classpath.
      */
-    val awsSdk = "2.57.13"
+    val awsSdk = "2.59.7"
 
     /**
      * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native

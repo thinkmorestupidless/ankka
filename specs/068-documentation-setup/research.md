@@ -186,6 +186,24 @@ the three public pages.
   repository after a release carries the command.
 - `docs init` editing the `Justfile`: it prints the three recipes.
 
+## Analysis
+
+2026-11-28, first report: nothing critical or high. Five medium, each applied, none changing a
+decision or a scenario: FR-009 had no assertion (T010); SC-005 had no task (T028, quickstart step
+6); the spec said "kept file" where the features and the data model say "kept part" (spec); the
+written `mkdocs.yml` named a `README.md` a repository might not have (T007); the reusable workflow
+was proved only by assertions on its YAML (T027). Four low, left: FR-018 (the skill's body restates
+no table) is held by review, not a test; FR-021 is a follow-up in another repository; a publish that
+fails because hosting was never turned on has no task, being GitHub's behaviour; the feature's first
+scenario does not name the plugin description, which the glossary's "plugin" (a command of the
+command line) would mis-say, and T010 asserts it from the data model.
+
+Second report: nothing above low.
+
+## Design finished
+
+2026-11-28: analyze reported nothing above LOW.
+
 ## Follow-ups
 
 - ankka-flow, satisfactory, ankka-reasoning, ankka-surface: `docs init` at the release that carries

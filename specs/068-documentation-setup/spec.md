@@ -53,9 +53,9 @@ This feature closes both. The decisions:
   page, the project's skill and its plugin's description. They are written once and never touched
   again.
 - **It never writes over what the repository owns, and always writes what the tool keeps.** A file
-  the repository owns that is already there is left as it is and named in the report. A kept file is
+  the repository owns that is already there is left as it is and named in the report. A kept part is
   written again every time the command runs. So running the command again in a set-up repository
-  writes what is missing and puts the kept files back to what this release of the tool writes, which
+  writes what is missing and puts the kept parts back to what this release of the tool writes, which
   is how a hand edit is repaired and how a repository follows the tool to a later release.
 - **The set-up names the release of the tool that made it.** The repository builds with that release
   until someone raises it, so a change to the tool reaches a repository when the repository asks for
@@ -90,7 +90,7 @@ This feature closes both. The decisions:
   held to none, and the limitations say so.
 
 Not in this feature: moving ankka-flow, satisfactory, ankka-reasoning and ankka-surface onto the
-kept files (a pull request in each, once a release carries the command); holding a page's replies to
+kept parts (a pull request in each, once a release carries the command); holding a page's replies to
 the running service; the check that refuses a hand-written sample in a repository whose pages name
 no languages; and leaving a file under the documentation's directory out of the pages.
 
@@ -108,8 +108,8 @@ no languages; and leaving a file under the documentation's directory out of the 
 - Q: Do the four glossary terms stand (documentation tool, set-up, build settings, documentation
   job)? → A: All accepted. The features say "documentation job" where this spec's prose says
   workflow, because the glossary's workflow is a component.
-- Q: How is a kept file put back, or moved to a later release of the tool? → A: Setting up again
-  always writes the kept files; it still never writes over a file the repository owns (Trevor).
+- Q: How is a kept part put back, or moved to a later release of the tool? → A: Setting up again
+  always writes the kept parts; it still never writes over a file the repository owns (Trevor).
 - Q: Who is the command for? → A: Any ankka application. The page is a public guide, the template
   says how a service's documentation is set up, and publishing elsewhere than GitHub is a stated
   limitation, not a second set-up (Trevor).
@@ -227,10 +227,10 @@ are the two pages as published, and the check fails when the rendered skill is s
   only what the command wrote.
 - **FR-005**: The command MUST NOT change or replace a file the repository owns that exists; it MUST
   name each such file in its report as left.
-- **FR-006**: The command MUST write the kept files every time it runs, to what the release it ran
+- **FR-006**: The command MUST write the kept parts every time it runs, to what the release it ran
   from writes, and MUST be safe to run again: in a repository where everything is present and the
-  kept files are current it changes nothing and says so.
-- **FR-006a**: The command MUST NOT write over a file at a kept file's path that no release of the
+  kept parts are current it changes nothing and says so.
+- **FR-006a**: The command MUST NOT write over a file at a kept part's path that no release of the
   tool wrote, unless told to; it stops before writing anything and names the file.
 - **FR-007**: The build's settings the command writes MUST name the release of the tool the command
   ran from, and never a branch. Run from something that is not a release, the command MUST refuse
@@ -247,7 +247,7 @@ are the two pages as published, and the check fails when the rendered skill is s
 - **FR-010**: The check MUST fail when a file the tool keeps differs from what the tool's release
   named in the build's settings would write for this repository, naming the file and saying how it is
   put back.
-- **FR-011**: The check MUST NOT fail on a kept file that is absent in a repository that states the
+- **FR-011**: The check MUST NOT fail on a kept part that is absent in a repository that states the
   tool keeps no such file there; absent with no such statement, it fails and names the command.
 - **FR-012**: The kept workflow MUST run the build as a check on every pull request, whatever it
   touches, so the workflow is the same in every repository, and MUST publish nothing from a pull
@@ -308,13 +308,14 @@ are the two pages as published, and the check fails when the rendered skill is s
   documentation build in under five minutes, without opening another repository.
 - **SC-002**: After setting up, no file in the repository names a branch of the tool, and none was
   written by hand for the build to pass.
-- **SC-003**: Every kept file is byte-identical across set-up repositories on the same release of
+- **SC-003**: Every kept part is byte-identical across set-up repositories on the same release of
   the tool, except where it names the repository.
-- **SC-004**: A change made by hand to a kept file is reported by the next check, in every set-up
+- **SC-004**: A change made by hand to a kept part is reported by the next check, in every set-up
   repository.
 - **SC-005**: An agent given only the platform's plugin and the request "document this repository"
   sets it up with the command and produces pages the check passes, with every sample included from
-  tested code, without being told a rule in the request.
+  tested code, without being told a rule in the request. Shown once, on a scratch repository, before
+  the pull request (quickstart step 6).
 - **SC-006**: The rules in the skill and the rules on the published page differ in no word.
 
 ## Assumptions
@@ -330,6 +331,6 @@ are the two pages as published, and the check fails when the rendered skill is s
   token the kept workflow must not hold.
 - ankka itself keeps publishing its documentation from its release workflow and states that the tool
   keeps no workflow there.
-- The four siblings adopt the kept files in pull requests of their own after the release that
+- The four siblings adopt the kept parts in pull requests of their own after the release that
   carries the command; until then they build as they do now.
 - The brand assets of a site (a logo, a favicon) are the repository's to add; the set-up uses none.

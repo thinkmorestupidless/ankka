@@ -41,3 +41,10 @@ through ankka's `documentation.yml` and publishes nothing; the first `v*` tag pu
 
 `marketplace/plugins/ankka/skills/ankka-docs/` and the template's copy exist after `docs sync`, each
 with `references/reference/documentation-rules.md` and `references/build/documentation.md`.
+
+## 6. An agent, told nothing
+
+In a scratch repository with one small tested module and a GitHub remote, start a fresh agent session
+with only the `ankka` plugin installed and say "document this repository". Expected: it loads
+`ankka-docs`, runs `docs init`, and leaves pages `docs check` passes whose samples are includes of
+the module's tests. Shown once, before the pull request (SC-005).

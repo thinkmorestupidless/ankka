@@ -3261,19 +3261,19 @@ Of a service in a test: every answer it gives and every query parameter its hand
 read is checked against its OpenAPI document, and a difference fails the test.
 
 ### documentation tool
-*Proposed.* The program the platform publishes that checks, builds and sets up a repository's
+The program the platform publishes that checks, builds and sets up a repository's
 documentation. Avoid: docs tool
 
 ### set-up
-*Proposed.* What the documentation tool writes into a repository so that its documentation builds:
+What the documentation tool writes into a repository so that its documentation builds:
 the build settings, the documentation job, the navigation, the first pages and the project's skill.
 
 ### build settings
-*Proposed.* The part of a set-up that names the release of the documentation tool a repository's
+The part of a set-up that names the release of the documentation tool a repository's
 documentation is built with.
 
 ### documentation job
-*Proposed.* The job a set-up gives a repository, which checks its documentation on a pull request
+The job a set-up gives a repository, which checks its documentation on a pull request
 and publishes it when a release is tagged. The documentation tool keeps it the same in every
 repository.
 

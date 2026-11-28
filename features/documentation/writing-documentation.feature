@@ -25,6 +25,18 @@ Feature: The skill for writing documentation
 
   Scenario: the documentation says how a repository's documentation is set up, and no longer by copying
     Given the published documentation
-    When a reader reads about writing documentation
+    When a reader reads about documenting a service
     Then the documentation describes setting up a repository's documentation with the documentation tool
+    And the documentation describes it as something any developer of a service may do
     And the documentation does not say to copy another repository's set-up
+
+  Scenario: a developer of a service made from the template is told how its documentation is set up
+    Given a service made from the template
+    When a developer reads what the template gave them
+    Then they are told how the documentation of the service is set up with the documentation tool
+
+  Scenario: the documentation's limitations say what a set-up does not do
+    Given the published documentation
+    When a reader looks up the documentation tool in the limitations of the documentation
+    Then the documentation says a set-up publishes through GitHub and nowhere else
+    And the documentation says a repository that publishes elsewhere says the documentation tool keeps no documentation job there

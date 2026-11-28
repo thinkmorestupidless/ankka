@@ -1,8 +1,9 @@
 Feature: Setting up a repository's documentation
   A repository takes the documentation tool by one command, which writes what a documentation
-  build needs and nothing over what is there. The parts of the set-up the documentation tool keeps are the same
-  in every repository and the check holds them, so one repository's set-up is never copied from
-  another's and never drifts from it.
+  build needs. What the repository owns is written once and never written over. The parts of the
+  set-up the documentation tool keeps, the build settings and the documentation job, are the same
+  in every repository; setting up again writes them again and the check holds them, so one
+  repository's set-up is never copied from another's and never drifts from it.
 
   Scenario: a repository with no documentation is set up by one command and its documentation builds
     Given a repository "widget" with no documentation
@@ -16,7 +17,7 @@ Feature: Setting up a repository's documentation
     Then the build settings of "widget" name release "0.19.0" of the documentation tool
     And nothing the set-up wrote names a branch of the documentation tool
 
-  Scenario: setting up leaves what the repository already holds as it is and names it
+  Scenario: setting up leaves what the repository owns as it is and names it
     Given a repository "widget" that holds a navigation of its own and no other documentation
     When a developer sets up its documentation
     Then the navigation of "widget" is as it was
@@ -27,7 +28,8 @@ Feature: Setting up a repository's documentation
     Given a repository "widget" whose documentation was set up
     And the limitations page of "widget" was removed
     When a developer sets up its documentation
-    Then the report names the limitations page as written and every other part of the set-up as left
+    Then the report names the limitations page as written
+    And the navigation and every other page of "widget" are as they were
 
   Scenario: the set-up says what is left for a person to do
     Given a repository "widget" with no documentation
@@ -58,13 +60,20 @@ Feature: Setting up a repository's documentation
     And the documentation job of "widget" was changed by hand
     When the documentation of "widget" is checked
     Then the check fails and names the documentation job
-    And the check says the documentation job is put back by removing it and setting up again
+    And the check says the documentation job is put back by setting up again
 
-  Scenario: a part of the set-up the documentation tool keeps is put back by removing it and setting up again
+  Scenario: a part of the set-up the documentation tool keeps is put back by setting up again
     Given a repository "widget" whose documentation was set up
     And the documentation job of "widget" was changed by hand
-    When a developer removes the documentation job and sets up the documentation of "widget"
-    Then the documentation of "widget" is checked and the check passes
+    When a developer sets up the documentation of "widget"
+    Then the report names the documentation job as written
+    And the documentation of "widget" is checked and the check passes
+
+  Scenario: a repository that builds with a later release of the documentation tool takes that release's kept parts by setting up again
+    Given a repository "widget" whose documentation was set up with release "0.19.0" of the documentation tool
+    When a developer sets up its documentation with release "0.20.0" of the documentation tool
+    Then the build settings of "widget" name release "0.20.0" of the documentation tool
+    And the navigation and every page of "widget" are as they were
 
   Scenario: a repository that says the documentation tool keeps no documentation job there is held to none
     Given a repository "widget" whose documentation was set up

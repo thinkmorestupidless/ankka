@@ -52,10 +52,11 @@ This feature closes both. The decisions:
   site settings, a first page, a page on writing documentation here, a limitations page, a glossary
   page, the project's skill and its plugin's description. They are written once and never touched
   again.
-- **It never overwrites.** A file already there is left as it is and named in the report. Running
-  the command again in a set-up repository writes only what is missing, which is also how a
-  repository takes a kept file a later release of the tool adds, and how a kept file changed by hand
-  is put back: the person removes it and runs the command.
+- **It never writes over what the repository owns, and always writes what the tool keeps.** A file
+  the repository owns that is already there is left as it is and named in the report. A kept file is
+  written again every time the command runs. So running the command again in a set-up repository
+  writes what is missing and puts the kept files back to what this release of the tool writes, which
+  is how a hand edit is repaired and how a repository follows the tool to a later release.
 - **The set-up names the release of the tool that made it.** The repository builds with that release
   until someone raises it, so a change to the tool reaches a repository when the repository asks for
   it. The dependency is written in the form the repository's dependency updates already understand.
@@ -80,6 +81,12 @@ This feature closes both. The decisions:
   settle and mistakes to check for, and nothing a page already says; break one included sample and
   watch the check fail. The skill carries this page, and its own body is the short form of it.
 - **ankka's page on writing documentation stops teaching the copy.** It names the command.
+- **It is for any ankka application, not only the family's repositories.** The page on documenting a
+  repository is a guide in the public documentation, the skill is in the plugin and in the template
+  as the platform's other skills are, and what the template gives a developer says the service's
+  documentation is set up this way. The set-up publishes through GitHub, as the template's own jobs
+  deploy through it; a repository that publishes elsewhere says the tool keeps no job there and is
+  held to none, and the limitations say so.
 
 Not in this feature: moving ankka-flow, satisfactory, ankka-reasoning and ankka-surface onto the
 kept files (a pull request in each, once a release carries the command); holding a page's replies to
@@ -97,6 +104,14 @@ no languages; and leaving a file under the documentation's directory out of the 
   from. Nothing names `main` (Trevor).
 - Q: Where does the skill for writing documentation ship? → A: In the platform's own plugin, beside
   its other skills. Nothing is copied into a repository (Trevor).
+- Q: Do the four glossary terms stand (documentation tool, set-up, build settings, documentation
+  job)? → A: All accepted. The features say "documentation job" where this spec's prose says
+  workflow, because the glossary's workflow is a component.
+- Q: How is a kept file put back, or moved to a later release of the tool? → A: Setting up again
+  always writes the kept files; it still never writes over a file the repository owns (Trevor).
+- Q: Who is the command for? → A: Any ankka application. The page is a public guide, the template
+  says how a service's documentation is set up, and publishing elsewhere than GitHub is a stated
+  limitation, not a second set-up (Trevor).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -117,7 +132,7 @@ build reports no problem and a site, the machine renderings and the project's sk
 
 - added `features/documentation/setting-up.feature`: a repository with no documentation is set up by one command and its documentation builds
 - added `features/documentation/setting-up.feature`: the set-up names the release of the documentation tool that made it
-- added `features/documentation/setting-up.feature`: setting up leaves what the repository already holds as it is and names it
+- added `features/documentation/setting-up.feature`: setting up leaves what the repository owns as it is and names it
 - added `features/documentation/setting-up.feature`: setting up a repository that is already set up writes only what is missing
 - added `features/documentation/setting-up.feature`: the set-up says what is left for a person to do
 
@@ -134,14 +149,15 @@ says how to put it back.
 the drift starts again the day after.
 
 **Independent Test**: In a set-up repository, change one line of the kept workflow and run the
-check: it fails naming the file. Remove the file, run the command, run the check: it passes.
+check: it fails naming the file. Run the command, then the check: it passes.
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
 - added `features/documentation/setting-up.feature`: a set-up repository checks its documentation on a pull request and publishes nothing
 - added `features/documentation/setting-up.feature`: a set-up repository publishes its documentation when a release is tagged
 - added `features/documentation/setting-up.feature`: a part of the set-up the documentation tool keeps that was changed by hand fails the check
-- added `features/documentation/setting-up.feature`: a part of the set-up the documentation tool keeps is put back by removing it and setting up again
+- added `features/documentation/setting-up.feature`: a part of the set-up the documentation tool keeps is put back by setting up again
+- added `features/documentation/setting-up.feature`: a repository that builds with a later release of the documentation tool takes that release's kept parts by setting up again
 - added `features/documentation/setting-up.feature`: a repository that says the documentation tool keeps no documentation job there is held to none
 
 ---
@@ -165,6 +181,8 @@ are the two pages as published, and the check fails when the rendered skill is s
 - added `features/documentation/writing-documentation.feature`: the rules the skill gives are the rules the documentation publishes
 - added `features/documentation/writing-documentation.feature`: the skill says how a repository is documented, in order
 - added `features/documentation/writing-documentation.feature`: the documentation says how a repository's documentation is set up, and no longer by copying
+- added `features/documentation/writing-documentation.feature`: a developer of a service made from the template is told how its documentation is set up
+- added `features/documentation/writing-documentation.feature`: the documentation's limitations say what a set-up does not do
 
 ---
 
@@ -174,11 +192,13 @@ are the two pages as published, and the check fails when the rendered skill is s
   cannot read: it writes nothing and says what it needs.
 - The command is run from a checkout of the tool that is not a release (a branch, a local path): it
   refuses to write a dependency on something that is not a release, unless the release is named.
-- The repository already has some of the files (a `mkdocs.yml` of its own, a workflow of the same
-  name): each is left and named; the report says the build may not pass until they agree.
+- The repository already has a file it owns (a `mkdocs.yml` of its own): it is left and named, and
+  the report says the build may not pass until it carries the tool's block. A workflow of the kept
+  one's name that the tool did not write is written over only after the command says so and is told
+  to go on; otherwise the command stops, having written nothing.
 - The repository has no command file: the recipes are printed and no file is created for them.
 - A set-up repository raises the tool's release and the new release's kept workflow differs: the
-  check fails on the old one and says to remove it and set up again.
+  check fails on the old one and says to set up again.
 - A repository deliberately keeps a workflow of its own (ankka publishes its documentation inside
   its release workflow): it states, in its settings, that the tool keeps no workflow there, and the
   check holds it to nothing.
@@ -203,10 +223,13 @@ are the two pages as published, and the check fails when the rendered skill is s
   project's plugin.
 - **FR-004**: The documentation build MUST pass, with no problem reported, on a repository holding
   only what the command wrote.
-- **FR-005**: The command MUST NOT change or replace a file that exists; it MUST name each such file
-  in its report as left.
-- **FR-006**: The command MUST be safe to run again: in a repository where everything is present it
-  writes nothing and says so.
+- **FR-005**: The command MUST NOT change or replace a file the repository owns that exists; it MUST
+  name each such file in its report as left.
+- **FR-006**: The command MUST write the kept files every time it runs, to what the release it ran
+  from writes, and MUST be safe to run again: in a repository where everything is present and the
+  kept files are current it changes nothing and says so.
+- **FR-006a**: The command MUST NOT write over a file at a kept file's path that no release of the
+  tool wrote, unless told to; it stops before writing anything and names the file.
 - **FR-007**: The build's settings the command writes MUST name the release of the tool the command
   ran from, and never a branch. Run from something that is not a release, the command MUST refuse
   unless a release is named as an argument.
@@ -255,6 +278,11 @@ are the two pages as published, and the check fails when the rendered skill is s
 - **FR-020**: ankka's page on writing documentation MUST name the command as how a repository takes
   the tool, and MUST NOT show a dependency line that names a branch or tell the reader to copy a
   sibling.
+- **FR-020a**: The page on documenting a repository MUST be a guide in the public navigation, written
+  for a developer of any ankka application, and what the template gives a developer MUST say that a
+  service's documentation is set up with the command and where the page is.
+- **FR-020b**: ankka's limitations MUST say that a set-up publishes through GitHub only, and that a
+  repository publishing elsewhere states the tool keeps no job there.
 - **FR-021**: The family's conventions MUST be changed, when this is released, to say a repository's
   documentation is set up by the command, and the conventions' existing rule (published by a
   release) stands.
@@ -291,6 +319,9 @@ are the two pages as published, and the check fails when the rendered skill is s
 ## Assumptions
 
 - A repository is a git checkout with a remote on GitHub; its name and address are read from that.
+  This holds for an application made from the template, whose own jobs are GitHub's.
+- The tool is taken from ankka's repository at a release tag, as it is now; publishing it to a
+  package index is not part of this feature.
 - The site is hosted as the family's sites are, by GitHub's pages, and a release is a tag that starts
   with `v`; a tag with a hyphen is a pre-release.
 - A repository's command file, when it has one, is a `Justfile`; the command does not edit it.

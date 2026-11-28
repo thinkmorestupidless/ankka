@@ -10,7 +10,7 @@ Run at or below the root of a git checkout whose `origin` is on GitHub.
 |---|---|---|
 | `--description` | when there is no `mkdocs.yml` | the site's one-sentence description |
 | `--site-url` | when there is no `mkdocs.yml` | the address the site will have |
-| `--release` | when the tool was not installed from a release tag and the repository has no build settings | the release of the tool the build settings name |
+| `--release` | when the tool was not installed from a release tag and the repository has no build settings, unless it disclaims both kept parts | the release of the tool the build settings name |
 | `--force` | never | write over a file at a kept path that the tool did not write |
 
 ## Report (standard output)
@@ -26,6 +26,7 @@ wrote    docs/index.md
 Left for a person:
   - run `uv run --project tools/docs docs sync`, then commit
   - turn the site on: the repository's Settings, Pages, Source "GitHub Actions"
+  - let release tags publish: Settings, Environments, github-pages, Deployment branches and tags, add the tag rule "v*"
   - point <site-url's host> at GitHub Pages: a DNS CNAME, and the custom domain in the same settings
   - add to the Justfile:
       docs:

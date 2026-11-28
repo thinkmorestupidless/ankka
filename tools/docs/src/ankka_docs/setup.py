@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 from . import kept
 from .pages import ConfigError, project
@@ -80,7 +81,9 @@ def arguments(argv: list[str]) -> Arguments:
         word = rest.pop(0)
         if word == "--force":
             values["force"] = True
-        elif word in options and rest:
+        elif word in options:
+            if not rest:
+                raise Usage(f"`{word}` needs a value: `{USAGE}`")
             values[options[word]] = rest.pop(0)
         else:
             raise Usage(f"init takes `{USAGE}`; `{word}` is not one of them")
@@ -150,25 +153,38 @@ def facts(start: Path, given: Arguments, installed: Distribution | None = None) 
     if not description:
         raise Usage("no `--description`: the site's description is one sentence, and there is no mkdocs.yml to read it from")
     description = " ".join(str(description).split())
-    if not description.endswith(".") or len(description) >= MAX_DESCRIPTION:
-        raise Usage(f"the description is one sentence under {MAX_DESCRIPTION} characters, ending with a full stop")
     site_url = given.site_url or site.get("site_url")
     if not site_url:
         raise Usage("no `--site-url`: the address the site will have, and there is no mkdocs.yml to read it from")
-    site_url = str(site_url)
-    if not site_url.startswith("https://"):
-        raise Usage(f"the site's address is `https://`; `{site_url}` is not")
-    site_url = site_url.rstrip("/") + "/"
+    site_url = str(site_url).rstrip("/") + "/"
+    # What mkdocs.yml already says is the repository's own, and is taken as it is unless a part the
+    # command writes would carry it (`plan` holds it then); what is given here is held now.
+    if given.description:
+        validate_description(description)
+    if given.site_url:
+        validate_site_url(site_url)
 
     release = given.release or tool_release(installed) or _release_in_place(root)
-    if release is None:
+    if release is None and any(kept_here(root)):
         raise Usage(
             "no release of the documentation tool: it was not installed from a release tag and the repository names none; "
             "name one with `--release <major.minor.patch>`"
         )
-    if not VERSION.match(release):
+    if release is not None and not VERSION.match(release):
         raise Usage(f"`--release {release}` is not a release: `major.minor.patch`, without a leading v")
-    return Facts(root, name, owner, f"https://github.com/{owner}/{name}", description, site_url, release, given.force)
+    return Facts(root, name, owner, f"https://github.com/{owner}/{name}", description, site_url, release or "", given.force)
+
+
+def validate_description(description: str) -> None:
+    if not description.endswith(".") or len(description) >= MAX_DESCRIPTION:
+        raise Usage(f"the description is one sentence under {MAX_DESCRIPTION} characters, ending with a full stop")
+
+
+def validate_site_url(site_url: str) -> None:
+    parts = urlsplit(site_url)
+    plain = parts.scheme == "https" and parts.netloc and not parts.query and not parts.fragment and not re.search(r"\s", site_url)
+    if not plain:
+        raise Usage(f"the site's address is a plain `https://` address, with no query, fragment or space; `{site_url}` is not")
 
 
 def _release_in_place(root: Path) -> str | None:
@@ -190,6 +206,7 @@ def _values(facts: Facts, root: Path) -> dict[str, str]:
         "repo_url": facts.repo_url,
         "repo_name": f"{facts.owner}/{facts.name}",
         "site_url": facts.site_url,
+        "site_url_quoted": json.dumps(facts.site_url),
         "description": facts.description,
         "description_quoted": json.dumps(facts.description, ensure_ascii=False),
         "skill_description_quoted": json.dumps(skill, ensure_ascii=False),
@@ -211,8 +228,9 @@ def owned_parts(name: str) -> list[tuple[str, str]]:
     ]
 
 
-def _disclaimed(root: Path) -> tuple[bool, bool]:
-    """Whether the repository says the tool keeps (settings, job) there; both, when it says nothing."""
+def kept_here(root: Path) -> tuple[bool, bool]:
+    """Whether the tool keeps (the build settings, the documentation job) in this repository: both,
+    unless its `extra.docs.kept` says otherwise."""
     if not (root / "mkdocs.yml").is_file():
         return True, True
     settings = project(root).settings
@@ -221,9 +239,9 @@ def _disclaimed(root: Path) -> tuple[bool, bool]:
 
 def plan(facts: Facts, root: Path) -> list[Write]:
     """Every file of the set-up and what will happen to it. Reads the repository; writes nothing."""
-    keeps_settings, keeps_job = _disclaimed(root)
+    keeps_settings, keeps_job = kept_here(root)
     writes: list[Write] = []
-    for path, content in kept.render(facts.name, facts.release).items():
+    for path, content in (kept.render(facts.name, facts.release) if keeps_settings or keeps_job else {}).items():
         if (path == kept.SETTINGS and not keeps_settings) or (path == kept.JOB and not keeps_job):
             continue
         file = root / path
@@ -240,6 +258,10 @@ def plan(facts: Facts, root: Path) -> list[Write]:
     for path, source in owned_parts(facts.name):
         content = kept.fill(kept.template(source), values)
         writes.append(Write(path, content, OWNED, LEAVE if (root / path).exists() else WRITE))
+    if any(w.ownership == OWNED and w.action == WRITE for w in writes):
+        # A page about to be written carries the description and the address, so they must pass the check.
+        validate_description(facts.description)
+        validate_site_url(facts.site_url)
     return writes
 
 
@@ -276,6 +298,7 @@ def report(writes: list[Write], facts: Facts) -> str:
     if any(w.path == kept.JOB for w in writes):
         lines += [
             '  - turn the site on: the repository\'s Settings, Pages, Source "GitHub Actions"',
+            '  - let release tags publish: Settings, Environments, github-pages, Deployment branches and tags, add the tag rule "v*"',
             f"  - point {host} at GitHub Pages: a DNS CNAME, and the custom domain in the same settings",
         ]
     lines += [

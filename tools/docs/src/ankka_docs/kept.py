@@ -42,13 +42,10 @@ def template(name: str) -> str:
 
 
 def fill(text: str, values: dict[str, str]) -> str:
-    """Replace each `@@key@@`. The markers are not `$` or braces, so a workflow's `${{ }}` or a page's
-    `{version}` is never read as one."""
-    for key, value in values.items():
-        text = text.replace(f"@@{key}@@", value)
-    if "@@" in text:
-        raise ValueError(f"a template marker was not filled: {text[text.index('@@'):][:40]}")
-    return text
+    """Replace each `@@key@@`, in one pass, so a value that itself holds `@@` is never read as a marker.
+    The markers are not `$` or braces, so a workflow's `${{ }}` or a page's `{version}` is never read as
+    one. A marker the values do not name is the template's mistake, and a `KeyError`."""
+    return re.sub(r"@@(\w+)@@", lambda match: values[match.group(1)], text)
 
 
 def render(name: str, release: str) -> dict[str, str]:

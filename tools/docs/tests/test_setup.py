@@ -144,6 +144,51 @@ def test_the_description_and_address_are_needed_unless_mkdocs_yml_has_them(repos
     assert (facts.description, facts.site_url) == (DESCRIPTION, SITE)
 
 
+def test_what_mkdocs_yml_already_says_is_taken_as_it_is_unless_a_page_would_carry_it(widget: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    long = "Widgets, " + "and more widgets, " * 15 + "as a service."
+    assert len(long) > 240
+    mkdocs = widget / "mkdocs.yml"
+    mkdocs.write_text(mkdocs.read_text().replace(json.dumps(DESCRIPTION), json.dumps(long)))
+    status, out, _ = init(widget, ["--release", "0.20.0"], capsys)
+    assert status == 0, "a repository whose description the check would refuse still takes the kept parts"
+    assert f"rewrote  {kept.SETTINGS}" in out.splitlines()
+
+    (widget / "docs/index.md").unlink()
+    before = snapshot(widget)
+    status, _, err = init(widget, [], capsys)
+    assert status == 2 and "under 240 characters" in err, "a page about to be written would carry it"
+    assert snapshot(widget) == before
+
+
+@pytest.mark.parametrize("address", ["https://docs.widget.example/#top", "https://docs.widget.example/?a: b", "http://docs.widget.example/", "https://docs widget.example/"])
+def test_an_address_that_is_not_a_plain_https_address_is_refused(repository: Callable[[str], Path], address: str) -> None:
+    with pytest.raises(setup.Usage, match="plain `https://` address"):
+        setup.facts(repository("widget"), setup.Arguments(DESCRIPTION, address, "0.19.0"))
+
+
+def test_a_description_that_holds_a_template_marker_is_written_as_it_is(repository: Callable[[str], Path], capsys: pytest.CaptureFixture[str]) -> None:
+    root = repository("widget")
+    odd = "Widgets by @@name@@ and @@nobody@@, as a service."
+    status, _, err = init(root, ["--description", odd, "--site-url", SITE, "--release", "0.19.0"], capsys)
+    assert status == 0, err
+    assert yaml.safe_load((root / "mkdocs.yml").read_text())["site_description"] == odd
+    assert odd in (root / "docs/index.md").read_text()
+
+
+def test_an_option_with_no_value_says_so(repository: Callable[[str], Path], capsys: pytest.CaptureFixture[str]) -> None:
+    status, _, err = init(repository("widget"), ["--description"], capsys)
+    assert status == 2 and "`--description` needs a value" in err
+
+
+def test_a_repository_that_keeps_neither_part_needs_no_release(repository: Callable[[str], Path], capsys: pytest.CaptureFixture[str]) -> None:
+    root = repository("widget")
+    (root / "mkdocs.yml").write_text(f"site_name: widget\nsite_description: {DESCRIPTION}\nsite_url: {SITE}\nnav: []\nextra:\n  docs:\n    kept: {{settings: false, job: false}}\n")
+    status, out, err = init(root, [], capsys)
+    assert status == 0, err
+    assert not (root / kept.SETTINGS).exists() and not (root / kept.JOB).exists()
+    assert "wrote    docs/index.md" in out.splitlines()
+
+
 # ── the release ──────────────────────────────────────────────────────────────
 
 

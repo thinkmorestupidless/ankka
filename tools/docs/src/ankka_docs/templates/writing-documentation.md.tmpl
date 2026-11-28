@@ -31,9 +31,12 @@ The site lands in `target/docs-site`. What the tool needs to know about this rep
 Two files are the documentation tool's, not this repository's: `tools/docs/pyproject.toml`, which names
 the release of the tool that builds this documentation, and `.github/workflows/docs.yml`, which checks
 the documentation on every pull request and publishes the site to GitHub Pages when a release is
-tagged. `docs check` fails when either differs from what that release of the tool writes, and
-`docs init` writes both again. A later release of the tool is taken by running `docs init` from it,
-which rewrites both files and nothing else:
+tagged. The first tag publishes only once the repository's `github-pages` environment lets tags named
+`v*` deploy (Settings, Environments), which GitHub does not allow until told.
+
+`docs check` fails when either file differs from what that release of the tool writes, and `docs init`
+writes both again. A later release of the tool is taken by running `docs init` from it, which rewrites
+both files and leaves every file this repository owns as it is:
 
 ```bash
 uvx --from "git+https://github.com/thinkmorestupidless/ankka@v<release>#subdirectory=tools/docs" docs init

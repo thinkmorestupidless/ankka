@@ -59,3 +59,6 @@ tools/docs/pyproject.toml:1: the build settings differ from what release <releas
 .github/workflows/docs.yml:1: the documentation job is missing; run `docs init`, or say `kept: {job: false}` under extra.docs
 tools/docs/pyproject.toml:1: the build settings name no release of the documentation tool; run `docs init --release <major.minor.patch>`
 ```
+
+Each line is printed with the prefix every problem in a file outside the documentation's directory
+carries, the directory and `../`: `docs/../tools/docs/pyproject.toml:1: …`.

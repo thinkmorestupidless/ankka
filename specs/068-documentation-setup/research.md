@@ -253,3 +253,16 @@ The pull request's "Left out", once a release carries `docs init`:
   https://github.com/thinkmorestupidless/ankka-surface/actions/runs/46130691515: `docs / build` ran
   checkout, `setup-uv@v10.4.0` and `docs build`, skipped the release build and the Pages artifact, and
   `docs / deploy` was skipped. The tag's path is proved by a sibling's first tag after the release.
+
+## Found in review
+
+- The report's "Left for a person" gains a line, and so does `contracts/docs-init.md` (Trevor,
+  2026-11-28): GitHub creates the `github-pages` environment allowing the default branch alone, so a
+  release tag deploys only once a person adds a tag rule for `v*`. ankka and ankka-flow have the rule;
+  ankka-surface does not yet.
+- The pages name the tool at `@v<release>`, not at a release `docs sync` keeps current: the rendered
+  skills the marketplace, the template and the CLI's templates carry are the tree's, which name the
+  release before the one being tagged, and that release has no `docs init`.
+- What an existing `mkdocs.yml` says of the description and the address is held to the rules only when
+  a page about to be written would carry it, so a sibling whose description is over the limit can
+  still take the kept parts.

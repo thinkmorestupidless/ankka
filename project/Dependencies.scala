@@ -115,7 +115,7 @@ object Dependencies {
      * holds the Scala module. The validator and the parser bring newer Jackson (2.22, 2.23) that
      * the Scala module refuses to load beside, so both take theirs from here instead (feature 067).
      */
-    val pekkoJackson = "2.21.6"
+    val pekkoJackson = "2.21.8"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────

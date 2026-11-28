@@ -16,8 +16,9 @@ built by `tools/docs` (a `uv` project): the MkDocs Material site, `llms.txt`, `l
 Markdown copy of each page, `docs-index.json`, the Agent Skills (one per kind of task, curated in
 `tools/docs/skill/<name>/SKILL.md` whose `pages:` list names the pages it carries; committed into
 `marketplace/plugins/ankka/skills/` and into the template at `ankka.g8/src/main/g8/.claude/skills/`), and the pages on the CLI's classpath
-that `ankka mcp` serves. `docs/contributing/documentation.md` is the full set of rules; the ones that
-bite:
+that `ankka mcp` serves. `docs/reference/documentation-rules.md` is the full set of rules (public, for
+every repository the tool documents, carried by the `ankka-docs` skill), `docs/contributing/documentation.md`
+what is ankka's own; the ones that bite:
 
 - **The tool is not ankka's alone.** Everything ankka-specific — the frontmatter vocabularies, the
   skill targets, which generator owns which block, the files that link to the site — is `extra.docs`
@@ -97,3 +98,11 @@ bite:
   `entity-test` into a file shows both tests on every page that includes it, and nothing fails. After a
   rebase that touched sample files, list repeated names per file (`grep -n "docs:start "`, `uniq -d`)
   and keep a repeat only where one region is split on purpose (imports and the code they serve).
+- **`docs init` writes a repository's set-up, and two of its parts are kept** (2026-11-28, feature 068).
+  `tools/docs/pyproject.toml` (the build settings) and `.github/workflows/docs.yml` (a caller of
+  `.github/workflows/documentation.yml` here, at the same tag) are rendered from
+  `tools/docs/src/ankka_docs/templates/` and held byte for byte by `docs check` (`kept.py`); everything
+  else it writes is the repository's and never written over. ankka says `kept: {settings: false, job:
+  false}`. A change to either kept template, or to `documentation.yml`, reaches every sibling at the
+  next release they take, so it is a change to the contract in `specs/068-documentation-setup/contracts/`,
+  which `test_setup.py` reads.

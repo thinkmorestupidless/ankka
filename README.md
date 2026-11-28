@@ -100,9 +100,12 @@ apart. ankka's own
 **And the model knows the platform.** Every project `ankka init` makes carries ankka's documentation as Agent Skills for the
 version it was built against, with samples copied from code the build compiles and tests, and `ankka mcp`
 gives an agent the CLI, the services running on your machine and the docs as MCP tools.
+A service's own documentation is set up the same way, with one command of ankka's documentation tool
+(`docs init`), and held to the platform's rules on every pull request.
 
 [Work with a coding agent](docs/get-started/coding-agents.md) ·
-[Acceptance scenarios as tests](docs/build/testing.md#acceptance-scenarios-as-integration-tests)
+[Acceptance scenarios as tests](docs/build/testing.md#acceptance-scenarios-as-integration-tests) ·
+[Document a service](docs/build/documentation.md)
 
 ### Agents are components
 

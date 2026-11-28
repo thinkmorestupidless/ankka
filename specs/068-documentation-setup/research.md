@@ -222,3 +222,34 @@ Second report: nothing above low.
   refused only for being outside the navigation and every skill: no line trips the history or
   positional patterns, since the page already quotes their forms in code. Nothing to fence for T019;
   the `@main` dependency line is removed by FR-020, not by the check.
+
+## Measurements
+
+2026-11-28, on this branch.
+
+- Quickstart 1: `uv run --project tools/docs pytest tools/docs` 79 passed (5.4s); ankka's
+  `docs build` reports `docs: 116 pages, no problems` with `extra.docs.kept` disclaiming both parts;
+  `just features` 0 findings in 3423 scenarios and 69 specs.
+- Quickstart 2: in an empty repository `widget` with a GitHub remote, `docs init --release 0.19.0`
+  printed nine `wrote` lines and the list of what is left; `docs sync`, then `docs build` with the
+  tool from this checkout: `docs: 4 pages, no problems` and a site in `target/docs-site`.
+- Quickstart 3: one changed word in `.github/workflows/docs.yml` gave
+  `docs/../.github/workflows/docs.yml:1: the documentation job differs from what release 0.19.0 of the
+  documentation tool writes; run `docs init``; `docs init` reported `rewrote .github/workflows/docs.yml`
+  and `left mkdocs.yml`; `docs check` passed; a line added to `mkdocs.yml` survived a further
+  `docs init`, which said `docs: the set-up is current; nothing written`. A problem in a file outside
+  `docs/` is printed as `docs/../<path>`, as every such problem the tool reports is; the contract's
+  lines are its suffix, which the suite asserts.
+- Quickstart 5: `ankka-docs` is rendered into `marketplace/plugins/ankka/skills/` and the template's
+  `.claude/skills/`, each with `references/reference/documentation-rules.md` and
+  `references/build/documentation.md`.
+- SC-005 (T028, quickstart 6): a scratch repository `tally`, one Python module and three tests, a remote
+  on GitHub, and a fresh headless session (`claude -p`, project settings only, `--plugin-dir` this
+  branch's `marketplace/plugins/ankka`, no MCP servers) asked "document this repository", with one
+  environment note: run the tool from this checkout in place of a release, since none carries
+  `docs init` yet. It loaded `ankka:ankka-docs` unprompted, ran `docs init`, wrote six pages, added
+  seven tests and an example whose captured output a test holds, broke an included region and saw the
+  check fail, and ended with `docs check` passing (`6 pages, no problems`). All eight Python samples
+  are includes; no block is written by hand but shell commands. It chose the GitHub Pages address
+  itself, since the request named none, and said so. 41 turns. No miss, so the skill's body is
+  unchanged and the run was not repeated.

@@ -206,22 +206,17 @@ Second report: nothing above low.
 
 ## Follow-ups
 
-- ankka-flow, satisfactory, ankka-reasoning, ankka-surface: `docs init` at the release that carries
-  it; ankka-reasoning and ankka-surface stop publishing from `main`.
-- `ankka-brain/conventions.md`: the documentation section names `docs init` (FR-021).
-- Holding a page's replies to the running service; the untested-sample check without a languages
-  facet; leaving a file under `docs/` out of the pages.
+The pull request's "Left out", once a release carries `docs init`:
 
-## Found during implementation
-
-- R2 holds (T002, 2026-11-28, uv 0.11.4). `uvx --from "git+…ankka@v0.18.0#subdirectory=tools/docs"`
-  and a project dependency `ankka-docs @ git+…@v0.18.0` (ankka-flow's `uv run --project tools/docs`)
-  both record `direct_url.json` as `{"vcs_info": {"commit_id": "4f8a14dc…", "requested_revision":
-  "v0.18.0"}, "subdirectory": "tools/docs"}`. `requested_revision` is the tag; no fallback needed.
-- R8 holds (T003). `docs/contributing/documentation.md` checked as a page of kind `reference` is
-  refused only for being outside the navigation and every skill: no line trips the history or
-  positional patterns, since the page already quotes their forms in code. Nothing to fence for T019;
-  the `@main` dependency line is removed by FR-020, not by the check.
+- ankka-flow, satisfactory, ankka-reasoning and ankka-surface each run `docs init` at that release
+  (`--force` where a `docs.yml` of their own exists), in a pull request of their own; ankka-reasoning and
+  ankka-surface then stop publishing from `main` (quickstart step 4). The first of them to tag a release
+  proves the publishing path of `documentation.yml`.
+- `ankka-brain/conventions.md`: the documentation section says a repository's documentation is set up
+  by `docs init`, and its rule that a site is published by a release stands (FR-021).
+- Holding a page's replies to the running service.
+- The check that refuses a hand-written sample in a repository whose pages name no languages.
+- Leaving a file under the documentation's directory out of the pages.
 
 ## Measurements
 
@@ -253,3 +248,8 @@ Second report: nothing above low.
   are includes; no block is written by hand but shell commands. It chose the GitHub Pages address
   itself, since the request named none, and said so. 41 turns. No miss, so the skill's body is
   unchanged and the run was not repeated.
+- T027: ankka-surface#4 (draft, closed unmerged, branch deleted) replaced its `docs.yml` with the kept
+  caller naming this branch's head, `c4e728af1`. Run
+  https://github.com/thinkmorestupidless/ankka-surface/actions/runs/46130691515: `docs / build` ran
+  checkout, `setup-uv@v10.4.0` and `docs build`, skipped the release build and the Pages artifact, and
+  `docs / deploy` was skipped. The tag's path is proved by a sibling's first tag after the release.

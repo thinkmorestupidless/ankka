@@ -44,8 +44,8 @@ class GraphDocumentationSuite extends munit.FunSuite:
       "## Deploy the sink",
       "## Rebuild the store from the topic"
     )
-    // No page depends on ankka-flow: the one mention left is the contributing page, which names
-    // the documentation tool the two projects shared.
+    // No page depends on ankka-flow, and none names it: the documentation tool the projects share is
+    // described on its own terms, for any repository.
     val mentioning = Files
       .walk(docs)
       .iterator()
@@ -59,5 +59,5 @@ class GraphDocumentationSuite extends munit.FunSuite:
       .map(p => docs.relativize(p).toString)
       .toVector
       .sorted
-    assertEquals(mentioning, Vector("contributing/documentation.md"))
+    assertEquals(mentioning, Vector.empty[String])
   }
